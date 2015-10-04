@@ -18,8 +18,11 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy as np
 import numpy.linalg as la
+from six.moves import range
 
 
 
@@ -42,7 +45,7 @@ def main(write_output=True, dtype=np.float32):
             D2Q9LBMMethod(), lbm_delta_t=0.001, nu=1e-4)
 
     if rcon.is_head_rank:
-        print "%d elements" % len(mesh.elements)
+        print("%d elements" % len(mesh.elements))
         mesh_data = rcon.distribute_mesh(mesh)
     else:
         mesh_data = rcon.receive_mesh()
@@ -106,13 +109,13 @@ def main(write_output=True, dtype=np.float32):
     try:
         lbm_dt = op.lbm_delta_t
         dg_dt = op.estimate_timestep(discr, stepper=stepper)
-        print dg_dt
+        print(dg_dt)
 
         dg_steps_per_lbm_step = int(np.ceil(lbm_dt / dg_dt))
         dg_dt = lbm_dt / dg_steps_per_lbm_step
 
         lbm_steps = int(final_time // op.lbm_delta_t)
-        for step in xrange(lbm_steps):
+        for step in range(lbm_steps):
             t = step*lbm_dt
 
             if step % 100 == 0 and write_output:
@@ -131,7 +134,7 @@ def main(write_output=True, dtype=np.float32):
                         step=step)
                 visf.close()
 
-            print "step=%d, t=%f" % (step, t)
+            print("step=%d, t=%f" % (step, t))
 
             f_bar = collision_update(f_bar)
 

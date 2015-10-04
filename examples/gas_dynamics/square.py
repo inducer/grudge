@@ -18,8 +18,11 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
+from six.moves import range
 
 
 
@@ -65,7 +68,7 @@ def make_squaremesh():
             allow_boundary_steiner=True,
             generate_faces=True)
 
-    print "%d elements" % len(mesh.elements)
+    print("%d elements" % len(mesh.elements))
 
     from meshpy.triangle import write_gnuplot_mesh
     write_gnuplot_mesh("mesh.dat", mesh)
@@ -221,10 +224,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         try:
             from hedge.timestep import times_and_steps

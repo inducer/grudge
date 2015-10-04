@@ -20,8 +20,12 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
+from six.moves import range
+from six.moves import zip
 
 
 
@@ -118,7 +122,7 @@ def main(write_output=True, allow_features=None):
     fields = op.assemble_eh(discr=discr)
 
     if rcon.is_head_rank:
-        print "#elements=", len(mesh.elements)
+        print("#elements=", len(mesh.elements))
 
     stepper = RK4TimeStepper()
 

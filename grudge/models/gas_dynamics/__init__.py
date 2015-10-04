@@ -1,6 +1,9 @@
 """Operator for compressible Navier-Stokes and Euler equations."""
 
 from __future__ import division
+from __future__ import absolute_import
+import six
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2007 Hendrik Riedmann, Andreas Kloeckner"
 
@@ -758,7 +761,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         primitive_bcs_as_quad_conservative = dict(
                 (tag, self.primitive_to_conservative(to_bdry_quad(bc)))
                 for tag, bc in 
-                self.get_primitive_boundary_conditions().iteritems())
+                six.iteritems(self.get_primitive_boundary_conditions()))
 
         def get_bc_tuple(tag):
             state = self.state()

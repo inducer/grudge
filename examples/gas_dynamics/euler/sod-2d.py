@@ -1,4 +1,6 @@
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 
@@ -89,10 +91,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         # limiter setup ------------------------------------------------------------
         from hedge.models.gas_dynamics import SlopeLimiter1NEuler
@@ -177,7 +179,7 @@ def main():
 
         # not solution, just to check against when making code changes
         true_fields = sod_field.volume_interpolant(t, discr)
-        print discr.norm(fields-true_fields)
+        print(discr.norm(fields-true_fields))
 
 if __name__ == "__main__":
     main()

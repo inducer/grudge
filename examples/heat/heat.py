@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+from __future__ import print_function
 # Hedge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
@@ -48,10 +50,10 @@ def main(write_output=True) :
             from hedge.mesh.generator import make_ball_mesh
             mesh = make_ball_mesh(max_volume=0.001)
     else:
-        raise RuntimeError, "bad number of dimensions"
+        raise RuntimeError("bad number of dimensions")
 
     if rcon.is_head_rank:
-        print "%d elements" % len(mesh.elements)
+        print("%d elements" % len(mesh.elements))
         mesh_data = rcon.distribute_mesh(mesh)
     else:
         mesh_data = rcon.receive_mesh()

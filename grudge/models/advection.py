@@ -2,6 +2,7 @@
 """Operators modeling advective phenomena."""
 
 from __future__ import division
+from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -78,7 +79,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
                         u.ext, # inflow
                         ))
         else:
-            raise ValueError, "invalid flux type"
+            raise ValueError("invalid flux type")
 
     def max_eigenvalue(self, t=None, fields=None, discr=None):
         return la.norm(self.v)
@@ -258,7 +259,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
                         numpy.dot(normal, v.ext) * u.ext, # inflow
                         ))
         else:
-            raise ValueError, "invalid flux type"
+            raise ValueError("invalid flux type")
     # }}}
 
     def bind_characteristic_velocity(self, discr):

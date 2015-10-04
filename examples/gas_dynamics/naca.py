@@ -18,8 +18,11 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
+from six.moves import range
 
 
 
@@ -76,7 +79,7 @@ def make_nacamesh():
 
     write_gnuplot_mesh("mesh.dat", mesh)
 
-    print "%d elements" % len(mesh.elements)
+    print("%d elements" % len(mesh.elements))
 
     fvi2fm = mesh.face_vertex_indices_to_face_marker
 
@@ -161,10 +164,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep.runge_kutta import \
                 ODE23TimeStepper, LSRK4TimeStepper

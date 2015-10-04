@@ -1,6 +1,8 @@
 """Hedge is the Hybrid'n'Easy Discontinuous Galerkin Environment."""
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -141,8 +143,8 @@ def main(write_output=True):
     stepper = LSRK4TimeStepper()
 
     if rcon.is_head_rank:
-        print "order %d" % order
-        print "#elements=", len(mesh.elements)
+        print("order %d" % order)
+        print("#elements=", len(mesh.elements))
 
     # diagnostics setup ---------------------------------------------------
     from pytools.log import LogManager, add_general_quantities, \

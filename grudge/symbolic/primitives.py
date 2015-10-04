@@ -1,6 +1,8 @@
 """Operator template language: primitives."""
 
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 

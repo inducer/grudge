@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy.linalg as la
 
 
@@ -62,8 +64,8 @@ def main(write_output=True):
         vis = VtkVisualizer(discr, rcon, join(output_dir, "em-%d" % order))
 
     if rcon.is_head_rank:
-        print "order %d" % order
-        print "#elements=", len(mesh.elements)
+        print("order %d" % order)
+        print("#elements=", len(mesh.elements))
 
     from hedge.mesh import TAG_ALL, TAG_NONE
     from hedge.models.em import TMMaxwellOperator

@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 from hedge.tools import Reflection, Rotation
@@ -76,10 +78,10 @@ def main(write_output=True):
                     boundary_tagger=lambda fvi, el, fn, points:
                     ["dirichlet"])
     else:
-        raise RuntimeError, "bad number of dimensions"
+        raise RuntimeError("bad number of dimensions")
 
     if rcon.is_head_rank:
-        print "%d elements" % len(mesh.elements)
+        print("%d elements" % len(mesh.elements))
         mesh_data = rcon.distribute_mesh(mesh)
     else:
         mesh_data = rcon.receive_mesh()
@@ -155,12 +157,12 @@ def main(write_output=True):
                     rhs,
                     callback=ResidualPrinter(compute_resid),
                     tol=1e-5)
-            print
+            print()
             if info != 0:
                 raise RuntimeError("gmres reported error %d" % info)
-            print "finished gmres"
+            print("finished gmres")
 
-            print la.norm(bound_op(u)-rhs)/la.norm(rhs)
+            print(la.norm(bound_op(u)-rhs)/la.norm(rhs))
 
         if write_output:
             from hedge.visualization import SiloVisualizer, VtkVisualizer

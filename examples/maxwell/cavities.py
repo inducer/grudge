@@ -16,6 +16,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy as np
 
 import logging
@@ -106,10 +108,10 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         fields = get_true_field()
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep.runge_kutta import LSRK4TimeStepper
         stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type, rcon=rcon)
@@ -194,8 +196,8 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
             discr.close()
 
         if rcon.is_head_rank:
-            print
-            print eoc_rec.pretty_print("P.Deg.", "L2 Error")
+            print()
+            print(eoc_rec.pretty_print("P.Deg.", "L2 Error"))
 
         # }}}
 

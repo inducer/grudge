@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 
@@ -205,10 +207,10 @@ def main(write_output=True):
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         # limiter setup -------------------------------------------------------
         from hedge.models.gas_dynamics import SlopeLimiter1NEuler
@@ -299,8 +301,8 @@ def main(write_output=True):
             l2_error_u = discr.norm(op.u(fields)-op.u(true_fields))
 
             eoc_rec.add_data_point(order, l2_error_rho)
-            print
-            print eoc_rec.pretty_print("P.Deg.", "L2 Error")
+            print()
+            print(eoc_rec.pretty_print("P.Deg.", "L2 Error"))
 
             logmgr.set_constant("l2_error", l2_error)
             logmgr.set_constant("l2_error_rho", l2_error_rho)

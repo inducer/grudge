@@ -1,6 +1,6 @@
-"""Minimal example of a hedge driver."""
+"""Minimal example of a grudge driver."""
 
-from __future__ import division
+from __future__ import division, print_function
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -31,26 +31,26 @@ import numpy as np
 def main(write_output=True):
     from math import sin, exp, sqrt  # noqa
 
-    from hedge.mesh.generator import make_rect_mesh
+    from grudge.mesh.generator import make_rect_mesh
     mesh = make_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5), max_area=0.008)
 
-    from hedge.backends.jit import Discretization
+    from grudge.backends.jit import Discretization
 
     discr = Discretization(mesh, order=4)
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     vis = VtkVisualizer(discr, None, "fld")
 
     source_center = np.array([0.1, 0.22])
     source_width = 0.05
     source_omega = 3
 
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
-    from hedge.models.wave import StrongWaveOperator
-    from hedge.mesh import TAG_ALL, TAG_NONE
+    from grudge.models.wave import StrongWaveOperator
+    from grudge.mesh import TAG_ALL, TAG_NONE
     op = StrongWaveOperator(-0.1, discr.dimensions,
             source_f=
             sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
@@ -62,16 +62,27 @@ def main(write_output=True):
             radiation_tag=TAG_ALL,
             flux_type="upwind")
 
-    from hedge.tools import join_fields
+    from pytools.obj_array import join_fields
     fields = join_fields(discr.volume_zeros(),
             [discr.volume_zeros() for i in range(discr.dimensions)])
 
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
-    stepper = LSRK4TimeStepper()
-    dt = op.estimate_timestep(discr, stepper=stepper, fields=fields)
+    from leap.method.rk import LSRK4TimeStepper
+    from leap.vm.codegen import PythonCodeGenerator
+
+    dt_method = LSRK4TimeStepper(component_id="y")
+    dt_stepper = PythonCodeGenerator.get_class(dt_method.generate())
+
+    dt = op.estimate_timestep(discr, fields=fields)
+    dt_stepper.set_up(t_start=0, dt_start=dt, context={"y": fields})
 
     nsteps = int(10/dt)
     print "dt=%g nsteps=%d" % (dt, nsteps)
+
+    for event in interp.run(t_end=final_t):
+        if isinstance(event, interp.StateComputed):
+            assert event.component_id == component_id
+            values.append(event.state_component[0])
+            times.append(event.t)
 
     rhs = op.bind(discr)
     for step in range(nsteps):

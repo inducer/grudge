@@ -1,6 +1,9 @@
 """Wiggly geometry wave propagation."""
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -42,7 +45,7 @@ def main(write_output=True,
                 allow_internal_boundaries=True,
                 force_dimension=2)
 
-        print "%d elements" % len(mesh.elements)
+        print("%d elements" % len(mesh.elements))
         mesh_data = rcon.distribute_mesh(mesh)
     else:
         mesh_data = rcon.receive_mesh()

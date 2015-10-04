@@ -1,6 +1,11 @@
 """Compiler to turn operator expression tree into (imperative) bytecode."""
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+import six
+from six.moves import zip
+from functools import reduce
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -433,7 +438,7 @@ class Code(object):
             if insn is None:
                 try:
                     insn, discardable_vars = self.get_next_step(
-                            frozenset(context.keys()),
+                            frozenset(list(context.keys())),
                             frozenset(done_insns))
 
                 except self.NoInstructionAvailable:
@@ -467,9 +472,9 @@ class Code(object):
                     next_future_id += 1
 
         if len(done_insns) < len(self.instructions):
-            print "Unreachable instructions:"
+            print("Unreachable instructions:")
             for insn in set(self.instructions) - done_insns:
-                print "    ", insn
+                print("    ", insn)
 
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
@@ -635,7 +640,7 @@ class OperatorCompilerBase(IdentityMapper):
                             batches_by_repr_op.get(fr.repr_op, set()) \
                             | set([fr.flux_expr])
 
-                for repr_op, batch in batches_by_repr_op.iteritems():
+                for repr_op, batch in six.iteritems(batches_by_repr_op):
                     self.flux_batches.append(
                             self.FluxBatch(
                                 repr_op=repr_op,
@@ -1048,7 +1053,7 @@ class OperatorCompilerBase(IdentityMapper):
         def schedule_and_finalize_assignment(ass):
             dep_mapper = self.dep_mapper_factory()
 
-            names_exprs = zip(ass.names, ass.exprs)
+            names_exprs = list(zip(ass.names, ass.exprs))
 
             my_assignees = set(name for name, expr in names_exprs)
             names_exprs_deps = [

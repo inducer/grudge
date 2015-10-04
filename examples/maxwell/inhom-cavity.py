@@ -19,6 +19,8 @@
 with inhomogeneous dielectric filling"""
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 
 CAVITY_GEOMETRY = """
@@ -78,16 +80,16 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
 
     # should no tag raise an error or default to free space?
     def eps_val(x, el):
-        for key in materials.keys():
+        for key in list(materials.keys()):
             if el in material_elements[key]:
                 return materials[key][0]
-        raise ValueError, "Element does not belong to any material"
+        raise ValueError("Element does not belong to any material")
 
     def mu_val(x, el):
-        for key in materials.keys():
+        for key in list(materials.keys()):
             if el in material_elements[key]:
                 return materials[key][1]
-        raise ValueError, "Element does not belong to any material"
+        raise ValueError("Element does not belong to any material")
 
     # geometry of cavity
     d = 100e-3
@@ -125,7 +127,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
 
     # Work out which elements belong to each material
     material_elements = {}
-    for key in materials.keys():
+    for key in list(materials.keys()):
         material_elements[key] = set(mesh_data.tag_to_elements[key])
 
     order = 3
@@ -161,10 +163,10 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         point_getter = None
 
     if rcon.is_head_rank:
-        print "---------------------------------------------"
-        print "order %d" % order
-        print "---------------------------------------------"
-        print "#elements=", len(mesh.elements)
+        print("---------------------------------------------")
+        print("order %d" % order)
+        print("---------------------------------------------")
+        print("#elements=", len(mesh.elements))
 
     from hedge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type, rcon=rcon)

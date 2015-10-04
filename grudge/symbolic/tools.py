@@ -1,6 +1,9 @@
 """Operator templates: extra bits of functionality."""
 
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
+from functools import reduce
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -239,7 +242,7 @@ def ptwise_dot(logdims1, logdims2, a1, a2):
         for a2_i in indices_in_shape(a2_log_shape[1:]):
             result[a1_i+a2_i] = sum(
                     a1[a1_i+(k,)] * a2[(k,)+a2_i]
-                    for k in xrange(len_k)
+                    for k in range(len_k)
                     )
 
     if result.shape == ():

@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 
@@ -102,10 +104,10 @@ def main(final_time=1, write_output=False):
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()
@@ -178,8 +180,8 @@ def main(final_time=1, write_output=False):
 
         true_fields = sinewave.volume_interpolant(t, discr)
         eoc_rec.add_data_point(order, discr.norm(fields-true_fields))
-        print
-        print eoc_rec.pretty_print("P.Deg.", "L2 Error")
+        print()
+        print(eoc_rec.pretty_print("P.Deg.", "L2 Error"))
 
 
 

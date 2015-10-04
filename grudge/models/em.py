@@ -2,6 +2,8 @@
 """Hedge operators modelling electromagnetic phenomena."""
 
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2007, 2010 Andreas Kloeckner, David Powell"
 
@@ -401,7 +403,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         def default_fld(fld, comp):
             if fld is None:
-                return [zero() for i in xrange(comp)]
+                return [zero() for i in range(comp)]
             else:
                 return fld
 

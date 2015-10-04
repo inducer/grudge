@@ -18,8 +18,10 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
 import numpy
 import numpy.linalg as la
+from six.moves import range
 
 
 

@@ -18,8 +18,11 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
+from six.moves import zip
 
 
 
@@ -80,7 +83,7 @@ def make_wingmesh():
     mesh_info.set_holes([(0.5,0,0)])
 
     mesh = build(mesh_info)
-    print "%d elements" % len(mesh.elements)
+    print("%d elements" % len(mesh.elements))
 
     fvi2fm = mesh.face_vertex_indices_to_face_marker
 
@@ -159,10 +162,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()

@@ -16,6 +16,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 
 
@@ -60,7 +62,7 @@ def make_boxmesh():
 
     mesh = build(mesh_info, max_volume=0.02,
             volume_constraints=True, attributes=True)
-    print "%d elements" % len(mesh.elements)
+    print("%d elements" % len(mesh.elements))
     #mesh.write_vtk("box-in-box.vtk")
     #print "done writing"
 
@@ -143,10 +145,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()

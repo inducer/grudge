@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 
@@ -116,10 +118,10 @@ def main():
         rhs(0, fields)
 
         if rcon.is_head_rank:
-            print "---------------------------------------------"
-            print "order %d" % order
-            print "---------------------------------------------"
-            print "#elements=", len(mesh.elements)
+            print("---------------------------------------------")
+            print("order %d" % order)
+            print("---------------------------------------------")
+            print("#elements=", len(mesh.elements))
 
         from hedge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()
@@ -184,8 +186,8 @@ def main():
             true_fields = shearflow.volume_interpolant(t, discr)
             l2_error = discr.norm(op.u(fields)-op.u(true_fields))
             eoc_rec.add_data_point(order, l2_error)
-            print
-            print eoc_rec.pretty_print("P.Deg.", "L2 Error")
+            print()
+            print(eoc_rec.pretty_print("P.Deg.", "L2 Error"))
 
             logmgr.set_constant("l2_error", l2_error)
 

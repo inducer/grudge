@@ -16,8 +16,11 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy as np
 from hedge.mesh import TAG_ALL, TAG_NONE
+from six.moves import range
 
 
 def main(write_output=True,
@@ -46,7 +49,7 @@ def main(write_output=True,
         raise RuntimeError("bad number of dimensions")
 
     if rcon.is_head_rank:
-        print "%d elements" % len(mesh.elements)
+        print("%d elements" % len(mesh.elements))
         mesh_data = rcon.distribute_mesh(mesh)
     else:
         mesh_data = rcon.receive_mesh()

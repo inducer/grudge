@@ -16,6 +16,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 from math import sin, cos, pi, sqrt
@@ -108,7 +110,7 @@ def main(write_output=True, flux_type_arg="upwind",
             mesh = make_uniform_1d_mesh(case.a, case.b, 20, periodic=True)
         else:
             from hedge.mesh.generator import make_rect_mesh
-            print (pi*2)/(11*5*2)
+            print((pi*2)/(11*5*2))
             mesh = make_rect_mesh((-pi, -1), (pi, 1),
                     periodicity=(True, True),
                     subdivisions=(11,5),
@@ -135,7 +137,7 @@ def main(write_output=True, flux_type_arg="upwind",
             viscosity_scheme=IPDGSecondDerivative())
 
     if rcon.is_head_rank:
-        print "%d elements" % len(discr.mesh.elements)
+        print("%d elements" % len(discr.mesh.elements))
 
     # exact solution ----------------------------------------------------------
     import pymbolic

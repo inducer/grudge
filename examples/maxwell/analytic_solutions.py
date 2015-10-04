@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 from hedge.tools import \
         cyl_bessel_j, \
         cyl_bessel_j_prime
@@ -25,6 +27,8 @@ from math import sqrt, pi, sin, cos, atan2, acos
 import numpy
 import numpy.linalg as la
 import cmath
+from six.moves import range
+from six.moves import zip
 
 
 
@@ -152,8 +156,8 @@ class CylindricalCavityMode:
         try:
             from bessel_zeros import bessel_zeros
         except ImportError:
-            print "*** You need to generate the bessel root data file."
-            print "*** Execute generate-bessel-zeros.py at the command line."
+            print("*** You need to generate the bessel root data file.")
+            print("*** Execute generate-bessel-zeros.py at the command line.")
             raise
 
         assert m >= 0 and m == int(m)
@@ -447,11 +451,11 @@ def check_time_harmonic_solution(discr, mode, c_sol):
         hr_res = curl(hr) - mode.epsilon*mode.omega*ei
         hi_res = curl(hi) + mode.epsilon*mode.omega*er
 
-        print "time=%f, rel l2 residual in Re[E]=%g\tIm[E]=%g\tRe[H]=%g\tIm[H]=%g" % (
+        print("time=%f, rel l2 residual in Re[E]=%g\tIm[E]=%g\tRe[H]=%g\tIm[H]=%g" % (
                 t,
                 rel_l2_error(er_res, er),
                 rel_l2_error(ei_res, ei),
                 rel_l2_error(hr_res, hr),
                 rel_l2_error(hi_res, hi),
-                )
+                ))
 

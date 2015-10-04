@@ -2,6 +2,9 @@
 """Lattice-Boltzmann operator."""
 
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
+from six.moves import zip
 
 __copyright__ = "Copyright (C) 2011 Andreas Kloeckner"
 
@@ -41,12 +44,12 @@ class LBMMethodBase(object):
     def find_opposites(self):
         self.opposites = np.zeros(len(self))
 
-        for alpha in xrange(len(self)):
+        for alpha in range(len(self)):
             if self.opposites[alpha]:
                 continue
 
             found = False
-            for alpha_2 in xrange(alpha, len(self)):
+            for alpha_2 in range(alpha, len(self)):
                 if la.norm(
                         self.direction_vectors[alpha] 
                         + self.direction_vectors[alpha_2]) < 1e-12:
@@ -130,7 +133,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
                         u.ext, # inflow
                         ))
         else:
-            raise ValueError, "invalid flux type"
+            raise ValueError("invalid flux type")
 
     def get_advection_op(self, q, velocity):
         from hedge.optemplate import (

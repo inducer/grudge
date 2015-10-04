@@ -18,6 +18,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 
 
@@ -162,7 +164,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
             vector_primitive_factory=discr.get_vector_primitive_factory())
 
     if rcon.is_head_rank:
-        print "%d elements" % len(discr.mesh.elements)
+        print("%d elements" % len(discr.mesh.elements))
 
     # filter setup-------------------------------------------------------------
     from hedge.discretization import ExponentialFilterResponseFunction

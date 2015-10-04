@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -52,6 +53,7 @@ def main():
               "loo.py>=2013.1beta",
               "sumpy>=2013.1",
               "cgen>=2013.1.2",
+              "leap>=2015.1",
 
               "six",
               ])

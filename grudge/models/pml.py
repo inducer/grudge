@@ -2,6 +2,9 @@
 """Models describing absorbing boundary layers."""
 
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
+from six.moves import zip
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -159,7 +162,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
 
         def default_fld(fld, comp):
             if fld is None:
-                return [zero() for i in xrange(comp)]
+                return [zero() for i in range(comp)]
             else:
                 return fld
 
@@ -249,11 +252,11 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
         if dtype is not None:
             nodes = nodes.astype(dtype)
 
-        sigma, sigma_prime, tau = zip(*[self._construct_scalar_coefficients(
+        sigma, sigma_prime, tau = list(zip(*[self._construct_scalar_coefficients(
             discr, nodes[:,i],
             i_min[i], i_max[i], o_min[i], o_max[i],
             exponent)
-            for i in range(discr.dimensions)])
+            for i in range(discr.dimensions)]))
 
         def conv(f):
             return discr.convert_volume(f, kind=discr.compute_kind,

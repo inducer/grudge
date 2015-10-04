@@ -16,6 +16,8 @@
 
 
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
 import numpy
 import numpy.linalg as la
 
@@ -62,7 +64,7 @@ def main(write_output=True, flux_type_arg="upwind"):
             mesh = make_cylinder_mesh(max_volume=0.04, height=2, boundary_tagger=boundary_tagger,
                     periodic=False, radial_subdivisions=32)
     else:
-        raise RuntimeError, "bad number of dimensions"
+        raise RuntimeError("bad number of dimensions")
 
     norm_v = la.norm(v)
 
@@ -98,7 +100,7 @@ def main(write_output=True, flux_type_arg="upwind"):
     stepper = LSRK4TimeStepper()
 
     if rcon.is_head_rank:
-        print "%d elements" % len(discr.mesh.elements)
+        print("%d elements" % len(discr.mesh.elements))
 
     # diagnostics setup -------------------------------------------------------
     from pytools.log import LogManager, \
@@ -148,7 +150,7 @@ def main(write_output=True, flux_type_arg="upwind"):
             u = stepper(u, t, dt, rhs)
 
         true_u = discr.interpolate_volume_function(lambda x, el: u_analytic(x, el, t))
-        print discr.norm(u-true_u)
+        print(discr.norm(u-true_u))
         assert discr.norm(u-true_u) < 1e-2
     finally:
         if write_output:
