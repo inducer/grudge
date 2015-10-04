@@ -20,3 +20,12 @@ examples/*.pdf
 
 *.vtu
 *.vts
+
+run-debug-*
+
+*.vtu
+*.pvtu
+*.pvd
+*.dot
+*.vtk
+*.silo
