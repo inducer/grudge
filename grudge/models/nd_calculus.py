@@ -46,8 +46,8 @@ class GradientOperator(Operator):
         return u.int*normal - u.avg*normal
 
     def op_template(self):
-        from grudge.mesh import TAG_ALL
-        from grudge.optemplate import Field, BoundaryPair, \
+        from grudge.mesh import BTAG_ALL
+        from grudge.symbolic import Field, BoundaryPair, \
                 make_nabla, InverseMassOperator, get_flux_operator
 
         u = Field("u")
@@ -58,16 +58,16 @@ class GradientOperator(Operator):
 
         return nabla*u - InverseMassOperator()(
                 flux_op(u) +
-                flux_op(BoundaryPair(u, bc, TAG_ALL)))
+                flux_op(BoundaryPair(u, bc, BTAG_ALL)))
 
     def bind(self, discr):
         compiled_op_template = discr.compile(self.op_template())
 
         def op(u):
-            from grudge.mesh import TAG_ALL
+            from grudge.mesh import BTAG_ALL
 
             return compiled_op_template(u=u,
-                    bc=discr.boundarize_volume_field(u, TAG_ALL))
+                    bc=discr.boundarize_volume_field(u, BTAG_ALL))
 
         return op
 
@@ -105,8 +105,8 @@ class DivergenceOperator(Operator):
         return flux
 
     def op_template(self):
-        from grudge.mesh import TAG_ALL
-        from grudge.optemplate import make_sym_vector, BoundaryPair, \
+        from grudge.mesh import BTAG_ALL
+        from grudge.symbolic import make_sym_vector, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
 
         nabla = make_nabla(self.dimensions)
@@ -126,14 +126,14 @@ class DivergenceOperator(Operator):
 
         return local_op_result - m_inv(
                 flux_op(v) +
-                flux_op(BoundaryPair(v, bc, TAG_ALL)))
+                flux_op(BoundaryPair(v, bc, BTAG_ALL)))
 
     def bind(self, discr):
         compiled_op_template = discr.compile(self.op_template())
 
         def op(v):
-            from grudge.mesh import TAG_ALL
+            from grudge.mesh import BTAG_ALL
             return compiled_op_template(v=v,
-                    bc=discr.boundarize_volume_field(v, TAG_ALL))
+                    bc=discr.boundarize_volume_field(v, BTAG_ALL))
 
         return op

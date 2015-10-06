@@ -29,3 +29,4 @@ run-debug-*
 *.dot
 *.vtk
 *.silo
+*.dat

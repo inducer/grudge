@@ -46,12 +46,12 @@ class BurgersOperator(HyperbolicOperator):
         self.viscosity_scheme = viscosity_scheme
 
     def characteristic_velocity_optemplate(self, field):
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 ElementwiseMaxOperator)
         return ElementwiseMaxOperator()(field**2)**0.5
 
     def bind_characteristic_velocity(self, discr):
-        from grudge.optemplate import Field
+        from grudge.symbolic import Field
         compiled = discr.compile(
                 self.characteristic_velocity_optemplate(
                     Field("u")))
@@ -62,7 +62,7 @@ class BurgersOperator(HyperbolicOperator):
         return do
 
     def op_template(self, with_sensor):
-        from grudge.optemplate import (
+        from grudge.symbolic import (
                 Field,
                 make_stiffness_t,
                 make_nabla,
@@ -70,7 +70,7 @@ class BurgersOperator(HyperbolicOperator):
                 ElementwiseMaxOperator,
                 get_flux_operator)
 
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 QuadratureGridUpsampler,
                 QuadratureInteriorFacesGridUpsampler)
 

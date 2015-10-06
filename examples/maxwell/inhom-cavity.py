@@ -135,14 +135,14 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
     #extra_discr_args.setdefault("debug", []).append("dump_optemplate_stages")
 
     from grudge.data import make_tdep_given
-    from grudge.mesh import TAG_ALL
+    from grudge.mesh import BTAG_ALL
 
     op = TEMaxwellOperator(epsilon=make_tdep_given(eps_val), mu=make_tdep_given(mu_val), \
             flux_type=flux_type_arg, \
-            bdry_flux_type=bdry_flux_type_arg, dimensions=2, pec_tag=TAG_ALL)
+            bdry_flux_type=bdry_flux_type_arg, dimensions=2, pec_tag=BTAG_ALL)
     # op = TEMaxwellOperator(epsilon=epsilon0, mu=mu0,
             # flux_type=flux_type_arg, \
-            # bdry_flux_type=bdry_flux_type_arg, dimensions=2, pec_tag=TAG_ALL)
+            # bdry_flux_type=bdry_flux_type_arg, dimensions=2, pec_tag=BTAG_ALL)
 
     discr = rcon.make_discretization(mesh_data, order=order,
             tune_for=op.op_template(),

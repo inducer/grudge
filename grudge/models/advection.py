@@ -132,7 +132,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
         return u.int * numpy.dot(normal, self.v) - self.weak_flux()
 
     def op_template(self):
-        from grudge.optemplate import Field, BoundaryPair, \
+        from grudge.symbolic import Field, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
 
         u = Field("u")
@@ -157,7 +157,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
         return self.weak_flux()
 
     def op_template(self):
-        from grudge.optemplate import (
+        from grudge.symbolic import (
                 Field,
                 BoundaryPair,
                 get_flux_operator,
@@ -263,9 +263,9 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     # }}}
 
     def bind_characteristic_velocity(self, discr):
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 ElementwiseMaxOperator)
-        from grudge.optemplate import make_sym_vector
+        from grudge.symbolic import make_sym_vector
         velocity_vec = make_sym_vector("v", self.dimensions)
         velocity = ElementwiseMaxOperator()(
                 numpy.dot(velocity_vec, velocity_vec)**0.5)
@@ -279,13 +279,13 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
     def op_template(self, with_sensor=False):
         # {{{ operator preliminaries ------------------------------------------
-        from grudge.optemplate import (Field, BoundaryPair, get_flux_operator,
+        from grudge.symbolic import (Field, BoundaryPair, get_flux_operator,
                 make_stiffness_t, InverseMassOperator, make_sym_vector,
                 ElementwiseMaxOperator, BoundarizeOperator)
 
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
 
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 QuadratureGridUpsampler,
                 QuadratureInteriorFacesGridUpsampler)
 
@@ -308,10 +308,10 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         # {{{ boundary conditions ---------------------------------------------
 
-        from grudge.mesh import TAG_ALL
-        bc_c = to_quad(BoundarizeOperator(TAG_ALL)(c))
+        from grudge.mesh import BTAG_ALL
+        bc_c = to_quad(BoundarizeOperator(BTAG_ALL)(c))
         bc_u = to_quad(Field("bc_u"))
-        bc_v = to_quad(BoundarizeOperator(TAG_ALL)(v))
+        bc_v = to_quad(BoundarizeOperator(BTAG_ALL)(v))
 
         if self.bc_u_f is "None":
             bc_w = join_fields(0, bc_v, bc_c)
@@ -365,15 +365,15 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         return m_inv(numpy.dot(minv_st, cse(quad_v*quad_u))
                 - (flux_op(quad_face_w)
-                    + flux_op(BoundaryPair(quad_face_w, bc_w, TAG_ALL)))) \
+                    + flux_op(BoundaryPair(quad_face_w, bc_w, BTAG_ALL)))) \
                             + diffusion_part
 
     def bind(self, discr, sensor=None):
         compiled_op_template = discr.compile(
                 self.op_template(with_sensor=sensor is not None))
 
-        from grudge.mesh import check_bc_coverage, TAG_ALL
-        check_bc_coverage(discr.mesh, [TAG_ALL])
+        from grudge.mesh import check_bc_coverage, BTAG_ALL
+        check_bc_coverage(discr.mesh, [BTAG_ALL])
 
         def rhs(t, u):
             kwargs = {}
@@ -382,7 +382,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
             if self.bc_u_f is not "None":
                 kwargs["bc_u"] = \
-                        self.bc_u_f.boundary_interpolant(t, discr, tag=TAG_ALL)
+                        self.bc_u_f.boundary_interpolant(t, discr, tag=BTAG_ALL)
 
             return compiled_op_template(
                     u=u,

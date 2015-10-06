@@ -87,12 +87,12 @@ def main(final_time=1, write_output=False):
         fields = sinewave.volume_interpolant(0, discr)
         gamma, mu, prandtl, spec_gas_const = sinewave.properties()
 
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
         from grudge.models.gas_dynamics import GasDynamicsOperator
         op = GasDynamicsOperator(dimensions=mesh.dimensions, gamma=gamma, mu=mu,
                 prandtl=prandtl, spec_gas_const=spec_gas_const,
                 bc_inflow=sinewave, bc_outflow=sinewave, bc_noslip=sinewave,
-                inflow_tag=TAG_ALL, source=None)
+                inflow_tag=BTAG_ALL, source=None)
 
         euler_ex = op.bind(discr)
 

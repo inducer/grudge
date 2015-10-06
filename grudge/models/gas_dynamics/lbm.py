@@ -136,7 +136,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
             raise ValueError("invalid flux type")
 
     def get_advection_op(self, q, velocity):
-        from grudge.optemplate import (
+        from grudge.symbolic import (
                 BoundaryPair,
                 get_flux_operator,
                 make_stiffness_t,
@@ -149,7 +149,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
                 np.dot(velocity, stiff_t*q) - flux_op(q))
 
     def f_bar(self):
-        from grudge.optemplate import make_sym_vector
+        from grudge.symbolic import make_sym_vector
         return make_sym_vector("f_bar", len(self.method))
 
     def rho(self, f_bar):
@@ -168,7 +168,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
             zip(self.method.direction_vectors, f_bar)])
 
     def collision_update(self, f_bar):
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         rho = cse(self.rho(f_bar), "rho")
         rho_u = self.rho_u(f_bar)
         u = cse(rho_u/rho, "u")
@@ -183,8 +183,8 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
         compiled_op_template = discr.compile(
                 self.stream_rhs(self.f_bar()))
 
-        #from grudge.mesh import check_bc_coverage, TAG_ALL
-        #check_bc_coverage(discr.mesh, [TAG_ALL])
+        #from grudge.mesh import check_bc_coverage, BTAG_ALL
+        #check_bc_coverage(discr.mesh, [BTAG_ALL])
 
         def rhs(t, f_bar):
             return compiled_op_template(f_bar=f_bar)
@@ -194,7 +194,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
     def bind(self, discr, what):
         f_bar_sym = self.f_bar()
 
-        from grudge.optemplate.mappers.type_inference import (
+        from grudge.symbolic.mappers.type_inference import (
                 type_info, NodalRepresentation)
 
         type_hints = dict(

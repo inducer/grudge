@@ -114,18 +114,18 @@ def main(write_output=True):
 
         k = 1
 
-        from grudge.mesh import TAG_NONE, TAG_ALL
+        from grudge.mesh import BTAG_NONE, BTAG_ALL
         op = HelmholtzOperator(k, discr.dimensions, 
                 #diffusion_tensor=my_diff_tensor(),
 
                 #dirichlet_tag="dirichlet",
                 #neumann_tag="neumann", 
 
-                dirichlet_tag=TAG_ALL,
-                neumann_tag=TAG_NONE, 
+                dirichlet_tag=BTAG_ALL,
+                neumann_tag=BTAG_NONE, 
 
-                #dirichlet_tag=TAG_ALL,
-                #neumann_tag=TAG_NONE, 
+                #dirichlet_tag=BTAG_ALL,
+                #neumann_tag=BTAG_NONE, 
 
                 #dirichlet_bc=GivenFunction(dirichlet_bc),
                 dirichlet_bc=ConstantGivenFunction(0),

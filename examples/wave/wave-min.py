@@ -54,9 +54,9 @@ def main(write_output=True):
                 * sym.CFunction("exp")(
                     -np.dot(sym_source_center_dist, sym_source_center_dist)
                     / source_width**2)),
-            dirichlet_tag=TAG_NONE,
-            neumann_tag=TAG_NONE,
-            radiation_tag=TAG_ALL,
+            dirichlet_tag=BTAG_NONE,
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
     from pytools.obj_array import join_fields

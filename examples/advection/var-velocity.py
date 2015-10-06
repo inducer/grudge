@@ -168,7 +168,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
 
     # filter setup-------------------------------------------------------------
     from grudge.discretization import ExponentialFilterResponseFunction
-    from grudge.optemplate.operators import FilterOperator
+    from grudge.symbolic.operators import FilterOperator
     mode_filter = FilterOperator(
             ExponentialFilterResponseFunction(min_amplification=0.9,order=4))\
                     .bind(discr)

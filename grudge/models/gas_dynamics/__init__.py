@@ -41,14 +41,14 @@ from grudge.second_order import (
         StabilizedCentralSecondDerivative,
         CentralSecondDerivative,
         IPDGSecondDerivative)
-from grudge.optemplate.primitives import make_common_subexpression as cse
+from grudge.symbolic.primitives import make_common_subexpression as cse
 from pytools import memoize_method
-from grudge.optemplate.tools import make_sym_vector
+from grudge.symbolic.tools import make_sym_vector
 from pytools.obj_array import make_obj_array, join_fields
 
 AXES = ["x", "y", "z", "w"]
 
-from grudge.optemplate.operators import (
+from grudge.symbolic.operators import (
         QuadratureGridUpsampler,
         QuadratureInteriorFacesGridUpsampler)
 
@@ -224,7 +224,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     @memoize_method
     def sensor(self):
-        from grudge.optemplate.primitives import Field
+        from grudge.symbolic.primitives import Field
         sensor = Field("sensor")
 
     def rho(self, q):
@@ -298,7 +298,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     def primitive_to_conservative(self, prims, use_cses=True):
         if not use_cses:
-            from grudge.optemplate.primitives import make_common_subexpression as cse
+            from grudge.symbolic.primitives import make_common_subexpression as cse
         else:
             def cse(x, name): return x
 
@@ -314,7 +314,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     def conservative_to_primitive(self, q, use_cses=True):
         if use_cses:
-            from grudge.optemplate.primitives import make_common_subexpression as cse
+            from grudge.symbolic.primitives import make_common_subexpression as cse
         else:
             def cse(x, name): return x
 
@@ -324,9 +324,9 @@ class GasDynamicsOperator(TimeDependentOperator):
                self.u(q))
 
     def characteristic_velocity_optemplate(self, state):
-        from grudge.optemplate.operators import ElementwiseMaxOperator
+        from grudge.symbolic.operators import ElementwiseMaxOperator
 
-        from grudge.optemplate.primitives import CFunction
+        from grudge.symbolic.primitives import CFunction
         sqrt = CFunction("sqrt")
 
         sound_speed = cse(sqrt(
@@ -498,7 +498,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         c0 = (self.equation_of_state.gamma * p0 / rho0)**0.5
 
-        from grudge.optemplate import BoundarizeOperator
+        from grudge.symbolic import BoundarizeOperator
         bdrize_op = BoundarizeOperator(tag)
 
         class SingleBCInfo(Record):
@@ -516,7 +516,7 @@ class GasDynamicsOperator(TimeDependentOperator):
                 - p0, "dpm"))
 
     def outflow_state(self, state):
-        from grudge.optemplate import make_normal
+        from grudge.symbolic import make_normal
         normal = make_normal(self.outflow_tag, self.dimensions)
         bc = self.make_bc_info("bc_q_out", self.outflow_tag, state)
 
@@ -552,13 +552,13 @@ class GasDynamicsOperator(TimeDependentOperator):
             + normal*numpy.dot(normal, bc.dumvec)/2 + bc.dpm*normal/(2*bc.c0*bc.rho0), "bc_u_"+name))
 
     def inflow_state(self, state):
-        from grudge.optemplate import make_normal
+        from grudge.symbolic import make_normal
         normal = make_normal(self.inflow_tag, self.dimensions)
         bc = self.make_bc_info("bc_q_in", self.inflow_tag, state)
         return self.inflow_state_inner(normal, bc, "inflow")
 
     def noslip_state(self, state):
-        from grudge.optemplate import make_normal
+        from grudge.symbolic import make_normal
         state0 = join_fields(
             make_sym_vector("bc_q_noslip", 2),
             [0]*self.dimensions)
@@ -567,13 +567,13 @@ class GasDynamicsOperator(TimeDependentOperator):
         return self.inflow_state_inner(normal, bc, "noslip")
 
     def wall_state(self, state):
-        from grudge.optemplate import BoundarizeOperator
+        from grudge.symbolic import BoundarizeOperator
         bc = BoundarizeOperator(self.wall_tag)(state)
         wall_rho = self.rho(bc)
         wall_e = self.e(bc) # <3 eve
         wall_rho_u = self.rho_u(bc)
 
-        from grudge.optemplate import make_normal
+        from grudge.symbolic import make_normal
         normal = make_normal(self.wall_tag, self.dimensions)
 
         return join_fields(
@@ -596,7 +596,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     def get_conservative_boundary_conditions(self):
         state = self.state()
 
-        from grudge.optemplate import BoundarizeOperator
+        from grudge.symbolic import BoundarizeOperator
         return {
                 self.supersonic_inflow_tag:
                 make_sym_vector("bc_q_supersonic_in", self.dimensions+2),
@@ -614,7 +614,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     @memoize_method
     def _normalize_expr(self, expr):
         """Normalize expressions for use as hash keys."""
-        from grudge.optemplate.mappers import (
+        from grudge.symbolic.mappers import (
                 QuadratureUpsamplerRemover,
                 CSERemover)
 
@@ -652,7 +652,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         # 'cbstate' is the boundary state in conservative variables.
 
-        from grudge.optemplate.mappers import QuadratureUpsamplerRemover
+        from grudge.symbolic.mappers import QuadratureUpsamplerRemover
         expr = QuadratureUpsamplerRemover({}, do_warn=False)(expr)
 
         def subst_func(expr):
@@ -664,11 +664,11 @@ class GasDynamicsOperator(TimeDependentOperator):
 
                 return cbstate[expr.index]
             elif isinstance(expr, Variable) and expr.name =="sensor":
-                from grudge.optemplate import BoundarizeOperator
+                from grudge.symbolic import BoundarizeOperator
                 result = BoundarizeOperator(tag)(self.sensor())
                 return cse(to_bdry_quad(result), "bdry_sensor")
 
-        from grudge.optemplate import SubstitutionMapper
+        from grudge.symbolic import SubstitutionMapper
         return SubstitutionMapper(subst_func)(expr)
 
     # }}}
@@ -743,7 +743,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         volq_flux = self.flux(self.volq_state())
         faceq_flux = self.flux(self.faceq_state())
 
-        from grudge.optemplate.primitives import CFunction
+        from grudge.symbolic.primitives import CFunction
         sqrt = CFunction("sqrt")
 
         speed = self.characteristic_velocity_optemplate(self.state())
@@ -754,9 +754,9 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         # {{{ operator assembly -----------------------------------------------
         from grudge.flux.tools import make_lax_friedrichs_flux
-        from grudge.optemplate.operators import InverseMassOperator
+        from grudge.symbolic.operators import InverseMassOperator
 
-        from grudge.optemplate.tools import make_stiffness_t
+        from grudge.symbolic.tools import make_stiffness_t
 
         primitive_bcs_as_quad_conservative = dict(
                 (tag, self.primitive_to_conservative(to_bdry_quad(bc)))
@@ -891,7 +891,7 @@ class SlopeLimiter1NEuler:
         self.dimensions=dimensions
         self.op=op
 
-        from grudge.optemplate.operators import AveragingOperator
+        from grudge.symbolic.operators import AveragingOperator
         self.get_average = AveragingOperator().bind(discr)
 
     def __call__(self, fields):

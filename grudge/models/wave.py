@@ -109,7 +109,7 @@ class StrongWaveOperator(HyperbolicOperator):
         return -self.c*flux_strong
 
     def op_template(self):
-        from grudge.optemplate import \
+        from grudge.symbolic import \
                 make_sym_vector, \
                 BoundaryPair, \
                 get_flux_operator, \
@@ -127,7 +127,7 @@ class StrongWaveOperator(HyperbolicOperator):
         from grudge.tools import join_fields
 
         # dirichlet BCs -------------------------------------------------------
-        from grudge.optemplate import normal, Field
+        from grudge.symbolic import normal, Field
 
         dir_u = BoundarizeOperator(self.dirichlet_tag) * u
         dir_v = BoundarizeOperator(self.dirichlet_tag) * v
@@ -276,7 +276,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
     # }}}
 
     def bind_characteristic_velocity(self, discr):
-        from grudge.optemplate.operators import ElementwiseMaxOperator
+        from grudge.symbolic.operators import ElementwiseMaxOperator
 
         compiled = discr.compile(ElementwiseMaxOperator()(self.c))
 
@@ -286,7 +286,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return do
 
     def op_template(self, with_sensor=False):
-        from grudge.optemplate import \
+        from grudge.symbolic import \
                 Field, \
                 make_sym_vector, \
                 BoundaryPair, \
@@ -322,7 +322,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         neu_bc = join_fields(neu_c, neu_u, -neu_v)
 
         # Radiation
-        from grudge.optemplate import make_normal
+        from grudge.symbolic import make_normal
         rad_normal = make_normal(self.radiation_tag, d)
 
         rad_c = BoundarizeOperator(self.radiation_tag) * self.c
@@ -415,7 +415,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return rhs
 
     def max_eigenvalue_expr(self):
-        import grudge.optemplate as sym
+        import grudge.symbolic as sym
         return sym.NodalMax()(sym.CFunction("fabs")(self.c))
 
 # }}}

@@ -64,7 +64,7 @@ def main(write_output=True, dtype=np.float32):
 
     from grudge.data import CompiledExpressionData
     def ic_expr(t, x, fields):
-        from grudge.optemplate import CFunction
+        from grudge.symbolic import CFunction
         from pymbolic.primitives import IfPositive
         from pytools.obj_array import make_obj_array
 
@@ -76,7 +76,7 @@ def main(write_output=True, dtype=np.float32):
         w = 0.05
         delta = 0.05
 
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         u = cse(make_obj_array([
             IfPositive(x[1]-1/2,
                 u0*tanh(4*(3/4-x[1])/w),
@@ -100,7 +100,7 @@ def main(write_output=True, dtype=np.float32):
     f_bar = CompiledExpressionData(ic_expr).volume_interpolant(0, discr)
 
     from grudge.discretization import ExponentialFilterResponseFunction
-    from grudge.optemplate.operators import FilterOperator
+    from grudge.symbolic.operators import FilterOperator
     mode_filter = FilterOperator(
             ExponentialFilterResponseFunction(min_amplification=0.9, order=4))\
                     .bind(discr)

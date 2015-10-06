@@ -89,12 +89,12 @@ def main(write_output=True):
         fields = vortex.volume_interpolant(0, discr)
 
         from grudge.models.gas_dynamics import GasDynamicsOperator
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
 
         op = GasDynamicsOperator(dimensions=2, gamma=vortex.gamma, mu=vortex.mu,
                 prandtl=vortex.prandtl, spec_gas_const=vortex.spec_gas_const,
                 bc_inflow=vortex, bc_outflow=vortex, bc_noslip=vortex,
-                inflow_tag=TAG_ALL, source=None)
+                inflow_tag=BTAG_ALL, source=None)
 
         euler_ex = op.bind(discr)
 

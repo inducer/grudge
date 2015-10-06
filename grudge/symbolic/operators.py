@@ -36,7 +36,7 @@ from pytools import Record, memoize_method
 
 class Operator(pymbolic.primitives.Leaf):
     def stringifier(self):
-        from grudge.optemplate import StringifyMapper
+        from grudge.symbolic import StringifyMapper
         return StringifyMapper
 
     def __call__(self, expr):
@@ -47,14 +47,14 @@ class Operator(pymbolic.primitives.Leaf):
             if is_zero(subexpr):
                 return subexpr
             else:
-                from grudge.optemplate.primitives import OperatorBinding
+                from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
         return with_object_array_or_scalar(bind_one, expr)
 
     @memoize_method
     def bind(self, discr):
-        from grudge.optemplate import Field
+        from grudge.symbolic import Field
         bound_op = discr.compile(self(Field("f")))
 
         def apply_op(field):
@@ -152,10 +152,10 @@ class QuadratureStiffnessTOperator(DiffOperatorBase):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`StiffnessTOperator` is applied to a quadrature
         field, and then eliminated by
-        :class:`grudge.optemplate.mappers.GlobalToReferenceMapper`
+        :class:`grudge.symbolic.mappers.GlobalToReferenceMapper`
         in favor of operators on the reference element.
     """
 
@@ -217,7 +217,7 @@ class ReferenceQuadratureStiffnessTOperator(ReferenceDiffOperatorBase):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`StiffnessTOperator` is applied to a quadrature field.
     """
 
@@ -297,7 +297,7 @@ class QuadratureBoundaryGridUpsampler(Operator):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`MassOperator` is applied to a quadrature field.
     """
     def __init__(self, quadrature_tag, boundary_tag):
@@ -420,10 +420,10 @@ class QuadratureMassOperator(Operator):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`StiffnessTOperator` is applied to a quadrature
         field, and then eliminated by
-        :class:`grudge.optemplate.mappers.GlobalToReferenceMapper`
+        :class:`grudge.symbolic.mappers.GlobalToReferenceMapper`
         in favor of operators on the reference element.
     """
 
@@ -441,7 +441,7 @@ class ReferenceQuadratureMassOperator(Operator):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`MassOperator` is applied to a quadrature field.
     """
 
@@ -547,7 +547,7 @@ class FluxOperatorBase(Operator):
         # override to suppress apply-operator-to-each-operand
         # behavior from superclass
 
-        from grudge.optemplate.primitives import OperatorBinding
+        from grudge.symbolic.primitives import OperatorBinding
         return OperatorBinding(self, arg)
 
     def __mul__(self, arg):
@@ -578,7 +578,7 @@ class BoundaryFluxOperator(BoundaryFluxOperatorBase):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`FluxOperator` is applied to a boundary field.
     """
     def __init__(self, flux, boundary_tag, is_lift=False):
@@ -596,7 +596,7 @@ class QuadratureFluxOperator(QuadratureFluxOperatorBase):
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`FluxOperator` is applied to a quadrature field.
     """
 
@@ -617,7 +617,7 @@ class QuadratureBoundaryFluxOperator(
     .. note::
 
         This operator is purely for internal use. It is inserted
-        by :class:`grudge.optemplate.mappers.OperatorSpecializer`
+        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
         when a :class:`FluxOperator` is applied to a quadrature
         boundary field.
     """
@@ -643,7 +643,7 @@ class VectorFluxOperator(object):
         if isinstance(arg, int) and arg == 0:
             return 0
         from pytools.obj_array import make_obj_array
-        from grudge.optemplate.primitives import OperatorBinding
+        from grudge.symbolic.primitives import OperatorBinding
 
         return make_obj_array(
                 [OperatorBinding(FluxOperator(f), arg)
@@ -682,7 +682,7 @@ class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
         @property
         @memoize_method
         def dependencies(self):
-            from grudge.optemplate.tools import get_flux_dependencies
+            from grudge.symbolic.tools import get_flux_dependencies
             return set(get_flux_dependencies(
                 self.flux_expr, self.field_expr))
 
@@ -692,20 +692,20 @@ class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
         @property
         @memoize_method
         def int_dependencies(self):
-            from grudge.optemplate.tools import get_flux_dependencies
+            from grudge.symbolic.tools import get_flux_dependencies
             return set(get_flux_dependencies(
                     self.flux_expr, self.bpair, bdry="int"))
 
         @property
         @memoize_method
         def ext_dependencies(self):
-            from grudge.optemplate.tools import get_flux_dependencies
+            from grudge.symbolic.tools import get_flux_dependencies
             return set(get_flux_dependencies(
                     self.flux_expr, self.bpair, bdry="ext"))
 
     def __init__(self, is_lift, interiors, boundaries,
             quadrature_tag):
-        from grudge.optemplate.tools import get_flux_dependencies
+        from grudge.symbolic.tools import get_flux_dependencies
 
         self.is_lift = is_lift
 
@@ -733,7 +733,7 @@ class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
                 self.dep_to_tag[dep] = bflux.bpair.tag
 
     def stringifier(self):
-        from grudge.optemplate import StringifyMapper
+        from grudge.symbolic import StringifyMapper
         return StringifyMapper
 
     def repr_op(self):

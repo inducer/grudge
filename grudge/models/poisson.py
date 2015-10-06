@@ -48,7 +48,7 @@ class LaplacianOperatorBase(object):
           :class:`grudge.models.diffusion.DiffusionOperator` needs this.
         """
 
-        from grudge.optemplate import Field, make_sym_vector
+        from grudge.symbolic import Field, make_sym_vector
         from grudge.second_order import SecondDerivativeTarget
 
         if u is None:
@@ -167,9 +167,9 @@ class BoundPoissonOperator(grudge.iterative.OperatorBase):
         # Check whether use of Poincaré mean-value method is required.
         # (for pure Neumann or pure periodic)
 
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
         self.poincare_mean_value_hack = (
-                len(self.discr.get_boundary(TAG_ALL).nodes)
+                len(self.discr.get_boundary(BTAG_ALL).nodes)
                 == len(self.discr.get_boundary(poisson_op.neumann_tag).nodes))
 
     @property
@@ -236,7 +236,7 @@ class BoundPoissonOperator(grudge.iterative.OperatorBase):
         """
         pop = self.poisson_op
 
-        from grudge.optemplate import MassOperator
+        from grudge.symbolic import MassOperator
         return (MassOperator().apply(self.discr, rhs)
             - self.compiled_bc_op(
                 u=self.discr.volume_zeros(),
@@ -252,7 +252,7 @@ class HelmholtzOperator(PoissonOperator):
         self.k = k
 
     def op_template(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
-        from grudge.optemplate import Field
+        from grudge.symbolic import Field
         if u is None:
             u = Field("u")
 
@@ -262,5 +262,5 @@ class HelmholtzOperator(PoissonOperator):
         if apply_minv:
             return result + self.k**2 * u
         else:
-            from grudge.optemplate import MassOperator
+            from grudge.symbolic import MassOperator
             return result + self.k**2 * MassOperator()(u)

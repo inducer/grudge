@@ -19,12 +19,12 @@ from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
 import numpy as np
-from grudge.mesh import TAG_ALL, TAG_NONE
+from grudge.mesh import BTAG_ALL, BTAG_NONE
 from six.moves import range
 
 
 def main(write_output=True,
-        dir_tag=TAG_NONE, neu_tag=TAG_NONE, rad_tag=TAG_ALL,
+        dir_tag=BTAG_NONE, neu_tag=TAG_NONE, rad_tag=BTAG_ALL,
         flux_type_arg="upwind", dtype=np.float64, debug=[]):
     from math import sin, cos, pi, exp, sqrt  # noqa
 
@@ -58,13 +58,13 @@ def main(write_output=True,
     stepper = LSRK4TimeStepper(dtype=dtype)
 
     from grudge.models.wave import StrongWaveOperator
-    from grudge.mesh import TAG_ALL, TAG_NONE  # noqa
+    from grudge.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
     source_center = np.array([0.1, 0.22])
     source_width = 0.05
     source_omega = 3
 
-    import grudge.optemplate as sym
+    import grudge.symbolic as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
@@ -162,7 +162,7 @@ def main(write_output=True,
     # }}}
 
 if __name__ == "__main__":
-    main(True, TAG_ALL, TAG_NONE, TAG_NONE, "upwind", np.float64,
+    main(True, BTAG_ALL, BTAG_NONE, TAG_NONE, "upwind", np.float64,
             debug=["cuda_no_plan", "dump_optemplate_stages"])
 
 
@@ -173,19 +173,19 @@ def test_wave():
     mark_long = mark_test.long
 
     yield ("dirichlet wave equation with SP data", mark_long(main),
-            False, TAG_ALL, TAG_NONE, TAG_NONE, "upwind", np.float64)
+            False, BTAG_ALL, BTAG_NONE, TAG_NONE, "upwind", np.float64)
     yield ("dirichlet wave equation with SP complex data", mark_long(main),
-            False, TAG_ALL, TAG_NONE, TAG_NONE, "upwind", np.complex64)
+            False, BTAG_ALL, BTAG_NONE, TAG_NONE, "upwind", np.complex64)
     yield ("dirichlet wave equation with DP complex data", mark_long(main),
-            False, TAG_ALL, TAG_NONE, TAG_NONE, "upwind", np.complex128)
+            False, BTAG_ALL, BTAG_NONE, TAG_NONE, "upwind", np.complex128)
     for flux_type in ["upwind", "central"]:
         yield ("dirichlet wave equation with %s flux" % flux_type,
                 mark_long(main),
-                False, TAG_ALL, TAG_NONE, TAG_NONE, flux_type)
+                False, BTAG_ALL, BTAG_NONE, TAG_NONE, flux_type)
     yield ("neumann wave equation", mark_long(main),
-            False, TAG_NONE, TAG_ALL, TAG_NONE)
+            False, BTAG_NONE, BTAG_ALL, TAG_NONE)
     yield ("radiation-bc wave equation", mark_long(main),
-            False, TAG_NONE, TAG_NONE, TAG_ALL)
+            False, BTAG_NONE, TAG_NONE, BTAG_ALL)
 
 # }}}
 

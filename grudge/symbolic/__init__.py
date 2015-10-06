@@ -26,7 +26,7 @@ THE SOFTWARE.
 """
 
 
-from grudge.optemplate.primitives import *  # noqa
-from grudge.optemplate.operators import *  # noqa
-from grudge.optemplate.mappers import *  # noqa
-from grudge.optemplate.tools import *  # noqa
+from grudge.symbolic.primitives import *  # noqa
+from grudge.symbolic.operators import *  # noqa
+from grudge.symbolic.mappers import *  # noqa
+from grudge.symbolic.tools import *  # noqa

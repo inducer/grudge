@@ -31,7 +31,7 @@ THE SOFTWARE.
 
 
 from pytools import Record, memoize_method
-from grudge.optemplate import IdentityMapper
+from grudge.symbolic import IdentityMapper
 
 
 # {{{ instructions
@@ -76,7 +76,7 @@ class Assign(Instruction):
 
     @memoize_method
     def flop_count(self):
-        from grudge.optemplate import FlopCounter
+        from grudge.symbolic import FlopCounter
         return sum(FlopCounter()(expr) for expr in self.exprs)
 
     def get_assignees(self):
@@ -138,14 +138,14 @@ class FluxBatchAssign(Instruction):
     :ivar names:
     :ivar expressions:
 
-        A list of :class:`grudge.optemplate.primitives.OperatorBinding`
+        A list of :class:`grudge.symbolic.primitives.OperatorBinding`
         instances bound to flux operators.
 
         .. note ::
 
             All operators in :attr:`expressions` are guaranteed to
             yield the same operator from
-            :meth:`grudge.optemplate.operators.FluxOperatorBase.repr_op`.
+            :meth:`grudge.symbolic.operators.FluxOperatorBase.repr_op`.
 
     :ivar repr_op: The `repr_op` on which all operators agree.
     """
@@ -156,7 +156,7 @@ class FluxBatchAssign(Instruction):
     def __str__(self):
         from grudge.flux import PrettyFluxStringifyMapper as PFSM
         flux_strifier = PFSM()
-        from grudge.optemplate import StringifyMapper as OSM
+        from grudge.symbolic import StringifyMapper as OSM
         op_strifier = OSM(flux_stringify_mapper=flux_strifier)
 
         from pymbolic.mapper.stringifier import PREC_NONE
@@ -187,7 +187,7 @@ class DiffBatchAssign(Instruction):
         .. note ::
 
             All operators here are guaranteed to satisfy
-            :meth:`grudge.optemplate.operators.DiffOperatorBase.
+            :meth:`grudge.symbolic.operators.DiffOperatorBase.
             equal_except_for_axis`.
 
     :ivar field:
@@ -379,7 +379,7 @@ class Code(object):
         # {{{ make sure results do not get discarded
         from grudge.tools import with_object_array_or_scalar
 
-        from grudge.optemplate.mappers import DependencyMapper
+        from grudge.symbolic.mappers import DependencyMapper
         dm = DependencyMapper(composite_leaves=False)
 
         def remove_result_variable(result_expr):
@@ -569,7 +569,7 @@ class OperatorCompilerBase(IdentityMapper):
 
     @memoize_method
     def dep_mapper_factory(self, include_subscripts=False):
-        from grudge.optemplate import DependencyMapper
+        from grudge.symbolic import DependencyMapper
         self.dep_mapper = DependencyMapper(
                 include_operator_bindings=False,
                 include_subscripts=include_subscripts,
@@ -588,12 +588,12 @@ class OperatorCompilerBase(IdentityMapper):
         raise NotImplementedError
 
     def collect_diff_ops(self, expr):
-        from grudge.optemplate.operators import ReferenceDiffOperatorBase
-        from grudge.optemplate.mappers import BoundOperatorCollector
+        from grudge.symbolic.operators import ReferenceDiffOperatorBase
+        from grudge.symbolic.mappers import BoundOperatorCollector
         return BoundOperatorCollector(ReferenceDiffOperatorBase)(expr)
 
     def collect_flux_exchange_ops(self, expr):
-        from grudge.optemplate.mappers import FluxExchangeCollector
+        from grudge.symbolic.mappers import FluxExchangeCollector
         return FluxExchangeCollector()(expr)
 
     # }}}
@@ -601,10 +601,10 @@ class OperatorCompilerBase(IdentityMapper):
     # {{{ top-level driver ----------------------------------------------------
     def __call__(self, expr, type_hints={}):
         # Put the result expressions into variables as well.
-        from grudge.optemplate import make_common_subexpression as cse
+        from grudge.symbolic import make_common_subexpression as cse
         expr = cse(expr, "_result")
 
-        from grudge.optemplate.mappers.type_inference import TypeInferrer
+        from grudge.symbolic.mappers.type_inference import TypeInferrer
         self.typedict = TypeInferrer()(expr, type_hints)
 
         # {{{ flux batching
@@ -720,10 +720,10 @@ class OperatorCompilerBase(IdentityMapper):
         except KeyError:
             priority = getattr(expr, "priority", 0)
 
-            from grudge.optemplate.mappers.type_inference import type_info
+            from grudge.symbolic.mappers.type_inference import type_info
             is_scalar_valued = isinstance(self.typedict[expr], type_info.Scalar)
 
-            from grudge.optemplate import OperatorBinding
+            from grudge.symbolic import OperatorBinding
             if isinstance(expr.child, OperatorBinding):
                 # We need to catch operator bindings here and
                 # treat them specially. They get assigned to their
@@ -743,7 +743,7 @@ class OperatorCompilerBase(IdentityMapper):
             return cse_var
 
     def map_operator_binding(self, expr, name_hint=None):
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 ReferenceDiffOperatorBase,
                 FluxOperatorBase)
 
@@ -780,7 +780,7 @@ class OperatorCompilerBase(IdentityMapper):
         return self.assign_to_new_var(expr, prefix="normal%d" % expr.axis)
 
     def map_call(self, expr):
-        from grudge.optemplate.primitives import CFunction
+        from grudge.symbolic.primitives import CFunction
         if isinstance(expr.function, CFunction):
             return IdentityMapper.map_call(self, expr)
         else:
@@ -807,7 +807,7 @@ class OperatorCompilerBase(IdentityMapper):
             from pytools import single_valued
             op_class = single_valued(type(d.op) for d in all_diffs)
 
-            from grudge.optemplate.operators import \
+            from grudge.symbolic.operators import \
                     ReferenceQuadratureStiffnessTOperator
             if isinstance(op_class, ReferenceQuadratureStiffnessTOperator):
                 assign_class = QuadratureDiffBatchAssign

@@ -123,7 +123,7 @@ def main(write_output=True):
     if write_output:
         vis = VtkVisualizer(discr, rcon, "em-%d" % order)
 
-    from grudge.mesh import TAG_ALL, TAG_NONE
+    from grudge.mesh import BTAG_ALL, BTAG_NONE
     from grudge.data import GivenFunction, TimeHarmonicGivenFunction, TimeIntervalGivenFunction
     from grudge.models.em import MaxwellOperator
     from grudge.models.pml import \
@@ -133,8 +133,8 @@ def main(write_output=True):
 
     op = AbarbanelGottliebPMLTEMaxwellOperator(epsilon, mu, flux_type=1,
             current=Current(),
-            pec_tag=TAG_ALL,
-            absorb_tag=TAG_NONE,
+            pec_tag=BTAG_ALL,
+            absorb_tag=BTAG_NONE,
             add_decay=True
             )
 

@@ -101,9 +101,9 @@ class BoundDiffusionOperator(grudge.iterative.OperatorBase):
         # Check whether use of Poincaré mean-value method is required.
         # (for pure Neumann or pure periodic)
 
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
         self.poincare_mean_value_hack = (
-                len(self.discr.get_boundary(TAG_ALL).nodes)
+                len(self.discr.get_boundary(BTAG_ALL).nodes)
                 == len(self.discr.get_boundary(diffusion_op.neumann_tag).nodes))
 
     def __call__(self, t, u):

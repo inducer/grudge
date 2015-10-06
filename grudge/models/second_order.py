@@ -27,20 +27,20 @@ THE SOFTWARE.
 
 
 import numpy as np
-import grudge.optemplate
+import grudge.symbolic
 
 
 # {{{ stabilization term generator
 
-class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
+class StabilizationTermGenerator(grudge.symbolic.IdentityMapper):
     def __init__(self, flux_args):
-        grudge.optemplate.IdentityMapper.__init__(self)
+        grudge.symbolic.IdentityMapper.__init__(self)
         self.flux_args = flux_args
         self.flux_arg_lookup = dict(
                 (flux_arg, i) for i, flux_arg in enumerate(flux_args))
 
     def get_flux_arg_idx(self, expr, quad_above):
-        from grudge.optemplate.mappers import QuadratureDetector
+        from grudge.symbolic.mappers import QuadratureDetector
 
         quad_below = QuadratureDetector()(expr)
         if quad_above:
@@ -51,7 +51,7 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
                 # now two layers of quadrature operators. We need to change the
                 # inner layer to be the only layer.
 
-                from grudge.optemplate.mappers import QuadratureUpsamplerChanger
+                from grudge.symbolic.mappers import QuadratureUpsamplerChanger
                 expr = QuadratureUpsamplerChanger(quad_above[0])(expr)
             else:
                 # Only the part of the expression above the differentiation
@@ -62,7 +62,7 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
                 # Only the part of the expression below the differentiation
                 # operator had quadrature--the stuff above doesn't want it.
                 # Get rid of it.
-                from grudge.optemplate.mappers import QuadratureUpsamplerRemover
+                from grudge.symbolic.mappers import QuadratureUpsamplerRemover
                 expr = QuadratureUpsamplerRemover({}, do_warn=False)(expr)
             else:
                 # No quadrature, no headaches.
@@ -77,7 +77,7 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
             return flux_arg_idx
 
     def map_operator_binding(self, expr, quad_above=[]):
-        from grudge.optemplate.operators import (
+        from grudge.symbolic.operators import (
                 DiffOperatorBase, FluxOperatorBase,
                 InverseMassOperator,
                 QuadratureInteriorFacesGridUpsampler)
@@ -85,7 +85,7 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
         if isinstance(expr.op, DiffOperatorBase):
             flux_arg_idx = self.get_flux_arg_idx(expr.field, quad_above=quad_above)
 
-            from grudge.optemplate import \
+            from grudge.symbolic import \
                     WeakFormDiffOperatorBase, \
                     StrongFormDiffOperatorBase
             if isinstance(expr.op, WeakFormDiffOperatorBase):
@@ -112,7 +112,7 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
                         "when generating stabilization term")
             return self.rec(expr.field, [expr.op])
         else:
-            from grudge.optemplate.tools import pretty
+            from grudge.symbolic.tools import pretty
             raise ValueError("stabilization term generator doesn't know "
                     "what to do with '%s'" % pretty(expr))
 
@@ -135,15 +135,15 @@ class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
 
 # {{{ neumann bc generator
 
-class NeumannBCGenerator(grudge.optemplate.IdentityMapper):
+class NeumannBCGenerator(grudge.symbolic.IdentityMapper):
     def __init__(self, tag, bc):
-        grudge.optemplate.IdentityMapper.__init__(self)
+        grudge.symbolic.IdentityMapper.__init__(self)
         self.tag = tag
         self.bc = bc
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, grudge.optemplate.DiffOperatorBase):
-            from grudge.optemplate import \
+        if isinstance(expr.op, grudge.symbolic.DiffOperatorBase):
+            from grudge.symbolic import \
                     WeakFormDiffOperatorBase, \
                     StrongFormDiffOperatorBase
             if isinstance(expr.op, WeakFormDiffOperatorBase):
@@ -154,13 +154,13 @@ class NeumannBCGenerator(grudge.optemplate.IdentityMapper):
                 raise RuntimeError("unknown type of differentiation "
                         "operator encountered by stab term generator")
 
-            from grudge.optemplate import BoundaryNormalComponent
+            from grudge.symbolic import BoundaryNormalComponent
             return (self.bc * factor *
                     BoundaryNormalComponent(self.tag, expr.op.xyz_axis))
 
-        elif isinstance(expr.op, grudge.optemplate.FluxOperatorBase):
+        elif isinstance(expr.op, grudge.symbolic.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, grudge.optemplate.InverseMassOperator):
+        elif isinstance(expr.op, grudge.symbolic.InverseMassOperator):
             return self.rec(expr.field)
         else:
             raise ValueError("neumann normal direction generator doesn't know "
@@ -169,10 +169,10 @@ class NeumannBCGenerator(grudge.optemplate.IdentityMapper):
 # }}}
 
 
-class IPDGDerivativeGenerator(grudge.optemplate.IdentityMapper):
+class IPDGDerivativeGenerator(grudge.symbolic.IdentityMapper):
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, grudge.optemplate.DiffOperatorBase):
-            from grudge.optemplate import (
+        if isinstance(expr.op, grudge.symbolic.DiffOperatorBase):
+            from grudge.symbolic import (
                     WeakFormDiffOperatorBase,
                     StrongFormDiffOperatorBase)
 
@@ -184,19 +184,19 @@ class IPDGDerivativeGenerator(grudge.optemplate.IdentityMapper):
                 raise RuntimeError("unknown type of differentiation "
                         "operator encountered by stab term generator")
 
-            from grudge.optemplate import DifferentiationOperator
+            from grudge.symbolic import DifferentiationOperator
             return factor*DifferentiationOperator(expr.op.xyz_axis)(expr.field)
 
-        elif isinstance(expr.op, grudge.optemplate.FluxOperatorBase):
+        elif isinstance(expr.op, grudge.symbolic.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, grudge.optemplate.InverseMassOperator):
+        elif isinstance(expr.op, grudge.symbolic.InverseMassOperator):
             return self.rec(expr.field)
         elif isinstance(expr.op,
-                grudge.optemplate.QuadratureInteriorFacesGridUpsampler):
-            return grudge.optemplate.IdentityMapper.map_operator_binding(
+                grudge.symbolic.QuadratureInteriorFacesGridUpsampler):
+            return grudge.symbolic.IdentityMapper.map_operator_binding(
                     self, expr)
         else:
-            from grudge.optemplate.tools import pretty
+            from grudge.symbolic.tools import pretty
             raise ValueError("IPDG derivative generator doesn't know "
                     "what to do with '%s'" % pretty(expr))
 
@@ -275,10 +275,10 @@ class SecondDerivativeTarget(object):
 
     def _local_nabla(self):
         if self.strong_form:
-            from grudge.optemplate import make_stiffness
+            from grudge.symbolic import make_stiffness
             return make_stiffness(self.dimensions)
         else:
-            from grudge.optemplate import make_stiffness_t
+            from grudge.symbolic import make_stiffness_t
             return make_stiffness_t(self.dimensions)
 
     def add_derivative(self, operand=None):
@@ -289,12 +289,12 @@ class SecondDerivativeTarget(object):
                 self.apply_diff(self._local_nabla(), operand))
 
     def add_inner_fluxes(self, flux, expr):
-        from grudge.optemplate import get_flux_operator
+        from grudge.symbolic import get_flux_operator
         self.inner_fluxes = self.inner_fluxes \
                 + get_flux_operator(self.strong_neg*flux)(expr)
 
     def add_boundary_flux(self, flux, volume_expr, bdry_expr, tag):
-        from grudge.optemplate import BoundaryPair, get_flux_operator
+        from grudge.symbolic import BoundaryPair, get_flux_operator
         self.boundary_fluxes = self.boundary_fluxes + \
                 get_flux_operator(self.strong_neg*flux)(BoundaryPair(
                         volume_expr, bdry_expr, tag))
@@ -309,8 +309,8 @@ class SecondDerivativeTarget(object):
 
     @property
     def minv_all(self):
-        from grudge.optemplate.primitives import make_common_subexpression as cse
-        from grudge.optemplate.operators import InverseMassOperator
+        from grudge.symbolic.primitives import make_common_subexpression as cse
+        from grudge.symbolic.operators import InverseMassOperator
         return (cse(InverseMassOperator()(self.local_derivatives), "grad_loc")
                 + cse(InverseMassOperator()(self.fluxes), "grad_flux"))
 
@@ -395,7 +395,7 @@ class LDGSecondDerivative(SecondDerivativeBase):
         return np.array([self.beta_value]*tgt.dimensions, dtype=np.float64)
 
     def grad_interior_flux(self, tgt, u):
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         n_times = tgt.normal_times_flux
         v_times = tgt.vec_times
 
@@ -409,7 +409,7 @@ class LDGSecondDerivative(SecondDerivativeBase):
           *volume_expr* will be None to query the Neumann condition.
         """
 
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         from grudge.flux import FluxVectorPlaceholder, PenaltyTerm
 
         n_times = tgt.normal_times_flux
@@ -459,7 +459,7 @@ class IPDGSecondDerivative(SecondDerivativeBase):
         self.stab_coefficient = stab_coefficient
 
     def grad_interior_flux(self, tgt, u):
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         n_times = tgt.normal_times_flux
         return n_times(cse(u.avg, "u_avg"))
 
@@ -469,7 +469,7 @@ class IPDGSecondDerivative(SecondDerivativeBase):
           *volume_expr* will be None to query the Neumann condition.
         """
 
-        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.symbolic.primitives import make_common_subexpression as cse
         from grudge.flux import FluxVectorPlaceholder, PenaltyTerm
 
         n_times = tgt.normal_times_flux

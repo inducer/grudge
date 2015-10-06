@@ -87,7 +87,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
             result[numpy.array(subset, dtype=bool)] = v
             return result
 
-        from grudge.optemplate import make_sym_vector
+        from grudge.symbolic import make_sym_vector
         sig = pad_vec(
                 make_sym_vector("sigma", self.dimensions),
                 dim_subset)
@@ -133,7 +133,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
         from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
         if w is None:
-            from grudge.optemplate import make_sym_vector
+            from grudge.symbolic import make_sym_vector
             w = make_sym_vector("w", fld_cnt+2*self.dimensions)
 
         from grudge.tools import join_fields

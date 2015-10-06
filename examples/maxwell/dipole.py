@@ -105,7 +105,7 @@ def main(write_output=True, allow_features=None):
                 sph_dipole.source_modulation(t)*self.num_sf
                 ])
 
-    from grudge.mesh import TAG_ALL, TAG_NONE
+    from grudge.mesh import BTAG_ALL, BTAG_NONE
     if dims == 2:
         from grudge.models.em import TMMaxwellOperator as MaxwellOperator
     else:
@@ -114,8 +114,8 @@ def main(write_output=True, allow_features=None):
     op = MaxwellOperator(
             epsilon, mu,
             flux_type=1,
-            pec_tag=TAG_NONE,
-            absorb_tag=TAG_ALL,
+            pec_tag=BTAG_NONE,
+            absorb_tag=BTAG_ALL,
             current=PointDipoleSource(),
             )
 

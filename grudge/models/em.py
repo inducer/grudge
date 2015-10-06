@@ -31,7 +31,7 @@ from pytools import memoize_method
 
 import grudge.mesh
 from grudge.models import HyperbolicOperator
-from grudge.optemplate.primitives import make_common_subexpression as cse
+from grudge.symbolic.primitives import make_common_subexpression as cse
 from grudge.tools import make_obj_array
 
 # TODO: Check PML
@@ -204,7 +204,7 @@ class MaxwellOperator(HyperbolicOperator):
         def h_curl(field):
             return self.space_cross_h(nabla, field)
 
-        from grudge.optemplate import make_nabla
+        from grudge.symbolic import make_nabla
         from grudge.tools import join_fields
 
         nabla = make_nabla(self.dimensions)
@@ -220,7 +220,7 @@ class MaxwellOperator(HyperbolicOperator):
         from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
         if w is None:
-            from grudge.optemplate import make_sym_vector
+            from grudge.symbolic import make_sym_vector
             w = make_sym_vector("w", fld_cnt)
 
         return w
@@ -230,7 +230,7 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(self.field_placeholder(w))
 
         from grudge.tools import join_fields
-        from grudge.optemplate import BoundarizeOperator
+        from grudge.symbolic import BoundarizeOperator
         pec_e = BoundarizeOperator(self.pec_tag)(e)
         pec_h = BoundarizeOperator(self.pec_tag)(h)
 
@@ -241,7 +241,7 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(self.field_placeholder(w))
 
         from grudge.tools import join_fields
-        from grudge.optemplate import BoundarizeOperator
+        from grudge.symbolic import BoundarizeOperator
         pmc_e = BoundarizeOperator(self.pmc_tag)(e)
         pmc_h = BoundarizeOperator(self.pmc_tag)(h)
 
@@ -252,10 +252,10 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        from grudge.optemplate import normal
+        from grudge.symbolic import normal
         absorb_normal = normal(self.absorb_tag, self.dimensions)
 
-        from grudge.optemplate import BoundarizeOperator, Field
+        from grudge.symbolic import BoundarizeOperator, Field
         from grudge.tools import join_fields
 
         e, h = self.split_eh(self.field_placeholder(w))
@@ -326,7 +326,7 @@ class MaxwellOperator(HyperbolicOperator):
 
             flux_w = join_fields(epsilon, mu, w)
 
-        from grudge.optemplate import BoundaryPair, \
+        from grudge.symbolic import BoundaryPair, \
                 InverseMassOperator, get_flux_operator
 
         flux_op = get_flux_operator(self.flux(self.flux_type))
@@ -356,7 +356,7 @@ class MaxwellOperator(HyperbolicOperator):
             if self.fixed_material:
                 return bc
             else:
-                from grudge.optemplate import BoundarizeOperator
+                from grudge.symbolic import BoundarizeOperator
                 return join_fields(
                         cse(BoundarizeOperator(tag)(epsilon)),
                         cse(BoundarizeOperator(tag)(mu)),
@@ -473,7 +473,7 @@ class MaxwellOperator(HyperbolicOperator):
         if self.fixed_material:
             return 1/sqrt(self.epsilon*self.mu)  # a number
         else:
-            import grudge.optemplate as sym
+            import grudge.symbolic as sym
             return sym.NodalMax()(1/sym.CFunction("sqrt")(self.epsilon*self.mu))
 
     def max_eigenvalue(self, t, fields=None, discr=None, context={}):

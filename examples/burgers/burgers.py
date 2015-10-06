@@ -192,7 +192,7 @@ def main(write_output=True, flux_type_arg="upwind",
 
         step_it = times_and_steps(
                 final_time=case.final_time, logmgr=logmgr, max_dt_getter=lambda t: dt)
-        from grudge.optemplate import  InverseVandermondeOperator
+        from grudge.symbolic import  InverseVandermondeOperator
         inv_vdm = InverseVandermondeOperator().bind(discr)
 
         for step, t, dt in step_it:

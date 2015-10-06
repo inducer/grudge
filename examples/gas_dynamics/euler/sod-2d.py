@@ -72,13 +72,13 @@ def main():
         fields = sod_field.volume_interpolant(0, discr)
 
         from grudge.models.gas_dynamics import GasDynamicsOperator
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
         op = GasDynamicsOperator(dimensions=2, gamma=sod_field.gamma, mu=0.0,
                 prandtl=sod_field.prandtl,
                 bc_inflow=sod_field,
                 bc_outflow=sod_field,
                 bc_noslip=sod_field,
-                inflow_tag=TAG_ALL,
+                inflow_tag=BTAG_ALL,
                 source=None)
 
         euler_ex = op.bind(discr)

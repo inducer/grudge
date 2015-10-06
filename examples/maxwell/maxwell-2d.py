@@ -67,13 +67,13 @@ def main(write_output=True):
         print("order %d" % order)
         print("#elements=", len(mesh.elements))
 
-    from grudge.mesh import TAG_ALL, TAG_NONE
+    from grudge.mesh import BTAG_ALL, BTAG_NONE
     from grudge.models.em import TMMaxwellOperator
     from grudge.data import make_tdep_given, TimeIntervalGivenFunction
     op = TMMaxwellOperator(epsilon, mu, flux_type=1,
             current=TimeIntervalGivenFunction(
                 make_tdep_given(CurrentSource()), off_time=final_time/10),
-            absorb_tag=TAG_ALL, pec_tag=TAG_NONE)
+            absorb_tag=BTAG_ALL, pec_tag=BTAG_NONE)
     fields = op.assemble_eh(discr=discr)
 
     from grudge.timestep import LSRK4TimeStepper

@@ -29,13 +29,13 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.mesh import TAG_ALL, TAG_NONE
+from grudge.mesh import BTAG_ALL, BTAG_NONE
 
 
 def main(write_output=True,
-        dir_tag=TAG_NONE,
-        neu_tag=TAG_NONE,
-        rad_tag=TAG_ALL,
+        dir_tag=BTAG_NONE,
+        neu_tag=BTAG_NONE,
+        rad_tag=BTAG_ALL,
         flux_type_arg="upwind"):
     from math import sin, cos, pi, exp, sqrt  # noqa
 
@@ -78,7 +78,7 @@ def main(write_output=True,
     source_width = 1/16
     source_omega = 3
 
-    import grudge.optemplate as sym
+    import grudge.symbolic as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
@@ -190,10 +190,10 @@ def test_var_velocity_wave():
     for flux_type in ["upwind", "central"]:
         yield ("dirichlet var-v wave equation with %s flux" % flux_type,
                 mark_long(main),
-                False, TAG_ALL, TAG_NONE, TAG_NONE, flux_type)
+                False, BTAG_ALL, BTAG_NONE, TAG_NONE, flux_type)
     yield ("neumann var-v wave equation", mark_long(main),
-            False, TAG_NONE, TAG_ALL, TAG_NONE)
+            False, BTAG_NONE, BTAG_ALL, TAG_NONE)
     yield ("radiation-bc var-v wave equation", mark_long(main),
-            False, TAG_NONE, TAG_NONE, TAG_ALL)
+            False, BTAG_NONE, TAG_NONE, BTAG_ALL)
 
 # vim: foldmethod=marker

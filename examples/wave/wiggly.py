@@ -29,7 +29,7 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.mesh import TAG_ALL, TAG_NONE  # noqa
+from grudge.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 
 def main(write_output=True,
@@ -63,7 +63,7 @@ def main(write_output=True,
     source_width = 0.05
     source_omega = 3
 
-    import grudge.optemplate as sym
+    import grudge.symbolic as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
@@ -75,8 +75,8 @@ def main(write_output=True,
                 -np.dot(sym_source_center_dist, sym_source_center_dist)
                 / source_width**2),
             dirichlet_tag="boundary",
-            neumann_tag=TAG_NONE,
-            radiation_tag=TAG_NONE,
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_NONE,
             flux_type=flux_type_arg
             )
 

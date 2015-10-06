@@ -189,13 +189,13 @@ def main(write_output=True):
 
         from grudge.models.gas_dynamics import (
                 GasDynamicsOperator, GammaLawEOS)
-        from grudge.mesh import TAG_ALL
+        from grudge.mesh import BTAG_ALL
 
         op = GasDynamicsOperator(dimensions=2,
                 mu=0.0, prandtl=0.72, spec_gas_const=287.1, 
                 equation_of_state=GammaLawEOS(vortex.gamma),
                 bc_inflow=vortex, bc_outflow=vortex, bc_noslip=vortex,
-                inflow_tag=TAG_ALL, source=sources)
+                inflow_tag=BTAG_ALL, source=sources)
 
         euler_ex = op.bind(discr)
 
