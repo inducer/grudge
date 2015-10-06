@@ -37,3 +37,15 @@ def make_discretization(mesh, order, **kwargs):
 
     return Discretization(cl_ctx, mesh,
             PolynomialWarpAndBlendGroupFactory(order=order))
+
+
+def set_up_rk4(dt, fields, t_start=0):
+    from leap.method.rk import LSRK4Method
+    from leap.vm.codegen import PythonCodeGenerator
+
+    dt_method = LSRK4Method(component_id="y")
+    dt_stepper = PythonCodeGenerator().get_class(dt_method.generate())
+
+    dt_stepper.set_up(t_start=t_start, dt_start=dt, context={"y": fields})
+
+    return dt_stepper

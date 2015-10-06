@@ -29,9 +29,10 @@ THE SOFTWARE.
 
 import numpy as np
 from grudge.models import HyperbolicOperator
-from grudge.second_order import CentralSecondDerivative
+from grudge.models.second_order import CentralSecondDerivative
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym, sym_flux
+from pytools.obj_array import join_fields
 
 
 # {{{ constant-velocity
@@ -122,7 +123,6 @@ class StrongWaveOperator(HyperbolicOperator):
         v = w[1:]
 
         # boundary conditions -------------------------------------------------
-        from grudge.tools import join_fields
 
         # dirichlet BCs -------------------------------------------------------
         from grudge.symbolic import normal, Field
@@ -160,7 +160,6 @@ class StrongWaveOperator(HyperbolicOperator):
         nabla = make_nabla(d)
         flux_op = get_flux_operator(self.flux())
 
-        from grudge.tools import join_fields
         result = (
                 - join_fields(
                     -self.c*np.dot(nabla, v),
@@ -252,7 +251,6 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         v = w[2:]
         normal = make_normal(dim)
 
-        from grudge.tools import join_fields
         flux = self.time_sign*1/2*join_fields(
                 c.ext * np.dot(v.ext, normal)
                 - c.int * np.dot(v.int, normal),
@@ -299,11 +297,9 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         u = w[0]
         v = w[1:]
 
-        from grudge.tools import join_fields
         flux_w = join_fields(self.c, w)
 
         # {{{ boundary conditions
-        from grudge.tools import join_fields
 
         # Dirichlet
         dir_c = BoundarizeOperator(self.dirichlet_tag) * self.c

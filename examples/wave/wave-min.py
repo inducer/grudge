@@ -26,13 +26,14 @@ THE SOFTWARE.
 
 
 import numpy as np
+import pyopencl as cl
+from grudge.shortcuts import make_discretization, set_up_rk4
 
 
 def main(write_output=True):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
 
-    from grudge.shortcuts import make_discretization
     discr = make_discretization(mesh, order=4)
 
     #from grudge.visualization import VtkVisualizer
@@ -42,16 +43,19 @@ def main(write_output=True):
     source_width = 0.05
     source_omega = 3
 
-    import grudge.symbolic as sym
+    from grudge import sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
+    sym_sin = sym.CFunction("sin")
+    sym_exp = sym.CFunction("sin")
+    sym_t = sym.ScalarParameter("t")
 
     from grudge.models.wave import StrongWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = StrongWaveOperator(-0.1, discr.dimensions,
+    op = StrongWaveOperator(-0.1, discr.dim,
             source_f=(
-                sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
-                * sym.CFunction("exp")(
+                sym_sin(source_omega*sym_t)
+                * sym_exp(
                     -np.dot(sym_source_center_dist, sym_source_center_dist)
                     / source_width**2)),
             dirichlet_tag=BTAG_NONE,
@@ -59,18 +63,16 @@ def main(write_output=True):
             radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
+    queue = cl.CommandQueue(discr.cl_context)
     from pytools.obj_array import join_fields
-    fields = join_fields(discr.volume_zeros(),
-            [discr.volume_zeros() for i in range(discr.dimensions)])
+    fields = join_fields(discr.zeros(queue),
+            [discr.zeros(queue) for i in range(discr.dim)])
 
-    from leap.method.rk import LSRK4TimeStepper
-    from leap.vm.codegen import PythonCodeGenerator
+    # FIXME
+    #dt = op.estimate_rk4_timestep(discr, fields=fields)
 
-    dt_method = LSRK4TimeStepper(component_id="y")
-    dt_stepper = PythonCodeGenerator.get_class(dt_method.generate())
-
-    dt = op.estimate_timestep(discr, fields=fields)
-    dt_stepper.set_up(t_start=0, dt_start=dt, context={"y": fields})
+    dt = 0.001
+    dt_stepper = set_up_rk4(dt, fields)
 
     final_t = 10
     nsteps = int(final_t/dt)

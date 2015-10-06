@@ -29,10 +29,10 @@ THE SOFTWARE.
 
 from pytools import memoize_method
 
-import grudge.mesh
 from grudge.models import HyperbolicOperator
 from grudge.symbolic.primitives import make_common_subexpression as cse
-from grudge.tools import make_obj_array
+from meshmode.mesh import BTAG_ALL, BTAG_NONE
+from pytools.obj_array import join_fields, make_obj_array
 
 # TODO: Check PML
 
@@ -126,7 +126,6 @@ class MaxwellOperator(HyperbolicOperator):
         """
         from grudge.flux import (make_normal, FluxVectorPlaceholder,
                 FluxConstantPlaceholder)
-        from grudge.tools import join_fields
 
         normal = make_normal(self.dimensions)
 
@@ -205,7 +204,6 @@ class MaxwellOperator(HyperbolicOperator):
             return self.space_cross_h(nabla, field)
 
         from grudge.symbolic import make_nabla
-        from grudge.tools import join_fields
 
         nabla = make_nabla(self.dimensions)
 
@@ -229,7 +227,6 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PEC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from grudge.tools import join_fields
         from grudge.symbolic import BoundarizeOperator
         pec_e = BoundarizeOperator(self.pec_tag)(e)
         pec_h = BoundarizeOperator(self.pec_tag)(h)
@@ -240,7 +237,6 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PMC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from grudge.tools import join_fields
         from grudge.symbolic import BoundarizeOperator
         pmc_e = BoundarizeOperator(self.pmc_tag)(e)
         pmc_h = BoundarizeOperator(self.pmc_tag)(h)
@@ -256,7 +252,6 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_normal = normal(self.absorb_tag, self.dimensions)
 
         from grudge.symbolic import BoundarizeOperator, Field
-        from grudge.tools import join_fields
 
         e, h = self.split_eh(self.field_placeholder(w))
 
@@ -315,7 +310,6 @@ class MaxwellOperator(HyperbolicOperator):
         Combines the relevant operator templates for spatial
         derivatives, flux, boundary conditions etc.
         """
-        from grudge.tools import join_fields
         w = self.field_placeholder(w)
 
         if self.fixed_material:
@@ -410,7 +404,6 @@ class MaxwellOperator(HyperbolicOperator):
         e = default_fld(e, e_components)
         h = default_fld(h, h_components)
 
-        from grudge.tools import join_fields
         return join_fields(e, h)
 
     assemble_fields = assemble_eh

@@ -27,14 +27,15 @@ THE SOFTWARE.
 
 
 import numpy as np
-import grudge.symbolic
+import grudge.symbolic.mappers as mappers
+from grudge import sym
 
 
 # {{{ stabilization term generator
 
-class StabilizationTermGenerator(grudge.symbolic.IdentityMapper):
+class StabilizationTermGenerator(mappers.IdentityMapper):
     def __init__(self, flux_args):
-        grudge.symbolic.IdentityMapper.__init__(self)
+        super(StabilizationTermGenerator, self).__init__()
         self.flux_args = flux_args
         self.flux_arg_lookup = dict(
                 (flux_arg, i) for i, flux_arg in enumerate(flux_args))
@@ -135,14 +136,14 @@ class StabilizationTermGenerator(grudge.symbolic.IdentityMapper):
 
 # {{{ neumann bc generator
 
-class NeumannBCGenerator(grudge.symbolic.IdentityMapper):
+class NeumannBCGenerator(mappers.IdentityMapper):
     def __init__(self, tag, bc):
-        grudge.symbolic.IdentityMapper.__init__(self)
+        super(NeumannBCGenerator, self).__init__()
         self.tag = tag
         self.bc = bc
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, grudge.symbolic.DiffOperatorBase):
+        if isinstance(expr.op, sym.DiffOperatorBase):
             from grudge.symbolic import \
                     WeakFormDiffOperatorBase, \
                     StrongFormDiffOperatorBase
@@ -158,9 +159,9 @@ class NeumannBCGenerator(grudge.symbolic.IdentityMapper):
             return (self.bc * factor *
                     BoundaryNormalComponent(self.tag, expr.op.xyz_axis))
 
-        elif isinstance(expr.op, grudge.symbolic.FluxOperatorBase):
+        elif isinstance(expr.op, sym.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, grudge.symbolic.InverseMassOperator):
+        elif isinstance(expr.op, sym.InverseMassOperator):
             return self.rec(expr.field)
         else:
             raise ValueError("neumann normal direction generator doesn't know "
@@ -169,9 +170,9 @@ class NeumannBCGenerator(grudge.symbolic.IdentityMapper):
 # }}}
 
 
-class IPDGDerivativeGenerator(grudge.symbolic.IdentityMapper):
+class IPDGDerivativeGenerator(mappers.IdentityMapper):
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, grudge.symbolic.DiffOperatorBase):
+        if isinstance(expr.op, sym.DiffOperatorBase):
             from grudge.symbolic import (
                     WeakFormDiffOperatorBase,
                     StrongFormDiffOperatorBase)
@@ -187,14 +188,13 @@ class IPDGDerivativeGenerator(grudge.symbolic.IdentityMapper):
             from grudge.symbolic import DifferentiationOperator
             return factor*DifferentiationOperator(expr.op.xyz_axis)(expr.field)
 
-        elif isinstance(expr.op, grudge.symbolic.FluxOperatorBase):
+        elif isinstance(expr.op, sym.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, grudge.symbolic.InverseMassOperator):
+        elif isinstance(expr.op, sym.InverseMassOperator):
             return self.rec(expr.field)
         elif isinstance(expr.op,
-                grudge.symbolic.QuadratureInteriorFacesGridUpsampler):
-            return grudge.symbolic.IdentityMapper.map_operator_binding(
-                    self, expr)
+                sym.QuadratureInteriorFacesGridUpsampler):
+            return super(IPDGDerivativeGenerator, self).map_operator_binding(expr)
         else:
             from grudge.symbolic.tools import pretty
             raise ValueError("IPDG derivative generator doesn't know "
