@@ -2,7 +2,7 @@
 
 from __future__ import division, print_function
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,34 +29,31 @@ import numpy as np
 
 
 def main(write_output=True):
-    from math import sin, exp, sqrt  # noqa
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
 
-    from grudge.mesh.generator import make_rect_mesh
-    mesh = make_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5), max_area=0.008)
+    from grudge.shortcuts import make_discretization
+    discr = make_discretization(mesh, order=4)
 
-    from grudge.backends.jit import Discretization
-
-    discr = Discretization(mesh, order=4)
-
-    from grudge.visualization import VtkVisualizer
-    vis = VtkVisualizer(discr, None, "fld")
+    #from grudge.visualization import VtkVisualizer
+    #vis = VtkVisualizer(discr, None, "fld")
 
     source_center = np.array([0.1, 0.22])
     source_width = 0.05
     source_omega = 3
 
-    import grudge.optemplate as sym
+    import grudge.symbolic as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
     from grudge.models.wave import StrongWaveOperator
     from grudge.mesh import TAG_ALL, TAG_NONE
     op = StrongWaveOperator(-0.1, discr.dimensions,
-            source_f=
-            sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
-            * sym.CFunction("exp")(
-                -np.dot(sym_source_center_dist, sym_source_center_dist)
-                / source_width**2),
+            source_f=(
+                sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
+                * sym.CFunction("exp")(
+                    -np.dot(sym_source_center_dist, sym_source_center_dist)
+                    / source_width**2)),
             dirichlet_tag=TAG_NONE,
             neumann_tag=TAG_NONE,
             radiation_tag=TAG_ALL,
@@ -75,31 +72,28 @@ def main(write_output=True):
     dt = op.estimate_timestep(discr, fields=fields)
     dt_stepper.set_up(t_start=0, dt_start=dt, context={"y": fields})
 
-    nsteps = int(10/dt)
-    print "dt=%g nsteps=%d" % (dt, nsteps)
+    final_t = 10
+    nsteps = int(final_t/dt)
+    print("dt=%g nsteps=%d" % (dt, nsteps))
 
-    for event in interp.run(t_end=final_t):
-        if isinstance(event, interp.StateComputed):
-            assert event.component_id == component_id
-            values.append(event.state_component[0])
-            times.append(event.t)
+    step = 0
 
-    rhs = op.bind(discr)
-    for step in range(nsteps):
-        t = step*dt
+    for event in dt_stepper.run(t_end=final_t):
+        if isinstance(event, dt_stepper.StateComputed):
+            assert event.component_id == "y"
 
-        if step % 10 == 0 and write_output:
-            print step, t, discr.norm(fields[0])
-            visf = vis.make_file("fld-%04d" % step)
+            step += 1
 
-            vis.add_data(visf,
-                    [("u", fields[0]), ("v", fields[1:]), ],
-                    time=t, step=step)
-            visf.close()
+            # if step % 10 == 0 and write_output:
+            #     print(step, event.t, discr.norm(fields[0]))
+            #     visf = vis.make_file("fld-%04d" % step)
 
-        fields = stepper(fields, t, dt, rhs)
+            #     vis.add_data(visf,
+            #             [("u", fields[0]), ("v", fields[1:]), ],
+            #             time=event.t, step=step)
+            #     visf.close()
 
-    vis.close()
+    #vis.close()
 
 
 if __name__ == "__main__":

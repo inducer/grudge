@@ -1,9 +1,6 @@
 """Operator templates: extra bits of functionality."""
 
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from functools import reduce
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -28,17 +25,13 @@ THE SOFTWARE.
 """
 
 
+from six.moves import range, reduce
 import numpy as np
 import pymbolic.primitives  # noqa
-from pytools import MovedFunctionDeprecationWrapper
 from decorator import decorator
 
 
 # {{{ convenience functions for optemplate creation
-
-make_vector_field = \
-        MovedFunctionDeprecationWrapper(pymbolic.primitives.make_sym_vector)
-
 
 def get_flux_operator(flux):
     """Return a flux operator that can be multiplied with
