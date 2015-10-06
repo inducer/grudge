@@ -136,7 +136,7 @@ class BoundaryPair(LeafBase):
     application of boundary fluxes.
     """
 
-    def __init__(self, field, bfield, tag=grudge.mesh.TAG_ALL):
+    def __init__(self, field, bfield, tag=BTAG_ALL):
         self.field = field
         self.bfield = bfield
         self.tag = tag

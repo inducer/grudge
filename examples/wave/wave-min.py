@@ -47,7 +47,7 @@ def main(write_output=True):
     sym_source_center_dist = sym_x - source_center
 
     from grudge.models.wave import StrongWaveOperator
-    from grudge.mesh import TAG_ALL, TAG_NONE
+    from meshmode.mesh import BTAG_ALL, BTAG_NONE
     op = StrongWaveOperator(-0.1, discr.dimensions,
             source_f=(
                 sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))

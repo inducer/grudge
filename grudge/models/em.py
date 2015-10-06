@@ -49,10 +49,10 @@ class MaxwellOperator(HyperbolicOperator):
     def __init__(self, epsilon, mu,
             flux_type,
             bdry_flux_type=None,
-            pec_tag=grudge.mesh.TAG_ALL,
-            pmc_tag=grudge.mesh.TAG_NONE,
-            absorb_tag=grudge.mesh.TAG_NONE,
-            incident_tag=grudge.mesh.TAG_NONE,
+            pec_tag=BTAG_ALL,
+            pmc_tag=BTAG_NONE,
+            absorb_tag=BTAG_NONE,
+            incident_tag=BTAG_NONE,
             incident_bc=lambda maxwell_op, e, h: 0, current=0, dimensions=None):
         """
         :arg flux_type: can be in [0,1] for anything between central and upwind,
@@ -294,7 +294,7 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(self.field_placeholder(w))
         if not self.fixed_material:
             from warnings import warn
-            if self.incident_tag != grudge.mesh.TAG_NONE:
+            if self.incident_tag != BTAG_NONE:
                 warn("Incident boundary conditions assume homogeneous"
                      " background material, results may be unphysical")
 

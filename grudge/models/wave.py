@@ -28,9 +28,9 @@ THE SOFTWARE.
 
 
 import numpy as np
-import grudge.mesh
 from grudge.models import HyperbolicOperator
 from grudge.second_order import CentralSecondDerivative
+from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
 
 # {{{ constant-velocity
@@ -55,10 +55,10 @@ class StrongWaveOperator(HyperbolicOperator):
 
     def __init__(self, c, dimensions, source_f=0,
             flux_type="upwind",
-            dirichlet_tag=grudge.mesh.TAG_ALL,
+            dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
-            neumann_tag=grudge.mesh.TAG_NONE,
-            radiation_tag=grudge.mesh.TAG_NONE):
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_NONE):
         assert isinstance(dimensions, int)
 
         self.c = c
@@ -218,9 +218,9 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
     def __init__(
             self, c, dimensions, source=0,
             flux_type="upwind",
-            dirichlet_tag=grudge.mesh.TAG_ALL,
-            neumann_tag=grudge.mesh.TAG_NONE,
-            radiation_tag=grudge.mesh.TAG_NONE,
+            dirichlet_tag=BTAG_ALL,
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_NONE,
             time_sign=1,
             diffusion_coeff=None,
             diffusion_scheme=CentralSecondDerivative()
