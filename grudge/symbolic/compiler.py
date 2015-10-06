@@ -31,7 +31,7 @@ THE SOFTWARE.
 
 
 from pytools import Record, memoize_method
-from hedge.optemplate import IdentityMapper
+from grudge.optemplate import IdentityMapper
 
 
 # {{{ instructions
@@ -76,7 +76,7 @@ class Assign(Instruction):
 
     @memoize_method
     def flop_count(self):
-        from hedge.optemplate import FlopCounter
+        from grudge.optemplate import FlopCounter
         return sum(FlopCounter()(expr) for expr in self.exprs)
 
     def get_assignees(self):
@@ -138,14 +138,14 @@ class FluxBatchAssign(Instruction):
     :ivar names:
     :ivar expressions:
 
-        A list of :class:`hedge.optemplate.primitives.OperatorBinding`
+        A list of :class:`grudge.optemplate.primitives.OperatorBinding`
         instances bound to flux operators.
 
         .. note ::
 
             All operators in :attr:`expressions` are guaranteed to
             yield the same operator from
-            :meth:`hedge.optemplate.operators.FluxOperatorBase.repr_op`.
+            :meth:`grudge.optemplate.operators.FluxOperatorBase.repr_op`.
 
     :ivar repr_op: The `repr_op` on which all operators agree.
     """
@@ -154,9 +154,9 @@ class FluxBatchAssign(Instruction):
         return set(self.names)
 
     def __str__(self):
-        from hedge.flux import PrettyFluxStringifyMapper as PFSM
+        from grudge.flux import PrettyFluxStringifyMapper as PFSM
         flux_strifier = PFSM()
-        from hedge.optemplate import StringifyMapper as OSM
+        from grudge.optemplate import StringifyMapper as OSM
         op_strifier = OSM(flux_stringify_mapper=flux_strifier)
 
         from pymbolic.mapper.stringifier import PREC_NONE
@@ -187,7 +187,7 @@ class DiffBatchAssign(Instruction):
         .. note ::
 
             All operators here are guaranteed to satisfy
-            :meth:`hedge.optemplate.operators.DiffOperatorBase.
+            :meth:`grudge.optemplate.operators.DiffOperatorBase.
             equal_except_for_axis`.
 
     :ivar field:
@@ -318,7 +318,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
         for dep in insn.get_dependencies():
             gen_expr_arrow(dep, node_names[insn])
 
-    from hedge.tools import is_obj_array
+    from grudge.tools import is_obj_array
 
     if is_obj_array(code.result):
         for subexp in code.result:
@@ -341,7 +341,7 @@ class Code(object):
         self.static_schedule_attempts = 5
 
     def dump_dataflow_graph(self):
-        from hedge.tools import open_unique_debug_file
+        from grudge.tools import open_unique_debug_file
 
         open_unique_debug_file("dataflow", ".dot")\
                 .write(dot_dataflow_graph(self, max_node_label_length=None))
@@ -377,9 +377,9 @@ class Code(object):
             if insn not in done_insns))
 
         # {{{ make sure results do not get discarded
-        from hedge.tools import with_object_array_or_scalar
+        from grudge.tools import with_object_array_or_scalar
 
-        from hedge.optemplate.mappers import DependencyMapper
+        from grudge.optemplate.mappers import DependencyMapper
         dm = DependencyMapper(composite_leaves=False)
 
         def remove_result_variable(result_expr):
@@ -482,7 +482,7 @@ class Code(object):
         if self.static_schedule_attempts:
             self.last_schedule = schedule
 
-        from hedge.tools import with_object_array_or_scalar
+        from grudge.tools import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
 
     # }}}
@@ -539,7 +539,7 @@ class Code(object):
             self.last_schedule = None
             self.static_schedule_attempts -= 1
 
-        from hedge.tools import with_object_array_or_scalar
+        from grudge.tools import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
 
     # }}}
@@ -569,7 +569,7 @@ class OperatorCompilerBase(IdentityMapper):
 
     @memoize_method
     def dep_mapper_factory(self, include_subscripts=False):
-        from hedge.optemplate import DependencyMapper
+        from grudge.optemplate import DependencyMapper
         self.dep_mapper = DependencyMapper(
                 include_operator_bindings=False,
                 include_subscripts=include_subscripts,
@@ -588,12 +588,12 @@ class OperatorCompilerBase(IdentityMapper):
         raise NotImplementedError
 
     def collect_diff_ops(self, expr):
-        from hedge.optemplate.operators import ReferenceDiffOperatorBase
-        from hedge.optemplate.mappers import BoundOperatorCollector
+        from grudge.optemplate.operators import ReferenceDiffOperatorBase
+        from grudge.optemplate.mappers import BoundOperatorCollector
         return BoundOperatorCollector(ReferenceDiffOperatorBase)(expr)
 
     def collect_flux_exchange_ops(self, expr):
-        from hedge.optemplate.mappers import FluxExchangeCollector
+        from grudge.optemplate.mappers import FluxExchangeCollector
         return FluxExchangeCollector()(expr)
 
     # }}}
@@ -601,10 +601,10 @@ class OperatorCompilerBase(IdentityMapper):
     # {{{ top-level driver ----------------------------------------------------
     def __call__(self, expr, type_hints={}):
         # Put the result expressions into variables as well.
-        from hedge.optemplate import make_common_subexpression as cse
+        from grudge.optemplate import make_common_subexpression as cse
         expr = cse(expr, "_result")
 
-        from hedge.optemplate.mappers.type_inference import TypeInferrer
+        from grudge.optemplate.mappers.type_inference import TypeInferrer
         self.typedict = TypeInferrer()(expr, type_hints)
 
         # {{{ flux batching
@@ -699,7 +699,7 @@ class OperatorCompilerBase(IdentityMapper):
         from pymbolic.primitives import Variable, Subscript
 
         # Observe that the only things that can be legally subscripted in
-        # hedge are variables. All other expressions are broken down into
+        # grudge are variables. All other expressions are broken down into
         # their scalar components.
         if isinstance(expr, (Variable, Subscript)):
             return expr
@@ -720,10 +720,10 @@ class OperatorCompilerBase(IdentityMapper):
         except KeyError:
             priority = getattr(expr, "priority", 0)
 
-            from hedge.optemplate.mappers.type_inference import type_info
+            from grudge.optemplate.mappers.type_inference import type_info
             is_scalar_valued = isinstance(self.typedict[expr], type_info.Scalar)
 
-            from hedge.optemplate import OperatorBinding
+            from grudge.optemplate import OperatorBinding
             if isinstance(expr.child, OperatorBinding):
                 # We need to catch operator bindings here and
                 # treat them specially. They get assigned to their
@@ -743,7 +743,7 @@ class OperatorCompilerBase(IdentityMapper):
             return cse_var
 
     def map_operator_binding(self, expr, name_hint=None):
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 ReferenceDiffOperatorBase,
                 FluxOperatorBase)
 
@@ -780,7 +780,7 @@ class OperatorCompilerBase(IdentityMapper):
         return self.assign_to_new_var(expr, prefix="normal%d" % expr.axis)
 
     def map_call(self, expr):
-        from hedge.optemplate.primitives import CFunction
+        from grudge.optemplate.primitives import CFunction
         if isinstance(expr.function, CFunction):
             return IdentityMapper.map_call(self, expr)
         else:
@@ -807,7 +807,7 @@ class OperatorCompilerBase(IdentityMapper):
             from pytools import single_valued
             op_class = single_valued(type(d.op) for d in all_diffs)
 
-            from hedge.optemplate.operators import \
+            from grudge.optemplate.operators import \
                     ReferenceQuadratureStiffnessTOperator
             if isinstance(op_class, ReferenceQuadratureStiffnessTOperator):
                 assign_class = QuadratureDiffBatchAssign
@@ -833,7 +833,7 @@ class OperatorCompilerBase(IdentityMapper):
         try:
             return self.expr_to_var[expr]
         except KeyError:
-            from hedge.tools import is_field_equal
+            from grudge.tools import is_field_equal
             all_flux_xchgs = [fe
                     for fe in self.flux_exchange_ops
                     if is_field_equal(fe.arg_fields, expr.arg_fields)]
@@ -969,7 +969,7 @@ class OperatorCompilerBase(IdentityMapper):
 
         # filter out zero assignments
         from pytools import any
-        from hedge.tools import is_zero
+        from grudge.tools import is_zero
 
         i = 0
 
@@ -1044,7 +1044,7 @@ class OperatorCompilerBase(IdentityMapper):
                 for insn in processed_assigns + other_insns
                 for expr in insn.get_dependencies())
 
-        from hedge.tools import is_obj_array
+        from grudge.tools import is_obj_array
         if is_obj_array(result):
             externally_used_names |= set(expr for expr in result)
         else:

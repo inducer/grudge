@@ -29,7 +29,7 @@ THE SOFTWARE.
 
 
 
-from hedge.models import Operator
+from grudge.models import Operator
 
 
 
@@ -39,15 +39,15 @@ class GradientOperator(Operator):
         self.dimensions = dimensions
 
     def flux(self):
-        from hedge.flux import make_normal, FluxScalarPlaceholder
+        from grudge.flux import make_normal, FluxScalarPlaceholder
         u = FluxScalarPlaceholder()
 
         normal = make_normal(self.dimensions)
         return u.int*normal - u.avg*normal
 
     def op_template(self):
-        from hedge.mesh import TAG_ALL
-        from hedge.optemplate import Field, BoundaryPair, \
+        from grudge.mesh import TAG_ALL
+        from grudge.optemplate import Field, BoundaryPair, \
                 make_nabla, InverseMassOperator, get_flux_operator
 
         u = Field("u")
@@ -64,7 +64,7 @@ class GradientOperator(Operator):
         compiled_op_template = discr.compile(self.op_template())
 
         def op(u):
-            from hedge.mesh import TAG_ALL
+            from grudge.mesh import TAG_ALL
 
             return compiled_op_template(u=u,
                     bc=discr.boundarize_volume_field(u, TAG_ALL))
@@ -84,11 +84,11 @@ class DivergenceOperator(Operator):
             # chop off any extra dimensions
             self.subset = subset[:dimensions]
 
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         self.arg_count = count_subset(self.subset)
 
     def flux(self):
-        from hedge.flux import make_normal, FluxVectorPlaceholder
+        from grudge.flux import make_normal, FluxVectorPlaceholder
 
         v = FluxVectorPlaceholder(self.arg_count)
 
@@ -105,8 +105,8 @@ class DivergenceOperator(Operator):
         return flux
 
     def op_template(self):
-        from hedge.mesh import TAG_ALL
-        from hedge.optemplate import make_sym_vector, BoundaryPair, \
+        from grudge.mesh import TAG_ALL
+        from grudge.optemplate import make_sym_vector, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
 
         nabla = make_nabla(self.dimensions)
@@ -132,7 +132,7 @@ class DivergenceOperator(Operator):
         compiled_op_template = discr.compile(self.op_template())
 
         def op(v):
-            from hedge.mesh import TAG_ALL
+            from grudge.mesh import TAG_ALL
             return compiled_op_template(v=v,
                     bc=discr.boundarize_volume_field(v, TAG_ALL))
 

@@ -1,5 +1,5 @@
 # -*- coding: utf8 -*-
-"""Hedge operators modelling electromagnetic phenomena."""
+"""grudge operators modelling electromagnetic phenomena."""
 
 from __future__ import division
 from __future__ import absolute_import
@@ -29,10 +29,10 @@ THE SOFTWARE.
 
 from pytools import memoize_method
 
-import hedge.mesh
-from hedge.models import HyperbolicOperator
-from hedge.optemplate.primitives import make_common_subexpression as cse
-from hedge.tools import make_obj_array
+import grudge.mesh
+from grudge.models import HyperbolicOperator
+from grudge.optemplate.primitives import make_common_subexpression as cse
+from grudge.tools import make_obj_array
 
 # TODO: Check PML
 
@@ -49,10 +49,10 @@ class MaxwellOperator(HyperbolicOperator):
     def __init__(self, epsilon, mu,
             flux_type,
             bdry_flux_type=None,
-            pec_tag=hedge.mesh.TAG_ALL,
-            pmc_tag=hedge.mesh.TAG_NONE,
-            absorb_tag=hedge.mesh.TAG_NONE,
-            incident_tag=hedge.mesh.TAG_NONE,
+            pec_tag=grudge.mesh.TAG_ALL,
+            pmc_tag=grudge.mesh.TAG_NONE,
+            absorb_tag=grudge.mesh.TAG_NONE,
+            incident_tag=grudge.mesh.TAG_NONE,
             incident_bc=lambda maxwell_op, e, h: 0, current=0, dimensions=None):
         """
         :arg flux_type: can be in [0,1] for anything between central and upwind,
@@ -76,7 +76,7 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
 
-        from hedge.tools import SubsettableCrossProduct
+        from grudge.tools import SubsettableCrossProduct
         self.space_cross_e = SubsettableCrossProduct(
                 op1_subset=space_subset,
                 op2_subset=e_subset,
@@ -124,14 +124,14 @@ class MaxwellOperator(HyperbolicOperator):
 
         As per Hesthaven and Warburton page 433.
         """
-        from hedge.flux import (make_normal, FluxVectorPlaceholder,
+        from grudge.flux import (make_normal, FluxVectorPlaceholder,
                 FluxConstantPlaceholder)
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
 
         normal = make_normal(self.dimensions)
 
         if self.fixed_material:
-            from hedge.tools import count_subset
+            from grudge.tools import count_subset
             w = FluxVectorPlaceholder(count_subset(self.get_eh_subset()))
 
             e, h = self.split_eh(w)
@@ -139,7 +139,7 @@ class MaxwellOperator(HyperbolicOperator):
             mu = FluxConstantPlaceholder(self.mu)
 
         else:
-            from hedge.tools import count_subset
+            from grudge.tools import count_subset
             w = FluxVectorPlaceholder(count_subset(self.get_eh_subset())+2)
 
             epsilon, mu, e, h = self.split_eps_mu_eh(w)
@@ -153,7 +153,7 @@ class MaxwellOperator(HyperbolicOperator):
             if self.fixed_material:
                 max_c = (self.epsilon*self.mu)**(-0.5)
             else:
-                from hedge.flux import Max
+                from grudge.flux import Max
                 c_int = (epsilon.int*mu.int)**(-0.5)
                 c_ext = (epsilon.ext*mu.ext)**(-0.5)
                 max_c = Max(c_int, c_ext)  # noqa
@@ -204,8 +204,8 @@ class MaxwellOperator(HyperbolicOperator):
         def h_curl(field):
             return self.space_cross_h(nabla, field)
 
-        from hedge.optemplate import make_nabla
-        from hedge.tools import join_fields
+        from grudge.optemplate import make_nabla
+        from grudge.tools import join_fields
 
         nabla = make_nabla(self.dimensions)
 
@@ -217,10 +217,10 @@ class MaxwellOperator(HyperbolicOperator):
 
     def field_placeholder(self, w=None):
         "A placeholder for E and H."
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
         if w is None:
-            from hedge.optemplate import make_sym_vector
+            from grudge.optemplate import make_sym_vector
             w = make_sym_vector("w", fld_cnt)
 
         return w
@@ -229,8 +229,8 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PEC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from hedge.tools import join_fields
-        from hedge.optemplate import BoundarizeOperator
+        from grudge.tools import join_fields
+        from grudge.optemplate import BoundarizeOperator
         pec_e = BoundarizeOperator(self.pec_tag)(e)
         pec_h = BoundarizeOperator(self.pec_tag)(h)
 
@@ -240,8 +240,8 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PMC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from hedge.tools import join_fields
-        from hedge.optemplate import BoundarizeOperator
+        from grudge.tools import join_fields
+        from grudge.optemplate import BoundarizeOperator
         pmc_e = BoundarizeOperator(self.pmc_tag)(e)
         pmc_h = BoundarizeOperator(self.pmc_tag)(h)
 
@@ -252,11 +252,11 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        from hedge.optemplate import normal
+        from grudge.optemplate import normal
         absorb_normal = normal(self.absorb_tag, self.dimensions)
 
-        from hedge.optemplate import BoundarizeOperator, Field
-        from hedge.tools import join_fields
+        from grudge.optemplate import BoundarizeOperator, Field
+        from grudge.tools import join_fields
 
         e, h = self.split_eh(self.field_placeholder(w))
 
@@ -294,14 +294,14 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(self.field_placeholder(w))
         if not self.fixed_material:
             from warnings import warn
-            if self.incident_tag != hedge.mesh.TAG_NONE:
+            if self.incident_tag != grudge.mesh.TAG_NONE:
                 warn("Incident boundary conditions assume homogeneous"
                      " background material, results may be unphysical")
 
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
 
-        from hedge.tools import is_zero
+        from grudge.tools import is_zero
         incident_bc_data = self.incident_bc_data(self, e, h)
         if is_zero(incident_bc_data):
             return make_obj_array([0]*fld_cnt)
@@ -315,7 +315,7 @@ class MaxwellOperator(HyperbolicOperator):
         Combines the relevant operator templates for spatial
         derivatives, flux, boundary conditions etc.
         """
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         w = self.field_placeholder(w)
 
         if self.fixed_material:
@@ -326,13 +326,13 @@ class MaxwellOperator(HyperbolicOperator):
 
             flux_w = join_fields(epsilon, mu, w)
 
-        from hedge.optemplate import BoundaryPair, \
+        from grudge.optemplate import BoundaryPair, \
                 InverseMassOperator, get_flux_operator
 
         flux_op = get_flux_operator(self.flux(self.flux_type))
         bdry_flux_op = get_flux_operator(self.flux(self.bdry_flux_type))
 
-        from hedge.tools.indexing import count_subset
+        from grudge.tools.indexing import count_subset
         elec_components = count_subset(self.get_eh_subset()[0:3])
         mag_components = count_subset(self.get_eh_subset()[3:6])
 
@@ -356,7 +356,7 @@ class MaxwellOperator(HyperbolicOperator):
             if self.fixed_material:
                 return bc
             else:
-                from hedge.optemplate import BoundarizeOperator
+                from grudge.optemplate import BoundarizeOperator
                 return join_fields(
                         cse(BoundarizeOperator(tag)(epsilon)),
                         cse(BoundarizeOperator(tag)(mu)),
@@ -374,7 +374,7 @@ class MaxwellOperator(HyperbolicOperator):
 
     def bind(self, discr):
         "Convert the abstract operator template into compiled code."
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [
             self.pec_tag, self.absorb_tag, self.incident_tag])
 
@@ -397,7 +397,7 @@ class MaxwellOperator(HyperbolicOperator):
             def zero():
                 return discr.volume_zeros()
 
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         e_components = count_subset(self.get_eh_subset()[0:3])
         h_components = count_subset(self.get_eh_subset()[3:6])
 
@@ -410,7 +410,7 @@ class MaxwellOperator(HyperbolicOperator):
         e = default_fld(e, e_components)
         h = default_fld(h, h_components)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(e, h)
 
     assemble_fields = assemble_eh
@@ -425,7 +425,7 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
 
-        from hedge.tools import partial_to_all_subset_indices
+        from grudge.tools import partial_to_all_subset_indices
         return tuple(partial_to_all_subset_indices(
             [e_subset, h_subset]))
 
@@ -437,7 +437,7 @@ class MaxwellOperator(HyperbolicOperator):
         e_idx, h_idx = self.partial_to_eh_subsets()
         epsilon, mu, e, h = w[[0]], w[[1]], w[e_idx+2], w[h_idx+2]
 
-        from hedge.flux import FluxVectorPlaceholder as FVP
+        from grudge.flux import FluxVectorPlaceholder as FVP
         if isinstance(w, FVP):
             return (
                     FVP(scalars=epsilon),
@@ -452,7 +452,7 @@ class MaxwellOperator(HyperbolicOperator):
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
 
-        from hedge.flux import FluxVectorPlaceholder as FVP
+        from grudge.flux import FluxVectorPlaceholder as FVP
         if isinstance(w, FVP):
             return FVP(scalars=e), FVP(scalars=h)
         else:
@@ -473,7 +473,7 @@ class MaxwellOperator(HyperbolicOperator):
         if self.fixed_material:
             return 1/sqrt(self.epsilon*self.mu)  # a number
         else:
-            import hedge.optemplate as sym
+            import grudge.optemplate as sym
             return sym.NodalMax()(1/sym.CFunction("sqrt")(self.epsilon*self.mu))
 
     def max_eigenvalue(self, t, fields=None, discr=None, context={}):

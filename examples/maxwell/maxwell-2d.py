@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -27,7 +27,7 @@ def main(write_output=True):
     from math import sqrt, pi, exp
     from os.path import join
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     epsilon0 = 8.8541878176e-12 # C**2 / (N m**2)
@@ -40,7 +40,7 @@ def main(write_output=True):
     if not os.access(output_dir, os.F_OK):
         os.makedirs(output_dir)
     
-    from hedge.mesh.generator import make_disk_mesh
+    from grudge.mesh.generator import make_disk_mesh
     mesh = make_disk_mesh(r=0.5, max_area=1e-3)
 
     if rcon.is_head_rank:
@@ -59,7 +59,7 @@ def main(write_output=True):
     discr = rcon.make_discretization(mesh_data, order=order,
             debug=["cuda_no_plan"])
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(discr, rcon, join(output_dir, "em-%d" % order))
 
@@ -67,16 +67,16 @@ def main(write_output=True):
         print("order %d" % order)
         print("#elements=", len(mesh.elements))
 
-    from hedge.mesh import TAG_ALL, TAG_NONE
-    from hedge.models.em import TMMaxwellOperator
-    from hedge.data import make_tdep_given, TimeIntervalGivenFunction
+    from grudge.mesh import TAG_ALL, TAG_NONE
+    from grudge.models.em import TMMaxwellOperator
+    from grudge.data import make_tdep_given, TimeIntervalGivenFunction
     op = TMMaxwellOperator(epsilon, mu, flux_type=1,
             current=TimeIntervalGivenFunction(
                 make_tdep_given(CurrentSource()), off_time=final_time/10),
             absorb_tag=TAG_ALL, pec_tag=TAG_NONE)
     fields = op.assemble_eh(discr=discr)
 
-    from hedge.timestep import LSRK4TimeStepper
+    from grudge.timestep import LSRK4TimeStepper
     stepper = LSRK4TimeStepper()
     from time import time
     last_tstep = time()
@@ -102,7 +102,7 @@ def main(write_output=True):
     vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
     logmgr.add_quantity(vis_timer)
 
-    from hedge.log import EMFieldGetter, add_em_quantities
+    from grudge.log import EMFieldGetter, add_em_quantities
     field_getter = EMFieldGetter(discr, op, lambda: fields)
     add_em_quantities(logmgr, op, field_getter)
 
@@ -113,7 +113,7 @@ def main(write_output=True):
     rhs = op.bind(discr)
 
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=final_time, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

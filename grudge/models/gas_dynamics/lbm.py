@@ -30,7 +30,7 @@ THE SOFTWARE.
 
 import numpy as np
 import numpy.linalg as la
-from hedge.models import HyperbolicOperator
+from grudge.models import HyperbolicOperator
 from pytools.obj_array import make_obj_array
 
 
@@ -115,7 +115,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
                 (self.lbm_delta_t*self.method.speed_of_sound**2))
 
     def get_advection_flux(self, velocity):
-        from hedge.flux import make_normal, FluxScalarPlaceholder
+        from grudge.flux import make_normal, FluxScalarPlaceholder
         from pymbolic.primitives import IfPositive
 
         u = FluxScalarPlaceholder(0)
@@ -136,7 +136,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
             raise ValueError("invalid flux type")
 
     def get_advection_op(self, q, velocity):
-        from hedge.optemplate import (
+        from grudge.optemplate import (
                 BoundaryPair,
                 get_flux_operator,
                 make_stiffness_t,
@@ -149,7 +149,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
                 np.dot(velocity, stiff_t*q) - flux_op(q))
 
     def f_bar(self):
-        from hedge.optemplate import make_sym_vector
+        from grudge.optemplate import make_sym_vector
         return make_sym_vector("f_bar", len(self.method))
 
     def rho(self, f_bar):
@@ -168,7 +168,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
             zip(self.method.direction_vectors, f_bar)])
 
     def collision_update(self, f_bar):
-        from hedge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.optemplate.primitives import make_common_subexpression as cse
         rho = cse(self.rho(f_bar), "rho")
         rho_u = self.rho_u(f_bar)
         u = cse(rho_u/rho, "u")
@@ -183,7 +183,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
         compiled_op_template = discr.compile(
                 self.stream_rhs(self.f_bar()))
 
-        #from hedge.mesh import check_bc_coverage, TAG_ALL
+        #from grudge.mesh import check_bc_coverage, TAG_ALL
         #check_bc_coverage(discr.mesh, [TAG_ALL])
 
         def rhs(t, f_bar):
@@ -194,7 +194,7 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
     def bind(self, discr, what):
         f_bar_sym = self.f_bar()
 
-        from hedge.optemplate.mappers.type_inference import (
+        from grudge.optemplate.mappers.type_inference import (
                 type_info, NodalRepresentation)
 
         type_hints = dict(

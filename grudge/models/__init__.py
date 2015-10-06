@@ -62,7 +62,7 @@ class HyperbolicOperator(Operator):
                 * (discr.dt_non_geometric_factor()
                 * discr.dt_geometric_factor())
 
-        from hedge.timestep.stability import \
+        from grudge.timestep.stability import \
                 approximate_rk4_relative_imag_stability_region
         return rk4_dt * approximate_rk4_relative_imag_stability_region(
                 stepper, stepper_class, stepper_args)

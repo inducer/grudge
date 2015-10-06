@@ -32,9 +32,9 @@ THE SOFTWARE.
 import numpy
 import numpy.linalg as la
 
-import hedge.data
-from hedge.models import HyperbolicOperator
-from hedge.second_order import CentralSecondDerivative
+import grudge.data
+from grudge.models import HyperbolicOperator
+from grudge.second_order import CentralSecondDerivative
 
 
 
@@ -49,7 +49,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
 
     def __init__(self, v,
             inflow_tag="inflow",
-            inflow_u=hedge.data.make_tdep_constant(0),
+            inflow_u=grudge.data.make_tdep_constant(0),
             outflow_tag="outflow",
             flux_type="central"
             ):
@@ -61,7 +61,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
         self.flux_type = flux_type
 
     def weak_flux(self):
-        from hedge.flux import make_normal, FluxScalarPlaceholder
+        from grudge.flux import make_normal, FluxScalarPlaceholder
         from pymbolic.primitives import IfPositive
 
         u = FluxScalarPlaceholder(0)
@@ -87,7 +87,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
     def bind(self, discr):
         compiled_op_template = discr.compile(self.op_template())
 
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [self.inflow_tag, self.outflow_tag])
 
         def rhs(t, u):
@@ -99,13 +99,13 @@ class AdvectionOperatorBase(HyperbolicOperator):
     def bind_interdomain(self,
             my_discr, my_part_data,
             nb_discr, nb_part_data):
-        from hedge.partition import compile_interdomain_flux
+        from grudge.partition import compile_interdomain_flux
         compiled_op_template, from_nb_indices = compile_interdomain_flux(
                 self.op_template(), "u", "nb_bdry_u",
                 my_discr, my_part_data, nb_discr, nb_part_data,
                 use_stupid_substitution=True)
 
-        from hedge.tools import with_object_array_or_scalar, is_zero
+        from grudge.tools import with_object_array_or_scalar, is_zero
 
         def nb_bdry_permute(fld):
             if is_zero(fld):
@@ -124,7 +124,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
 
 class StrongAdvectionOperator(AdvectionOperatorBase):
     def flux(self):
-        from hedge.flux import make_normal, FluxScalarPlaceholder
+        from grudge.flux import make_normal, FluxScalarPlaceholder
 
         u = FluxScalarPlaceholder(0)
         normal = make_normal(self.dimensions)
@@ -132,7 +132,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
         return u.int * numpy.dot(normal, self.v) - self.weak_flux()
 
     def op_template(self):
-        from hedge.optemplate import Field, BoundaryPair, \
+        from grudge.optemplate import Field, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
 
         u = Field("u")
@@ -157,7 +157,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
         return self.weak_flux()
 
     def op_template(self):
-        from hedge.optemplate import (
+        from grudge.optemplate import (
                 Field,
                 BoundaryPair,
                 get_flux_operator,
@@ -196,9 +196,9 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     """A class for space- and time-dependent DG advection operators.
 
-    :param advec_v: Adheres to the :class:`hedge.data.ITimeDependentGivenFunction`
+    :param advec_v: Adheres to the :class:`grudge.data.ITimeDependentGivenFunction`
       interfacer and is an n-dimensional vector representing the velocity.
-    :param bc_u_f: Adheres to the :class:`hedge.data.ITimeDependentGivenFunction`
+    :param bc_u_f: Adheres to the :class:`grudge.data.ITimeDependentGivenFunction`
       interface and is a scalar representing the boundary condition at all
       boundary faces.
 
@@ -227,7 +227,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
     # {{{ flux ----------------------------------------------------------------
     def flux(self):
-        from hedge.flux import (
+        from grudge.flux import (
                 make_normal,
                 FluxVectorPlaceholder,
                 flux_max)
@@ -263,9 +263,9 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     # }}}
 
     def bind_characteristic_velocity(self, discr):
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 ElementwiseMaxOperator)
-        from hedge.optemplate import make_sym_vector
+        from grudge.optemplate import make_sym_vector
         velocity_vec = make_sym_vector("v", self.dimensions)
         velocity = ElementwiseMaxOperator()(
                 numpy.dot(velocity_vec, velocity_vec)**0.5)
@@ -279,20 +279,20 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
     def op_template(self, with_sensor=False):
         # {{{ operator preliminaries ------------------------------------------
-        from hedge.optemplate import (Field, BoundaryPair, get_flux_operator,
+        from grudge.optemplate import (Field, BoundaryPair, get_flux_operator,
                 make_stiffness_t, InverseMassOperator, make_sym_vector,
                 ElementwiseMaxOperator, BoundarizeOperator)
 
-        from hedge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.optemplate.primitives import make_common_subexpression as cse
 
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 QuadratureGridUpsampler,
                 QuadratureInteriorFacesGridUpsampler)
 
         to_quad = QuadratureGridUpsampler("quad")
         to_if_quad = QuadratureInteriorFacesGridUpsampler("quad")
 
-        from hedge.tools import join_fields, \
+        from grudge.tools import join_fields, \
                                 ptwise_dot
 
         u = Field("u")
@@ -308,7 +308,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         # {{{ boundary conditions ---------------------------------------------
 
-        from hedge.mesh import TAG_ALL
+        from grudge.mesh import TAG_ALL
         bc_c = to_quad(BoundarizeOperator(TAG_ALL)(c))
         bc_u = to_quad(Field("bc_u"))
         bc_v = to_quad(BoundarizeOperator(TAG_ALL)(v))
@@ -335,7 +335,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
             if with_sensor:
                 diffusion_coeff += Field("sensor")
 
-            from hedge.second_order import SecondDerivativeTarget
+            from grudge.second_order import SecondDerivativeTarget
 
             # strong_form here allows IPDG to reuse the value of grad u.
             grad_tgt = SecondDerivativeTarget(
@@ -372,7 +372,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         compiled_op_template = discr.compile(
                 self.op_template(with_sensor=sensor is not None))
 
-        from hedge.mesh import check_bc_coverage, TAG_ALL
+        from grudge.mesh import check_bc_coverage, TAG_ALL
         check_bc_coverage(discr.mesh, [TAG_ALL])
 
         def rhs(t, u):
@@ -398,7 +398,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         # magnitude of the velocity at each node. From this vector the maximum
         # values limits the timestep.
 
-        from hedge.tools import ptwise_dot
+        from grudge.tools import ptwise_dot
         v = self.advec_v.volume_interpolant(t, discr)
         return discr.nodewise_max(ptwise_dot(1, 1, v, v)**0.5)
 

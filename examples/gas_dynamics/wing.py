@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -101,19 +101,19 @@ def make_wingmesh():
         face_marker = fvi2fm[fvi]
         return [face_marker_to_tag[face_marker]]
 
-    from hedge.mesh import make_conformal_mesh
+    from grudge.mesh import make_conformal_mesh
     return make_conformal_mesh(mesh.points, mesh.elements, bdry_tagger)
 
 
 
 
 def main():
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context( ["cuda", "mpi"])
 
     if rcon.is_head_rank:
         mesh = make_wingmesh()
-        #from hedge.mesh import make_rect_mesh
+        #from grudge.mesh import make_rect_mesh
         #mesh = make_rect_mesh(
         #       boundary_tagger=lambda fvi, el, fn, all_v: ["inflow"])
         mesh_data = rcon.distribute_mesh(mesh)
@@ -127,7 +127,7 @@ def main():
         from gas_dynamics_initials import UniformMachFlow
         wing = UniformMachFlow(angle_of_attack=0)
 
-        from hedge.models.gas_dynamics import GasDynamicsOperator
+        from grudge.models.gas_dynamics import GasDynamicsOperator
         op = GasDynamicsOperator(dimensions=3,
                 gamma=wing.gamma, mu=wing.mu,
                 prandtl=wing.prandtl, spec_gas_const=wing.spec_gas_const,
@@ -146,7 +146,7 @@ def main():
                         default_scalar_type=numpy.float64,
                         tune_for=op.op_template())
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)
         vis = SiloVisualizer(discr, rcon)
 
@@ -167,7 +167,7 @@ def main():
             print("---------------------------------------------")
             print("#elements=", len(mesh.elements))
 
-        from hedge.timestep import RK4TimeStepper
+        from grudge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
@@ -185,7 +185,7 @@ def main():
 
         # timestep loop -------------------------------------------------------
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=200,
                     #max_steps=500,
@@ -201,7 +201,7 @@ def main():
                     #rhs_fields = rhs(t, fields)
 
                     from pyvisfile.silo import DB_VARTYPE_VECTOR
-                    from hedge.discretization import ones_on_boundary
+                    from grudge.discretization import ones_on_boundary
                     vis.add_data(visf,
                             [
                                 ("rho", discr.convert_volume(op.rho(fields), kind="numpy")),

@@ -34,7 +34,7 @@ THE SOFTWARE.
 import numpy
 
 from pytools import memoize_method, Record
-from hedge.models.em import \
+from grudge.models.em import \
         MaxwellOperator, \
         TMMaxwellOperator, \
         TEMaxwellOperator
@@ -87,7 +87,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
             result[numpy.array(subset, dtype=bool)] = v
             return result
 
-        from hedge.optemplate import make_sym_vector
+        from grudge.optemplate import make_sym_vector
         sig = pad_vec(
                 make_sym_vector("sigma", self.dimensions),
                 dim_subset)
@@ -112,7 +112,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
             my = (mx+1) % 3
             mz = (mx+2) % 3
 
-            from hedge.tools.mathematics import levi_civita
+            from grudge.tools.mathematics import levi_civita
             assert levi_civita((mx,my,mz)) == 1
 
             rhs[mx] += -sig[my]/self.epsilon*(2*e[mx]+p[mx]) - 2*tau[my]/self.epsilon*e[mx]
@@ -124,19 +124,19 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
             rhs[6+my] += sig[mx]/self.epsilon*e[my]
             rhs[9+mx] += -sig[mx]/self.epsilon*q[mx] - (e[my] + e[mz])
 
-        from hedge.tools import full_to_subset_indices
+        from grudge.tools import full_to_subset_indices
         sub_idx = full_to_subset_indices(e_subset+h_subset+dim_subset+dim_subset)
 
         return rhs[sub_idx]
 
     def op_template(self, w=None):
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
         if w is None:
-            from hedge.optemplate import make_sym_vector
+            from grudge.optemplate import make_sym_vector
             w = make_sym_vector("w", fld_cnt+2*self.dimensions)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(
                 MaxwellOperator.op_template(self, w[:fld_cnt]),
                 numpy.zeros((2*self.dimensions,), dtype=object)
@@ -156,7 +156,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
             def zero():
                 return discr.volume_zeros()
 
-        from hedge.tools import count_subset
+        from grudge.tools import count_subset
         e_components = count_subset(self.get_eh_subset()[0:3])
         h_components = count_subset(self.get_eh_subset()[3:6])
 
@@ -171,7 +171,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
         p = default_fld(p, self.dimensions)
         q = default_fld(q, self.dimensions)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(e, h, p, q)
 
     @memoize_method
@@ -181,7 +181,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
 
         dim_subset = [True] * self.dimensions + [False] * (3-self.dimensions)
 
-        from hedge.tools import partial_to_all_subset_indices
+        from grudge.tools import partial_to_all_subset_indices
         return tuple(partial_to_all_subset_indices(
             [e_subset, h_subset, dim_subset, dim_subset]))
 
@@ -189,11 +189,11 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
         e_idx, h_idx, p_idx, q_idx = self.partial_to_ehpq_subsets()
         e, h, p, q = w[e_idx], w[h_idx], w[p_idx], w[q_idx]
 
-        from hedge.flux import FluxVectorPlaceholder as FVP
+        from grudge.flux import FluxVectorPlaceholder as FVP
         if isinstance(w, FVP):
             return FVP(scalars=e), FVP(scalars=h)
         else:
-            from hedge.tools import make_obj_array as moa
+            from grudge.tools import make_obj_array as moa
             return moa(e), moa(h), moa(p), moa(q)
 
     # sigma business ----------------------------------------------------------
@@ -246,7 +246,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
         i_min, i_max = inner_bbox
         o_min, o_max = outer_bbox
 
-        from hedge.tools import make_obj_array
+        from grudge.tools import make_obj_array
 
         nodes = discr.nodes
         if dtype is not None:

@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
 import numpy as np
-from hedge.mesh import TAG_ALL, TAG_NONE
+from grudge.mesh import TAG_ALL, TAG_NONE
 from six.moves import range
 
 
@@ -28,22 +28,22 @@ def main(write_output=True,
         flux_type_arg="upwind", dtype=np.float64, debug=[]):
     from math import sin, cos, pi, exp, sqrt  # noqa
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     dim = 2
 
     if dim == 1:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_uniform_1d_mesh
+            from grudge.mesh.generator import make_uniform_1d_mesh
             mesh = make_uniform_1d_mesh(-10, 10, 500)
     elif dim == 2:
-        from hedge.mesh.generator import make_rect_mesh
+        from grudge.mesh.generator import make_rect_mesh
         if rcon.is_head_rank:
             mesh = make_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5), max_area=0.008)
     elif dim == 3:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_ball_mesh
+            from grudge.mesh.generator import make_ball_mesh
             mesh = make_ball_mesh(max_volume=0.0005)
     else:
         raise RuntimeError("bad number of dimensions")
@@ -54,17 +54,17 @@ def main(write_output=True,
     else:
         mesh_data = rcon.receive_mesh()
 
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper(dtype=dtype)
 
-    from hedge.models.wave import StrongWaveOperator
-    from hedge.mesh import TAG_ALL, TAG_NONE  # noqa
+    from grudge.models.wave import StrongWaveOperator
+    from grudge.mesh import TAG_ALL, TAG_NONE  # noqa
 
     source_center = np.array([0.1, 0.22])
     source_width = 0.05
     source_omega = 3
 
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
@@ -84,11 +84,11 @@ def main(write_output=True,
             default_scalar_type=dtype,
             tune_for=op.op_template())
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(discr, rcon, "fld")
 
-    from hedge.tools import join_fields
+    from grudge.tools import join_fields
     fields = join_fields(discr.volume_zeros(dtype=dtype),
             [discr.volume_zeros(dtype=dtype) for i in range(discr.dimensions)])
 
@@ -115,7 +115,7 @@ def main(write_output=True,
     logmgr.add_quantity(vis_timer)
     stepper.add_instrumentation(logmgr)
 
-    from hedge.log import LpNorm
+    from grudge.log import LpNorm
     u_getter = lambda: fields[0]
     logmgr.add_quantity(LpNorm(u_getter, discr, 1, name="l1_u"))
     logmgr.add_quantity(LpNorm(u_getter, discr, name="l2_u"))
@@ -128,7 +128,7 @@ def main(write_output=True,
 
     rhs = op.bind(discr)
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=4, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

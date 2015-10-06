@@ -31,24 +31,24 @@ THE SOFTWARE.
 
 
 import numpy
-import hedge.tools
-import hedge.mesh
-import hedge.data
-from hedge.models import TimeDependentOperator
+import grudge.tools
+import grudge.mesh
+import grudge.data
+from grudge.models import TimeDependentOperator
 from pytools import Record
-from hedge.tools import is_zero
-from hedge.second_order import (
+from grudge.tools import is_zero
+from grudge.second_order import (
         StabilizedCentralSecondDerivative,
         CentralSecondDerivative,
         IPDGSecondDerivative)
-from hedge.optemplate.primitives import make_common_subexpression as cse
+from grudge.optemplate.primitives import make_common_subexpression as cse
 from pytools import memoize_method
-from hedge.optemplate.tools import make_sym_vector
+from grudge.optemplate.tools import make_sym_vector
 from pytools.obj_array import make_obj_array, join_fields
 
 AXES = ["x", "y", "z", "w"]
 
-from hedge.optemplate.operators import (
+from grudge.optemplate.operators import (
         QuadratureGridUpsampler,
         QuadratureInteriorFacesGridUpsampler)
 
@@ -146,12 +146,12 @@ class GasDynamicsOperator(TimeDependentOperator):
             ):
         """
         :param source: should implement
-          :class:`hedge.data.IFieldDependentGivenFunction`
+          :class:`grudge.data.IFieldDependentGivenFunction`
           or be None.
 
         :param artificial_viscosity_mode:
         """
-        from hedge.data import (
+        from grudge.data import (
                 TimeConstantGivenFunction,
                 ConstantGivenFunction)
 
@@ -224,7 +224,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     @memoize_method
     def sensor(self):
-        from hedge.optemplate.primitives import Field
+        from grudge.optemplate.primitives import Field
         sensor = Field("sensor")
 
     def rho(self, q):
@@ -298,7 +298,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     def primitive_to_conservative(self, prims, use_cses=True):
         if not use_cses:
-            from hedge.optemplate.primitives import make_common_subexpression as cse
+            from grudge.optemplate.primitives import make_common_subexpression as cse
         else:
             def cse(x, name): return x
 
@@ -314,7 +314,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     def conservative_to_primitive(self, q, use_cses=True):
         if use_cses:
-            from hedge.optemplate.primitives import make_common_subexpression as cse
+            from grudge.optemplate.primitives import make_common_subexpression as cse
         else:
             def cse(x, name): return x
 
@@ -324,9 +324,9 @@ class GasDynamicsOperator(TimeDependentOperator):
                self.u(q))
 
     def characteristic_velocity_optemplate(self, state):
-        from hedge.optemplate.operators import ElementwiseMaxOperator
+        from grudge.optemplate.operators import ElementwiseMaxOperator
 
-        from hedge.optemplate.primitives import CFunction
+        from grudge.optemplate.primitives import CFunction
         sqrt = CFunction("sqrt")
 
         sound_speed = cse(sqrt(
@@ -353,7 +353,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     # {{{ compute gradient of state ---------------------------------------
     def grad_of(self, var, faceq_var):
-        from hedge.second_order import SecondDerivativeTarget
+        from grudge.second_order import SecondDerivativeTarget
         grad_tgt = SecondDerivativeTarget(
                 self.dimensions, strong_form=False,
                 operand=var,
@@ -498,7 +498,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         c0 = (self.equation_of_state.gamma * p0 / rho0)**0.5
 
-        from hedge.optemplate import BoundarizeOperator
+        from grudge.optemplate import BoundarizeOperator
         bdrize_op = BoundarizeOperator(tag)
 
         class SingleBCInfo(Record):
@@ -516,11 +516,11 @@ class GasDynamicsOperator(TimeDependentOperator):
                 - p0, "dpm"))
 
     def outflow_state(self, state):
-        from hedge.optemplate import make_normal
+        from grudge.optemplate import make_normal
         normal = make_normal(self.outflow_tag, self.dimensions)
         bc = self.make_bc_info("bc_q_out", self.outflow_tag, state)
 
-        # see hedge/doc/maxima/euler.mac
+        # see grudge/doc/maxima/euler.mac
         return join_fields(
             # bc rho
             cse(bc.rho0
@@ -537,7 +537,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             + bc.dpm*normal/(2*bc.c0*bc.rho0), "bc_u_outflow"))
 
     def inflow_state_inner(self, normal, bc, name):
-        # see hedge/doc/maxima/euler.mac
+        # see grudge/doc/maxima/euler.mac
         return join_fields(
             # bc rho
             cse(bc.rho0
@@ -552,13 +552,13 @@ class GasDynamicsOperator(TimeDependentOperator):
             + normal*numpy.dot(normal, bc.dumvec)/2 + bc.dpm*normal/(2*bc.c0*bc.rho0), "bc_u_"+name))
 
     def inflow_state(self, state):
-        from hedge.optemplate import make_normal
+        from grudge.optemplate import make_normal
         normal = make_normal(self.inflow_tag, self.dimensions)
         bc = self.make_bc_info("bc_q_in", self.inflow_tag, state)
         return self.inflow_state_inner(normal, bc, "inflow")
 
     def noslip_state(self, state):
-        from hedge.optemplate import make_normal
+        from grudge.optemplate import make_normal
         state0 = join_fields(
             make_sym_vector("bc_q_noslip", 2),
             [0]*self.dimensions)
@@ -567,13 +567,13 @@ class GasDynamicsOperator(TimeDependentOperator):
         return self.inflow_state_inner(normal, bc, "noslip")
 
     def wall_state(self, state):
-        from hedge.optemplate import BoundarizeOperator
+        from grudge.optemplate import BoundarizeOperator
         bc = BoundarizeOperator(self.wall_tag)(state)
         wall_rho = self.rho(bc)
         wall_e = self.e(bc) # <3 eve
         wall_rho_u = self.rho_u(bc)
 
-        from hedge.optemplate import make_normal
+        from grudge.optemplate import make_normal
         normal = make_normal(self.wall_tag, self.dimensions)
 
         return join_fields(
@@ -596,7 +596,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     def get_conservative_boundary_conditions(self):
         state = self.state()
 
-        from hedge.optemplate import BoundarizeOperator
+        from grudge.optemplate import BoundarizeOperator
         return {
                 self.supersonic_inflow_tag:
                 make_sym_vector("bc_q_supersonic_in", self.dimensions+2),
@@ -614,7 +614,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     @memoize_method
     def _normalize_expr(self, expr):
         """Normalize expressions for use as hash keys."""
-        from hedge.optemplate.mappers import (
+        from grudge.optemplate.mappers import (
                 QuadratureUpsamplerRemover,
                 CSERemover)
 
@@ -652,7 +652,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         # 'cbstate' is the boundary state in conservative variables.
 
-        from hedge.optemplate.mappers import QuadratureUpsamplerRemover
+        from grudge.optemplate.mappers import QuadratureUpsamplerRemover
         expr = QuadratureUpsamplerRemover({}, do_warn=False)(expr)
 
         def subst_func(expr):
@@ -664,18 +664,18 @@ class GasDynamicsOperator(TimeDependentOperator):
 
                 return cbstate[expr.index]
             elif isinstance(expr, Variable) and expr.name =="sensor":
-                from hedge.optemplate import BoundarizeOperator
+                from grudge.optemplate import BoundarizeOperator
                 result = BoundarizeOperator(tag)(self.sensor())
                 return cse(to_bdry_quad(result), "bdry_sensor")
 
-        from hedge.optemplate import SubstitutionMapper
+        from grudge.optemplate import SubstitutionMapper
         return SubstitutionMapper(subst_func)(expr)
 
     # }}}
 
     # {{{ second order part
     def div(self, vol_operand, int_face_operand):
-        from hedge.second_order import SecondDerivativeTarget
+        from grudge.second_order import SecondDerivativeTarget
         div_tgt = SecondDerivativeTarget(
                 self.dimensions, strong_form=False,
                 operand=vol_operand,
@@ -743,7 +743,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         volq_flux = self.flux(self.volq_state())
         faceq_flux = self.flux(self.faceq_state())
 
-        from hedge.optemplate.primitives import CFunction
+        from grudge.optemplate.primitives import CFunction
         sqrt = CFunction("sqrt")
 
         speed = self.characteristic_velocity_optemplate(self.state())
@@ -753,10 +753,10 @@ class GasDynamicsOperator(TimeDependentOperator):
         # }}}
 
         # {{{ operator assembly -----------------------------------------------
-        from hedge.flux.tools import make_lax_friedrichs_flux
-        from hedge.optemplate.operators import InverseMassOperator
+        from grudge.flux.tools import make_lax_friedrichs_flux
+        from grudge.optemplate.operators import InverseMassOperator
 
-        from hedge.optemplate.tools import make_stiffness_t
+        from grudge.optemplate.tools import make_stiffness_t
 
         primitive_bcs_as_quad_conservative = dict(
                 (tag, self.primitive_to_conservative(to_bdry_quad(bc)))
@@ -812,7 +812,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             sensor_scaling=sensor_scaling,
             viscosity_only=False))
 
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [
             self.inflow_tag,
             self.outflow_tag,
@@ -871,7 +871,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         # see JSH/TW, eq. (7.32)
         rk4_dt = dg_factor / (max_eigenvalue + self.mu / dg_factor)
 
-        from hedge.timestep.stability import \
+        from grudge.timestep.stability import \
                 approximate_rk4_relative_imag_stability_region
         return rk4_dt * approximate_rk4_relative_imag_stability_region(
                 stepper, stepper_class, stepper_args)
@@ -891,11 +891,11 @@ class SlopeLimiter1NEuler:
         self.dimensions=dimensions
         self.op=op
 
-        from hedge.optemplate.operators import AveragingOperator
+        from grudge.optemplate.operators import AveragingOperator
         self.get_average = AveragingOperator().bind(discr)
 
     def __call__(self, fields):
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
 
         #get conserved fields
         rho=self.op.rho(fields)

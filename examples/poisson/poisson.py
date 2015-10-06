@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,15 +22,15 @@ from __future__ import absolute_import
 from __future__ import print_function
 import numpy
 import numpy.linalg as la
-from hedge.tools import Reflection, Rotation
+from grudge.tools import Reflection, Rotation
 
 
 
 
 def main(write_output=True):
-    from hedge.data import GivenFunction, ConstantGivenFunction
+    from grudge.data import GivenFunction, ConstantGivenFunction
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     dim = 2
@@ -45,12 +45,12 @@ def main(write_output=True):
 
     if dim == 2:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_disk_mesh
+            from grudge.mesh.generator import make_disk_mesh
             mesh = make_disk_mesh(r=0.5, boundary_tagger=boundary_tagger,
                     max_area=1e-2)
     elif dim == 3:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_ball_mesh
+            from grudge.mesh.generator import make_ball_mesh
             mesh = make_ball_mesh(max_volume=0.0001,
                     boundary_tagger=lambda fvi, el, fn, points:
                     ["dirichlet"])
@@ -82,11 +82,11 @@ def main(write_output=True):
         return result
 
     try:
-        from hedge.models.poisson import PoissonOperator
-        from hedge.second_order import \
+        from grudge.models.poisson import PoissonOperator
+        from grudge.second_order import \
                 IPDGSecondDerivative, LDGSecondDerivative, \
                 StabilizedCentralSecondDerivative
-        from hedge.mesh import TAG_NONE, TAG_ALL
+        from grudge.mesh import TAG_NONE, TAG_ALL
         op = PoissonOperator(discr.dimensions, 
                 diffusion_tensor=my_diff_tensor(),
 
@@ -108,7 +108,7 @@ def main(write_output=True):
                 )
         bound_op = op.bind(discr)
 
-        from hedge.iterative import parallel_cg
+        from grudge.iterative import parallel_cg
         u = -parallel_cg(rcon, -bound_op, 
                 bound_op.prepare_rhs(discr.interpolate_volume_function(rhs_c)), 
                 debug=20, tol=5e-4,
@@ -116,7 +116,7 @@ def main(write_output=True):
                 x=discr.volume_zeros())
 
         if write_output:
-            from hedge.visualization import SiloVisualizer, VtkVisualizer
+            from grudge.visualization import SiloVisualizer, VtkVisualizer
             vis = VtkVisualizer(discr, rcon)
             visf = vis.make_file("fld")
             vis.add_data(visf, [ ("sol", discr.convert_volume(u, kind="numpy")), ])

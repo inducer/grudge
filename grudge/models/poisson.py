@@ -29,10 +29,10 @@ THE SOFTWARE.
 
 import numpy as np
 
-from hedge.models import Operator
-from hedge.second_order import LDGSecondDerivative
-import hedge.data
-import hedge.iterative
+from grudge.models import Operator
+from grudge.second_order import LDGSecondDerivative
+import grudge.data
+import grudge.iterative
 
 
 class LaplacianOperatorBase(object):
@@ -45,11 +45,11 @@ class LaplacianOperatorBase(object):
           that the mass operator only needs to be applied once, when preparing
           the right hand side in :meth:`prepare_rhs`.
 
-          :class:`hedge.models.diffusion.DiffusionOperator` needs this.
+          :class:`grudge.models.diffusion.DiffusionOperator` needs this.
         """
 
-        from hedge.optemplate import Field, make_sym_vector
-        from hedge.second_order import SecondDerivativeTarget
+        from grudge.optemplate import Field, make_sym_vector
+        from grudge.second_order import SecondDerivativeTarget
 
         if u is None:
             u = Field("u")
@@ -115,9 +115,9 @@ class PoissonOperator(Operator, LaplacianOperatorBase):
     """
 
     def __init__(self, dimensions, diffusion_tensor=None,
-            dirichlet_bc=hedge.data.ConstantGivenFunction(),
+            dirichlet_bc=grudge.data.ConstantGivenFunction(),
             dirichlet_tag="dirichlet",
-            neumann_bc=hedge.data.ConstantGivenFunction(),
+            neumann_bc=grudge.data.ConstantGivenFunction(),
             neumann_tag="neumann",
             scheme=LDGSecondDerivative()):
         self.dimensions = dimensions
@@ -139,17 +139,17 @@ class PoissonOperator(Operator, LaplacianOperatorBase):
 
         assert self.dimensions == discr.dimensions
 
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [self.dirichlet_tag, self.neumann_tag])
 
         return BoundPoissonOperator(self, discr)
 
 
-class BoundPoissonOperator(hedge.iterative.OperatorBase):
+class BoundPoissonOperator(grudge.iterative.OperatorBase):
     """Returned by :meth:`PoissonOperator.bind`."""
 
     def __init__(self, poisson_op, discr):
-        hedge.iterative.OperatorBase.__init__(self)
+        grudge.iterative.OperatorBase.__init__(self)
         self.discr = discr
 
         pop = self.poisson_op = poisson_op
@@ -167,7 +167,7 @@ class BoundPoissonOperator(hedge.iterative.OperatorBase):
         # Check whether use of Poincaré mean-value method is required.
         # (for pure Neumann or pure periodic)
 
-        from hedge.mesh import TAG_ALL
+        from grudge.mesh import TAG_ALL
         self.poincare_mean_value_hack = (
                 len(self.discr.get_boundary(TAG_ALL).nodes)
                 == len(self.discr.get_boundary(poisson_op.neumann_tag).nodes))
@@ -236,7 +236,7 @@ class BoundPoissonOperator(hedge.iterative.OperatorBase):
         """
         pop = self.poisson_op
 
-        from hedge.optemplate import MassOperator
+        from grudge.optemplate import MassOperator
         return (MassOperator().apply(self.discr, rhs)
             - self.compiled_bc_op(
                 u=self.discr.volume_zeros(),
@@ -252,7 +252,7 @@ class HelmholtzOperator(PoissonOperator):
         self.k = k
 
     def op_template(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
-        from hedge.optemplate import Field
+        from grudge.optemplate import Field
         if u is None:
             u = Field("u")
 
@@ -262,5 +262,5 @@ class HelmholtzOperator(PoissonOperator):
         if apply_minv:
             return result + self.k**2 * u
         else:
-            from hedge.optemplate import MassOperator
+            from grudge.optemplate import MassOperator
             return result + self.k**2 * MassOperator()(u)

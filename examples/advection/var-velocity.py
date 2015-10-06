@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2009 Andreas Stock
 #
 # This program is free software: you can redistribute it and/or modify
@@ -28,14 +28,14 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
         final_time=20):
     from math import sin, cos, pi, sqrt
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     # mesh setup --------------------------------------------------------------
     if rcon.is_head_rank:
-        #from hedge.mesh.generator import make_disk_mesh
+        #from grudge.mesh.generator import make_disk_mesh
         #mesh = make_disk_mesh()
-        from hedge.mesh.generator import make_rect_mesh
+        from grudge.mesh.generator import make_rect_mesh
         mesh = make_rect_mesh(a=(-1,-1),b=(1,1),max_area=0.008)
 
     if rcon.is_head_rank:
@@ -102,12 +102,12 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
     # For `VField`: advec_v=TimeConstantGivenFunction(GivenFunction(VField()))
     # Same for the Bc_u Function! If you don't define Bc_u then the BC for u = 0.
 
-    from hedge.data import \
+    from grudge.data import \
             ConstantGivenFunction, \
             TimeConstantGivenFunction, \
             TimeDependentGivenFunction, \
             GivenFunction
-    from hedge.models.advection import VariableCoefficientAdvectionOperator
+    from grudge.models.advection import VariableCoefficientAdvectionOperator
     op = VariableCoefficientAdvectionOperator(mesh.dimensions,
         #advec_v=TimeDependentGivenFunction(
         #    TimeDependentVField()),
@@ -136,7 +136,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
     vis_discr = discr
 
     # visualization setup -----------------------------------------------------
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(vis_discr, rcon, "fld")
 
@@ -159,7 +159,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
     u = discr.interpolate_volume_function(initial)
 
     # timestep setup ----------------------------------------------------------
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper(
             vector_primitive_factory=discr.get_vector_primitive_factory())
 
@@ -167,8 +167,8 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
         print("%d elements" % len(discr.mesh.elements))
 
     # filter setup-------------------------------------------------------------
-    from hedge.discretization import ExponentialFilterResponseFunction
-    from hedge.optemplate.operators import FilterOperator
+    from grudge.discretization import ExponentialFilterResponseFunction
+    from grudge.optemplate.operators import FilterOperator
     mode_filter = FilterOperator(
             ExponentialFilterResponseFunction(min_amplification=0.9,order=4))\
                     .bind(discr)
@@ -192,7 +192,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
 
     stepper.add_instrumentation(logmgr)
 
-    from hedge.log import Integral, LpNorm
+    from grudge.log import Integral, LpNorm
     u_getter = lambda: u
     logmgr.add_quantity(Integral(u_getter, discr, name="int_u"))
     logmgr.add_quantity(LpNorm(u_getter, discr, p=1, name="l1_u"))
@@ -206,7 +206,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
     # timestep loop -----------------------------------------------------------
     rhs = op.bind(discr)
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=final_time, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

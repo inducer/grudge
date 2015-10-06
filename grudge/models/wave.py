@@ -28,9 +28,9 @@ THE SOFTWARE.
 
 
 import numpy as np
-import hedge.mesh
-from hedge.models import HyperbolicOperator
-from hedge.second_order import CentralSecondDerivative
+import grudge.mesh
+from grudge.models import HyperbolicOperator
+from grudge.second_order import CentralSecondDerivative
 
 
 # {{{ constant-velocity
@@ -55,10 +55,10 @@ class StrongWaveOperator(HyperbolicOperator):
 
     def __init__(self, c, dimensions, source_f=0,
             flux_type="upwind",
-            dirichlet_tag=hedge.mesh.TAG_ALL,
+            dirichlet_tag=grudge.mesh.TAG_ALL,
             dirichlet_bc_f=0,
-            neumann_tag=hedge.mesh.TAG_NONE,
-            radiation_tag=hedge.mesh.TAG_NONE):
+            neumann_tag=grudge.mesh.TAG_NONE,
+            radiation_tag=grudge.mesh.TAG_NONE):
         assert isinstance(dimensions, int)
 
         self.c = c
@@ -79,7 +79,7 @@ class StrongWaveOperator(HyperbolicOperator):
         self.flux_type = flux_type
 
     def flux(self):
-        from hedge.flux import FluxVectorPlaceholder, make_normal
+        from grudge.flux import FluxVectorPlaceholder, make_normal
 
         dim = self.dimensions
         w = FluxVectorPlaceholder(1+dim)
@@ -87,7 +87,7 @@ class StrongWaveOperator(HyperbolicOperator):
         v = w[1:]
         normal = make_normal(dim)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         flux_weak = join_fields(
                 np.dot(v.avg, normal),
                 u.avg * normal)
@@ -95,7 +95,7 @@ class StrongWaveOperator(HyperbolicOperator):
         if self.flux_type == "central":
             pass
         elif self.flux_type == "upwind":
-            # see doc/notes/hedge-notes.tm
+            # see doc/notes/grudge-notes.tm
             flux_weak -= self.sign*join_fields(
                     0.5*(u.int-u.ext),
                     0.5*(normal * np.dot(normal, v.int-v.ext)))
@@ -109,7 +109,7 @@ class StrongWaveOperator(HyperbolicOperator):
         return -self.c*flux_strong
 
     def op_template(self):
-        from hedge.optemplate import \
+        from grudge.optemplate import \
                 make_sym_vector, \
                 BoundaryPair, \
                 get_flux_operator, \
@@ -124,10 +124,10 @@ class StrongWaveOperator(HyperbolicOperator):
         v = w[1:]
 
         # boundary conditions -------------------------------------------------
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
 
         # dirichlet BCs -------------------------------------------------------
-        from hedge.optemplate import normal, Field
+        from grudge.optemplate import normal, Field
 
         dir_u = BoundarizeOperator(self.dirichlet_tag) * u
         dir_v = BoundarizeOperator(self.dirichlet_tag) * v
@@ -162,7 +162,7 @@ class StrongWaveOperator(HyperbolicOperator):
         nabla = make_nabla(d)
         flux_op = get_flux_operator(self.flux())
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         result = (
                 - join_fields(
                     -self.c*np.dot(nabla, v),
@@ -181,7 +181,7 @@ class StrongWaveOperator(HyperbolicOperator):
         return result
 
     def bind(self, discr):
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [
             self.dirichlet_tag,
             self.neumann_tag,
@@ -218,9 +218,9 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
     def __init__(
             self, c, dimensions, source=0,
             flux_type="upwind",
-            dirichlet_tag=hedge.mesh.TAG_ALL,
-            neumann_tag=hedge.mesh.TAG_NONE,
-            radiation_tag=hedge.mesh.TAG_NONE,
+            dirichlet_tag=grudge.mesh.TAG_ALL,
+            neumann_tag=grudge.mesh.TAG_NONE,
+            radiation_tag=grudge.mesh.TAG_NONE,
             time_sign=1,
             diffusion_coeff=None,
             diffusion_scheme=CentralSecondDerivative()
@@ -245,7 +245,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
 
     # {{{ flux ----------------------------------------------------------------
     def flux(self):
-        from hedge.flux import FluxVectorPlaceholder, make_normal
+        from grudge.flux import FluxVectorPlaceholder, make_normal
 
         dim = self.dimensions
         w = FluxVectorPlaceholder(2+dim)
@@ -254,7 +254,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         v = w[2:]
         normal = make_normal(dim)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         flux = self.time_sign*1/2*join_fields(
                 c.ext * np.dot(v.ext, normal)
                 - c.int * np.dot(v.int, normal),
@@ -276,7 +276,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
     # }}}
 
     def bind_characteristic_velocity(self, discr):
-        from hedge.optemplate.operators import ElementwiseMaxOperator
+        from grudge.optemplate.operators import ElementwiseMaxOperator
 
         compiled = discr.compile(ElementwiseMaxOperator()(self.c))
 
@@ -286,7 +286,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return do
 
     def op_template(self, with_sensor=False):
-        from hedge.optemplate import \
+        from grudge.optemplate import \
                 Field, \
                 make_sym_vector, \
                 BoundaryPair, \
@@ -301,11 +301,11 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         u = w[0]
         v = w[1:]
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         flux_w = join_fields(self.c, w)
 
         # {{{ boundary conditions
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
 
         # Dirichlet
         dir_c = BoundarizeOperator(self.dirichlet_tag) * self.c
@@ -322,7 +322,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         neu_bc = join_fields(neu_c, neu_u, -neu_v)
 
         # Radiation
-        from hedge.optemplate import make_normal
+        from grudge.optemplate import make_normal
         rad_normal = make_normal(self.radiation_tag, d)
 
         rad_c = BoundarizeOperator(self.radiation_tag) * self.c
@@ -351,7 +351,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
                 if with_sensor:
                     diffusion_coeff += Field("sensor")
 
-                from hedge.second_order import SecondDerivativeTarget
+                from grudge.second_order import SecondDerivativeTarget
 
                 # strong_form here allows the reuse the value of grad u.
                 grad_tgt = SecondDerivativeTarget(
@@ -396,7 +396,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
                     ))
 
     def bind(self, discr, sensor=None):
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [
             self.dirichlet_tag,
             self.neumann_tag,
@@ -415,7 +415,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return rhs
 
     def max_eigenvalue_expr(self):
-        import hedge.optemplate as sym
+        import grudge.optemplate as sym
         return sym.NodalMax()(sym.CFunction("fabs")(self.c))
 
 # }}}

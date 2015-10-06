@@ -27,20 +27,20 @@ THE SOFTWARE.
 
 
 import numpy as np
-import hedge.optemplate
+import grudge.optemplate
 
 
 # {{{ stabilization term generator
 
-class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
+class StabilizationTermGenerator(grudge.optemplate.IdentityMapper):
     def __init__(self, flux_args):
-        hedge.optemplate.IdentityMapper.__init__(self)
+        grudge.optemplate.IdentityMapper.__init__(self)
         self.flux_args = flux_args
         self.flux_arg_lookup = dict(
                 (flux_arg, i) for i, flux_arg in enumerate(flux_args))
 
     def get_flux_arg_idx(self, expr, quad_above):
-        from hedge.optemplate.mappers import QuadratureDetector
+        from grudge.optemplate.mappers import QuadratureDetector
 
         quad_below = QuadratureDetector()(expr)
         if quad_above:
@@ -51,7 +51,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
                 # now two layers of quadrature operators. We need to change the
                 # inner layer to be the only layer.
 
-                from hedge.optemplate.mappers import QuadratureUpsamplerChanger
+                from grudge.optemplate.mappers import QuadratureUpsamplerChanger
                 expr = QuadratureUpsamplerChanger(quad_above[0])(expr)
             else:
                 # Only the part of the expression above the differentiation
@@ -62,7 +62,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
                 # Only the part of the expression below the differentiation
                 # operator had quadrature--the stuff above doesn't want it.
                 # Get rid of it.
-                from hedge.optemplate.mappers import QuadratureUpsamplerRemover
+                from grudge.optemplate.mappers import QuadratureUpsamplerRemover
                 expr = QuadratureUpsamplerRemover({}, do_warn=False)(expr)
             else:
                 # No quadrature, no headaches.
@@ -77,7 +77,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
             return flux_arg_idx
 
     def map_operator_binding(self, expr, quad_above=[]):
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 DiffOperatorBase, FluxOperatorBase,
                 InverseMassOperator,
                 QuadratureInteriorFacesGridUpsampler)
@@ -85,7 +85,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
         if isinstance(expr.op, DiffOperatorBase):
             flux_arg_idx = self.get_flux_arg_idx(expr.field, quad_above=quad_above)
 
-            from hedge.optemplate import \
+            from grudge.optemplate import \
                     WeakFormDiffOperatorBase, \
                     StrongFormDiffOperatorBase
             if isinstance(expr.op, WeakFormDiffOperatorBase):
@@ -96,7 +96,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
                 raise RuntimeError("unknown type of differentiation "
                         "operator encountered by stab term generator")
 
-            from hedge.flux import Normal, FluxScalarPlaceholder
+            from grudge.flux import Normal, FluxScalarPlaceholder
             sph = FluxScalarPlaceholder(flux_arg_idx)
             return (factor
                     * Normal(expr.op.xyz_axis)
@@ -112,12 +112,12 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
                         "when generating stabilization term")
             return self.rec(expr.field, [expr.op])
         else:
-            from hedge.optemplate.tools import pretty
+            from grudge.optemplate.tools import pretty
             raise ValueError("stabilization term generator doesn't know "
                     "what to do with '%s'" % pretty(expr))
 
     def map_variable(self, expr, quad_above=[]):
-        from hedge.flux import FieldComponent
+        from grudge.flux import FieldComponent
         return FieldComponent(
                 self.get_flux_arg_idx(expr, quad_above),
                 is_interior=True)
@@ -125,7 +125,7 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
     def map_subscript(self, expr, quad_above=[]):
         from pymbolic.primitives import Variable
         assert isinstance(expr.aggregate, Variable)
-        from hedge.flux import FieldComponent
+        from grudge.flux import FieldComponent
         return FieldComponent(
                 self.get_flux_arg_idx(expr, quad_above),
                 is_interior=True)
@@ -135,15 +135,15 @@ class StabilizationTermGenerator(hedge.optemplate.IdentityMapper):
 
 # {{{ neumann bc generator
 
-class NeumannBCGenerator(hedge.optemplate.IdentityMapper):
+class NeumannBCGenerator(grudge.optemplate.IdentityMapper):
     def __init__(self, tag, bc):
-        hedge.optemplate.IdentityMapper.__init__(self)
+        grudge.optemplate.IdentityMapper.__init__(self)
         self.tag = tag
         self.bc = bc
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, hedge.optemplate.DiffOperatorBase):
-            from hedge.optemplate import \
+        if isinstance(expr.op, grudge.optemplate.DiffOperatorBase):
+            from grudge.optemplate import \
                     WeakFormDiffOperatorBase, \
                     StrongFormDiffOperatorBase
             if isinstance(expr.op, WeakFormDiffOperatorBase):
@@ -154,13 +154,13 @@ class NeumannBCGenerator(hedge.optemplate.IdentityMapper):
                 raise RuntimeError("unknown type of differentiation "
                         "operator encountered by stab term generator")
 
-            from hedge.optemplate import BoundaryNormalComponent
+            from grudge.optemplate import BoundaryNormalComponent
             return (self.bc * factor *
                     BoundaryNormalComponent(self.tag, expr.op.xyz_axis))
 
-        elif isinstance(expr.op, hedge.optemplate.FluxOperatorBase):
+        elif isinstance(expr.op, grudge.optemplate.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, hedge.optemplate.InverseMassOperator):
+        elif isinstance(expr.op, grudge.optemplate.InverseMassOperator):
             return self.rec(expr.field)
         else:
             raise ValueError("neumann normal direction generator doesn't know "
@@ -169,10 +169,10 @@ class NeumannBCGenerator(hedge.optemplate.IdentityMapper):
 # }}}
 
 
-class IPDGDerivativeGenerator(hedge.optemplate.IdentityMapper):
+class IPDGDerivativeGenerator(grudge.optemplate.IdentityMapper):
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, hedge.optemplate.DiffOperatorBase):
-            from hedge.optemplate import (
+        if isinstance(expr.op, grudge.optemplate.DiffOperatorBase):
+            from grudge.optemplate import (
                     WeakFormDiffOperatorBase,
                     StrongFormDiffOperatorBase)
 
@@ -184,19 +184,19 @@ class IPDGDerivativeGenerator(hedge.optemplate.IdentityMapper):
                 raise RuntimeError("unknown type of differentiation "
                         "operator encountered by stab term generator")
 
-            from hedge.optemplate import DifferentiationOperator
+            from grudge.optemplate import DifferentiationOperator
             return factor*DifferentiationOperator(expr.op.xyz_axis)(expr.field)
 
-        elif isinstance(expr.op, hedge.optemplate.FluxOperatorBase):
+        elif isinstance(expr.op, grudge.optemplate.FluxOperatorBase):
             return 0
-        elif isinstance(expr.op, hedge.optemplate.InverseMassOperator):
+        elif isinstance(expr.op, grudge.optemplate.InverseMassOperator):
             return self.rec(expr.field)
         elif isinstance(expr.op,
-                hedge.optemplate.QuadratureInteriorFacesGridUpsampler):
-            return hedge.optemplate.IdentityMapper.map_operator_binding(
+                grudge.optemplate.QuadratureInteriorFacesGridUpsampler):
+            return grudge.optemplate.IdentityMapper.map_operator_binding(
                     self, expr)
         else:
-            from hedge.optemplate.tools import pretty
+            from grudge.optemplate.tools import pretty
             raise ValueError("IPDG derivative generator doesn't know "
                     "what to do with '%s'" % pretty(expr))
 
@@ -258,7 +258,7 @@ class SecondDerivativeTarget(object):
             return vec*operand
 
     def normal_times_flux(self, flux):
-        from hedge.flux import make_normal
+        from grudge.flux import make_normal
         return self.vec_times(make_normal(self.dimensions), flux)
 
     def apply_diff(self, nabla, operand):
@@ -275,10 +275,10 @@ class SecondDerivativeTarget(object):
 
     def _local_nabla(self):
         if self.strong_form:
-            from hedge.optemplate import make_stiffness
+            from grudge.optemplate import make_stiffness
             return make_stiffness(self.dimensions)
         else:
-            from hedge.optemplate import make_stiffness_t
+            from grudge.optemplate import make_stiffness_t
             return make_stiffness_t(self.dimensions)
 
     def add_derivative(self, operand=None):
@@ -289,12 +289,12 @@ class SecondDerivativeTarget(object):
                 self.apply_diff(self._local_nabla(), operand))
 
     def add_inner_fluxes(self, flux, expr):
-        from hedge.optemplate import get_flux_operator
+        from grudge.optemplate import get_flux_operator
         self.inner_fluxes = self.inner_fluxes \
                 + get_flux_operator(self.strong_neg*flux)(expr)
 
     def add_boundary_flux(self, flux, volume_expr, bdry_expr, tag):
-        from hedge.optemplate import BoundaryPair, get_flux_operator
+        from grudge.optemplate import BoundaryPair, get_flux_operator
         self.boundary_fluxes = self.boundary_fluxes + \
                 get_flux_operator(self.strong_neg*flux)(BoundaryPair(
                         volume_expr, bdry_expr, tag))
@@ -309,8 +309,8 @@ class SecondDerivativeTarget(object):
 
     @property
     def minv_all(self):
-        from hedge.optemplate.primitives import make_common_subexpression as cse
-        from hedge.optemplate.operators import InverseMassOperator
+        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.optemplate.operators import InverseMassOperator
         return (cse(InverseMassOperator()(self.local_derivatives), "grad_loc")
                 + cse(InverseMassOperator()(self.fluxes), "grad_flux"))
 
@@ -334,7 +334,7 @@ class SecondDerivativeBase(object):
             def adjust_flux(f):
                 return f
 
-        from hedge.flux import FluxScalarPlaceholder
+        from grudge.flux import FluxScalarPlaceholder
         u = FluxScalarPlaceholder()
 
         tgt.add_derivative()
@@ -395,7 +395,7 @@ class LDGSecondDerivative(SecondDerivativeBase):
         return np.array([self.beta_value]*tgt.dimensions, dtype=np.float64)
 
     def grad_interior_flux(self, tgt, u):
-        from hedge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.optemplate.primitives import make_common_subexpression as cse
         n_times = tgt.normal_times_flux
         v_times = tgt.vec_times
 
@@ -409,8 +409,8 @@ class LDGSecondDerivative(SecondDerivativeBase):
           *volume_expr* will be None to query the Neumann condition.
         """
 
-        from hedge.optemplate.primitives import make_common_subexpression as cse
-        from hedge.flux import FluxVectorPlaceholder, PenaltyTerm
+        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.flux import FluxVectorPlaceholder, PenaltyTerm
 
         n_times = tgt.normal_times_flux
         v_times = tgt.vec_times
@@ -459,7 +459,7 @@ class IPDGSecondDerivative(SecondDerivativeBase):
         self.stab_coefficient = stab_coefficient
 
     def grad_interior_flux(self, tgt, u):
-        from hedge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.optemplate.primitives import make_common_subexpression as cse
         n_times = tgt.normal_times_flux
         return n_times(cse(u.avg, "u_avg"))
 
@@ -469,8 +469,8 @@ class IPDGSecondDerivative(SecondDerivativeBase):
           *volume_expr* will be None to query the Neumann condition.
         """
 
-        from hedge.optemplate.primitives import make_common_subexpression as cse
-        from hedge.flux import FluxVectorPlaceholder, PenaltyTerm
+        from grudge.optemplate.primitives import make_common_subexpression as cse
+        from grudge.flux import FluxVectorPlaceholder, PenaltyTerm
 
         n_times = tgt.normal_times_flux
 

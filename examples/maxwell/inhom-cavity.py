@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 # Adapted 2010 by David Powell
 #
@@ -60,9 +60,9 @@ Physical Surface("dielectric") = {2};
 def main(write_output=True, allow_features=None, flux_type_arg=1,
         bdry_flux_type_arg=None, extra_discr_args={}):
     from math import sqrt, pi
-    from hedge.models.em import TEMaxwellOperator
+    from grudge.models.em import TEMaxwellOperator
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context(allow_features)
 
     epsilon0 = 8.8541878176e-12 # C**2 / (N m**2)
@@ -113,13 +113,13 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
             else:
                 return -l*sin(h*d)/sin(l*(a-d))*cos(l*(a-x[0]))
 
-        from hedge.tools import make_obj_array
+        from grudge.tools import make_obj_array
         result_zero = discr.volume_zeros(kind="numpy", dtype=numpy.float64)
         H_z = make_tdep_given(initial_Hz).volume_interpolant(0, discr)
         return make_obj_array([result_zero, result_zero, H_z])
 
     if rcon.is_head_rank:
-        from hedge.mesh.reader.gmsh import generate_gmsh
+        from grudge.mesh.reader.gmsh import generate_gmsh
         mesh = generate_gmsh(CAVITY_GEOMETRY, 2, force_dimension=2)
         mesh_data = rcon.distribute_mesh(mesh)
     else:
@@ -134,8 +134,8 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
     #extra_discr_args.setdefault("debug", []).append("cuda_no_plan")
     #extra_discr_args.setdefault("debug", []).append("dump_optemplate_stages")
 
-    from hedge.data import make_tdep_given
-    from hedge.mesh import TAG_ALL
+    from grudge.data import make_tdep_given
+    from grudge.mesh import TAG_ALL
 
     op = TEMaxwellOperator(epsilon=make_tdep_given(eps_val), mu=make_tdep_given(mu_val), \
             flux_type=flux_type_arg, \
@@ -151,7 +151,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
     # create the initial solution
     fields = initial_val(discr)
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         from os.path import join
         vis = VtkVisualizer(discr, rcon, join(output_dir, "cav-%d" % order))
@@ -168,9 +168,9 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         print("---------------------------------------------")
         print("#elements=", len(mesh.elements))
 
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type, rcon=rcon)
-    #from hedge.timestep.dumka3 import Dumka3TimeStepper
+    #from grudge.timestep.dumka3 import Dumka3TimeStepper
     #stepper = Dumka3TimeStepper(3, dtype=discr.default_scalar_type, rcon=rcon)
 
     # diagnostics setup ---------------------------------------------------
@@ -195,7 +195,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
     vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
     logmgr.add_quantity(vis_timer)
 
-    #from hedge.log import EMFieldGetter, add_em_quantities
+    #from grudge.log import EMFieldGetter, add_em_quantities
     #field_getter = EMFieldGetter(discr, op, lambda: fields)
     #add_em_quantities(logmgr, op, field_getter)
 
@@ -214,7 +214,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         pointfile = open(join(output_dir, "point.txt"), "wt")
         done_dt = False
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         from os.path import join
         step_it = times_and_steps(
                 final_time=final_time, logmgr=logmgr,

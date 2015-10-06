@@ -3,5 +3,5 @@
 
 
 def pytest_collect_file(path, parent):
-    if "hedge/examples" in str(path.dirpath()) and path.ext == ".py":
+    if "grudge/examples" in str(path.dirpath()) and path.ext == ".py":
         return parent.Module(path, parent=parent)

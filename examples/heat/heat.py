@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from __future__ import print_function
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -27,10 +27,10 @@ import numpy.linalg as la
 
 def main(write_output=True) :
     from math import sin, cos, pi, exp, sqrt
-    from hedge.data import TimeConstantGivenFunction, \
+    from grudge.data import TimeConstantGivenFunction, \
             ConstantGivenFunction
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     dim = 2
@@ -43,11 +43,11 @@ def main(write_output=True) :
 
     if dim == 2:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_disk_mesh
+            from grudge.mesh.generator import make_disk_mesh
             mesh = make_disk_mesh(r=0.5, boundary_tagger=boundary_tagger)
     elif dim == 3:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_ball_mesh
+            from grudge.mesh.generator import make_ball_mesh
             mesh = make_ball_mesh(max_volume=0.001)
     else:
         raise RuntimeError("bad number of dimensions")
@@ -63,7 +63,7 @@ def main(write_output=True) :
             default_scalar_type=numpy.float64)
 
     if write_output:
-        from hedge.visualization import  VtkVisualizer
+        from grudge.visualization import  VtkVisualizer
         vis = VtkVisualizer(discr, rcon, "fld")
 
     def u0(x, el):
@@ -84,7 +84,7 @@ def main(write_output=True) :
     def neumann_bc(t, x):
         return 2
 
-    from hedge.models.diffusion import DiffusionOperator
+    from grudge.models.diffusion import DiffusionOperator
     op = DiffusionOperator(discr.dimensions,
             #coeff=coeff,
             dirichlet_tag="dirichlet",
@@ -111,7 +111,7 @@ def main(write_output=True) :
     add_simulation_quantities(logmgr)
     discr.add_instrumentation(logmgr)
 
-    from hedge.log import LpNorm
+    from grudge.log import LpNorm
     u_getter = lambda: u
     logmgr.add_quantity(LpNorm(u_getter, discr, 1, name="l1_u"))
     logmgr.add_quantity(LpNorm(u_getter, discr, name="l2_u"))
@@ -119,8 +119,8 @@ def main(write_output=True) :
     logmgr.add_watches(["step.max", "t_sim.max", "l2_u", "t_step.max"])
 
     # timestep loop -----------------------------------------------------------
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper, ODE45TimeStepper
-    from hedge.timestep.dumka3 import Dumka3TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper, ODE45TimeStepper
+    from grudge.timestep.dumka3 import Dumka3TimeStepper
     #stepper = LSRK4TimeStepper()
     stepper = Dumka3TimeStepper(3, rtol=1e-6, rcon=rcon,
             vector_primitive_factory=discr.get_vector_primitive_factory(),
@@ -135,7 +135,7 @@ def main(write_output=True) :
         next_dt = op.estimate_timestep(discr,
                 stepper=LSRK4TimeStepper(), t=0, fields=u)
 
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=0.1, logmgr=logmgr,
                 max_dt_getter=lambda t: next_dt,

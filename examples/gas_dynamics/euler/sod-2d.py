@@ -14,8 +14,8 @@ class Sod:
 
     def __call__(self, t, x_vec):
 
-        from hedge.tools import heaviside
-        from hedge.tools import heaviside_a
+        from grudge.tools import heaviside
+        from grudge.tools import heaviside_a
 
         x_rel = x_vec[0]
         y_rel = x_vec[1]
@@ -30,7 +30,7 @@ class Sod:
         e = (1.0/(self.gamma-1.0))*(heaviside(-r_shift)+.1*heaviside_a(r_shift,1.0))
         p = (self.gamma-1.0)*e
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho*u, rho*v)
 
 
@@ -48,13 +48,13 @@ class Sod:
 
 
 def main():
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
-    from hedge.tools import to_obj_array
+    from grudge.tools import to_obj_array
 
     if rcon.is_head_rank:
-        from hedge.mesh.generator import make_rect_mesh
+        from grudge.mesh.generator import make_rect_mesh
         mesh = make_rect_mesh((-5,-5), (5,5), max_area=0.01)
         mesh_data = rcon.distribute_mesh(mesh)
     else:
@@ -64,15 +64,15 @@ def main():
         discr = rcon.make_discretization(mesh_data, order=order,
                         default_scalar_type=numpy.float64)
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         vis = VtkVisualizer(discr, rcon, "Sod2D-%d" % order)
         #vis = SiloVisualizer(discr, rcon)
 
         sod_field = Sod(gamma=1.4)
         fields = sod_field.volume_interpolant(0, discr)
 
-        from hedge.models.gas_dynamics import GasDynamicsOperator
-        from hedge.mesh import TAG_ALL
+        from grudge.models.gas_dynamics import GasDynamicsOperator
+        from grudge.mesh import TAG_ALL
         op = GasDynamicsOperator(dimensions=2, gamma=sod_field.gamma, mu=0.0,
                 prandtl=sod_field.prandtl,
                 bc_inflow=sod_field,
@@ -97,11 +97,11 @@ def main():
             print("#elements=", len(mesh.elements))
 
         # limiter setup ------------------------------------------------------------
-        from hedge.models.gas_dynamics import SlopeLimiter1NEuler
+        from grudge.models.gas_dynamics import SlopeLimiter1NEuler
         limiter =  SlopeLimiter1NEuler(discr, sod_field.gamma, 2, op)
 
         # integrator setup---------------------------------------------------------
-        from hedge.timestep import SSPRK3TimeStepper, RK4TimeStepper
+        from grudge.timestep import SSPRK3TimeStepper, RK4TimeStepper
         stepper = SSPRK3TimeStepper(limiter=limiter)
         #stepper = SSPRK3TimeStepper()
         #stepper = RK4TimeStepper()
@@ -120,13 +120,13 @@ def main():
         logmgr.add_watches(["step.max", "t_sim.max", "t_step.max"])
 
         # filter setup-------------------------------------------------------------
-        from hedge.discretization import Filter, ExponentialFilterResponseFunction
+        from grudge.discretization import Filter, ExponentialFilterResponseFunction
         mode_filter = Filter(discr,
                 ExponentialFilterResponseFunction(min_amplification=0.9,order=4))
 
         # timestep loop -------------------------------------------------------
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=1.0, logmgr=logmgr,
                     max_dt_getter=lambda t: op.estimate_timestep(discr,

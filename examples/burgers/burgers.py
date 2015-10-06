@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -100,16 +100,16 @@ def main(write_output=True, flux_type_arg="upwind",
         #case = OffCenterMigratingTestCase(),
         case = ExactTestCase(),
         ):
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     order = 3
     if rcon.is_head_rank:
         if True:
-            from hedge.mesh.generator import make_uniform_1d_mesh
+            from grudge.mesh.generator import make_uniform_1d_mesh
             mesh = make_uniform_1d_mesh(case.a, case.b, 20, periodic=True)
         else:
-            from hedge.mesh.generator import make_rect_mesh
+            from grudge.mesh.generator import make_rect_mesh
             print((pi*2)/(11*5*2))
             mesh = make_rect_mesh((-pi, -1), (pi, 1),
                     periodicity=(True, True),
@@ -126,13 +126,13 @@ def main(write_output=True, flux_type_arg="upwind",
             quad_min_degrees={"quad": 3*order})
 
     if write_output:
-        from hedge.visualization import VtkVisualizer
+        from grudge.visualization import VtkVisualizer
         vis = VtkVisualizer(discr, rcon, "fld")
 
     # operator setup ----------------------------------------------------------
-    from hedge.second_order import IPDGSecondDerivative
+    from grudge.second_order import IPDGSecondDerivative
 
-    from hedge.models.burgers import BurgersOperator
+    from grudge.models.burgers import BurgersOperator
     op = BurgersOperator(mesh.dimensions,
             viscosity_scheme=IPDGSecondDerivative())
 
@@ -162,7 +162,7 @@ def main(write_output=True, flux_type_arg="upwind",
     add_simulation_quantities(logmgr)
     discr.add_instrumentation(logmgr)
 
-    from hedge.log import LpNorm
+    from grudge.log import LpNorm
     u_getter = lambda: u
     logmgr.add_quantity(LpNorm(u_getter, discr, p=1, name="l1_u"))
 
@@ -171,13 +171,13 @@ def main(write_output=True, flux_type_arg="upwind",
     # timestep loop -----------------------------------------------------------
     rhs = op.bind(discr)
 
-    from hedge.timestep.runge_kutta import ODE45TimeStepper, LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import ODE45TimeStepper, LSRK4TimeStepper
     stepper = ODE45TimeStepper()
 
     stepper.add_instrumentation(logmgr)
 
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         # for visc=0.01
         #stab_fac = 0.1 # RK4
         #stab_fac = 1.6 # dumka3(3), central
@@ -192,7 +192,7 @@ def main(write_output=True, flux_type_arg="upwind",
 
         step_it = times_and_steps(
                 final_time=case.final_time, logmgr=logmgr, max_dt_getter=lambda t: dt)
-        from hedge.optemplate import  InverseVandermondeOperator
+        from grudge.optemplate import  InverseVandermondeOperator
         inv_vdm = InverseVandermondeOperator().bind(discr)
 
         for step, t, dt in step_it:

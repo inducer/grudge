@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,11 +25,11 @@ import numpy.linalg as la
 
 
 def main(write_output=True, flux_type_arg="upwind"):
-    from hedge.tools import mem_checkpoint
+    from grudge.tools import mem_checkpoint
     from math import sin, cos, pi, sqrt
     from math import floor
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     def f(x):
@@ -49,17 +49,17 @@ def main(write_output=True, flux_type_arg="upwind"):
     if dim == 1:
         v = numpy.array([1])
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_uniform_1d_mesh
+            from grudge.mesh.generator import make_uniform_1d_mesh
             mesh = make_uniform_1d_mesh(0, 2, 10, periodic=True)
     elif dim == 2:
         v = numpy.array([2,0])
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_disk_mesh
+            from grudge.mesh.generator import make_disk_mesh
             mesh = make_disk_mesh(boundary_tagger=boundary_tagger)
     elif dim == 3:
         v = numpy.array([0,0,1])
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_cylinder_mesh, make_ball_mesh, make_box_mesh
+            from grudge.mesh.generator import make_cylinder_mesh, make_ball_mesh, make_box_mesh
 
             mesh = make_cylinder_mesh(max_volume=0.04, height=2, boundary_tagger=boundary_tagger,
                     periodic=False, radial_subdivisions=32)
@@ -79,16 +79,16 @@ def main(write_output=True, flux_type_arg="upwind"):
     discr = rcon.make_discretization(mesh_data, order=4)
     vis_discr = discr
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(vis_discr, rcon, "fld")
 
     # operator setup ----------------------------------------------------------
-    from hedge.data import \
+    from grudge.data import \
             ConstantGivenFunction, \
             TimeConstantGivenFunction, \
             TimeDependentGivenFunction
-    from hedge.models.advection import StrongAdvectionOperator, WeakAdvectionOperator
+    from grudge.models.advection import StrongAdvectionOperator, WeakAdvectionOperator
     op = WeakAdvectionOperator(v, 
             inflow_u=TimeDependentGivenFunction(u_analytic),
             flux_type=flux_type_arg)
@@ -96,7 +96,7 @@ def main(write_output=True, flux_type_arg="upwind"):
     u = discr.interpolate_volume_function(lambda x, el: u_analytic(x, el, 0))
 
     # timestep setup ----------------------------------------------------------
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper()
 
     if rcon.is_head_rank:
@@ -121,7 +121,7 @@ def main(write_output=True, flux_type_arg="upwind"):
 
     stepper.add_instrumentation(logmgr)
 
-    from hedge.log import Integral, LpNorm
+    from grudge.log import Integral, LpNorm
     u_getter = lambda: u
     logmgr.add_quantity(Integral(u_getter, discr, name="int_u"))
     logmgr.add_quantity(LpNorm(u_getter, discr, p=1, name="l1_u"))
@@ -133,7 +133,7 @@ def main(write_output=True, flux_type_arg="upwind"):
     rhs = op.bind(discr)
 
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=3, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

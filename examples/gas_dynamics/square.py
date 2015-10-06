@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -87,9 +87,9 @@ def make_squaremesh():
         face_marker = fvi2fm[fvi]
         return [face_marker_to_tag[face_marker]]
 
-    from hedge.mesh import make_conformal_mesh_ext
+    from grudge.mesh import make_conformal_mesh_ext
     vertices = numpy.asarray(mesh.points, dtype=float, order="C")
-    from hedge.mesh.element import Triangle
+    from grudge.mesh.element import Triangle
     return make_conformal_mesh_ext(
             vertices,
             [Triangle(i, el_idx, vertices)
@@ -103,14 +103,14 @@ def main():
     import logging
     logging.basicConfig(level=logging.INFO)
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     if rcon.is_head_rank:
         if True:
             mesh = make_squaremesh()
         else:
-            from hedge.mesh import make_rect_mesh
+            from grudge.mesh import make_rect_mesh
             mesh = make_rect_mesh(
                    boundary_tagger=lambda fvi, el, fn, all_v: ["inflow"],
                    max_area=0.1)
@@ -127,7 +127,7 @@ def main():
         square = UniformMachFlow(gaussian_pulse_at=numpy.array([-2, 2]),
                 pulse_magnitude=0.003)
 
-        from hedge.models.gas_dynamics import (
+        from grudge.models.gas_dynamics import (
                 GasDynamicsOperator,
                 GammaLawEOS)
 
@@ -154,13 +154,13 @@ def main():
                             }
                         )
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)
         vis = SiloVisualizer(discr, rcon)
 
-        from hedge.timestep.runge_kutta import (
+        from grudge.timestep.runge_kutta import (
                 LSRK4TimeStepper, ODE23TimeStepper, ODE45TimeStepper)
-        from hedge.timestep.dumka3 import Dumka3TimeStepper
+        from grudge.timestep.dumka3 import Dumka3TimeStepper
         #stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type,
                 #vector_primitive_factory=discr.get_vector_primitive_factory())
 
@@ -172,7 +172,7 @@ def main():
                 #rtol=1e-7, pol_index=2,
                 #vector_primitive_factory=discr.get_vector_primitive_factory())
 
-        #from hedge.timestep.dumka3 import Dumka3TimeStepper
+        #from grudge.timestep.dumka3 import Dumka3TimeStepper
         #stepper = Dumka3TimeStepper(3, rtol=1e-7)
 
         # diagnostics setup ---------------------------------------------------
@@ -207,7 +207,7 @@ def main():
         logmgr.add_watches(["step.max", "t_sim.max", "t_step.max"])
 
         # filter setup ------------------------------------------------------------
-        from hedge.discretization import Filter, ExponentialFilterResponseFunction
+        from grudge.discretization import Filter, ExponentialFilterResponseFunction
         mode_filter = Filter(discr,
                 ExponentialFilterResponseFunction(min_amplification=0.95, order=6))
 
@@ -230,7 +230,7 @@ def main():
             print("#elements=", len(mesh.elements))
 
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=1000,
                     #max_steps=500,

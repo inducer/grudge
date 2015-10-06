@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,7 +20,7 @@
 from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
-from hedge.tools import \
+from grudge.tools import \
         cyl_bessel_j, \
         cyl_bessel_j_prime
 from math import sqrt, pi, sin, cos, atan2, acos
@@ -390,11 +390,11 @@ class DipoleFarField:
 
 # analytic solution tools -----------------------------------------------------
 def check_time_harmonic_solution(discr, mode, c_sol):
-    from hedge.discretization import bind_nabla, bind_mass_matrix
-    from hedge.visualization import SiloVisualizer
-    from hedge.silo import SiloFile
-    from hedge.tools import dot, cross
-    from hedge.silo import DB_VARTYPE_VECTOR
+    from grudge.discretization import bind_nabla, bind_mass_matrix
+    from grudge.visualization import SiloVisualizer
+    from grudge.silo import SiloFile
+    from grudge.tools import dot, cross
+    from grudge.silo import DB_VARTYPE_VECTOR
 
     def curl(field):
         return cross(nabla, field)

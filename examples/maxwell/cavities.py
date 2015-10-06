@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 def main(write_output=True, allow_features=None, flux_type_arg=1,
         bdry_flux_type_arg=None, extra_discr_args={}):
-    from hedge.mesh.generator import make_cylinder_mesh, make_box_mesh
-    from hedge.tools import EOCRecorder, to_obj_array
+    from grudge.mesh.generator import make_cylinder_mesh, make_box_mesh
+    from grudge.tools import EOCRecorder, to_obj_array
     from math import sqrt, pi  # noqa
     from analytic_solutions import (  # noqa
             RealPartAdapter,
@@ -36,11 +36,11 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
             CylindricalCavityMode,
             RectangularWaveguideMode,
             RectangularCavityMode)
-    from hedge.models.em import MaxwellOperator
+    from grudge.models.em import MaxwellOperator
 
     logging.basicConfig(level=logging.DEBUG)
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context(allow_features)
 
     epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)
@@ -93,7 +93,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
                 tune_for=op.op_template(),
                 **extra_discr_args)
 
-        from hedge.visualization import VtkVisualizer
+        from grudge.visualization import VtkVisualizer
         if write_output:
             vis = VtkVisualizer(discr, rcon, "em-%d" % order)
 
@@ -113,9 +113,9 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
             print("---------------------------------------------")
             print("#elements=", len(mesh.elements))
 
-        from hedge.timestep.runge_kutta import LSRK4TimeStepper
+        from grudge.timestep.runge_kutta import LSRK4TimeStepper
         stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type, rcon=rcon)
-        #from hedge.timestep.dumka3 import Dumka3TimeStepper
+        #from grudge.timestep.dumka3 import Dumka3TimeStepper
         #stepper = Dumka3TimeStepper(3, dtype=discr.default_scalar_type, rcon=rcon)
 
         # {{{ diagnostics setup
@@ -140,7 +140,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
         logmgr.add_quantity(vis_timer)
 
-        from hedge.log import EMFieldGetter, add_em_quantities
+        from grudge.log import EMFieldGetter, add_em_quantities
         field_getter = EMFieldGetter(discr, op, lambda: fields)
         add_em_quantities(logmgr, op, field_getter)
 
@@ -158,7 +158,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
         final_time = 0.5e-9
 
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=final_time, logmgr=logmgr,
                     max_dt_getter=lambda t: op.estimate_timestep(discr,

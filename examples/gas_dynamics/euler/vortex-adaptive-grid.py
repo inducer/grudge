@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -30,15 +30,15 @@ def main(write_output=True):
     from pytools import add_python_path_relative_to_script
     add_python_path_relative_to_script("..")
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
-    from hedge.tools import EOCRecorder
+    from grudge.tools import EOCRecorder
     eoc_rec = EOCRecorder()
 
 
     if rcon.is_head_rank:
-        from hedge.mesh.generator import \
+        from grudge.mesh.generator import \
                 make_rect_mesh, \
                 make_centered_regular_rect_mesh
 
@@ -51,7 +51,7 @@ def main(write_output=True):
 
     # a second mesh to regrid to
     if rcon.is_head_rank:
-        from hedge.mesh.generator import \
+        from grudge.mesh.generator import \
                 make_rect_mesh, \
                 make_centered_regular_rect_mesh
 
@@ -80,7 +80,7 @@ def main(write_output=True):
                             })
 
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         vis = VtkVisualizer(discr, rcon, "vortex-%d" % order)
         #vis = SiloVisualizer(discr, rcon)
 
@@ -88,8 +88,8 @@ def main(write_output=True):
         vortex = Vortex()
         fields = vortex.volume_interpolant(0, discr)
 
-        from hedge.models.gas_dynamics import GasDynamicsOperator
-        from hedge.mesh import TAG_ALL
+        from grudge.models.gas_dynamics import GasDynamicsOperator
+        from grudge.mesh import TAG_ALL
 
         op = GasDynamicsOperator(dimensions=2, gamma=vortex.gamma, mu=vortex.mu,
                 prandtl=vortex.prandtl, spec_gas_const=vortex.spec_gas_const,
@@ -115,14 +115,14 @@ def main(write_output=True):
 
 
         # limiter ------------------------------------------------------------
-        from hedge.models.gas_dynamics import SlopeLimiter1NEuler
+        from grudge.models.gas_dynamics import SlopeLimiter1NEuler
         limiter = SlopeLimiter1NEuler(discr, vortex.gamma, 2, op)
 
-        from hedge.timestep import SSPRK3TimeStepper
+        from grudge.timestep import SSPRK3TimeStepper
         #stepper = SSPRK3TimeStepper(limiter=limiter)
         stepper = SSPRK3TimeStepper()
 
-        #from hedge.timestep import RK4TimeStepper
+        #from grudge.timestep import RK4TimeStepper
         #stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
@@ -146,7 +146,7 @@ def main(write_output=True):
         # timestep loop -------------------------------------------------------
         try:
             final_time = 0.2
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=final_time, logmgr=logmgr,
                     max_dt_getter=lambda t: op.estimate_timestep(discr,

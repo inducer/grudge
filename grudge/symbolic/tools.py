@@ -39,8 +39,8 @@ def get_flux_operator(flux):
     or with a :class:`BoundaryPair` to obtain the lifted boundary
     flux.
     """
-    from hedge.tools import is_obj_array
-    from hedge.optemplate import VectorFluxOperator, FluxOperator
+    from grudge.tools import is_obj_array
+    from grudge.optemplate import VectorFluxOperator, FluxOperator
 
     if is_obj_array(flux):
         return VectorFluxOperator(flux)
@@ -49,35 +49,35 @@ def get_flux_operator(flux):
 
 
 def make_nabla(dim):
-    from hedge.tools import make_obj_array
-    from hedge.optemplate import DifferentiationOperator
+    from grudge.tools import make_obj_array
+    from grudge.optemplate import DifferentiationOperator
     return make_obj_array(
             [DifferentiationOperator(i) for i in range(dim)])
 
 
 def make_minv_stiffness_t(dim):
-    from hedge.tools import make_obj_array
-    from hedge.optemplate import MInvSTOperator
+    from grudge.tools import make_obj_array
+    from grudge.optemplate import MInvSTOperator
     return make_obj_array(
         [MInvSTOperator(i) for i in range(dim)])
 
 
 def make_stiffness(dim):
-    from hedge.tools import make_obj_array
-    from hedge.optemplate import StiffnessOperator
+    from grudge.tools import make_obj_array
+    from grudge.optemplate import StiffnessOperator
     return make_obj_array(
         [StiffnessOperator(i) for i in range(dim)])
 
 
 def make_stiffness_t(dim):
-    from hedge.tools import make_obj_array
-    from hedge.optemplate import StiffnessTOperator
+    from grudge.tools import make_obj_array
+    from grudge.optemplate import StiffnessTOperator
     return make_obj_array(
         [StiffnessTOperator(i) for i in range(dim)])
 
 
 def integral(arg):
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
     return sym.NodalSum()(sym.MassOperator()(sym.Ones())*arg)
 
 
@@ -85,7 +85,7 @@ def norm(p, arg):
     """
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
 
     if p == 2:
         comp_norm_squared = sym.NodalSum()(
@@ -103,7 +103,7 @@ def norm(p, arg):
 
 
 def flat_end_sin(x):
-    from hedge.optemplate.primitives import CFunction
+    from grudge.optemplate.primitives import CFunction
     from pymbolic.primitives import IfPositive
     from math import pi
     return IfPositive(-pi/2-x,
@@ -121,12 +121,12 @@ def smooth_ifpos(crit, right, left, width):
 # {{{ optemplate tools
 
 def is_scalar(expr):
-    from hedge.optemplate import ScalarParameter
+    from grudge.optemplate import ScalarParameter
     return isinstance(expr, (int, float, complex, ScalarParameter))
 
 
 def get_flux_dependencies(flux, field, bdry="all"):
-    from hedge.flux import FluxDependencyMapper, FieldComponent
+    from grudge.flux import FluxDependencyMapper, FieldComponent
     in_fields = list(FluxDependencyMapper(
         include_calls=False)(flux))
 
@@ -136,14 +136,14 @@ def get_flux_dependencies(flux, field, bdry="all"):
         if not isinstance(in_field, FieldComponent)]
 
     def maybe_index(fld, index):
-        from hedge.tools import is_obj_array
+        from grudge.tools import is_obj_array
         if is_obj_array(fld):
             return fld[inf.index]
         else:
             return fld
 
-    from hedge.tools import is_zero
-    from hedge.optemplate import BoundaryPair
+    from grudge.tools import is_zero
+    from grudge.optemplate import BoundaryPair
     if isinstance(field, BoundaryPair):
         for inf in in_fields:
             if inf.is_interior:
@@ -188,7 +188,7 @@ def split_optemplate_for_multirate(state_vector, op_template,
 
         killers.append(IndexGroupKillerSubstMap(kill_set))
 
-    from hedge.optemplate import \
+    from grudge.optemplate import \
             SubstitutionMapper, \
             CommutativeConstantFoldingMapper
 
@@ -252,12 +252,12 @@ def process_optemplate(optemplate, post_bind_mapper=None,
         dumper=lambda name, optemplate: None, mesh=None,
         type_hints={}):
 
-    from hedge.optemplate.mappers import (
+    from grudge.optemplate.mappers import (
             OperatorBinder, CommutativeConstantFoldingMapper,
             EmptyFluxKiller, InverseMassContractor, DerivativeJoiner,
             ErrorChecker, OperatorSpecializer, GlobalToReferenceMapper)
-    from hedge.optemplate.mappers.bc_to_flux import BCToFluxRewriter
-    from hedge.optemplate.mappers.type_inference import TypeInferrer
+    from grudge.optemplate.mappers.bc_to_flux import BCToFluxRewriter
+    from grudge.optemplate.mappers.type_inference import TypeInferrer
 
     dumper("before-bind", optemplate)
     optemplate = OperatorBinder()(optemplate)
@@ -327,7 +327,7 @@ def process_optemplate(optemplate, post_bind_mapper=None,
 # {{{ pretty printing
 
 def pretty(optemplate):
-    from hedge.optemplate.mappers import PrettyStringifyMapper
+    from grudge.optemplate.mappers import PrettyStringifyMapper
 
     stringify_mapper = PrettyStringifyMapper()
     from pymbolic.mapper.stringifier import PREC_NONE

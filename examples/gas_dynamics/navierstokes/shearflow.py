@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -41,7 +41,7 @@ class SteadyShearFlow:
         rho_v = numpy.zeros_like(x_vec[0])
         e = (2 * self.mu * x_vec[0] + 10) / (self.gamma - 1) + x_vec[1]**4 / 2
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho_u, rho_v)
 
     def properties(self):
@@ -64,19 +64,19 @@ class SteadyShearFlow:
 
 
 def main():
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context(
     #["cuda"]
     )
 
-    from hedge.tools import EOCRecorder, to_obj_array
+    from grudge.tools import EOCRecorder, to_obj_array
     eoc_rec = EOCRecorder()
 
     def boundary_tagger(vertices, el, face_nr, all_v):
         return ["inflow"]
 
     if rcon.is_head_rank:
-        from hedge.mesh import make_rect_mesh, \
+        from grudge.mesh import make_rect_mesh, \
                                make_centered_regular_rect_mesh
         #mesh = make_rect_mesh((0,0), (10,1), max_area=0.01)
         refine = 1
@@ -92,7 +92,7 @@ def main():
         discr = rcon.make_discretization(mesh_data, order=order,
                         default_scalar_type=numpy.float64)
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)
         vis = SiloVisualizer(discr, rcon)
 
@@ -100,7 +100,7 @@ def main():
         fields = shearflow.volume_interpolant(0, discr)
         gamma, mu, prandtl, spec_gas_const = shearflow.properties()
 
-        from hedge.models.gas_dynamics import GasDynamicsOperator
+        from grudge.models.gas_dynamics import GasDynamicsOperator
         op = GasDynamicsOperator(dimensions=2, gamma=gamma, mu=mu,
                 prandtl=prandtl, spec_gas_const=spec_gas_const,
                 bc_inflow=shearflow, bc_outflow=shearflow, bc_noslip=shearflow,
@@ -123,7 +123,7 @@ def main():
             print("---------------------------------------------")
             print("#elements=", len(mesh.elements))
 
-        from hedge.timestep import RK4TimeStepper
+        from grudge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
@@ -142,7 +142,7 @@ def main():
 
         # timestep loop -------------------------------------------------------
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=0.3,
                     #max_steps=500,

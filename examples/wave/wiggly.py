@@ -29,18 +29,18 @@ THE SOFTWARE.
 
 
 import numpy as np
-from hedge.mesh import TAG_ALL, TAG_NONE  # noqa
+from grudge.mesh import TAG_ALL, TAG_NONE  # noqa
 
 
 def main(write_output=True,
         flux_type_arg="upwind", dtype=np.float64, debug=[]):
     from math import sin, cos, pi, exp, sqrt  # noqa
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     if rcon.is_head_rank:
-        from hedge.mesh.reader.gmsh import generate_gmsh
+        from grudge.mesh.reader.gmsh import generate_gmsh
         mesh = generate_gmsh(GEOMETRY, 2,
                 allow_internal_boundaries=True,
                 force_dimension=2)
@@ -52,10 +52,10 @@ def main(write_output=True,
 
     discr = rcon.make_discretization(mesh_data, order=4, debug=debug,
             default_scalar_type=dtype)
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper(dtype=dtype)
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(discr, rcon, "fld")
 
@@ -63,11 +63,11 @@ def main(write_output=True,
     source_width = 0.05
     source_omega = 3
 
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
-    from hedge.models.wave import StrongWaveOperator
+    from grudge.models.wave import StrongWaveOperator
     op = StrongWaveOperator(-1, discr.dimensions,
             source_f=
             sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
@@ -80,7 +80,7 @@ def main(write_output=True,
             flux_type=flux_type_arg
             )
 
-    from hedge.tools import join_fields
+    from grudge.tools import join_fields
     fields = join_fields(discr.volume_zeros(dtype=dtype),
             [discr.volume_zeros(dtype=dtype) for i in range(discr.dimensions)])
 
@@ -108,7 +108,7 @@ def main(write_output=True,
     # timestep loop -----------------------------------------------------------
     rhs = op.bind(discr)
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=4, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

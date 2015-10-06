@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -56,7 +56,7 @@ class Vortex:
 
         e = p/(self.gamma-1) + rho/2*(u**2+v**2)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho*u, rho*v)
 
     def volume_interpolant(self, t, discr):
@@ -132,7 +132,7 @@ class SourceTerms:
         source_rhou = factorA*rho_gamma_x
         source_rhov = factorA*rho_gamma_y
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(source_rho, source_e, source_rhou, source_rhov, x_vec[0]-x_vec[0])
 
     def volume_interpolant(self,t,q,discr):
@@ -142,7 +142,7 @@ class SourceTerms:
 
 
 def main(write_output=True):
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context(
                     #["cuda"]
                     )
@@ -153,11 +153,11 @@ def main(write_output=True):
     # arise for other values
     densityA = 2.0
 
-    from hedge.tools import EOCRecorder, to_obj_array
+    from grudge.tools import EOCRecorder, to_obj_array
     eoc_rec = EOCRecorder()
 
     if rcon.is_head_rank:
-        from hedge.mesh import \
+        from grudge.mesh import \
                 make_rect_mesh, \
                 make_centered_regular_rect_mesh
 
@@ -175,7 +175,7 @@ def main(write_output=True):
                         ],
                         default_scalar_type=numpy.float64)
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "vortex-%d" % order)
         vis = SiloVisualizer(discr, rcon)
 
@@ -187,9 +187,9 @@ def main(write_output=True):
                 center=[5,0],
                 velocity=[1,0], densityA=densityA)
 
-        from hedge.models.gas_dynamics import (
+        from grudge.models.gas_dynamics import (
                 GasDynamicsOperator, GammaLawEOS)
-        from hedge.mesh import TAG_ALL
+        from grudge.mesh import TAG_ALL
 
         op = GasDynamicsOperator(dimensions=2,
                 mu=0.0, prandtl=0.72, spec_gas_const=287.1, 
@@ -213,11 +213,11 @@ def main(write_output=True):
             print("#elements=", len(mesh.elements))
 
         # limiter setup -------------------------------------------------------
-        from hedge.models.gas_dynamics import SlopeLimiter1NEuler
+        from grudge.models.gas_dynamics import SlopeLimiter1NEuler
         limiter = SlopeLimiter1NEuler(discr, gamma, 2, op)
 
         # time stepper --------------------------------------------------------
-        from hedge.timestep import SSPRK3TimeStepper, RK4TimeStepper
+        from grudge.timestep import SSPRK3TimeStepper, RK4TimeStepper
         #stepper = SSPRK3TimeStepper(limiter=limiter)
         #stepper = SSPRK3TimeStepper()
         stepper = RK4TimeStepper()
@@ -246,7 +246,7 @@ def main(write_output=True):
         #fields = limiter(fields)
 
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=.1,
                     #max_steps=500,

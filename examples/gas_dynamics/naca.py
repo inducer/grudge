@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -97,10 +97,10 @@ def make_nacamesh():
         face_marker = fvi2fm[fvi]
         return [face_marker_to_tag[face_marker]]
 
-    from hedge.mesh import make_conformal_mesh_ext
+    from grudge.mesh import make_conformal_mesh_ext
 
     vertices = numpy.asarray(mesh.points, order="C")
-    from hedge.mesh.element import Triangle
+    from grudge.mesh.element import Triangle
     return make_conformal_mesh_ext(
             vertices,
             [Triangle(i, el_idx, vertices)
@@ -113,7 +113,7 @@ def make_nacamesh():
 
 
 def main():
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     if rcon.is_head_rank:
@@ -129,7 +129,7 @@ def main():
         from gas_dynamics_initials import UniformMachFlow
         uniform_flow = UniformMachFlow()
 
-        from hedge.models.gas_dynamics import GasDynamicsOperator, GammaLawEOS
+        from grudge.models.gas_dynamics import GasDynamicsOperator, GammaLawEOS
         op = GasDynamicsOperator(dimensions=2,
                 equation_of_state=GammaLawEOS(uniform_flow.gamma), 
                 prandtl=uniform_flow.prandtl,
@@ -148,7 +148,7 @@ def main():
                         default_scalar_type=numpy.float32,
                         tune_for=op.op_template())
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)
         vis = SiloVisualizer(discr, rcon)
 
@@ -169,7 +169,7 @@ def main():
             print("---------------------------------------------")
             print("#elements=", len(mesh.elements))
 
-        from hedge.timestep.runge_kutta import \
+        from grudge.timestep.runge_kutta import \
                 ODE23TimeStepper, LSRK4TimeStepper
         stepper = ODE23TimeStepper(dtype=discr.default_scalar_type,
                 rtol=1e-6,
@@ -206,7 +206,7 @@ def main():
         #logmgr.add_quantity(ChangeSinceLastStep())
 
         # filter setup-------------------------------------------------------------
-        from hedge.discretization import Filter, ExponentialFilterResponseFunction
+        from grudge.discretization import Filter, ExponentialFilterResponseFunction
         mode_filter = Filter(discr,
                 ExponentialFilterResponseFunction(min_amplification=0.9,order=4))
         # timestep loop -------------------------------------------------------
@@ -214,7 +214,7 @@ def main():
         logmgr.add_watches(["step.max", "t_sim.max", "t_step.max"])
 
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=200,
                     #max_steps=500,

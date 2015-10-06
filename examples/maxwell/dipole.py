@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -31,15 +31,15 @@ from six.moves import zip
 
 
 def main(write_output=True, allow_features=None):
-    from hedge.timestep import RK4TimeStepper
-    from hedge.mesh import make_ball_mesh, make_cylinder_mesh, make_box_mesh
-    from hedge.visualization import \
+    from grudge.timestep import RK4TimeStepper
+    from grudge.mesh import make_ball_mesh, make_cylinder_mesh, make_box_mesh
+    from grudge.visualization import \
             VtkVisualizer, \
             SiloVisualizer, \
             get_rank_partition
     from math import sqrt, pi
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context(allow_features)
 
     epsilon0 = 8.8541878176e-12 # C**2 / (N m**2)
@@ -51,14 +51,14 @@ def main(write_output=True, allow_features=None):
 
     if rcon.is_head_rank:
         if dims == 2:
-            from hedge.mesh import make_rect_mesh
+            from grudge.mesh import make_rect_mesh
             mesh = make_rect_mesh(
                     a=(-10.5,-1.5),
                     b=(10.5,1.5),
                     max_area=0.1
                     )
         elif dims == 3:
-            from hedge.mesh import make_box_mesh
+            from grudge.mesh import make_box_mesh
             mesh = make_box_mesh(
                     a=(-10.5,-1.5,-1.5),
                     b=(10.5,1.5,1.5),
@@ -76,7 +76,7 @@ def main(write_output=True, allow_features=None):
         vis = VtkVisualizer(discr, rcon, "dipole")
 
     from analytic_solutions import DipoleFarField, SphericalFieldAdapter
-    from hedge.data import ITimeDependentGivenFunction
+    from grudge.data import ITimeDependentGivenFunction
 
     sph_dipole = DipoleFarField(
             q=1, #C
@@ -98,18 +98,18 @@ def main(write_output=True, allow_features=None):
             self.vol_0 = discr.volume_zeros()
 
         def volume_interpolant(self, t, discr):
-            from hedge.tools import make_obj_array
+            from grudge.tools import make_obj_array
             return make_obj_array([
                 self.vol_0,
                 self.vol_0,
                 sph_dipole.source_modulation(t)*self.num_sf
                 ])
 
-    from hedge.mesh import TAG_ALL, TAG_NONE
+    from grudge.mesh import TAG_ALL, TAG_NONE
     if dims == 2:
-        from hedge.models.em import TMMaxwellOperator as MaxwellOperator
+        from grudge.models.em import TMMaxwellOperator as MaxwellOperator
     else:
-        from hedge.models.em import MaxwellOperator
+        from grudge.models.em import MaxwellOperator
 
     op = MaxwellOperator(
             epsilon, mu,
@@ -146,7 +146,7 @@ def main(write_output=True, allow_features=None):
     vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
     logmgr.add_quantity(vis_timer)
 
-    from hedge.log import EMFieldGetter, add_em_quantities
+    from grudge.log import EMFieldGetter, add_em_quantities
     field_getter = EMFieldGetter(discr, op, lambda: fields)
     add_em_quantities(logmgr, op, field_getter)
 
@@ -173,7 +173,7 @@ def main(write_output=True, allow_features=None):
     mask = discr.interpolate_volume_function(sph_dipole.far_field_mask)
 
     def apply_mask(field):
-        from hedge.tools import log_shape
+        from grudge.tools import log_shape
         ls = log_shape(field)
         result = discr.volume_empty(ls)
         from pytools import indices_in_shape
@@ -186,7 +186,7 @@ def main(write_output=True, allow_features=None):
 
     t = 0
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=1e-8, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,
@@ -221,7 +221,7 @@ def main(write_output=True, allow_features=None):
                 visf.close()
                 sub_timer.stop().submit()
 
-                from hedge.tools import relative_error
+                from grudge.tools import relative_error
                 relerr_e_q.push_value(
                         relative_error(
                             discr.norm(mask_e-mask_true_e),

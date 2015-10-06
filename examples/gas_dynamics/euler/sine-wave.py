@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -42,7 +42,7 @@ class SineWave:
         rho_v = rho * velocity[1]
         rho_w = rho * velocity[2]
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho_u, rho_v, rho_w)
 
     def properties(self):
@@ -62,14 +62,14 @@ class SineWave:
 
 
 def main(final_time=1, write_output=False):
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
-    from hedge.tools import EOCRecorder, to_obj_array
+    from grudge.tools import EOCRecorder, to_obj_array
     eoc_rec = EOCRecorder()
 
     if rcon.is_head_rank:
-        from hedge.mesh import make_box_mesh
+        from grudge.mesh import make_box_mesh
         mesh = make_box_mesh((0,0,0), (10,10,10), max_volume=0.5)
         mesh_data = rcon.distribute_mesh(mesh)
     else:
@@ -79,7 +79,7 @@ def main(final_time=1, write_output=False):
         discr = rcon.make_discretization(mesh_data, order=order,
                         default_scalar_type=numpy.float64)
 
-        from hedge.visualization import SiloVisualizer, VtkVisualizer
+        from grudge.visualization import SiloVisualizer, VtkVisualizer
         vis = VtkVisualizer(discr, rcon, "sinewave-%d" % order)
         #vis = SiloVisualizer(discr, rcon)
 
@@ -87,8 +87,8 @@ def main(final_time=1, write_output=False):
         fields = sinewave.volume_interpolant(0, discr)
         gamma, mu, prandtl, spec_gas_const = sinewave.properties()
 
-        from hedge.mesh import TAG_ALL
-        from hedge.models.gas_dynamics import GasDynamicsOperator
+        from grudge.mesh import TAG_ALL
+        from grudge.models.gas_dynamics import GasDynamicsOperator
         op = GasDynamicsOperator(dimensions=mesh.dimensions, gamma=gamma, mu=mu,
                 prandtl=prandtl, spec_gas_const=spec_gas_const,
                 bc_inflow=sinewave, bc_outflow=sinewave, bc_noslip=sinewave,
@@ -109,7 +109,7 @@ def main(final_time=1, write_output=False):
             print("---------------------------------------------")
             print("#elements=", len(mesh.elements))
 
-        from hedge.timestep import RK4TimeStepper
+        from grudge.timestep import RK4TimeStepper
         stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
@@ -132,7 +132,7 @@ def main(final_time=1, write_output=False):
 
         # timestep loop -------------------------------------------------------
         try:
-            from hedge.timestep import times_and_steps
+            from grudge.timestep import times_and_steps
             step_it = times_and_steps(
                     final_time=final_time, logmgr=logmgr,
                     max_dt_getter=lambda t: op.estimate_timestep(discr,

@@ -30,18 +30,18 @@ THE SOFTWARE.
 
 import numpy
 
-import hedge.data
-from hedge.models import TimeDependentOperator
-from hedge.models.poisson import LaplacianOperatorBase
-from hedge.second_order import CentralSecondDerivative
+import grudge.data
+from grudge.models import TimeDependentOperator
+from grudge.models.poisson import LaplacianOperatorBase
+from grudge.second_order import CentralSecondDerivative
 
 
 
 
 class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
     def __init__(self, dimensions, diffusion_tensor=None,
-            dirichlet_bc=hedge.data.make_tdep_constant(0), dirichlet_tag="dirichlet",
-            neumann_bc=hedge.data.make_tdep_constant(0), neumann_tag="neumann",
+            dirichlet_bc=grudge.data.make_tdep_constant(0), dirichlet_tag="dirichlet",
+            neumann_bc=grudge.data.make_tdep_constant(0), neumann_tag="neumann",
             scheme=CentralSecondDerivative()):
         self.dimensions = dimensions
 
@@ -61,7 +61,7 @@ class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
 
         assert self.dimensions == discr.dimensions
 
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [self.dirichlet_tag, self.neumann_tag])
 
         return BoundDiffusionOperator(self, discr)
@@ -77,7 +77,7 @@ class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
                 * (discr.dt_non_geometric_factor()
                 * discr.dt_geometric_factor())**2
 
-        from hedge.timestep.stability import \
+        from grudge.timestep.stability import \
                 approximate_rk4_relative_imag_stability_region
         return rk4_dt * approximate_rk4_relative_imag_stability_region(
                 stepper, stepper_class, stepper_args)
@@ -85,11 +85,11 @@ class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
 
 
 
-class BoundDiffusionOperator(hedge.iterative.OperatorBase):
+class BoundDiffusionOperator(grudge.iterative.OperatorBase):
     """Returned by :meth:`DiffusionOperator.bind`."""
 
     def __init__(self, diffusion_op, discr):
-        hedge.iterative.OperatorBase.__init__(self)
+        grudge.iterative.OperatorBase.__init__(self)
         self.discr = discr
 
         dop = self.diffusion_op = diffusion_op
@@ -101,7 +101,7 @@ class BoundDiffusionOperator(hedge.iterative.OperatorBase):
         # Check whether use of Poincaré mean-value method is required.
         # (for pure Neumann or pure periodic)
 
-        from hedge.mesh import TAG_ALL
+        from grudge.mesh import TAG_ALL
         self.poincare_mean_value_hack = (
                 len(self.discr.get_boundary(TAG_ALL).nodes)
                 == len(self.discr.get_boundary(diffusion_op.neumann_tag).nodes))

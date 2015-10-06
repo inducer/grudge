@@ -1,4 +1,4 @@
-# Hedge - the Hybrid'n'Easy DG Environment
+# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2008 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
@@ -102,11 +102,11 @@ class UniformMachFlow:
 
         direction = self.direction_vector(x_vec.shape[0])
 
-        from hedge.tools import make_obj_array
+        from grudge.tools import make_obj_array
         u_field = make_obj_array([ones*self.velocity*dir_i
             for dir_i in direction])
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho_field, self.e*ones, self.rho*u_field)
 
     def volume_interpolant(self, t, discr):
@@ -152,7 +152,7 @@ class Vortex:
 
         e = p/(self.gamma-1) + rho/2*(u**2+v**2)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho*u, rho*v)
 
     def volume_interpolant(self, t, discr):
@@ -205,7 +205,7 @@ class Vortex:
 
         e = p/(self.gamma-1) + rho/2*(u**2+v**2)
 
-        from hedge.tools import join_fields
+        from grudge.tools import join_fields
         return join_fields(rho, e, rho*u, rho*v)
 
     def volume_interpolant(self, t, discr):

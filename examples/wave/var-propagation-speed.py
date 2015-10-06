@@ -29,7 +29,7 @@ THE SOFTWARE.
 
 
 import numpy as np
-from hedge.mesh import TAG_ALL, TAG_NONE
+from grudge.mesh import TAG_ALL, TAG_NONE
 
 
 def main(write_output=True,
@@ -39,22 +39,22 @@ def main(write_output=True,
         flux_type_arg="upwind"):
     from math import sin, cos, pi, exp, sqrt  # noqa
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     dim = 2
 
     if dim == 1:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_uniform_1d_mesh
+            from grudge.mesh.generator import make_uniform_1d_mesh
             mesh = make_uniform_1d_mesh(-10, 10, 500)
     elif dim == 2:
-        from hedge.mesh.generator import make_rect_mesh
+        from grudge.mesh.generator import make_rect_mesh
         if rcon.is_head_rank:
             mesh = make_rect_mesh(a=(-1, -1), b=(1, 1), max_area=0.003)
     elif dim == 3:
         if rcon.is_head_rank:
-            from hedge.mesh.generator import make_ball_mesh
+            from grudge.mesh.generator import make_ball_mesh
             mesh = make_ball_mesh(max_volume=0.0005)
     else:
         raise RuntimeError("bad number of dimensions")
@@ -67,10 +67,10 @@ def main(write_output=True,
 
     discr = rcon.make_discretization(mesh_data, order=4)
 
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     stepper = LSRK4TimeStepper()
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(discr, rcon, "fld")
 
@@ -78,11 +78,11 @@ def main(write_output=True,
     source_width = 1/16
     source_omega = 3
 
-    import hedge.optemplate as sym
+    import grudge.optemplate as sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
-    from hedge.models.wave import VariableVelocityStrongWaveOperator
+    from grudge.models.wave import VariableVelocityStrongWaveOperator
     op = VariableVelocityStrongWaveOperator(
             c=sym.If(sym.Comparison(
                 np.dot(sym_x, sym_x), "<", 0.4**2),
@@ -99,7 +99,7 @@ def main(write_output=True,
             flux_type=flux_type_arg
             )
 
-    from hedge.tools import join_fields
+    from grudge.tools import join_fields
     fields = join_fields(discr.volume_zeros(),
             [discr.volume_zeros() for i in range(discr.dimensions)])
 
@@ -126,7 +126,7 @@ def main(write_output=True,
     logmgr.add_quantity(vis_timer)
     stepper.add_instrumentation(logmgr)
 
-    from hedge.log import LpNorm
+    from grudge.log import LpNorm
     u_getter = lambda: fields[0]
     logmgr.add_quantity(LpNorm(u_getter, discr, 1, name="l1_u"))
     logmgr.add_quantity(LpNorm(u_getter, discr, name="l2_u"))
@@ -139,7 +139,7 @@ def main(write_output=True,
 
     rhs = op.bind(discr)
     try:
-        from hedge.timestep.stability import \
+        from grudge.timestep.stability import \
                 approximate_rk4_relative_imag_stability_region
         max_dt = (
                 1/discr.compile(op.max_eigenvalue_expr())()
@@ -149,7 +149,7 @@ def main(write_output=True,
         if flux_type_arg == "central":
             max_dt *= 0.25
 
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(final_time=3, logmgr=logmgr,
                 max_dt_getter=lambda t: max_dt)
 

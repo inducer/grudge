@@ -1,4 +1,4 @@
-"""Hedge is the Hybrid'n'Easy Discontinuous Galerkin Environment."""
+"""grudge is the Hybrid'n'Easy Discontinuous Galerkin Environment."""
 
 from __future__ import division
 from __future__ import absolute_import
@@ -56,8 +56,8 @@ def make_mesh(a, b, pml_width=0.25, **kwargs):
     def boundary_tagger(fvi, el, fn, points):
         return []
 
-    from hedge.mesh import make_conformal_mesh_ext
-    from hedge.mesh.element import Triangle
+    from grudge.mesh import make_conformal_mesh_ext
+    from grudge.mesh.element import Triangle
     pts = np.asarray(built_mi.points, dtype=np.float64)
     return make_conformal_mesh_ext(
             pts,
@@ -69,10 +69,10 @@ def make_mesh(a, b, pml_width=0.25, **kwargs):
 
 
 def main(write_output=True):
-    from hedge.timestep.runge_kutta import LSRK4TimeStepper
+    from grudge.timestep.runge_kutta import LSRK4TimeStepper
     from math import sqrt, pi, exp
 
-    from hedge.backends import guess_run_context
+    from grudge.backends import guess_run_context
     rcon = guess_run_context()
 
     epsilon0 = 8.8541878176e-12 # C**2 / (N m**2)
@@ -96,7 +96,7 @@ def main(write_output=True):
 
     class Current:
         def volume_interpolant(self, t, discr):
-            from hedge.tools import make_obj_array
+            from grudge.tools import make_obj_array
 
             result = discr.volume_zeros(kind="numpy", dtype=np.float64)
 
@@ -119,14 +119,14 @@ def main(write_output=True):
     discr = rcon.make_discretization(mesh_data, order=order,
             debug=["cuda_no_plan"])
 
-    from hedge.visualization import VtkVisualizer
+    from grudge.visualization import VtkVisualizer
     if write_output:
         vis = VtkVisualizer(discr, rcon, "em-%d" % order)
 
-    from hedge.mesh import TAG_ALL, TAG_NONE
-    from hedge.data import GivenFunction, TimeHarmonicGivenFunction, TimeIntervalGivenFunction
-    from hedge.models.em import MaxwellOperator
-    from hedge.models.pml import \
+    from grudge.mesh import TAG_ALL, TAG_NONE
+    from grudge.data import GivenFunction, TimeHarmonicGivenFunction, TimeIntervalGivenFunction
+    from grudge.models.em import MaxwellOperator
+    from grudge.models.pml import \
             AbarbanelGottliebPMLMaxwellOperator, \
             AbarbanelGottliebPMLTMMaxwellOperator, \
             AbarbanelGottliebPMLTEMaxwellOperator
@@ -166,13 +166,13 @@ def main(write_output=True):
     vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
     logmgr.add_quantity(vis_timer)
 
-    from hedge.log import EMFieldGetter, add_em_quantities
+    from grudge.log import EMFieldGetter, add_em_quantities
     field_getter = EMFieldGetter(discr, op, lambda: fields)
     add_em_quantities(logmgr, op, field_getter)
 
     logmgr.add_watches(["step.max", "t_sim.max", ("W_field", "W_el+W_mag"), "t_step.max"])
 
-    from hedge.log import LpNorm
+    from grudge.log import LpNorm
     class FieldIdxGetter:
         def __init__(self, whole_getter, idx):
             self.whole_getter = whole_getter
@@ -188,7 +188,7 @@ def main(write_output=True):
     rhs = op.bind(discr, pml_coeff)
 
     try:
-        from hedge.timestep import times_and_steps
+        from grudge.timestep import times_and_steps
         step_it = times_and_steps(
                 final_time=4/c, logmgr=logmgr,
                 max_dt_getter=lambda t: op.estimate_timestep(discr,

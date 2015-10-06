@@ -29,7 +29,7 @@ THE SOFTWARE.
 
 import numpy
 import pymbolic.primitives
-import hedge.mesh
+import grudge.mesh
 
 from pymbolic.primitives import (  # noqa
         make_common_subexpression, If, Comparison)
@@ -39,7 +39,7 @@ from pytools import MovedFunctionDeprecationWrapper
 
 class LeafBase(pymbolic.primitives.AlgebraicLeaf):
     def stringifier(self):
-        from hedge.optemplate import StringifyMapper
+        from grudge.optemplate import StringifyMapper
         return StringifyMapper
 
 
@@ -62,7 +62,7 @@ class ScalarParameter(pymbolic.primitives.Variable):
     """A placeholder for a user-supplied scalar variable."""
 
     def stringifier(self):
-        from hedge.optemplate import StringifyMapper
+        from grudge.optemplate import StringifyMapper
         return StringifyMapper
 
     mapper_method = intern("map_scalar_parameter")
@@ -73,7 +73,7 @@ class CFunction(pymbolic.primitives.Variable):
     argument of :class:`pymbolic.primitives.Call`.
     """
     def stringifier(self):
-        from hedge.optemplate import StringifyMapper
+        from grudge.optemplate import StringifyMapper
         return StringifyMapper
 
     def __call__(self, expr):
@@ -101,13 +101,13 @@ class OperatorBinding(LeafBase):
         return self.op, self.field
 
     def is_equal(self, other):
-        from hedge.tools import field_equal
+        from grudge.tools import field_equal
         return (other.__class__ == self.__class__
                 and other.op == self.op
                 and field_equal(other.field, self.field))
 
     def get_hash(self):
-        from hedge.tools import hashable_field
+        from grudge.tools import hashable_field
         return hash((self.__class__, self.op, hashable_field(self.field)))
 
 
@@ -136,7 +136,7 @@ class BoundaryPair(LeafBase):
     application of boundary fluxes.
     """
 
-    def __init__(self, field, bfield, tag=hedge.mesh.TAG_ALL):
+    def __init__(self, field, bfield, tag=grudge.mesh.TAG_ALL):
         self.field = field
         self.bfield = bfield
         self.tag = tag
@@ -147,7 +147,7 @@ class BoundaryPair(LeafBase):
         return (self.field, self.bfield, self.tag)
 
     def get_hash(self):
-        from hedge.tools import hashable_field
+        from grudge.tools import hashable_field
 
         return hash((self.__class__,
             hashable_field(self.field),
@@ -155,7 +155,7 @@ class BoundaryPair(LeafBase):
             self.tag))
 
     def is_equal(self, other):
-        from hedge.tools import field_equal
+        from grudge.tools import field_equal
         return (self.__class__ == other.__class__
                 and field_equal(other.field,  self.field)
                 and field_equal(other.bfield, self.bfield)

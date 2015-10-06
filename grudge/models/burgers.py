@@ -29,9 +29,9 @@ THE SOFTWARE.
 
 
 
-from hedge.models import HyperbolicOperator
+from grudge.models import HyperbolicOperator
 import numpy
-from hedge.second_order import CentralSecondDerivative
+from grudge.second_order import CentralSecondDerivative
 
 
 
@@ -46,12 +46,12 @@ class BurgersOperator(HyperbolicOperator):
         self.viscosity_scheme = viscosity_scheme
 
     def characteristic_velocity_optemplate(self, field):
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 ElementwiseMaxOperator)
         return ElementwiseMaxOperator()(field**2)**0.5
 
     def bind_characteristic_velocity(self, discr):
-        from hedge.optemplate import Field
+        from grudge.optemplate import Field
         compiled = discr.compile(
                 self.characteristic_velocity_optemplate(
                     Field("u")))
@@ -62,7 +62,7 @@ class BurgersOperator(HyperbolicOperator):
         return do
 
     def op_template(self, with_sensor):
-        from hedge.optemplate import (
+        from grudge.optemplate import (
                 Field,
                 make_stiffness_t,
                 make_nabla,
@@ -70,7 +70,7 @@ class BurgersOperator(HyperbolicOperator):
                 ElementwiseMaxOperator,
                 get_flux_operator)
 
-        from hedge.optemplate.operators import (
+        from grudge.optemplate.operators import (
                 QuadratureGridUpsampler,
                 QuadratureInteriorFacesGridUpsampler)
 
@@ -90,7 +90,7 @@ class BurgersOperator(HyperbolicOperator):
             #return u0*u
 
         emax_u = self.characteristic_velocity_optemplate(u)
-        from hedge.flux.tools import make_lax_friedrichs_flux
+        from grudge.flux.tools import make_lax_friedrichs_flux
         from pytools.obj_array import make_obj_array
         num_flux = make_lax_friedrichs_flux(
                 #u0,
@@ -99,7 +99,7 @@ class BurgersOperator(HyperbolicOperator):
                 [make_obj_array([flux(to_if_quad(u))])], 
                 [], strong=False)[0]
 
-        from hedge.second_order import SecondDerivativeTarget
+        from grudge.second_order import SecondDerivativeTarget
 
         if self.viscosity is not None or with_sensor:
             viscosity_coeff = 0
@@ -140,7 +140,7 @@ class BurgersOperator(HyperbolicOperator):
         compiled_op_template = discr.compile(
                 self.op_template(with_sensor=sensor is not None))
 
-        from hedge.mesh import check_bc_coverage
+        from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [])
 
         def rhs(t, u):
