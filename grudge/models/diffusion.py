@@ -94,7 +94,7 @@ class BoundDiffusionOperator(grudge.iterative.OperatorBase):
 
         dop = self.diffusion_op = diffusion_op
 
-        op = dop.op_template(apply_minv=True)
+        op = dop.sym_operator(apply_minv=True)
 
         self.compiled_op = discr.compile(op)
 

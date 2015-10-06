@@ -165,7 +165,7 @@ def get_flux_dependencies(flux, field, bdry="all"):
                 yield value
 
 
-def split_optemplate_for_multirate(state_vector, op_template,
+def split_optemplate_for_multirate(state_vector, sym_operator,
         index_groups):
     class IndexGroupKillerSubstMap:
         def __init__(self, kill_set):
@@ -195,7 +195,7 @@ def split_optemplate_for_multirate(state_vector, op_template,
     return [
             CommutativeConstantFoldingMapper()(
                 SubstitutionMapper(killer)(
-                    op_template[ig]))
+                    sym_operator[ig]))
             for ig in index_groups
             for killer in killers]
 

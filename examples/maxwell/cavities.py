@@ -90,7 +90,7 @@ def main(write_output=True, allow_features=None, flux_type_arg=1,
                 bdry_flux_type=bdry_flux_type_arg)
 
         discr = rcon.make_discretization(mesh_data, order=order,
-                tune_for=op.op_template(),
+                tune_for=op.sym_operator(),
                 **extra_discr_args)
 
         from grudge.visualization import VtkVisualizer

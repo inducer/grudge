@@ -45,7 +45,7 @@ class GradientOperator(Operator):
         normal = make_normal(self.dimensions)
         return u.int*normal - u.avg*normal
 
-    def op_template(self):
+    def sym_operator(self):
         from grudge.mesh import BTAG_ALL
         from grudge.symbolic import Field, BoundaryPair, \
                 make_nabla, InverseMassOperator, get_flux_operator
@@ -61,12 +61,12 @@ class GradientOperator(Operator):
                 flux_op(BoundaryPair(u, bc, BTAG_ALL)))
 
     def bind(self, discr):
-        compiled_op_template = discr.compile(self.op_template())
+        compiled_sym_operator = discr.compile(self.op_template())
 
         def op(u):
             from grudge.mesh import BTAG_ALL
 
-            return compiled_op_template(u=u,
+            return compiled_sym_operator(u=u,
                     bc=discr.boundarize_volume_field(u, BTAG_ALL))
 
         return op
@@ -104,7 +104,7 @@ class DivergenceOperator(Operator):
 
         return flux
 
-    def op_template(self):
+    def sym_operator(self):
         from grudge.mesh import BTAG_ALL
         from grudge.symbolic import make_sym_vector, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
@@ -129,11 +129,11 @@ class DivergenceOperator(Operator):
                 flux_op(BoundaryPair(v, bc, BTAG_ALL)))
 
     def bind(self, discr):
-        compiled_op_template = discr.compile(self.op_template())
+        compiled_sym_operator = discr.compile(self.op_template())
 
         def op(v):
             from grudge.mesh import BTAG_ALL
-            return compiled_op_template(v=v,
+            return compiled_sym_operator(v=v,
                     bc=discr.boundarize_volume_field(v, BTAG_ALL))
 
         return op

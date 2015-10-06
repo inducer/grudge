@@ -303,7 +303,7 @@ class MaxwellOperator(HyperbolicOperator):
         else:
             return cse(-incident_bc_data)
 
-    def op_template(self, w=None):
+    def sym_operator(self, w=None):
         """The full operator template - the high level description of
         the Maxwell operator.
 
@@ -372,13 +372,13 @@ class MaxwellOperator(HyperbolicOperator):
         check_bc_coverage(discr.mesh, [
             self.pec_tag, self.absorb_tag, self.incident_tag])
 
-        compiled_op_template = discr.compile(self.op_template())
+        compiled_sym_operator = discr.compile(self.op_template())
 
         def rhs(t, w, **extra_context):
             kwargs = {}
             kwargs.update(extra_context)
 
-            return compiled_op_template(w=w, t=t, **kwargs)
+            return compiled_sym_operator(w=w, t=t, **kwargs)
 
         return rhs
 

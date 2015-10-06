@@ -85,14 +85,14 @@ class AdvectionOperatorBase(HyperbolicOperator):
         return la.norm(self.v)
 
     def bind(self, discr):
-        compiled_op_template = discr.compile(self.op_template())
+        compiled_sym_operator = discr.compile(self.op_template())
 
         from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [self.inflow_tag, self.outflow_tag])
 
         def rhs(t, u):
             bc_in = self.inflow_u.boundary_interpolant(t, discr, self.inflow_tag)
-            return compiled_op_template(u=u, bc_in=bc_in)
+            return compiled_sym_operator(u=u, bc_in=bc_in)
 
         return rhs
 
@@ -100,8 +100,8 @@ class AdvectionOperatorBase(HyperbolicOperator):
             my_discr, my_part_data,
             nb_discr, nb_part_data):
         from grudge.partition import compile_interdomain_flux
-        compiled_op_template, from_nb_indices = compile_interdomain_flux(
-                self.op_template(), "u", "nb_bdry_u",
+        compiled_sym_operator, from_nb_indices = compile_interdomain_flux(
+                self.sym_operator(), "u", "nb_bdry_u",
                 my_discr, my_part_data, nb_discr, nb_part_data,
                 use_stupid_substitution=True)
 
@@ -114,7 +114,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
                 return fld[from_nb_indices]
 
         def rhs(t, u, u_neighbor):
-            return compiled_op_template(u=u,
+            return compiled_sym_operator(u=u,
                     nb_bdry_u=with_object_array_or_scalar(nb_bdry_permute, u_neighbor))
 
         return rhs
@@ -131,7 +131,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
 
         return u.int * numpy.dot(normal, self.v) - self.weak_flux()
 
-    def op_template(self):
+    def sym_operator(self):
         from grudge.symbolic import Field, BoundaryPair, \
                 get_flux_operator, make_nabla, InverseMassOperator
 
@@ -156,7 +156,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
     def flux(self):
         return self.weak_flux()
 
-    def op_template(self):
+    def sym_operator(self):
         from grudge.symbolic import (
                 Field,
                 BoundaryPair,
@@ -277,7 +277,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         return do
 
-    def op_template(self, with_sensor=False):
+    def sym_operator(self, with_sensor=False):
         # {{{ operator preliminaries ------------------------------------------
         from grudge.symbolic import (Field, BoundaryPair, get_flux_operator,
                 make_stiffness_t, InverseMassOperator, make_sym_vector,
@@ -369,8 +369,8 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
                             + diffusion_part
 
     def bind(self, discr, sensor=None):
-        compiled_op_template = discr.compile(
-                self.op_template(with_sensor=sensor is not None))
+        compiled_sym_operator = discr.compile(
+                self.sym_operator(with_sensor=sensor is not None))
 
         from grudge.mesh import check_bc_coverage, BTAG_ALL
         check_bc_coverage(discr.mesh, [BTAG_ALL])
@@ -384,7 +384,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
                 kwargs["bc_u"] = \
                         self.bc_u_f.boundary_interpolant(t, discr, tag=BTAG_ALL)
 
-            return compiled_op_template(
+            return compiled_sym_operator(
                     u=u,
                     v=self.advec_v.volume_interpolant(t, discr),
                     **kwargs)

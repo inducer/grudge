@@ -129,7 +129,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
 
         return rhs[sub_idx]
 
-    def op_template(self, w=None):
+    def sym_operator(self, w=None):
         from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
         if w is None:
@@ -138,7 +138,7 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
 
         from grudge.tools import join_fields
         return join_fields(
-                MaxwellOperator.op_template(self, w[:fld_cnt]),
+                MaxwellOperator.sym_operator(self, w[:fld_cnt]),
                 numpy.zeros((2*self.dimensions,), dtype=object)
                 ) + self.pml_local_op(w)
 

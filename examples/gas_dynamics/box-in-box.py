@@ -125,7 +125,7 @@ def main():
                             "cuda_no_plan_el_local",
                             ],
                         default_scalar_type=numpy.float32,
-                        tune_for=op.op_template())
+                        tune_for=op.sym_operator())
 
         from grudge.visualization import SiloVisualizer, VtkVisualizer  # noqa
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)

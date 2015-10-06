@@ -82,7 +82,7 @@ def main(write_output=True,
 
     discr = rcon.make_discretization(mesh_data, order=4, debug=debug,
             default_scalar_type=dtype,
-            tune_for=op.op_template())
+            tune_for=op.sym_operator())
 
     from grudge.visualization import VtkVisualizer
     if write_output:

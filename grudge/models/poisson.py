@@ -36,7 +36,7 @@ import grudge.iterative
 
 
 class LaplacianOperatorBase(object):
-    def op_template(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
+    def sym_operator(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
         """
         :param apply_minv: :class:`bool` specifying whether to compute a complete
           divergence operator. If False, the final application of the inverse
@@ -154,9 +154,9 @@ class BoundPoissonOperator(grudge.iterative.OperatorBase):
 
         pop = self.poisson_op = poisson_op
 
-        op = pop.op_template(
+        op = pop.sym_operator(
             apply_minv=False, dir_bc=0, neu_bc=0)
-        bc_op = pop.op_template(apply_minv=False)
+        bc_op = pop.sym_operator(apply_minv=False)
 
         self.compiled_op = discr.compile(op)
         self.compiled_bc_op = discr.compile(bc_op)
@@ -251,12 +251,12 @@ class HelmholtzOperator(PoissonOperator):
         PoissonOperator.__init__(self, *args, **kwargs)
         self.k = k
 
-    def op_template(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
+    def sym_operator(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
         from grudge.symbolic import Field
         if u is None:
             u = Field("u")
 
-        result = PoissonOperator.op_template(self,
+        result = PoissonOperator.sym_operator(self,
                 apply_minv, u, dir_bc, neu_bc)
 
         if apply_minv:

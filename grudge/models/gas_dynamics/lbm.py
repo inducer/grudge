@@ -180,14 +180,14 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
         return f_bar - 1/(self.tau+1/2)*(f_bar - f_eq)
 
     def bind_rhs(self, discr):
-        compiled_op_template = discr.compile(
+        compiled_sym_operator = discr.compile(
                 self.stream_rhs(self.f_bar()))
 
         #from grudge.mesh import check_bc_coverage, BTAG_ALL
         #check_bc_coverage(discr.mesh, [BTAG_ALL])
 
         def rhs(t, f_bar):
-            return compiled_op_template(f_bar=f_bar)
+            return compiled_sym_operator(f_bar=f_bar)
 
         return rhs
 
@@ -201,10 +201,10 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
                 (f_bar_i, type_info.VolumeVector(NodalRepresentation()))
                 for f_bar_i in f_bar_sym)
 
-        compiled_op_template = discr.compile(what(f_bar_sym), type_hints=type_hints)
+        compiled_sym_operator = discr.compile(what(f_bar_sym), type_hints=type_hints)
 
         def rhs(f_bar):
-            return compiled_op_template(f_bar=f_bar)
+            return compiled_sym_operator(f_bar=f_bar)
 
         return rhs
 

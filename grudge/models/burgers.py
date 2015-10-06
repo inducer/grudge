@@ -61,7 +61,7 @@ class BurgersOperator(HyperbolicOperator):
 
         return do
 
-    def op_template(self, with_sensor):
+    def sym_operator(self, with_sensor):
         from grudge.symbolic import (
                 Field,
                 make_stiffness_t,
@@ -137,8 +137,8 @@ class BurgersOperator(HyperbolicOperator):
                 + viscosity_bit
 
     def bind(self, discr, u0=1, sensor=None):
-        compiled_op_template = discr.compile(
-                self.op_template(with_sensor=sensor is not None))
+        compiled_sym_operator = discr.compile(
+                self.sym_operator(with_sensor=sensor is not None))
 
         from grudge.mesh import check_bc_coverage
         check_bc_coverage(discr.mesh, [])
@@ -147,7 +147,7 @@ class BurgersOperator(HyperbolicOperator):
             kwargs = {}
             if sensor is not None:
                 kwargs["sensor"] = sensor(u)
-            return compiled_op_template(u=u, u0=u0, **kwargs)
+            return compiled_sym_operator(u=u, u0=u0, **kwargs)
 
         return rhs
 

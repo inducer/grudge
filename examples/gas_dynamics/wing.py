@@ -144,7 +144,7 @@ def main():
                             "cuda_no_metis",
                             ],
                         default_scalar_type=numpy.float64,
-                        tune_for=op.op_template())
+                        tune_for=op.sym_operator())
 
         from grudge.visualization import SiloVisualizer, VtkVisualizer
         #vis = VtkVisualizer(discr, rcon, "shearflow-%d" % order)

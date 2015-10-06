@@ -130,7 +130,7 @@ def main(write_output=True, flux_type_arg="central", use_quadrature=True,
             default_scalar_type=numpy.float64, 
             debug=["cuda_no_plan"],
             quad_min_degrees=quad_min_degrees,
-            tune_for=op.op_template(),
+            tune_for=op.sym_operator(),
 
             )
     vis_discr = discr

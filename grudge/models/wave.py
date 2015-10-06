@@ -107,7 +107,7 @@ class StrongWaveOperator(HyperbolicOperator):
 
         return -self.c*flux_strong
 
-    def op_template(self):
+    def sym_operator(self):
         d = self.dimensions
 
         w = sym.make_sym_vector("w", d+1)
@@ -174,10 +174,10 @@ class StrongWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-        compiled_op_template = discr.compile(self.op_template())
+        compiled_sym_operator = discr.compile(self.op_template())
 
         def rhs(t, w, **extra_context):
-            return compiled_op_template(t=t, w=w, **extra_context)
+            return compiled_sym_operator(t=t, w=w, **extra_context)
 
         return rhs
 
@@ -271,7 +271,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
 
         return do
 
-    def op_template(self, with_sensor=False):
+    def sym_operator(self, with_sensor=False):
         from grudge.symbolic import \
                 Field, \
                 make_sym_vector, \
@@ -386,7 +386,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-        compiled_op_template = discr.compile(self.op_template(
+        compiled_sym_operator = discr.compile(self.op_template(
             with_sensor=sensor is not None))
 
         def rhs(t, w):
@@ -394,7 +394,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
             if sensor is not None:
                 kwargs["sensor"] = sensor(t, w)
 
-            return compiled_op_template(t=t, w=w, **kwargs)
+            return compiled_sym_operator(t=t, w=w, **kwargs)
 
         return rhs
 

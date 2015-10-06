@@ -68,7 +68,7 @@ def main(write_output=True):
                             "gasdyn_vol": 3*order,
                             "gasdyn_face": 3*order,
                             },
-                        tune_for=op.op_template(),
+                        tune_for=op.sym_operator(),
                         debug=["cuda_no_plan"])
 
         from grudge.visualization import SiloVisualizer, VtkVisualizer

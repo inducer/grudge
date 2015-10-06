@@ -147,7 +147,7 @@ def main():
                             #"cuda_no_plan_el_local"
                             ],
                         default_scalar_type=numpy.float64,
-                        tune_for=op.op_template(),
+                        tune_for=op.sym_operator(),
                         quad_min_degrees={
                             "gasdyn_vol": 3*order,
                             "gasdyn_face": 3*order,

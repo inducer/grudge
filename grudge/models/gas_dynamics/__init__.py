@@ -717,7 +717,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     def make_extra_terms(self):
         return 0
 
-    def op_template(self, sensor_scaling=None, viscosity_only=False):
+    def sym_operator(self, sensor_scaling=None, viscosity_only=False):
         u = self.cse_u
         rho = self.cse_rho
         rho_u = self.rho_u
@@ -808,7 +808,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             raise ValueError("must specify a sensor if using "
                     "artificial viscosity")
 
-        bound_op = discr.compile(self.op_template(
+        bound_op = discr.compile(self.sym_operator(
             sensor_scaling=sensor_scaling,
             viscosity_only=False))
 
