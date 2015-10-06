@@ -72,7 +72,7 @@ def main(write_output=True):
     #dt = op.estimate_rk4_timestep(discr, fields=fields)
 
     dt = 0.001
-    dt_stepper = set_up_rk4(dt, fields)
+    dt_stepper = set_up_rk4(dt, fields, rhs)
 
     final_t = 10
     nsteps = int(final_t/dt)

@@ -108,48 +108,38 @@ class StrongWaveOperator(HyperbolicOperator):
         return -self.c*flux_strong
 
     def op_template(self):
-        from grudge.symbolic import \
-                make_sym_vector, \
-                BoundaryPair, \
-                get_flux_operator, \
-                make_nabla, \
-                InverseMassOperator, \
-                BoundarizeOperator
-
         d = self.dimensions
 
-        w = make_sym_vector("w", d+1)
+        w = sym.make_sym_vector("w", d+1)
         u = w[0]
         v = w[1:]
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        from grudge.symbolic import normal, Field
-
-        dir_u = BoundarizeOperator(self.dirichlet_tag) * u
-        dir_v = BoundarizeOperator(self.dirichlet_tag) * v
+        dir_u = sym.BoundarizeOperator(self.dirichlet_tag) * u
+        dir_v = sym.BoundarizeOperator(self.dirichlet_tag) * v
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.")
 
-            dir_g = Field("dir_bc_u")
+            dir_g = sym.Field("dir_bc_u")
             dir_bc = join_fields(2*dir_g - dir_u, dir_v)
         else:
             dir_bc = join_fields(-dir_u, dir_v)
 
         # neumann BCs ---------------------------------------------------------
-        neu_u = BoundarizeOperator(self.neumann_tag) * u
-        neu_v = BoundarizeOperator(self.neumann_tag) * v
+        neu_u = sym.BoundarizeOperator(self.neumann_tag) * u
+        neu_v = sym.BoundarizeOperator(self.neumann_tag) * v
         neu_bc = join_fields(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = normal(self.radiation_tag, d)
+        rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_u = BoundarizeOperator(self.radiation_tag) * u
-        rad_v = BoundarizeOperator(self.radiation_tag) * v
+        rad_u = sym.BoundarizeOperator(self.radiation_tag) * u
+        rad_v = sym.BoundarizeOperator(self.radiation_tag) * v
 
         rad_bc = join_fields(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
@@ -157,8 +147,8 @@ class StrongWaveOperator(HyperbolicOperator):
                 )
 
         # entire operator -----------------------------------------------------
-        nabla = make_nabla(d)
-        flux_op = get_flux_operator(self.flux())
+        nabla = sym.make_nabla(d)
+        flux_op = sym.get_flux_operator(self.flux())
 
         result = (
                 - join_fields(
@@ -166,11 +156,11 @@ class StrongWaveOperator(HyperbolicOperator):
                     -self.c*(nabla*u)
                     )
                 +
-                InverseMassOperator() * (
+                sym.InverseMassOperator() * (
                     flux_op(w)
-                    + flux_op(BoundaryPair(w, dir_bc, self.dirichlet_tag))
-                    + flux_op(BoundaryPair(w, neu_bc, self.neumann_tag))
-                    + flux_op(BoundaryPair(w, rad_bc, self.radiation_tag))
+                    + flux_op(sym.BoundaryPair(w, dir_bc, self.dirichlet_tag))
+                    + flux_op(sym.BoundaryPair(w, neu_bc, self.neumann_tag))
+                    + flux_op(sym.BoundaryPair(w, rad_bc, self.radiation_tag))
                     ))
 
         result[0] += self.source_f
