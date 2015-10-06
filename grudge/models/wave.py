@@ -31,6 +31,7 @@ import numpy as np
 from grudge.models import HyperbolicOperator
 from grudge.second_order import CentralSecondDerivative
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
+from grudge import sym, sym_flux
 
 
 # {{{ constant-velocity
@@ -79,15 +80,12 @@ class StrongWaveOperator(HyperbolicOperator):
         self.flux_type = flux_type
 
     def flux(self):
-        from grudge.flux import FluxVectorPlaceholder, make_normal
-
         dim = self.dimensions
-        w = FluxVectorPlaceholder(1+dim)
+        w = sym_flux.FluxVectorPlaceholder(1+dim)
         u = w[0]
         v = w[1:]
-        normal = make_normal(dim)
+        normal = sym_flux.make_normal(dim)
 
-        from grudge.tools import join_fields
         flux_weak = join_fields(
                 np.dot(v.avg, normal),
                 u.avg * normal)

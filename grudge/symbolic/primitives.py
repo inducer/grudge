@@ -1,8 +1,6 @@
 """Operator template language: primitives."""
 
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -26,10 +24,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import range
 
 import numpy
 import pymbolic.primitives
-import grudge.mesh
+from meshmode.mesh import BTAG_ALL
 
 from pymbolic.primitives import (  # noqa
         make_common_subexpression, If, Comparison)
