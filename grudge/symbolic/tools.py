@@ -25,108 +25,19 @@ THE SOFTWARE.
 """
 
 
-from six.moves import range, reduce
+from six.moves import range
 import numpy as np
-import pymbolic.primitives  # noqa
-from decorator import decorator
 
 
-# {{{ convenience functions for optemplate creation
-
-def get_flux_operator(flux):
-    """Return a flux operator that can be multiplied with
-    a volume field to obtain the interior fluxes
-    or with a :class:`BoundaryPair` to obtain the lifted boundary
-    flux.
-    """
-    from grudge.tools import is_obj_array
-    from grudge.symbolic import VectorFluxOperator, FluxOperator
-
-    if is_obj_array(flux):
-        return VectorFluxOperator(flux)
-    else:
-        return FluxOperator(flux)
-
-
-def make_nabla(dim):
-    from grudge.tools import make_obj_array
-    from grudge.symbolic import DifferentiationOperator
-    return make_obj_array(
-            [DifferentiationOperator(i) for i in range(dim)])
-
-
-def make_minv_stiffness_t(dim):
-    from grudge.tools import make_obj_array
-    from grudge.symbolic import MInvSTOperator
-    return make_obj_array(
-        [MInvSTOperator(i) for i in range(dim)])
-
-
-def make_stiffness(dim):
-    from grudge.tools import make_obj_array
-    from grudge.symbolic import StiffnessOperator
-    return make_obj_array(
-        [StiffnessOperator(i) for i in range(dim)])
-
-
-def make_stiffness_t(dim):
-    from grudge.tools import make_obj_array
-    from grudge.symbolic import StiffnessTOperator
-    return make_obj_array(
-        [StiffnessTOperator(i) for i in range(dim)])
-
-
-def integral(arg):
-    import grudge.symbolic as sym
-    return sym.NodalSum()(sym.MassOperator()(sym.Ones())*arg)
-
-
-def norm(p, arg):
-    """
-    :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
-    """
-    import grudge.symbolic as sym
-
-    if p == 2:
-        comp_norm_squared = sym.NodalSum()(
-                sym.CFunction("fabs")(
-                    arg * sym.MassOperator()(arg)))
-        return sym.CFunction("sqrt")(sum(comp_norm_squared))
-
-    elif p == np.Inf:
-        comp_norm = sym.NodalMax()(sym.CFunction("fabs")(arg))
-        from pymbolic.primitives import Max
-        return reduce(Max, comp_norm)
-
-    else:
-        return sum(sym.NodalSum()(sym.CFunction("fabs")(arg)**p))**(1/p)
-
-
-def flat_end_sin(x):
-    from grudge.symbolic.primitives import CFunction
-    from pymbolic.primitives import IfPositive
-    from math import pi
-    return IfPositive(-pi/2-x,
-            -1, IfPositive(x-pi/2, 1, CFunction("sin")(x)))
-
-
-def smooth_ifpos(crit, right, left, width):
-    from math import pi
-    return 0.5*((left+right)
-            + (right-left)*flat_end_sin(
-                pi/2/width * crit))
-# }}}
-
-
-# {{{ optemplate tools
+# {{{ symbolic operator tools
 
 def is_scalar(expr):
-    from grudge.symbolic import ScalarParameter
-    return isinstance(expr, (int, float, complex, ScalarParameter))
+    from grudge import sym
+    return isinstance(expr, (int, float, complex, sym.ScalarParameter))
 
 
 def get_flux_dependencies(flux, field, bdry="all"):
-    from grudge.flux import FluxDependencyMapper, FieldComponent
+    from grudge.symbolic.flux.mappers import FluxDependencyMapper, FieldComponent
     in_fields = list(FluxDependencyMapper(
         include_calls=False)(flux))
 
@@ -143,8 +54,8 @@ def get_flux_dependencies(flux, field, bdry="all"):
             return fld
 
     from grudge.tools import is_zero
-    from grudge.symbolic import BoundaryPair
-    if isinstance(field, BoundaryPair):
+    from grudge import sym
+    if isinstance(field, sym.BoundaryPair):
         for inf in in_fields:
             if inf.is_interior:
                 if bdry in ["all", "int"]:
@@ -165,7 +76,7 @@ def get_flux_dependencies(flux, field, bdry="all"):
                 yield value
 
 
-def split_optemplate_for_multirate(state_vector, sym_operator,
+def split_sym_operator_for_multirate(state_vector, sym_operator,
         index_groups):
     class IndexGroupKillerSubstMap:
         def __init__(self, kill_set):
@@ -246,92 +157,14 @@ def ptwise_dot(logdims1, logdims2, a1, a2):
 # }}}
 
 
-# {{{ process_optemplate function
-
-def process_optemplate(optemplate, post_bind_mapper=None,
-        dumper=lambda name, optemplate: None, mesh=None,
-        type_hints={}):
-
-    from grudge.symbolic.mappers import (
-            OperatorBinder, CommutativeConstantFoldingMapper,
-            EmptyFluxKiller, InverseMassContractor, DerivativeJoiner,
-            ErrorChecker, OperatorSpecializer, GlobalToReferenceMapper)
-    from grudge.symbolic.mappers.bc_to_flux import BCToFluxRewriter
-    from grudge.symbolic.mappers.type_inference import TypeInferrer
-
-    dumper("before-bind", optemplate)
-    optemplate = OperatorBinder()(optemplate)
-
-    ErrorChecker(mesh)(optemplate)
-
-    if post_bind_mapper is not None:
-        dumper("before-postbind", optemplate)
-        optemplate = post_bind_mapper(optemplate)
-
-    if mesh is not None:
-        dumper("before-empty-flux-killer", optemplate)
-        optemplate = EmptyFluxKiller(mesh)(optemplate)
-
-    dumper("before-cfold", optemplate)
-    optemplate = CommutativeConstantFoldingMapper()(optemplate)
-
-    dumper("before-bc2flux", optemplate)
-    optemplate = BCToFluxRewriter()(optemplate)
-
-    # Ordering restriction:
-    #
-    # - Must run constant fold before first type inference pass, because zeros,
-    # while allowed, violate typing constraints (because they can't be assigned
-    # a unique type), and need to be killed before the type inferrer sees them.
-    #
-    # - Must run BC-to-flux before first type inferrer run so that zeros in
-    # flux arguments can be removed.
-
-    dumper("before-specializer", optemplate)
-    optemplate = OperatorSpecializer(
-            TypeInferrer()(optemplate, type_hints)
-            )(optemplate)
-
-    # Ordering restriction:
-    #
-    # - Must run OperatorSpecializer before performing the GlobalToReferenceMapper,
-    # because otherwise it won't differentiate the type of grids (node or quadrature
-    # grids) that the operators will apply on.
-
-    assert mesh is not None
-    dumper("before-global-to-reference", optemplate)
-    optemplate = GlobalToReferenceMapper(mesh.dimensions)(optemplate)
-
-    # Ordering restriction:
-    #
-    # - Must specialize quadrature operators before performing inverse mass
-    # contraction, because there are no inverse-mass-contracted variants of the
-    # quadrature operators.
-
-    dumper("before-imass", optemplate)
-    optemplate = InverseMassContractor()(optemplate)
-
-    dumper("before-cfold-2", optemplate)
-    optemplate = CommutativeConstantFoldingMapper()(optemplate)
-
-    dumper("before-derivative-join", optemplate)
-    optemplate = DerivativeJoiner()(optemplate)
-
-    dumper("process-optemplate-finished", optemplate)
-
-    return optemplate
-
-# }}}
-
-
 # {{{ pretty printing
 
-def pretty(optemplate):
+def pretty(sym_operator):
     from grudge.symbolic.mappers import PrettyStringifyMapper
 
     stringify_mapper = PrettyStringifyMapper()
     from pymbolic.mapper.stringifier import PREC_NONE
-    result = stringify_mapper(optemplate, PREC_NONE)
+    result = stringify_mapper(sym_operator, PREC_NONE)
 
     splitter = "="*75 + "\n"
 
@@ -354,34 +187,6 @@ def pretty(optemplate):
     return result
 
 # }}}
-
-
-@decorator
-def memoize_method_with_obj_array_args(method, instance, *args):
-    """This decorator manages to memoize functions that
-    take object arrays (which are mutable, but are assumed
-    to never change) as arguments.
-    """
-    dicname = "_memoize_dic_"+method.__name__
-
-    new_args = []
-    for arg in args:
-        if isinstance(arg, np.ndarray) and arg.dtype == object:
-            new_args.append(tuple(arg))
-        else:
-            new_args.append(arg)
-    new_args = tuple(new_args)
-
-    try:
-        return getattr(instance, dicname)[new_args]
-    except AttributeError:
-        result = method(instance, *args)
-        setattr(instance, dicname, {new_args: result})
-        return result
-    except KeyError:
-        result = method(instance, *args)
-        getattr(instance, dicname)[new_args] = result
-        return result
 
 
 # vim: foldmethod=marker

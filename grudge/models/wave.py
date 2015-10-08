@@ -85,7 +85,7 @@ class StrongWaveOperator(HyperbolicOperator):
         w = sym_flux.FluxVectorPlaceholder(1+dim)
         u = w[0]
         v = w[1:]
-        normal = sym_flux.make_normal(dim)
+        normal = sym_flux.normal(dim)
 
         flux_weak = join_fields(
                 np.dot(v.avg, normal),
@@ -147,7 +147,7 @@ class StrongWaveOperator(HyperbolicOperator):
                 )
 
         # entire operator -----------------------------------------------------
-        nabla = sym.make_nabla(d)
+        nabla = sym.nabla(d)
         flux_op = sym.get_flux_operator(self.flux())
 
         result = (
@@ -167,19 +167,12 @@ class StrongWaveOperator(HyperbolicOperator):
 
         return result
 
-    def bind(self, discr):
-        from grudge.mesh import check_bc_coverage
-        check_bc_coverage(discr.mesh, [
+    def check_bc_coverage(self, mesh):
+        from meshmode.mesh import check_bc_coverage
+        check_bc_coverage(mesh, [
             self.dirichlet_tag,
             self.neumann_tag,
             self.radiation_tag])
-
-        compiled_sym_operator = discr.compile(self.op_template())
-
-        def rhs(t, w, **extra_context):
-            return compiled_sym_operator(t=t, w=w, **extra_context)
-
-        return rhs
 
     def max_eigenvalue(self, t, fields=None, discr=None):
         return abs(self.c)
@@ -232,14 +225,12 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
 
     # {{{ flux ----------------------------------------------------------------
     def flux(self):
-        from grudge.flux import FluxVectorPlaceholder, make_normal
-
         dim = self.dimensions
-        w = FluxVectorPlaceholder(2+dim)
+        w = sym_flux.FluxVectorPlaceholder(2+dim)
         c = w[0]
         u = w[1]
         v = w[2:]
-        normal = make_normal(dim)
+        normal = sym_flux.normal(dim)
 
         flux = self.time_sign*1/2*join_fields(
                 c.ext * np.dot(v.ext, normal)
@@ -272,18 +263,9 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return do
 
     def sym_operator(self, with_sensor=False):
-        from grudge.symbolic import \
-                Field, \
-                make_sym_vector, \
-                BoundaryPair, \
-                get_flux_operator, \
-                make_nabla, \
-                InverseMassOperator, \
-                BoundarizeOperator
-
         d = self.dimensions
 
-        w = make_sym_vector("w", d+1)
+        w = sym.make_sym_vector("w", d+1)
         u = w[0]
         v = w[1:]
 
@@ -292,26 +274,25 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         # {{{ boundary conditions
 
         # Dirichlet
-        dir_c = BoundarizeOperator(self.dirichlet_tag) * self.c
-        dir_u = BoundarizeOperator(self.dirichlet_tag) * u
-        dir_v = BoundarizeOperator(self.dirichlet_tag) * v
+        dir_c = sym.BoundarizeOperator(self.dirichlet_tag) * self.c
+        dir_u = sym.BoundarizeOperator(self.dirichlet_tag) * u
+        dir_v = sym.BoundarizeOperator(self.dirichlet_tag) * v
 
         dir_bc = join_fields(dir_c, -dir_u, dir_v)
 
         # Neumann
-        neu_c = BoundarizeOperator(self.neumann_tag) * self.c
-        neu_u = BoundarizeOperator(self.neumann_tag) * u
-        neu_v = BoundarizeOperator(self.neumann_tag) * v
+        neu_c = sym.BoundarizeOperator(self.neumann_tag) * self.c
+        neu_u = sym.BoundarizeOperator(self.neumann_tag) * u
+        neu_v = sym.BoundarizeOperator(self.neumann_tag) * v
 
         neu_bc = join_fields(neu_c, neu_u, -neu_v)
 
         # Radiation
-        from grudge.symbolic import make_normal
-        rad_normal = make_normal(self.radiation_tag, d)
+        rad_normal = sym.make_normal(self.radiation_tag, d)
 
-        rad_c = BoundarizeOperator(self.radiation_tag) * self.c
-        rad_u = BoundarizeOperator(self.radiation_tag) * u
-        rad_v = BoundarizeOperator(self.radiation_tag) * v
+        rad_c = sym.BoundarizeOperator(self.radiation_tag) * self.c
+        rad_u = sym.BoundarizeOperator(self.radiation_tag) * u
+        rad_v = sym.BoundarizeOperator(self.radiation_tag) * v
 
         rad_bc = join_fields(
                 rad_c,
@@ -333,7 +314,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
                     diffusion_coeff = self.diffusion_coeff
 
                 if with_sensor:
-                    diffusion_coeff += Field("sensor")
+                    diffusion_coeff += sym.Field("sensor")
 
                 from grudge.second_order import SecondDerivativeTarget
 
@@ -360,8 +341,8 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         # }}}
 
         # entire operator -----------------------------------------------------
-        nabla = make_nabla(d)
-        flux_op = get_flux_operator(self.flux())
+        nabla = sym.nabla(d)
+        flux_op = sym.get_flux_operator(self.flux())
 
         return (
                 - join_fields(
@@ -372,31 +353,19 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
                         make_diffusion, v)
                     )
                 +
-                InverseMassOperator() * (
+                sym.InverseMassOperator() * (
                     flux_op(flux_w)
-                    + flux_op(BoundaryPair(flux_w, dir_bc, self.dirichlet_tag))
-                    + flux_op(BoundaryPair(flux_w, neu_bc, self.neumann_tag))
-                    + flux_op(BoundaryPair(flux_w, rad_bc, self.radiation_tag))
+                    + flux_op(sym.BoundaryPair(flux_w, dir_bc, self.dirichlet_tag))
+                    + flux_op(sym.BoundaryPair(flux_w, neu_bc, self.neumann_tag))
+                    + flux_op(sym.BoundaryPair(flux_w, rad_bc, self.radiation_tag))
                     ))
 
-    def bind(self, discr, sensor=None):
-        from grudge.mesh import check_bc_coverage
-        check_bc_coverage(discr.mesh, [
+    def check_bc_coverage(self, mesh):
+        from meshmode.mesh import check_bc_coverage
+        check_bc_coverage(mesh, [
             self.dirichlet_tag,
             self.neumann_tag,
             self.radiation_tag])
-
-        compiled_sym_operator = discr.compile(self.op_template(
-            with_sensor=sensor is not None))
-
-        def rhs(t, w):
-            kwargs = {}
-            if sensor is not None:
-                kwargs["sensor"] = sensor(t, w)
-
-            return compiled_sym_operator(t=t, w=w, **kwargs)
-
-        return rhs
 
     def max_eigenvalue_expr(self):
         import grudge.symbolic as sym

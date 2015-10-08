@@ -1,13 +1,8 @@
 """Compiler to turn operator expression tree into (imperative) bytecode."""
 
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
-import six
-from six.moves import zip
-from functools import reduce
+from __future__ import division, absolute_import, print_function
 
-__copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2008-15 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -30,8 +25,11 @@ THE SOFTWARE.
 """
 
 
+import six
+from six.moves import zip, reduce
 from pytools import Record, memoize_method
-from grudge.symbolic import IdentityMapper
+from grudge import sym
+from grudge.symbolic.mappers import IdentityMapper
 
 
 # {{{ instructions
@@ -549,7 +547,7 @@ class Code(object):
 
 # {{{ compiler
 
-class OperatorCompilerBase(IdentityMapper):
+class OperatorCompiler(IdentityMapper):
     class FluxRecord(Record):
         __slots__ = ["flux_expr", "dependencies", "repr_op"]
 
@@ -601,8 +599,7 @@ class OperatorCompilerBase(IdentityMapper):
     # {{{ top-level driver ----------------------------------------------------
     def __call__(self, expr, type_hints={}):
         # Put the result expressions into variables as well.
-        from grudge.symbolic import make_common_subexpression as cse
-        expr = cse(expr, "_result")
+        expr = sym.make_common_subexpression(expr, "_result")
 
         from grudge.symbolic.mappers.type_inference import TypeInferrer
         self.typedict = TypeInferrer()(expr, type_hints)
@@ -833,10 +830,10 @@ class OperatorCompilerBase(IdentityMapper):
         try:
             return self.expr_to_var[expr]
         except KeyError:
-            from grudge.tools import is_field_equal
+            from pytools.obj_array import obj_array_equal
             all_flux_xchgs = [fe
                     for fe in self.flux_exchange_ops
-                    if is_field_equal(fe.arg_fields, expr.arg_fields)]
+                    if obj_array_equal(fe.arg_fields, expr.arg_fields)]
 
             assert len(all_flux_xchgs) > 0
 

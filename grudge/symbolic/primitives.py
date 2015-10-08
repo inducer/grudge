@@ -26,14 +26,12 @@ THE SOFTWARE.
 
 from six.moves import range
 
-import numpy
+import numpy as np
 import pymbolic.primitives
 from meshmode.mesh import BTAG_ALL
 
 from pymbolic.primitives import (  # noqa
         make_common_subexpression, If, Comparison)
-
-from pytools import MovedFunctionDeprecationWrapper
 
 
 class LeafBase(pymbolic.primitives.AlgebraicLeaf):
@@ -100,14 +98,14 @@ class OperatorBinding(LeafBase):
         return self.op, self.field
 
     def is_equal(self, other):
-        from grudge.tools import field_equal
+        from pytools.obj_array import obj_array_equal
         return (other.__class__ == self.__class__
                 and other.op == self.op
-                and field_equal(other.field, self.field))
+                and obj_array_equal(other.field, self.field))
 
     def get_hash(self):
-        from grudge.tools import hashable_field
-        return hash((self.__class__, self.op, hashable_field(self.field)))
+        from pytools.obj_array import obj_array_to_hashable
+        return hash((self.__class__, self.op, obj_array_to_hashable(self.field)))
 
 
 class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
@@ -146,18 +144,18 @@ class BoundaryPair(LeafBase):
         return (self.field, self.bfield, self.tag)
 
     def get_hash(self):
-        from grudge.tools import hashable_field
+        from pytools.obj_array import obj_array_to_hashable
 
         return hash((self.__class__,
-            hashable_field(self.field),
-            hashable_field(self.bfield),
+            obj_array_to_hashable(self.field),
+            obj_array_to_hashable(self.bfield),
             self.tag))
 
     def is_equal(self, other):
-        from grudge.tools import field_equal
+        from pytools.obj_array import obj_array_equal
         return (self.__class__ == other.__class__
-                and field_equal(other.field,  self.field)
-                and field_equal(other.bfield, self.bfield)
+                and obj_array_equal(other.field,  self.field)
+                and obj_array_equal(other.bfield, self.bfield)
                 and other.tag == self.tag)
 
 # }}}
@@ -187,7 +185,7 @@ class NodeCoordinateComponent(LeafBase):
 
 
 def nodes(dim, quadrature_tag=None):
-    return numpy.array([NodeCoordinateComponent(i, quadrature_tag)
+    return np.array([NodeCoordinateComponent(i, quadrature_tag)
         for i in range(dim)], dtype=object)
 
 
@@ -204,10 +202,8 @@ class BoundaryNormalComponent(LeafBase):
 
 
 def normal(tag, dimensions):
-    return numpy.array([BoundaryNormalComponent(tag, i)
+    return np.array([BoundaryNormalComponent(tag, i)
         for i in range(dimensions)], dtype=object)
-
-make_normal = MovedFunctionDeprecationWrapper(normal)
 
 
 class GeometricFactorBase(LeafBase):

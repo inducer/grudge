@@ -778,4 +778,72 @@ class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
 # }}}
 
 
+# {{{ convenience functions for operator creation
+
+def get_flux_operator(flux):
+    """Return a flux operator that can be multiplied with
+    a volume field to obtain the interior fluxes
+    or with a :class:`BoundaryPair` to obtain the lifted boundary
+    flux.
+    """
+    from pytools.obj_array import is_obj_array
+    from grudge.symbolic.operators import VectorFluxOperator, FluxOperator
+
+    if is_obj_array(flux):
+        return VectorFluxOperator(flux)
+    else:
+        return FluxOperator(flux)
+
+
+def nabla(dim):
+    from pytools.obj_array import make_obj_array
+    return make_obj_array(
+            [DifferentiationOperator(i) for i in range(dim)])
+
+
+def minv_stiffness_t(dim):
+    from pytools.obj_array import make_obj_array
+    return make_obj_array(
+        [MInvSTOperator(i) for i in range(dim)])
+
+
+def stiffness(dim):
+    from pytools.obj_array import make_obj_array
+    return make_obj_array(
+        [StiffnessOperator(i) for i in range(dim)])
+
+
+def stiffness_t(dim):
+    from pytools.obj_array import make_obj_array
+    return make_obj_array(
+        [StiffnessTOperator(i) for i in range(dim)])
+
+
+def integral(arg):
+    import grudge.symbolic as sym
+    return sym.NodalSum()(sym.MassOperator()(sym.Ones())*arg)
+
+
+def norm(p, arg):
+    """
+    :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
+    """
+    import grudge.symbolic as sym
+
+    if p == 2:
+        comp_norm_squared = sym.NodalSum()(
+                sym.CFunction("fabs")(
+                    arg * sym.MassOperator()(arg)))
+        return sym.CFunction("sqrt")(sum(comp_norm_squared))
+
+    elif p == np.Inf:
+        comp_norm = sym.NodalMax()(sym.CFunction("fabs")(arg))
+        from pymbolic.primitives import Max
+        return reduce(Max, comp_norm)
+
+    else:
+        return sum(sym.NodalSum()(sym.CFunction("fabs")(arg)**p))**(1/p)
+
+# }}}
+
 # vim: foldmethod=marker

@@ -165,7 +165,7 @@ def norm(v):
     return numpy.dot(v, v)**0.5
 
 
-def make_normal(dimensions):
+def normal(dimensions):
     return numpy.array([Normal(i) for i in range(dimensions)], dtype=object)
 
 

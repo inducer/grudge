@@ -25,6 +25,7 @@ THE SOFTWARE.
 """
 
 import pymbolic.mapper
+from grudge import sym
 
 
 # {{{ representation tags
@@ -72,7 +73,7 @@ class QuadratureRepresentation(object):
 
 class type_info:
     """These classes represent various bits and pieces of information that
-    we may deduce about expressions in our optemplate.
+    we may deduce about expressions in our symbolic operator.
     """
 
     # serves only as a namespace, thus lower case
@@ -94,10 +95,9 @@ class type_info:
             if u_s_o is NotImplemented:
                 if u_o_s is NotImplemented:
                     if expr is not None:
-                        from grudge.optemplate.tools import pretty
                         raise TypeError("types '%s' and '%s' for '%s' "
                                 "cannot be unified" % (self, other,
-                                    pretty(expr)))
+                                    sym.pretty(expr)))
                     else:
                         raise TypeError("types '%s' and '%s' cannot be unified"
                                 % (self, other))
@@ -461,74 +461,49 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
                 children=expr.parameters)
 
     def map_operator_binding(self, expr, typedict):
-        from grudge.optemplate.operators import (
-                NodalReductionOperator,
-
-                DiffOperatorBase,
-                ReferenceDiffOperatorBase,
-
-                MassOperatorBase,
-                ReferenceMassOperatorBase,
-
-                ElementwiseMaxOperator,
-                BoundarizeOperator, FluxExchangeOperator,
-                FluxOperatorBase,
-                QuadratureGridUpsampler, QuadratureBoundaryGridUpsampler,
-                QuadratureInteriorFacesGridUpsampler,
-
-                MassOperator,
-                ReferenceMassOperator,
-                ReferenceQuadratureMassOperator,
-
-                StiffnessTOperator,
-                ReferenceStiffnessTOperator,
-                ReferenceQuadratureStiffnessTOperator,
-
-                ElementwiseLinearOperator)
-
-        if isinstance(expr.op, NodalReductionOperator):
+        if isinstance(expr.op, sym.NodalReductionOperator):
             typedict[expr.field] = type_info.KnownVolume()
             self.rec(expr.field, typedict)
             return type_info.Scalar()
 
         elif isinstance(expr.op,
-                (ReferenceQuadratureStiffnessTOperator,
-                    ReferenceQuadratureMassOperator)):
+                (sym.ReferenceQuadratureStiffnessTOperator,
+                    sym.ReferenceQuadratureMassOperator)):
             typedict[expr.field] = type_info.VolumeVector(
                     QuadratureRepresentation(expr.op.quadrature_tag))
             self.rec(expr.field, typedict)
             return type_info.VolumeVector(NodalRepresentation())
 
         elif isinstance(expr.op,
-                (ReferenceStiffnessTOperator, StiffnessTOperator)):
+                (sym.ReferenceStiffnessTOperator, sym.StiffnessTOperator)):
             # stiffness_T can be specialized for quadrature by OperatorSpecializer
             typedict[expr.field] = type_info.KnownVolume()
             self.rec(expr.field, typedict)
             return type_info.VolumeVector(NodalRepresentation())
 
         elif isinstance(expr.op,
-                (ReferenceMassOperator, MassOperator)):
+                (sym.ReferenceMassOperator, sym.MassOperator)):
             # mass can be specialized for quadrature by OperatorSpecializer
             typedict[expr.field] = type_info.KnownVolume()
             self.rec(expr.field, typedict)
             return type_info.VolumeVector(NodalRepresentation())
 
         elif isinstance(expr.op, (
-                DiffOperatorBase,
-                ReferenceDiffOperatorBase,
-                MassOperatorBase,
-                ReferenceMassOperatorBase)):
+                sym.DiffOperatorBase,
+                sym.ReferenceDiffOperatorBase,
+                sym.MassOperatorBase,
+                sym.ReferenceMassOperatorBase)):
             # all other operators are purely nodal
             typedict[expr.field] = type_info.VolumeVector(NodalRepresentation())
             self.rec(expr.field, typedict)
             return type_info.VolumeVector(NodalRepresentation())
 
-        elif isinstance(expr.op, ElementwiseMaxOperator):
+        elif isinstance(expr.op, sym.ElementwiseMaxOperator):
             typedict[expr.field] = typedict[expr].unify(
                     type_info.KnownVolume(), expr.field)
             return self.rec(expr.field, typedict)
 
-        elif isinstance(expr.op, BoundarizeOperator):
+        elif isinstance(expr.op, sym.BoundarizeOperator):
             # upward propagation: argument has same rep tag as result
             typedict[expr.field] = type_info.KnownVolume().unify(
                     extract_representation(type_info), expr.field)
@@ -539,12 +514,11 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
             return type_info.KnownBoundary(expr.op.tag).unify(
                     extract_representation(typedict[expr.field]), expr)
 
-        elif isinstance(expr.op, FluxExchangeOperator):
+        elif isinstance(expr.op, sym.FluxExchangeOperator):
             raise NotImplementedError
 
-        elif isinstance(expr.op, FluxOperatorBase):
+        elif isinstance(expr.op, sym.FluxOperatorBase):
             from pytools.obj_array import with_object_array_or_scalar
-            from grudge.optemplate.primitives import BoundaryPair
 
             repr_tag_cell = [type_info.no_type]
 
@@ -554,7 +528,7 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
                 repr_tag_cell[0] = extract_representation(
                         self.rec(flux_arg, typedict))
 
-            if isinstance(expr.field, BoundaryPair):
+            if isinstance(expr.field, sym.BoundaryPair):
                 def process_bdry_flux_arg(flux_arg):
                     typedict[flux_arg] = type_info.KnownBoundary(bpair.tag) \
                         .unify(repr_tag_cell[0], flux_arg)
@@ -570,21 +544,21 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
 
             return type_info.VolumeVector(NodalRepresentation())
 
-        elif isinstance(expr.op, QuadratureGridUpsampler):
+        elif isinstance(expr.op, sym.QuadratureGridUpsampler):
             typedict[expr.field] = extract_domain(typedict[expr])
             self.rec(expr.field, typedict)
             return type_info.KnownRepresentation(
                     QuadratureRepresentation(expr.op.quadrature_tag))\
                             .unify(extract_domain(typedict[expr.field]), expr)
 
-        elif isinstance(expr.op, QuadratureInteriorFacesGridUpsampler):
+        elif isinstance(expr.op, sym.QuadratureInteriorFacesGridUpsampler):
             typedict[expr.field] = type_info.VolumeVector(
                     NodalRepresentation())
             self.rec(expr.field, typedict)
             return type_info.InteriorFacesVector(
                     QuadratureRepresentation(expr.op.quadrature_tag))
 
-        elif isinstance(expr.op, QuadratureBoundaryGridUpsampler):
+        elif isinstance(expr.op, sym.QuadratureBoundaryGridUpsampler):
             typedict[expr.field] = type_info.BoundaryVector(
                     expr.op.boundary_tag, NodalRepresentation())
             self.rec(expr.field, typedict)
@@ -592,7 +566,7 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
                     expr.op.boundary_tag,
                     QuadratureRepresentation(expr.op.quadrature_tag))
 
-        elif isinstance(expr.op, ElementwiseLinearOperator):
+        elif isinstance(expr.op, sym.ElementwiseLinearOperator):
             typedict[expr.field] = type_info.VolumeVector(NodalRepresentation())
             self.rec(expr.field, typedict)
             return type_info.VolumeVector(NodalRepresentation())

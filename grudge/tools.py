@@ -1,6 +1,8 @@
-from __future__ import division, absolute_import
+"""Miscellaneous helper facilities."""
 
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+from __future__ import division
+
+__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,7 +24,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import grudge.sym  # noqa
-import grudge.symbolic.flux.primitives as sym_flux  # noqa
+import numpy as np
 
-from grudge.execution import bind  # noqa
+
+def is_zero(x):
+    # DO NOT try to replace this with an attempted '== 0' comparison.
+    # This will become an elementwise numpy operation and not do what
+    # you want.
+
+    if np.isscalar(x):
+        return x == 0
+    else:
+        return False

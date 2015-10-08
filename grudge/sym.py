@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import grudge.sym  # noqa
-import grudge.symbolic.flux.primitives as sym_flux  # noqa
+from grudge.symbolic.primitives import *  # noqa
+from grudge.symbolic.operators import *  # noqa
 
-from grudge.execution import bind  # noqa
+from grudge.symbolic.tools import pretty  # noqa

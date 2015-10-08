@@ -28,6 +28,7 @@ THE SOFTWARE.
 import numpy as np
 import pyopencl as cl
 from grudge.shortcuts import make_discretization, set_up_rk4
+from grudge import sym, bind
 
 
 def main(write_output=True):
@@ -43,7 +44,6 @@ def main(write_output=True):
     source_width = 0.05
     source_omega = 3
 
-    from grudge import sym
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
     sym_sin = sym.CFunction("sin")
@@ -70,6 +70,14 @@ def main(write_output=True):
 
     # FIXME
     #dt = op.estimate_rk4_timestep(discr, fields=fields)
+
+    op.check_bc_coverage(mesh)
+
+    print(sym.pretty(op.sym_operator()))
+    bound_op = bind(discr, op.sym_operator())
+
+    def rhs(t, w):
+        return bound_op(t=t, w=w)
 
     dt = 0.001
     dt_stepper = set_up_rk4(dt, fields, rhs)

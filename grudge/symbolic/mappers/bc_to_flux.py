@@ -27,9 +27,11 @@ THE SOFTWARE.
 
 from pytools import memoize_method
 from pymbolic.mapper import CSECachingMapperMixin
-from grudge.optemplate.mappers import (
+from grudge.symbolic.mappers import (
         IdentityMapper, DependencyMapper, CombineMapper,
         OperatorReducerMixin)
+from grudge import sym
+from grudge import sym_flux
 
 
 class ExpensiveBoundaryOperatorDetector(CombineMapper):
@@ -41,21 +43,16 @@ class ExpensiveBoundaryOperatorDetector(CombineMapper):
         return False
 
     def map_operator_binding(self, expr):
-        from grudge.optemplate import (BoundarizeOperator,
-                FluxExchangeOperator,
-                QuadratureGridUpsampler,
-                QuadratureBoundaryGridUpsampler)
-
-        if isinstance(expr.op, BoundarizeOperator):
+        if isinstance(expr.op, sym.BoundarizeOperator):
             return False
 
-        elif isinstance(expr.op, FluxExchangeOperator):
+        elif isinstance(expr.op, sym.FluxExchangeOperator):
             # FIXME: Duplication of these is an even bigger problem!
             return True
 
         elif isinstance(expr.op, (
-                QuadratureGridUpsampler,
-                QuadratureBoundaryGridUpsampler)):
+                sym.QuadratureGridUpsampler,
+                sym.QuadratureBoundaryGridUpsampler)):
             return True
 
         else:
@@ -98,12 +95,10 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                 ExpensiveBoundaryOperatorDetector()
 
     def map_operator_binding(self, expr):
-        from grudge.optemplate.operators import FluxOperatorBase
-        from grudge.optemplate.primitives import BoundaryPair
-        from grudge.flux import FluxSubstitutionMapper, FieldComponent
+        from grudge.symbolic.flux.mappers import FluxSubstitutionMapper
 
-        if not (isinstance(expr.op, FluxOperatorBase)
-                and isinstance(expr.field, BoundaryPair)):
+        if not (isinstance(expr.op, sym.FluxOperatorBase)
+                and isinstance(expr.field, sym.BoundaryPair)):
             return IdentityMapper.map_operator_binding(self, expr)
 
         bpair = expr.field
@@ -180,7 +175,7 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                         self.expensive_bdry_op_detector(expr.child)
 
                 if has_expensive_operators:
-                    return FieldComponent(
+                    return sym_flux.FieldComponent(
                             self.register_boundary_expr(expr),
                             is_interior=False)
                 else:
@@ -190,7 +185,7 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                 raise RuntimeError("Your operator template contains a flux normal. "
                         "You may find this confusing, but you can't do that. "
                         "It turns out that you need to use "
-                        "grudge.optemplate.make_normal() for normals in boundary "
+                        "grudge.sym.normal() for normals in boundary "
                         "terms of operator templates.")
 
             def map_normal_component(self, expr):
@@ -199,33 +194,27 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                             "do not agree about boundary tag: %s vs %s"
                             % (expr.boundary_tag, bpair.tag))
 
-                from grudge.flux import Normal
-                return Normal(expr.axis)
+                return sym_flux.Normal(expr.axis)
 
             def map_variable(self, expr):
-                return FieldComponent(
+                return sym_flux.FieldComponent(
                         self.register_boundary_expr(expr),
                         is_interior=False)
 
             map_subscript = map_variable
 
             def map_operator_binding(self, expr):
-                from grudge.optemplate import (BoundarizeOperator,
-                        FluxExchangeOperator,
-                        QuadratureGridUpsampler,
-                        QuadratureBoundaryGridUpsampler)
-
-                if isinstance(expr.op, BoundarizeOperator):
+                if isinstance(expr.op, sym.BoundarizeOperator):
                     if expr.op.tag != bpair.tag:
                         raise RuntimeError("BoundarizeOperator and BoundaryPair "
                                 "do not agree about boundary tag: %s vs %s"
                                 % (expr.op.tag, bpair.tag))
 
-                    return FieldComponent(
+                    return sym_flux.FieldComponent(
                             self.register_volume_expr(expr.field),
                             is_interior=True)
 
-                elif isinstance(expr.op, FluxExchangeOperator):
+                elif isinstance(expr.op, sym.FluxExchangeOperator):
                     from grudge.mesh import TAG_RANK_BOUNDARY
                     op_tag = TAG_RANK_BOUNDARY(expr.op.rank)
                     if bpair.tag != op_tag:
@@ -233,53 +222,51 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                                 "FluxExchangeOperator do not agree about "
                                 "boundary tag: %s vs %s"
                                 % (op_tag, bpair.tag))
-                    return FieldComponent(
+                    return sym_flux.FieldComponent(
                             self.register_boundary_expr(expr),
                             is_interior=False)
 
-                elif isinstance(expr.op, QuadratureBoundaryGridUpsampler):
+                elif isinstance(expr.op, sym.QuadratureBoundaryGridUpsampler):
                     if bpair.tag != expr.op.boundary_tag:
                         raise RuntimeError("BoundarizeOperator "
                                 "and QuadratureBoundaryGridUpsampler "
                                 "do not agree about boundary tag: %s vs %s"
                                 % (expr.op.boundary_tag, bpair.tag))
-                    return FieldComponent(
+                    return sym_flux.FieldComponent(
                             self.register_boundary_expr(expr),
                             is_interior=False)
 
-                elif isinstance(expr.op, QuadratureGridUpsampler):
+                elif isinstance(expr.op, sym.QuadratureGridUpsampler):
                     # We're invoked before operator specialization, so we may
                     # see these instead of QuadratureBoundaryGridUpsampler.
-                    return FieldComponent(
+                    return sym_flux.FieldComponent(
                             self.register_boundary_expr(expr),
                             is_interior=False)
 
                 else:
                     raise RuntimeError("Found '%s' in a boundary term. "
-                            "To the best of my knowledge, no grudge operator applies "
-                            "directly to boundary data, so this is likely in error."
-                            % expr.op)
+                        "To the best of my knowledge, no grudge operator applies "
+                        "directly to boundary data, so this is likely in error."
+                        % expr.op)
 
             def map_flux_exchange(self, expr):
-                return FieldComponent(
+                return sym_flux.FieldComponent(
                         self.register_boundary_expr(expr),
                         is_interior=False)
             # }}}
 
-        from grudge.tools import is_obj_array
+        from pytools.obj_array import is_obj_array
         if not is_obj_array(vol_field):
             vol_field = [vol_field]
 
         mbfeef = MaxBoundaryFluxEvaluableExpressionFinder(list(vol_field),
                 self.expensive_bdry_op_detector)
-        #from grudge.optemplate.tools import pretty
-        #print pretty(bdry_field)
-        #raw_input("YO")
+
         new_bdry_field = mbfeef(bdry_field)
 
         # Step II: Substitute the new_bdry_field into the flux.
         def sub_bdry_into_flux(expr):
-            if isinstance(expr, FieldComponent) and not expr.is_interior:
+            if isinstance(expr, sym_flux.FieldComponent) and not expr.is_interior:
                 if expr.index == 0 and not is_obj_array(bdry_field):
                     return new_bdry_field
                 else:
@@ -289,12 +276,13 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
 
         new_flux = FluxSubstitutionMapper(sub_bdry_into_flux)(flux)
 
-        from grudge.tools import is_zero, make_obj_array
+        from grudge.tools import is_zero
+        from pytools.obj_array import make_obj_array
         if is_zero(new_flux):
             return 0
         else:
             return type(expr.op)(new_flux, *expr.op.__getinitargs__()[1:])(
-                    BoundaryPair(
+                    sym.BoundaryPair(
                         make_obj_array([self.rec(e) for e in mbfeef.vol_expr_list]),
                         make_obj_array([self.rec(e) for e in mbfeef.bdry_expr_list]),
                         bpair.tag))
