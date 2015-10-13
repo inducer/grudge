@@ -1531,7 +1531,8 @@ class BoundaryCombiner(CSECachingMapperMixin, IdentityMapper):
 
                 if isinstance(ch.field, BoundaryPair):
                     bpair = self.rec(ch.field)
-                    if self.mesh.tag_to_boundary.get(bpair.tag, []):
+                    from meshmode.mesh import is_boundary_tag_empty
+                    if not is_boundary_tag_empty(self.mesh, bpair.tag):
                         boundaries.append(op.WholeDomainFluxOperator.BoundaryInfo(
                             flux_expr=ch.op.flux,
                             bpair=bpair))
@@ -1550,6 +1551,7 @@ class BoundaryCombiner(CSECachingMapperMixin, IdentityMapper):
                     quadrature_tag=quad_tag[0])
         else:
             wdf = None
+
         return wdf, rest
 
     def map_operator_binding(self, expr):
@@ -1575,6 +1577,7 @@ class BoundaryCombiner(CSECachingMapperMixin, IdentityMapper):
                 result += wdf
             else:
                 return result + flattened_sum(self.rec(r_i) for r_i in expressions)
+
 # }}}
 
 

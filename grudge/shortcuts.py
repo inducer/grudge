@@ -25,29 +25,17 @@ THE SOFTWARE.
 """
 
 
-def make_discretization(mesh, order, **kwargs):
-    from meshmode.discretization import Discretization
-    from meshmode.discretization.poly_element import \
-            PolynomialWarpAndBlendGroupFactory
+def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
+    from leap.rk import LSRK4Method
+    from dagrt.codegen import PythonCodeGenerator
 
-    cl_ctx = kwargs.pop("cl_ctx", None)
-    if cl_ctx is None:
-        import pyopencl as cl
-        cl_ctx = cl.create_some_context()
-
-    return Discretization(cl_ctx, mesh,
-            PolynomialWarpAndBlendGroupFactory(order=order))
-
-
-def set_up_rk4(dt, fields, rhs, t_start=0):
-    from leap.method.rk import LSRK4Method
-    from leap.vm.codegen import PythonCodeGenerator
-
-    dt_method = LSRK4Method(component_id="y")
-    dt_stepper = PythonCodeGenerator().get_class(dt_method.generate())
+    dt_method = LSRK4Method(component_id=field_var_name)
+    dt_code = dt_method.generate()
+    dt_stepper_class = PythonCodeGenerator("TimeStep").get_class(dt_code)
+    dt_stepper = dt_stepper_class({"<func>"+dt_method.component_id: rhs})
 
     dt_stepper.set_up(
             t_start=t_start, dt_start=dt,
             context={dt_method.component_id: fields})
 
-    return dt_stepper({"<func>"+dt_method.component_id: rhs})
+    return dt_stepper

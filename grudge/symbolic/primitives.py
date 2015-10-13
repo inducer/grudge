@@ -36,7 +36,7 @@ from pymbolic.primitives import (  # noqa
 
 class LeafBase(pymbolic.primitives.AlgebraicLeaf):
     def stringifier(self):
-        from grudge.symbolic import StringifyMapper
+        from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
 
@@ -59,7 +59,7 @@ class ScalarParameter(pymbolic.primitives.Variable):
     """A placeholder for a user-supplied scalar variable."""
 
     def stringifier(self):
-        from grudge.symbolic import StringifyMapper
+        from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
     mapper_method = intern("map_scalar_parameter")
@@ -70,7 +70,7 @@ class CFunction(pymbolic.primitives.Variable):
     argument of :class:`pymbolic.primitives.Call`.
     """
     def stringifier(self):
-        from grudge.symbolic import StringifyMapper
+        from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
     def __call__(self, expr):

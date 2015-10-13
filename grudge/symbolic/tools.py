@@ -37,7 +37,8 @@ def is_scalar(expr):
 
 
 def get_flux_dependencies(flux, field, bdry="all"):
-    from grudge.symbolic.flux.mappers import FluxDependencyMapper, FieldComponent
+    from grudge.symbolic.flux.mappers import FluxDependencyMapper
+    from grudge.symbolic.flux.primitives import FieldComponent
     in_fields = list(FluxDependencyMapper(
         include_calls=False)(flux))
 
@@ -47,7 +48,7 @@ def get_flux_dependencies(flux, field, bdry="all"):
         if not isinstance(in_field, FieldComponent)]
 
     def maybe_index(fld, index):
-        from grudge.tools import is_obj_array
+        from pytools.obj_array import is_obj_array
         if is_obj_array(fld):
             return fld[inf.index]
         else:

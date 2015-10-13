@@ -27,15 +27,15 @@ THE SOFTWARE.
 
 import six
 from six.moves import zip, reduce
-from pytools import Record, memoize_method
+from pytools import Record, memoize_method, memoize
 from grudge import sym
-from grudge.symbolic.mappers import IdentityMapper
+import grudge.symbolic.mappers as mappers
 
 
 # {{{ instructions
 
 class Instruction(Record):
-    __slots__ = ["dep_mapper_factory"]
+    __slots__ = []
     priority = 0
 
     def get_assignees(self):
@@ -49,6 +49,14 @@ class Instruction(Record):
 
     def get_executor_method(self, executor):
         raise NotImplementedError
+
+
+@memoize
+def _make_dep_mapper(include_subscripts):
+    return mappers.DependencyMapper(
+            include_operator_bindings=False,
+            include_subscripts=include_subscripts,
+            include_calls="descend_args")
 
 
 class Assign(Instruction):
@@ -74,34 +82,27 @@ class Assign(Instruction):
 
     @memoize_method
     def flop_count(self):
-        from grudge.symbolic import FlopCounter
-        return sum(FlopCounter()(expr) for expr in self.exprs)
+        return sum(mappers.FlopCounter()(expr) for expr in self.exprs)
 
     def get_assignees(self):
         return set(self.names)
 
+    @memoize_method
     def get_dependencies(self, each_vector=False):
-        try:
-            if each_vector:
-                raise AttributeError
-            else:
-                return self._dependencies
-        except:
-            # arg is include_subscripts
-            dep_mapper = self.dep_mapper_factory(each_vector)
+        dep_mapper = _make_dep_mapper(include_subscripts=False)
 
-            from operator import or_
-            deps = reduce(
-                    or_, (dep_mapper(expr)
-                    for expr in self.exprs))
+        from operator import or_
+        deps = reduce(
+                or_, (dep_mapper(expr)
+                for expr in self.exprs))
 
-            from pymbolic.primitives import Variable
-            deps -= set(Variable(name) for name in self.names)
+        from pymbolic.primitives import Variable
+        deps -= set(Variable(name) for name in self.names)
 
-            if not each_vector:
-                self._dependencies = deps
+        if not each_vector:
+            self._dependencies = deps
 
-            return deps
+        return deps
 
     def __str__(self):
         comment = self.comment
@@ -131,10 +132,9 @@ class Assign(Instruction):
 
 
 class FluxBatchAssign(Instruction):
-    __slots__ = ["names", "expressions", "repr_op"]
     """
-    :ivar names:
-    :ivar expressions:
+    .. attribute:: names
+    .. attribute:: expressions
 
         A list of :class:`grudge.symbolic.primitives.OperatorBinding`
         instances bound to flux operators.
@@ -145,17 +145,32 @@ class FluxBatchAssign(Instruction):
             yield the same operator from
             :meth:`grudge.symbolic.operators.FluxOperatorBase.repr_op`.
 
-    :ivar repr_op: The `repr_op` on which all operators agree.
+    .. attribute:: repr_op
+
+        The *repr_op* on which all operators agree.
+
+    .. attribute:: quadrature_tag
     """
 
     def get_assignees(self):
         return set(self.names)
 
+    @memoize_method
+    def get_dependencies(self):
+        deps = set()
+        for wdflux in self.expressions:
+            deps |= set(wdflux.interior_deps)
+            deps |= set(wdflux.boundary_deps)
+
+        dep_mapper = _make_dep_mapper(include_subscripts=False)
+
+        from pytools import flatten
+        return set(flatten(dep_mapper(dep) for dep in deps))
+
     def __str__(self):
-        from grudge.flux import PrettyFluxStringifyMapper as PFSM
+        from grudge.symbolic.flux.mappers import PrettyFluxStringifyMapper as PFSM
         flux_strifier = PFSM()
-        from grudge.symbolic import StringifyMapper as OSM
-        op_strifier = OSM(flux_stringify_mapper=flux_strifier)
+        op_strifier = mappers.StringifyMapper(flux_stringify_mapper=flux_strifier)
 
         from pymbolic.mapper.stringifier import PREC_NONE
 
@@ -196,7 +211,7 @@ class DiffBatchAssign(Instruction):
 
     @memoize_method
     def get_dependencies(self):
-        return self.dep_mapper_factory()(self.field)
+        return _make_dep_mapper(include_subscripts=False)(self.field)
 
     def __str__(self):
         lines = []
@@ -222,13 +237,16 @@ class QuadratureDiffBatchAssign(DiffBatchAssign):
 
 
 class FluxExchangeBatchAssign(Instruction):
-    __slots__ = [
-            "names", "indices_and_ranks",
-            "rank_to_index_and_name", "arg_fields"]
+    """
+    .. attribute:: names
+    .. attribute:: indices_and_ranks
+    .. attribute:: rank_to_index_and_name
+    .. attribute:: arg_fields
+    """
 
     priority = 1
 
-    def __init__(self, names, indices_and_ranks, arg_fields, dep_mapper_factory):
+    def __init__(self, names, indices_and_ranks, arg_fields):
         rank_to_index_and_name = {}
         for name, (index, rank) in zip(
                 names, indices_and_ranks):
@@ -239,14 +257,14 @@ class FluxExchangeBatchAssign(Instruction):
                 names=names,
                 indices_and_ranks=indices_and_ranks,
                 rank_to_index_and_name=rank_to_index_and_name,
-                arg_fields=arg_fields,
-                dep_mapper_factory=dep_mapper_factory)
+                arg_fields=arg_fields)
 
     def get_assignees(self):
         return set(self.names)
 
+    @memoize_method
     def get_dependencies(self):
-        dep_mapper = self.dep_mapper_factory()
+        dep_mapper = _make_dep_mapper()
         result = set()
         for fld in self.arg_fields:
             result |= dep_mapper(fld)
@@ -279,9 +297,9 @@ class VectorExprAssign(Assign):
     def compiled(self, executor):
         discr = executor.discr
 
-        from hedge.backends.vector_expr import \
+        from grudge.backends.vector_expr import \
                 VectorExpressionInfo, simple_result_dtype_getter
-        from hedge.backends.cuda.vector_expr import CompiledVectorExpression
+        from grudge.backends.cuda.vector_expr import CompiledVectorExpression
         return CompiledVectorExpression(
                 [VectorExpressionInfo(
                     name=name,
@@ -291,36 +309,6 @@ class VectorExprAssign(Assign):
                         self.names, self.exprs, self.do_not_return)],
                 result_dtype_getter=simple_result_dtype_getter,
                 allocator=discr.pool.allocate)
-
-
-class CUDAFluxBatchAssign(FluxBatchAssign):
-    """
-    :ivar quadrature_tag:
-    """
-
-    @memoize_method
-    def get_dependencies(self):
-        deps = set()
-        for wdflux in self.expressions:
-            deps |= set(wdflux.interior_deps)
-            deps |= set(wdflux.boundary_deps)
-
-        dep_mapper = self.dep_mapper_factory()
-
-        from pytools import flatten
-        return set(flatten(dep_mapper(dep) for dep in deps))
-
-    @memoize_method
-    def kernel(self, executor):
-        discr = executor.discr
-        if self.quadrature_tag is None:
-            flux_plan = discr.flux_plan
-        else:
-            flux_plan = discr.get_cuda_quadrature_info(self.quadrature_tag).flux_plan
-
-        return flux_plan.make_kernel(
-                executor.discr, executor, self.expressions)
-
 
 # }}}
 
@@ -409,6 +397,7 @@ class Code(object):
         return "\n".join(lines)
 
     # {{{ dynamic scheduler (generates static schedules by self-observation)
+
     class NoInstructionAvailable(Exception):
         pass
 
@@ -431,10 +420,10 @@ class Code(object):
             if insn not in done_insns))
 
         # {{{ make sure results do not get discarded
-        from grudge.tools import with_object_array_or_scalar
 
-        from grudge.symbolic.mappers import DependencyMapper
-        dm = DependencyMapper(composite_leaves=False)
+        from pytools.obj_array import with_object_array_or_scalar
+
+        dm = mappers.DependencyMapper(composite_leaves=False)
 
         def remove_result_variable(result_expr):
             # The extra dependency mapper run is necessary
@@ -448,6 +437,7 @@ class Code(object):
                 discardable_vars.discard(var.name)
 
         with_object_array_or_scalar(remove_result_variable, self.result)
+
         # }}}
 
         return argmax2(available_insns), discardable_vars
@@ -603,7 +593,7 @@ class Code(object):
 
 # {{{ compiler
 
-class OperatorCompiler(IdentityMapper):
+class OperatorCompiler(mappers.IdentityMapper):
     class FluxRecord(Record):
         __slots__ = ["flux_expr", "dependencies", "repr_op"]
 
@@ -611,7 +601,7 @@ class OperatorCompiler(IdentityMapper):
         __slots__ = ["flux_exprs", "repr_op"]
 
     def __init__(self, prefix="_expr", max_vectors_in_batch_expr=None):
-        IdentityMapper.__init__(self)
+        super(OperatorCompiler, self).__init__()
         self.prefix = prefix
 
         self.max_vectors_in_batch_expr = max_vectors_in_batch_expr
@@ -621,16 +611,6 @@ class OperatorCompiler(IdentityMapper):
 
         self.assigned_names = set()
 
-    @memoize_method
-    def dep_mapper_factory(self, include_subscripts=False):
-        from grudge.symbolic import DependencyMapper
-        self.dep_mapper = DependencyMapper(
-                include_operator_bindings=False,
-                include_subscripts=include_subscripts,
-                include_calls="descend_args")
-
-        return self.dep_mapper
-
     # {{{ collecting various optemplate components ----------------------------
     def get_contained_fluxes(self, expr):
         """Recursively enumerate all flux expressions in the expression tree
@@ -638,8 +618,7 @@ class OperatorCompiler(IdentityMapper):
         instances with fields `flux_expr` and `dependencies`.
         """
 
-        from grudge.symbolic.mappers import FluxCollector
-        contained_flux_ops = FluxCollector()(expr)
+        contained_flux_ops = mappers.FluxCollector()(expr)
 
         from pytools import all
         assert all(isinstance(op, sym.WholeDomainFluxOperator)
@@ -653,13 +632,10 @@ class OperatorCompiler(IdentityMapper):
             for wdflux in contained_flux_ops]
 
     def collect_diff_ops(self, expr):
-        from grudge.symbolic.operators import ReferenceDiffOperatorBase
-        from grudge.symbolic.mappers import BoundOperatorCollector
-        return BoundOperatorCollector(ReferenceDiffOperatorBase)(expr)
+        return mappers.BoundOperatorCollector(sym.ReferenceDiffOperatorBase)(expr)
 
     def collect_flux_exchange_ops(self, expr):
-        from grudge.symbolic.mappers import FluxExchangeCollector
-        return FluxExchangeCollector()(expr)
+        return mappers.FluxExchangeCollector()(expr)
 
     # }}}
 
@@ -724,7 +700,7 @@ class OperatorCompiler(IdentityMapper):
         self.flux_exchange_ops = self.collect_flux_exchange_ops(expr)
 
         # Finally, walk the expression and build the code.
-        result = IdentityMapper.__call__(self, expr)
+        result = super(OperatorCompiler, self).__call__(expr)
 
         return Code(self.aggregate_assignments(self.code, result), result)
 
@@ -787,8 +763,7 @@ class OperatorCompiler(IdentityMapper):
             from grudge.symbolic.mappers.type_inference import type_info
             is_scalar_valued = isinstance(self.typedict[expr], type_info.Scalar)
 
-            from grudge.symbolic import OperatorBinding
-            if isinstance(expr.child, OperatorBinding):
+            if isinstance(expr.child, sym.OperatorBinding):
                 # We need to catch operator bindings here and
                 # treat them specially. They get assigned to their
                 # own variable by default, which would mean the
@@ -846,7 +821,7 @@ class OperatorCompiler(IdentityMapper):
     def map_call(self, expr):
         from grudge.symbolic.primitives import CFunction
         if isinstance(expr.function, CFunction):
-            return IdentityMapper.map_call(self, expr)
+            return super(OperatorCompiler, self).map_call(expr)
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
@@ -884,8 +859,7 @@ class OperatorCompiler(IdentityMapper):
                         op_class=op_class,
                         operators=[d.op for d in all_diffs],
                         field=self.rec(
-                            single_valued(d.field for d in all_diffs)),
-                        dep_mapper_factory=self.dep_mapper_factory))
+                            single_valued(d.field for d in all_diffs))))
 
             from pymbolic import var
             for n, d in zip(names, all_diffs):
@@ -913,8 +887,7 @@ class OperatorCompiler(IdentityMapper):
                             for fe in all_flux_xchgs],
                         arg_fields=[
                             self.rec(arg_field)
-                            for arg_field in fe.arg_fields],
-                        dep_mapper_factory=self.dep_mapper_factory))
+                            for arg_field in fe.arg_fields]))
 
             from pymbolic import var
             for n, d in zip(names, all_flux_xchgs):
@@ -956,7 +929,6 @@ class OperatorCompiler(IdentityMapper):
 
     def make_assign(self, name, expr, priority, is_scalar_valued=False):
         return Assign(names=[name], exprs=[expr],
-                dep_mapper_factory=self.dep_mapper_factory,
                 priority=priority,
                 is_scalar_valued=is_scalar_valued)
 
@@ -972,7 +944,6 @@ class OperatorCompiler(IdentityMapper):
 
     #     return CUDAFluxBatchAssign(
     #             names=names, expressions=expressions, repr_op=repr_op,
-    #             dep_mapper_factory=self.dep_mapper_factory,
     #             quadrature_tag=quadrature_tag)
 
     # }}}
@@ -1021,7 +992,6 @@ class OperatorCompiler(IdentityMapper):
             return Assign(
                     names=names, exprs=ass_1.exprs + ass_2.exprs,
                     _dependencies=deps,
-                    dep_mapper_factory=self.dep_mapper_factory,
                     priority=max(ass_1.priority, ass_2.priority))
 
         # }}}
@@ -1120,14 +1090,14 @@ class OperatorCompiler(IdentityMapper):
                 for insn in processed_assigns + other_insns
                 for expr in insn.get_dependencies())
 
-        from grudge.tools import is_obj_array
+        from pytools.obj_array import is_obj_array
         if is_obj_array(result):
             externally_used_names |= set(expr for expr in result)
         else:
             externally_used_names |= set([result])
 
         def schedule_and_finalize_assignment(ass):
-            dep_mapper = self.dep_mapper_factory()
+            dep_mapper = _make_dep_mapper(include_subscripts=False)
 
             names_exprs = list(zip(ass.names, ass.exprs))
 
@@ -1182,8 +1152,7 @@ class OperatorCompiler(IdentityMapper):
     # }}}
 
     def internal_map_flux(self, wdflux):
-        from hedge.optemplate.operators import WholeDomainFluxOperator
-        return WholeDomainFluxOperator(
+        return sym.WholeDomainFluxOperator(
             wdflux.is_lift,
             [wdflux.InteriorInfo(
                 flux_expr=ii.flux_expr,
@@ -1201,7 +1170,6 @@ class OperatorCompiler(IdentityMapper):
     def finalize_multi_assign(self, names, exprs, do_not_return, priority):
         return VectorExprAssign(names=names, exprs=exprs,
                 do_not_return=do_not_return,
-                dep_mapper_factory=self.dep_mapper_factory,
                 priority=priority)
 
 # }}}

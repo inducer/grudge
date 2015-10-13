@@ -36,7 +36,7 @@ from pytools import Record, memoize_method
 
 class Operator(pymbolic.primitives.Leaf):
     def stringifier(self):
-        from grudge.symbolic import StringifyMapper
+        from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
     def __call__(self, expr):
@@ -733,7 +733,7 @@ class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
                 self.dep_to_tag[dep] = bflux.bpair.tag
 
     def stringifier(self):
-        from grudge.symbolic import StringifyMapper
+        from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
     def repr_op(self):

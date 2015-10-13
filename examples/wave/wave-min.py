@@ -27,15 +27,18 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
-from grudge.shortcuts import make_discretization, set_up_rk4
-from grudge import sym, bind
+from grudge.shortcuts import set_up_rk4
+from grudge import sym, bind, Discretization
 
 
 def main(write_output=True):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
 
-    discr = make_discretization(mesh, order=4)
+    discr = Discretization(cl_ctx, mesh, order=4)
 
     #from grudge.visualization import VtkVisualizer
     #vis = VtkVisualizer(discr, None, "fld")
@@ -75,12 +78,13 @@ def main(write_output=True):
 
     print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
+    print(bound_op.code)
 
     def rhs(t, w):
-        return bound_op(t=t, w=w)
+        return bound_op(queue, t=t, w=w)
 
     dt = 0.001
-    dt_stepper = set_up_rk4(dt, fields, rhs)
+    dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 10
     nsteps = int(final_t/dt)

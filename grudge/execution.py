@@ -34,10 +34,11 @@ logger = logging.getLogger(__name__)
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
-    def __init__(self, context, executor):
+    def __init__(self, queue, context, executor):
         super(ExecutionMapper, self).__init__(context)
         self.discr = executor.discr
         self.executor = executor
+        self.queue = queue
 
     # {{{ expression mappings -------------------------------------------------
 
@@ -46,7 +47,7 @@ class ExecutionMapper(mappers.Evaluator,
         if expr.quadrature_tag is not None:
             raise NotImplementedError("ones on quad. grids")
 
-        result = self.discr.volume_empty(kind=self.discr.compute_kind)
+        result = self.discr.empty(self.queue)
         result.fill(1)
         return result
 
@@ -54,12 +55,9 @@ class ExecutionMapper(mappers.Evaluator,
         # FIXME
         if expr.quadrature_tag is not None:
             raise NotImplementedError("node coordinate components on quad. grids")
-        # FIXME: Data transfer and strided CPU index every time, ugh.
-        return self.discr.convert_volume(
-                # Yes, that .copy() is necessary because much of grudge
-                # doesn't check for striding. Ugh^2.
-                self.discr.nodes[:, expr.axis].copy(),
-                kind=self.discr.compute_kind)
+
+        return self.discr.volume_discr.nodes()[expr.axis] \
+                .with_queue(self.queue)
 
     def map_normal_component(self, expr):
         if expr.quadrature_tag is not None:
@@ -105,26 +103,6 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_nodal_min(self, op, field_expr):
         return np.min(self.rec(field_expr))
-
-    def map_if_positive(self, expr):
-        crit = self.rec(expr.criterion)
-        bool_crit = crit > 0
-        then = self.rec(expr.then)
-        else_ = self.rec(expr.else_)
-
-        true_indices = np.nonzero(bool_crit)
-        false_indices = np.nonzero(~bool_crit)
-
-        result = np.empty_like(crit)
-
-        if isinstance(then, np.ndarray):
-            then = then[true_indices]
-        if isinstance(else_, np.ndarray):
-            else_ = else_[false_indices]
-
-        result[true_indices] = then
-        result[false_indices] = else_
-        return result
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
@@ -269,10 +247,10 @@ class ExecutionMapper(mappers.Evaluator,
                 for name, expr in zip(insn.names, insn.exprs)], []
 
     def exec_vector_expr_assign(self, insn):
-        if self.discr.instrumented:
+        if self.executor.instrumented:
             def stats_callback(n, vec_expr):
-                self.discr.vector_math_flop_counter.add(n*insn.flop_count())
-                return self.discr.vector_math_timer
+                self.executor.vector_math_flop_counter.add(n*insn.flop_count())
+                return self.executor.vector_math_timer
         else:
             stats_callback = None
 
@@ -423,7 +401,7 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ executor
 
 class Executor(object):
-    def __init__(self, discr, code, debug_flags):
+    def __init__(self, discr, code, debug_flags, instrumented):
         self.discr = discr
         self.code = code
         self.elwise_linear_cache = {}
@@ -434,44 +412,7 @@ class Executor(object):
             open_unique_debug_file("op-code", ".txt").write(
                     str(self.code))
 
-        def bench_diff(f):
-            test_field = discr.volume_zeros()
-            from grudge.optemplate import ReferenceDifferentiationOperator
-            from time import time
-
-            start = time()
-            f([ReferenceDifferentiationOperator(i)
-                for i in range(discr.dimensions)], test_field)
-            return time() - start
-
-        def bench_lift(f):
-            if len(discr.face_groups) == 0:
-                return 0
-
-            fg = discr.face_groups[0]
-            out = discr.volume_zeros()
-            from time import time
-
-            fof_shape = (fg.face_count*fg.face_length()*fg.element_count(),)
-            fof = np.zeros(fof_shape, dtype=self.discr.default_scalar_type)
-
-            start = time()
-            f(fg, fg.ldis_loc.lifting_matrix(),
-                    fg.local_el_inverse_jacobians, fof, out)
-            return time() - start
-
-        def pick_faster_func(benchmark, choices, attempts=3):
-            from pytools import argmin2
-            return argmin2(
-                    (f, min(benchmark(f) for i in range(attempts)))
-                    for f in choices)
-
-        from grudge.backends.jit.diff import JitDifferentiator
-        self.diff = pick_faster_func(bench_diff,
-                [self.diff_builtin, JitDifferentiator(discr)])
-        from grudge.backends.jit.lift import JitLifter
-        self.lift_flux = pick_faster_func(bench_lift,
-                [self.lift_flux, JitLifter(discr)])
+        self.instrumented = instrumented
 
     def instrument(self):
         discr = self.discr
@@ -554,9 +495,8 @@ class Executor(object):
                 perform_elwise_scaled_operator(eg.ranges, eg.ranges,
                         coeffs, matrix, field, out)
 
-    def __call__(self, **context):
-        return self.code.execute(
-                self.discr.exec_mapper_class(context, self))
+    def __call__(self, queue, **context):
+        return self.code.execute(ExecutionMapper(queue, context, self))
 
 # }}}
 
@@ -567,17 +507,14 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
         dumper=lambda name, sym_operator: None, mesh=None,
         type_hints={}):
 
-    from grudge.symbolic.mappers import (
-            OperatorBinder, CommutativeConstantFoldingMapper,
-            EmptyFluxKiller, InverseMassContractor, DerivativeJoiner,
-            ErrorChecker, OperatorSpecializer, GlobalToReferenceMapper)
+    import grudge.symbolic.mappers as mappers
     from grudge.symbolic.mappers.bc_to_flux import BCToFluxRewriter
     from grudge.symbolic.mappers.type_inference import TypeInferrer
 
     dumper("before-bind", sym_operator)
-    sym_operator = OperatorBinder()(sym_operator)
+    sym_operator = mappers.OperatorBinder()(sym_operator)
 
-    ErrorChecker(mesh)(sym_operator)
+    mappers.ErrorChecker(mesh)(sym_operator)
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
@@ -585,10 +522,10 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 
     if mesh is not None:
         dumper("before-empty-flux-killer", sym_operator)
-        sym_operator = EmptyFluxKiller(mesh)(sym_operator)
+        sym_operator = mappers.EmptyFluxKiller(mesh)(sym_operator)
 
     dumper("before-cfold", sym_operator)
-    sym_operator = CommutativeConstantFoldingMapper()(sym_operator)
+    sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
     dumper("before-bc2flux", sym_operator)
     sym_operator = BCToFluxRewriter()(sym_operator)
@@ -603,7 +540,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     # flux arguments can be removed.
 
     dumper("before-specializer", sym_operator)
-    sym_operator = OperatorSpecializer(
+    sym_operator = mappers.OperatorSpecializer(
             TypeInferrer()(sym_operator, type_hints)
             )(sym_operator)
 
@@ -615,7 +552,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 
     assert mesh is not None
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
 
     # Ordering restriction:
     #
@@ -624,13 +561,16 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     # quadrature operators.
 
     dumper("before-imass", sym_operator)
-    sym_operator = InverseMassContractor()(sym_operator)
+    sym_operator = mappers.InverseMassContractor()(sym_operator)
 
     dumper("before-cfold-2", sym_operator)
-    sym_operator = CommutativeConstantFoldingMapper()(sym_operator)
+    sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
     dumper("before-derivative-join", sym_operator)
-    sym_operator = DerivativeJoiner()(sym_operator)
+    sym_operator = mappers.DerivativeJoiner()(sym_operator)
+
+    dumper("before-boundary-combiner", sym_operator)
+    sym_operator = mappers.BoundaryCombiner(mesh)(sym_operator)
 
     dumper("process-finished", sym_operator)
 
@@ -640,7 +580,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 
 
 def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
-        debug_flags=set()):
+        debug_flags=set(), instrumented=False):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -662,9 +602,9 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
             type_hints=type_hints)
 
     from grudge.symbolic.compiler import OperatorCompiler
-    code = OperatorCompiler(discr)(sym_operator, type_hints)
+    code = OperatorCompiler()(sym_operator, type_hints)
 
-    ex = Executor(discr, code, type_hints)
+    ex = Executor(discr, code, type_hints, instrumented=instrumented)
 
     if "dump_dataflow_graph" in debug_flags:
         ex.code.dump_dataflow_graph()
