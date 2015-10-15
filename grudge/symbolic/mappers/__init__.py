@@ -186,10 +186,6 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_ones = map_scalar_parameter
     map_node_coordinate_component = map_scalar_parameter
-    map_normal_component = map_elementwise_linear
-    map_jacobian = map_scalar_parameter
-    map_inverse_metric_derivative = map_scalar_parameter
-    map_forward_metric_derivative = map_scalar_parameter
 
     map_nodal_sum = map_elementwise_linear
     map_nodal_min = map_elementwise_linear
@@ -258,11 +254,6 @@ class DependencyMapper(
     map_ones = _map_leaf
 
     map_node_coordinate_component = _map_leaf
-    map_normal_component = _map_leaf
-
-    map_jacobian = _map_leaf
-    map_forward_metric_derivative = _map_leaf
-    map_inverse_metric_derivative = _map_leaf
 
 
 class FlopCounter(
@@ -282,13 +273,6 @@ class FlopCounter(
 
     def map_node_coordinate_component(self, expr):
         return 0
-
-    def map_normal_component(self, expr):
-        return 0
-
-    map_jacobian = map_normal_component
-    map_forward_metric_derivative = map_normal_component
-    map_inverse_metric_derivative = map_normal_component
 
 
 class IdentityMapper(
@@ -475,27 +459,6 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
         else:
             return IdentityMapper.map_operator_binding(self, expr)
 
-    def map_normal_component(self, expr):
-        from grudge.symbolic.mappers.type_inference import (
-                NodalRepresentation)
-
-        expr_type = self.typedict[expr]
-        if not isinstance(
-                expr_type.repr_tag,
-                NodalRepresentation):
-            from grudge.symbolic.primitives import (
-                    BoundaryNormalComponent)
-
-            # for now, parts of this are implemented.
-            raise NotImplementedError("normal components on quad. grids")
-
-            return BoundaryNormalComponent(
-                    expr.boundary_tag, expr.axis,
-                    expr_type.repr_tag.quadrature_tag)
-
-        # a leaf, doesn't change
-        return expr
-
 # }}}
 
 
@@ -506,25 +469,32 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
     reference elements, together with explicit multiplication by geometric factors.
     """
 
-    def __init__(self, dimensions):
+    def __init__(self, ambient_dim, dim=None):
         CSECachingMapperMixin.__init__(self)
         IdentityMapper.__init__(self)
 
-        self.dimensions = dimensions
+        if dim is None:
+            dim = ambient_dim
+
+        self.ambient_dim = ambient_dim
+        self.dim = dim
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
     def map_operator_binding(self, expr):
-        from grudge.symbolic.primitives import (
-                Jacobian, InverseMetricDerivative)
-
         # Global-to-reference is run after operator specialization, so
         # if we encounter non-quadrature operators here, we know they
         # must be nodal.
 
-        def rewrite_derivative(ref_class, field, quadrature_tag=None,
+        jac_notag = sym.area_element(self.ambient_dim, self.dim,
+                where=expr.op.where, quadrature_tag=None)
+
+        def rewrite_derivative(ref_class, field, quadrature_tag, where,
                 with_jacobian=True):
+            jac_tag = sym.area_element(self.ambient_dim, self.dim,
+                    where=expr.op.where, quadrature_tag=quadrature_tag)
+
             if quadrature_tag is not None:
                 diff_kwargs = dict(quadrature_tag=quadrature_tag)
             else:
@@ -532,43 +502,50 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 
             rec_field = self.rec(field)
             if with_jacobian:
-                rec_field = Jacobian(quadrature_tag) * rec_field
-            return sum(InverseMetricDerivative(None, rst_axis, expr.op.xyz_axis) *
+                rec_field = jac_tag * rec_field
+            return sum(
+                    sym.inverse_metric_derivative(
+                        rst_axis, expr.op.xyz_axis,
+                        ambient_dim=self.ambient_dim, dim=self.dim) *
                     ref_class(rst_axis, **diff_kwargs)(rec_field)
                     for rst_axis in range(self.dimensions))
 
         if isinstance(expr.op, op.MassOperator):
             return op.ReferenceMassOperator()(
-                    Jacobian(None) * self.rec(expr.field))
+                    jac_notag * self.rec(expr.field))
 
         elif isinstance(expr.op, op.QuadratureMassOperator):
+            jac_tag = sym.area_element(self.ambient_dim, self.dim,
+                    where=expr.op.where,
+                    quadrature_tag=expr.op.quadrature_tag)
             return op.ReferenceQuadratureMassOperator(
-                    expr.op.quadrature_tag)(
-                            Jacobian(expr.op.quadrature_tag) * self.rec(expr.field))
+                    expr.op.quadrature_tag, expr.op.where)(
+                            jac_tag * self.rec(expr.field))
 
         elif isinstance(expr.op, op.InverseMassOperator):
-            return op.ReferenceInverseMassOperator()(
-                1/Jacobian(None) * self.rec(expr.field))
+            return op.ReferenceInverseMassOperator(expr.op.where)(
+                1/jac_notag * self.rec(expr.field))
 
         elif isinstance(expr.op, op.StiffnessOperator):
-            return op.ReferenceMassOperator()(Jacobian(None) *
+            return op.ReferenceMassOperator(expr.op.where)(jac_notag *
                     self.rec(
                         op.DifferentiationOperator(expr.op.xyz_axis)(expr.field)))
 
         elif isinstance(expr.op, op.DifferentiationOperator):
             return rewrite_derivative(
                     op.ReferenceDifferentiationOperator,
-                    expr.field, with_jacobian=False)
+                    expr.field, where=expr.op.where, with_jacobian=False)
 
         elif isinstance(expr.op, op.StiffnessTOperator):
             return rewrite_derivative(
                     op.ReferenceStiffnessTOperator,
-                    expr.field)
+                    expr.field, where=expr.op.where)
 
         elif isinstance(expr.op, op.QuadratureStiffnessTOperator):
             return rewrite_derivative(
                     op.ReferenceQuadratureStiffnessTOperator,
-                    expr.field, quadrature_tag=expr.op.quadrature_tag)
+                    expr.field, quadrature_tag=expr.op.quadrature_tag,
+                    where=expr.op.where)
 
         elif isinstance(expr.op, op.MInvSTOperator):
             return self.rec(
@@ -589,6 +566,18 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             return tag.__name__
         else:
             return repr(tag)
+
+    def _format_op_props(self, op):
+        result = ""
+
+        if hasattr(op, "where") and op.where is not None:
+            result += "@"+self._format_btag(op)
+
+        if (hasattr(op, "quadrature_tag")
+                and op.quadrature_tag is not None):
+            result += "Q[%s]" % self.quadrature_tag
+
+        return result
 
     def __init__(self, constant_mapper=str, flux_stringify_mapper=None):
         pymbolic.mapper.stringifier.StringifyMapper.__init__(
@@ -623,20 +612,21 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # {{{ global differentiation
 
     def map_diff(self, expr, enclosing_prec):
-        return "Diffx%d" % expr.xyz_axis
+        return "Diffx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
 
     def map_minv_st(self, expr, enclosing_prec):
-        return "MInvSTx%d" % expr.xyz_axis
+        return "MInvSTx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
 
     def map_stiffness(self, expr, enclosing_prec):
-        return "Stiffx%d" % expr.xyz_axis
+        return "Stiffx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
 
     def map_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTx%d" % expr.xyz_axis
+        return "StiffTx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
 
     def map_quad_stiffness_t(self, expr, enclosing_prec):
-        return "Q[%s]StiffTx%d" % (
-                expr.quadrature_tag, expr.xyz_axis)
+        return "StiffTx%d%s" % (
+                expr.input_quadrature_tag, expr.xyz_axis,
+                self._format_op_props(expr))
     # }}}
 
     # {{{ global mass
@@ -654,31 +644,34 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     # {{{ reference differentiation
     def map_ref_diff(self, expr, enclosing_prec):
-        return "Diffr%d" % expr.rst_axis
+        return "Diffr%d%s" % (expr.rst_axis, self._format_op_props(expr))
 
     def map_ref_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTr%d" % expr.rst_axis
+        return "StiffTr%d%s" % (expr.rst_axis, self._format_op_props(expr))
 
     def map_ref_quad_stiffness_t(self, expr, enclosing_prec):
-        return "Q[%s]StiffTr%d" % (
-                expr.quadrature_tag, expr.rst_axis)
+        return "StiffTr%dQ[%s]%s" % (
+                expr.input_quadrature_tag, expr.rst_axis,
+                self._format_op_props(expr))
     # }}}
 
     # {{{ reference mass
 
     def map_ref_mass(self, expr, enclosing_prec):
-        return "RefM"
+        return "RefM" + self._format_op_props(expr)
 
     def map_ref_inverse_mass(self, expr, enclosing_prec):
-        return "RefInvM"
+        return "RefInvM" + self._format_op_props(expr)
 
     def map_ref_quad_mass(self, expr, enclosing_prec):
-        return "RefQ[%s]M" % expr.quadrature_tag
+        return "RefM" + self._format_op_props(expr)
 
     # }}}
 
     def map_elementwise_linear(self, expr, enclosing_prec):
-        return "ElWLin:%s" % expr.__class__.__name__
+        return "ElWLin:%s%s" % (
+                expr.__class__.__name__,
+                self._format_op_props(expr))
 
     # {{{ flux
 
@@ -723,10 +716,12 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # }}}
 
     def map_elementwise_max(self, expr, enclosing_prec):
-        return "ElWMax"
+        return "ElWMax" + self._format_op_props(expr)
 
     def map_boundarize(self, expr, enclosing_prec):
-        return "Boundarize<tag=%s>" % self._format_btag(expr.tag)
+        return "Boundarize<tag=%s>%s" % (
+                self._format_btag(expr.tag),
+                self._format_op_props(expr))
 
     def map_flux_exchange(self, expr, enclosing_prec):
         from pymbolic.mapper.stringifier import PREC_NONE
@@ -734,10 +729,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
                 ", ".join(self.rec(arg, PREC_NONE) for arg in expr.arg_fields))
 
     def map_ones(self, expr, enclosing_prec):
-        if expr.quadrature_tag is None:
-            return "Ones"
-        else:
-            return "Q[%s]Ones" % expr.quadrature_tag
+        return "Ones" + self._format_op_props(expr)
 
     # {{{ geometry data
 
@@ -746,33 +738,6 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             return "x[%d]" % expr.axis
         else:
             return ("Q[%s]x[%d]" % (expr.quadrature_tag, expr.axis))
-
-    def map_normal_component(self, expr, enclosing_prec):
-        if expr.quadrature_tag is None:
-            return ("Normal<tag=%s>[%d]"
-                    % (self._format_btag(expr.boundary_tag), expr.axis))
-        else:
-            return ("Q[%s]Normal<tag=%s>[%d]"
-                    % (expr.quadrature_tag, self._format_btag(expr.boundary_tag),
-                        expr.axis))
-
-    def map_jacobian(self, expr, enclosing_prec):
-        if expr.quadrature_tag is None:
-            return "Jac"
-        else:
-            return "JacQ[%s]" % expr.quadrature_tag
-
-    def map_forward_metric_derivative(self, expr, enclosing_prec):
-        result = "dx%d/dr%d" % (expr.xyz_axis, expr.rst_axis)
-        if expr.quadrature_tag is not None:
-            result += "Q[%s]" % expr.quadrature_tag
-        return result
-
-    def map_inverse_metric_derivative(self, expr, enclosing_prec):
-        result = "dr%d/dx%d" % (expr.rst_axis, expr.xyz_axis)
-        if expr.quadrature_tag is not None:
-            result += "Q[%s]" % expr.quadrature_tag
-        return result
 
     # }}}
 
@@ -789,13 +754,10 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return "ScalarPar[%s]" % expr.name
 
     def map_quad_grid_upsampler(self, expr, enclosing_prec):
-        return "ToQ[%s]" % expr.quadrature_tag
+        return "Upsamp" + self._format_op_props(expr)
 
     def map_quad_int_faces_grid_upsampler(self, expr, enclosing_prec):
         return "ToIntFaceQ[%s]" % expr.quadrature_tag
-
-    def map_quad_bdry_grid_upsampler(self, expr, enclosing_prec):
-        return "ToBdryQ[%s,%s]" % (expr.quadrature_tag, expr.boundary_tag)
 
 
 class PrettyStringifyMapper(
@@ -1200,10 +1162,6 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
         return DerivativeJoiner()(expr)
 
     map_node_coordinate_component = map_algebraic_leaf
-    map_normal_component = map_algebraic_leaf
-    map_jacobian = map_algebraic_leaf
-    map_inverse_metric_derivative = map_algebraic_leaf
-    map_forward_metric_derivative = map_algebraic_leaf
 
 
 class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
@@ -1385,10 +1343,6 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
     map_variable = map_constant
     map_ones = map_constant
     map_node_coordinate_component = map_constant
-    map_normal_component = map_constant
-    map_jacobian = map_constant
-    map_forward_metric_derivative = map_constant
-    map_inverse_metric_derivative = map_constant
     map_scalar_parameter = map_constant
     map_c_function = map_constant
 
@@ -1433,12 +1387,9 @@ class BoundaryTagCollector(CollectorMixin, CombineMapper):
         return set([bpair.tag])
 
 
-class GeometricFactorCollector(CollectorMixin, CombineMapper):
-    def map_jacobian(self, expr):
-        return set([expr])
-
-    map_forward_metric_derivative = map_jacobian
-    map_inverse_metric_derivative = map_jacobian
+# I'm not sure this works still.
+#class GeometricFactorCollector(CollectorMixin, CombineMapper):
+#    pass
 
 
 class BoundOperatorCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper):

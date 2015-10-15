@@ -28,10 +28,13 @@ from six.moves import range
 
 import numpy as np
 import pymbolic.primitives
-from meshmode.mesh import BTAG_ALL
+from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from pymbolic.primitives import (  # noqa
-        make_common_subexpression, If, Comparison)
+        cse_scope as cse_scope_base,
+        make_common_subexpression as cse, If, Comparison)
+from pymbolic.geometric_algebra import MultiVector
+from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
 class LeafBase(pymbolic.primitives.AlgebraicLeaf):
@@ -40,7 +43,47 @@ class LeafBase(pymbolic.primitives.AlgebraicLeaf):
         return StringifyMapper
 
 
+class VTAG_ALL:
+    """This is used in a 'where' field to denote the volume discretization."""
+    pass
+
+
+__doc__ = """
+Symbols
+^^^^^^^
+
+.. autoclass:: Field
+.. autoclass:: make_sym_vector
+.. autoclass:: make_sym_array
+.. autoclass:: ScalarParameter
+.. autoclass:: CFunction
+
+Helpers
+^^^^^^^
+
+.. autoclass:: OperatorBinding
+.. autoclass:: PrioritizedSubexpression
+.. autoclass:: BoundaryPair
+.. autoclass:: Ones
+
+Geometry data
+^^^^^^^^^^^^^
+.. autoclass:: NodeCoordinateComponent
+.. autofunction:: nodes
+.. autofunction:: mv_nodes
+.. autofunction:: forward_metric_derivative
+.. autofunction:: inverse_metric_derivative
+.. autofunction:: area_element
+.. autofunction:: mv_normal
+.. autofunction:: normal
+"""
+
+
 # {{{ variables
+
+class cse_scope(cse_scope_base):  # noqa
+    DISCRETIZATION = "grudge_discretization"
+
 
 Field = pymbolic.primitives.Variable
 
@@ -162,21 +205,45 @@ class BoundaryPair(LeafBase):
 
 
 class Ones(LeafBase):
-    def __init__(self, quadrature_tag=None):
+    def __init__(self, quadrature_tag=None, where=None):
+        self.where = where
         self.quadrature_tag = quadrature_tag
 
     def __getinitargs__(self):
-        return (self.quadrature_tag,)
+        return (self.where, self.quadrature_tag,)
 
     mapper_method = intern("map_ones")
 
 
 # {{{ geometry data
 
-class NodeCoordinateComponent(LeafBase):
-    def __init__(self, axis, quadrature_tag=None):
-        self.axis = axis
+class DiscretizationProperty(LeafBase):
+    """
+    .. attribute:: where
+
+        *None* for the default volume discretization or a boundary
+        tag for an operation on the denoted part of the boundary.
+
+    .. attribute:: quadrature_tag
+
+        quadrature tag for the grid on
+        which this geometric factor is needed, or None for
+        nodal representation.
+    """
+
+    def __init__(self, quadrature_tag, where=None):
         self.quadrature_tag = quadrature_tag
+        self.where = where
+
+    def __getinitargs__(self):
+        return (self.quadrature_tag, self.where)
+
+
+class NodeCoordinateComponent(DiscretizationProperty):
+
+    def __init__(self, axis, quadrature_tag=None, where=None):
+        super(NodeCoordinateComponent, self).__init__(quadrature_tag, where)
+        self.axis = axis
 
     def __getinitargs__(self):
         return (self.axis, self.quadrature_tag)
@@ -184,46 +251,18 @@ class NodeCoordinateComponent(LeafBase):
     mapper_method = intern("map_node_coordinate_component")
 
 
-def nodes(dim, quadrature_tag=None):
-    return np.array([NodeCoordinateComponent(i, quadrature_tag)
-        for i in range(dim)], dtype=object)
+def nodes(ambient_dim, quadrature_tag=None, where=None):
+    return np.array([NodeCoordinateComponent(i, quadrature_tag, where)
+        for i in range(ambient_dim)], dtype=object)
 
 
-class BoundaryNormalComponent(LeafBase):
-    def __init__(self, boundary_tag, axis, quadrature_tag=None):
-        self.boundary_tag = boundary_tag
-        self.axis = axis
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.boundary_tag, self.axis, self.quadrature_tag)
-
-    mapper_method = intern("map_normal_component")
+def mv_nodes(ambient_dim, quadrature_tag=None, where=None):
+    return MultiVector(
+            nodes(ambient_dim, quadrature_tag=quadrature_tag, where=where))
 
 
-def normal(tag, dimensions):
-    return np.array([BoundaryNormalComponent(tag, i)
-        for i in range(dimensions)], dtype=object)
-
-
-class GeometricFactorBase(LeafBase):
-    def __init__(self, quadrature_tag):
-        """
-        :param quadrature_tag: quadrature tag for the grid on
-        which this geometric factor is needed, or None for
-        nodal representation.
-        """
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag,)
-
-
-class Jacobian(GeometricFactorBase):
-    mapper_method = intern("map_jacobian")
-
-
-class ForwardMetricDerivative(GeometricFactorBase):
+def forward_metric_derivative(xyz_axis, rst_axis, where=None,
+        quadrature_tag=None):
     r"""
     Pointwise metric derivatives representing
 
@@ -231,48 +270,87 @@ class ForwardMetricDerivative(GeometricFactorBase):
 
         \frac{d x_{\mathtt{xyz\_axis}} }{d r_{\mathtt{rst\_axis}} }
     """
+    from grudge.symbolic.operators import (
+            ReferenceDifferentiationOperator, QuadratureGridUpsampler)
+    diff_op = ReferenceDifferentiationOperator(
+            rst_axis, where=where)
 
-    def __init__(self, quadrature_tag, xyz_axis, rst_axis):
-        """
-        :param quadrature_tag: quadrature tag for the grid on
-        which this geometric factor is needed, or None for
-        nodal representation.
-        """
+    result = diff_op(NodeCoordinateComponent(xyz_axis, where=where))
 
-        GeometricFactorBase.__init__(self, quadrature_tag)
-        self.xyz_axis = xyz_axis
-        self.rst_axis = rst_axis
+    if quadrature_tag is not None:
+        result = QuadratureGridUpsampler(quadrature_tag, where)(result)
 
-    def __getinitargs__(self):
-        return (self.quadrature_tag, self.xyz_axis, self.rst_axis)
-
-    mapper_method = intern("map_forward_metric_derivative")
+    return cse(
+            result,
+            prefix="dx%d_dr%d" % (xyz_axis, rst_axis),
+            scope=cse_scope.DISCRETIZATION)
 
 
-class InverseMetricDerivative(GeometricFactorBase):
-    r"""
-    Pointwise metric derivatives representing
+def parametrization_derivative(ambient_dim, dim=None, where=None,
+        quadrature_tag=None):
+    if dim is None:
+        dim = ambient_dim
 
-    .. math::
+    par_grad = np.zeros((ambient_dim, dim), np.object)
+    for i in range(ambient_dim):
+        for j in range(dim):
+            par_grad[i, j] = forward_metric_derivative(
+                    i, j, where=where, quadrature_tag=quadrature_tag)
 
-        \frac{d r_{\mathtt{rst\_axis}} }{d x_{\mathtt{xyz\_axis}} }
-    """
+    from pytools import product
+    return product(MultiVector(vec) for vec in par_grad.T)
 
-    def __init__(self, quadrature_tag, rst_axis, xyz_axis):
-        """
-        :param quadrature_tag: quadrature tag for the grid on
-        which this geometric factor is needed, or None for
-        nodal representation.
-        """
 
-        GeometricFactorBase.__init__(self, quadrature_tag)
-        self.rst_axis = rst_axis
-        self.xyz_axis = xyz_axis
+def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
+        quadrature_tag=None):
+    if dim is None:
+        dim = ambient_dim
 
-    def __getinitargs__(self):
-        return (self.quadrature_tag, self.rst_axis, self.xyz_axis)
+    if dim != ambient_dim:
+        raise ValueError("not clear what inverse_metric_derivative means if "
+                "the derivative matrix is not square")
+    raise NotImplementedError()
 
-    mapper_method = intern("map_inverse_metric_derivative")
+
+def pseudoscalar(ambient_dim, dim=None, where=None, quadrature_tag=None):
+    if dim is None:
+        dim = ambient_dim
+
+    return cse(
+        parametrization_derivative(ambient_dim, dim, where=where,
+            quadrature_tag=quadrature_tag)
+        .project_max_grade(),
+        "pseudoscalar", cse_scope.DISCRETIZATION)
+
+
+def area_element(ambient_dim, dim=None, where=None, quadrature_tag=None):
+    return cse(
+            CFunction("sqrt")(
+                pseudoscalar(ambient_dim, dim, where, quadrature_tag=quadrature_tag)
+                .norm_squared()),
+            "area_element", cse_scope.DISCRETIZATION)
+
+
+def mv_normal(tag, ambient_dim, dim=None, quadrature_tag=None):
+    """Exterior unit normal as a MultiVector."""
+
+    if dim is None:
+        dim = ambient_dim - 1
+
+    # Don't be tempted to add a sign here. As it is, it produces
+    # exterior normals for positively oriented curves.
+
+    pder = (
+            pseudoscalar(ambient_dim, dim, tag, quadrature_tag=quadrature_tag)
+            /
+            area_element(ambient_dim, dim, tag, quadrature_tag=quadrature_tag))
+    return cse(pder.I | pder, "normal",
+            cse_scope.DISCRETIZATION)
+
+
+def normal(tag, ambient_dim, dim=None, quadrature_tag=None):
+    return mv_normal(tag, ambient_dim, dim,
+            quadrature_tag=quadrature_tag).as_vector()
 
 # }}}
 

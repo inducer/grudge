@@ -526,7 +526,7 @@ class Code(object):
         if self.static_schedule_attempts:
             self.last_schedule = schedule
 
-        from grudge.tools import with_object_array_or_scalar
+        from pytools.obj_array import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
 
     # }}}
@@ -642,7 +642,7 @@ class OperatorCompiler(mappers.IdentityMapper):
     # {{{ top-level driver ----------------------------------------------------
     def __call__(self, expr, type_hints={}):
         # Put the result expressions into variables as well.
-        expr = sym.make_common_subexpression(expr, "_result")
+        expr = sym.cse(expr, "_result")
 
         from grudge.symbolic.mappers.type_inference import TypeInferrer
         self.typedict = TypeInferrer()(expr, type_hints)
@@ -702,7 +702,9 @@ class OperatorCompiler(mappers.IdentityMapper):
         # Finally, walk the expression and build the code.
         result = super(OperatorCompiler, self).__call__(expr)
 
-        return Code(self.aggregate_assignments(self.code, result), result)
+        # FIXME: Reenable assignment aggregation
+        #return Code(self.aggregate_assignments(self.code, result), result)
+        return Code(self.code, result)
 
     # }}}
 

@@ -89,5 +89,9 @@ class Discretization(object):
     def zeros(self, queue, dtype=None, extra_dims=None):
         return self.volume_discr.zeros(queue, dtype, extra_dims=None)
 
+    def is_volume_where(self, where):
+        from grudge import sym
+        return where == sym.VTAG_ALL
+
 
 # vim: foldmethod=marker

@@ -22,8 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import six
 import numpy as np
 import grudge.symbolic.mappers as mappers
+from grudge import sym
 
 import logging
 logger = logging.getLogger(__name__)
@@ -56,13 +58,12 @@ class ExecutionMapper(mappers.Evaluator,
         if expr.quadrature_tag is not None:
             raise NotImplementedError("node coordinate components on quad. grids")
 
-        return self.discr.volume_discr.nodes()[expr.axis] \
-                .with_queue(self.queue)
+        if self.discr.is_volume_where(expr.where):
+            discr = self.discr.volume_discr
+        else:
+            discr = self.discr.boundary_discr
 
-    def map_normal_component(self, expr):
-        if expr.quadrature_tag is not None:
-            raise NotImplementedError("normal components on quad. grids")
-        return self.discr.boundary_normals(expr.boundary_tag)[expr.axis]
+        return discr.nodes()[expr.axis].with_queue(self.queue)
 
     def map_boundarize(self, op, field_expr):
         return self.discr.boundarize_volume_field(
@@ -72,26 +73,13 @@ class ExecutionMapper(mappers.Evaluator,
     def map_scalar_parameter(self, expr):
         return self.context[expr.name]
 
-    def map_jacobian(self, expr):
-        return self.discr.volume_jacobians(expr.quadrature_tag)
-
-    def map_forward_metric_derivative(self, expr):
-        return (self.discr.forward_metric_derivatives(expr.quadrature_tag)
-                    [expr.xyz_axis][expr.rst_axis])
-
-    def map_inverse_metric_derivative(self, expr):
-        return (self.discr.inverse_metric_derivatives(expr.quadrature_tag)
-                    [expr.xyz_axis][expr.rst_axis])
-
     def map_call(self, expr):
         from pymbolic.primitives import Variable
         assert isinstance(expr.function, Variable)
-        func_name = expr.function.name
 
-        try:
-            func = self.discr.exec_functions[func_name]
-        except KeyError:
-            func = getattr(np, expr.function.name)
+        # FIXME: Make a way to register functions
+        import pyopencl.clmath as clmath
+        func = getattr(clmath, expr.function.name)
 
         return func(*[self.rec(p) for p in expr.parameters])
 
@@ -241,7 +229,8 @@ class ExecutionMapper(mappers.Evaluator,
 
     # }}}
 
-    # {{{ code execution functions --------------------------------------------
+    # {{{ code execution functions
+
     def exec_assign(self, insn):
         return [(name, self.rec(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
@@ -254,7 +243,8 @@ class ExecutionMapper(mappers.Evaluator,
         else:
             stats_callback = None
 
-        if insn.flop_count() == 0:
+        # FIXME: Reenable compiled vector exprs
+        if True:  # insn.flop_count() == 0:
             return [(name, self(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
         else:
@@ -387,9 +377,22 @@ class ExecutionMapper(mappers.Evaluator,
         return result, []
 
     def exec_diff_batch_assign(self, insn):
-        rst_diff = self.executor.diff(insn.operators, self.rec(insn.field))
+        field = self.rec(insn.field)
+        repr_op = insn.operators[0]
+        if not isinstance(repr_op, sym.ReferenceDifferentiationOperator):
+            # FIXME
+            raise NotImplementedError()
 
-        return [(name, diff) for name, diff in zip(insn.names, rst_diff)], []
+        if self.discr.is_volume_where(repr_op.where):
+            discr = self.discr.volume_discr
+        else:
+            discr = self.discr.boundary_discr
+
+        return [
+            (name, discr.num_reference_derivative(
+                self.queue, (op.rst_axis,), field)
+                .with_queue(self.queue))
+            for name, op in zip(insn.names, insn.operators)], []
 
     exec_quad_diff_batch_assign = exec_diff_batch_assign
 
@@ -496,7 +499,21 @@ class Executor(object):
                         coeffs, matrix, field, out)
 
     def __call__(self, queue, **context):
-        return self.code.execute(ExecutionMapper(queue, context, self))
+        import pyopencl.array as cl_array
+
+        def replace_queue(a):
+            if isinstance(a, cl_array.Array):
+                return a.with_queue(queue)
+            else:
+                return a
+
+        from pytools.obj_array import with_object_array_or_scalar
+
+        new_context = {}
+        for name, var in six.iteritems(context):
+            new_context[name] = with_object_array_or_scalar(replace_queue, var)
+
+        return self.code.execute(ExecutionMapper(queue, new_context, self))
 
 # }}}
 

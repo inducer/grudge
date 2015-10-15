@@ -2,7 +2,7 @@
 
 from __future__ import division, print_function
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,33 +24,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
+import numpy as np  # noqa
 import pyopencl as cl
+from grudge import sym, bind, Discretization, shortcuts
 
 
-def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
-    from leap.rk import LSRK4Method
-    from dagrt.codegen import PythonCodeGenerator
+def main(write_output=True):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
 
-    dt_method = LSRK4Method(component_id=field_var_name)
-    dt_code = dt_method.generate()
-    dt_stepper_class = PythonCodeGenerator("TimeStep").get_class(dt_code)
-    dt_stepper = dt_stepper_class({"<func>"+dt_method.component_id: rhs})
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
 
-    dt_stepper.set_up(
-            t_start=t_start, dt_start=dt,
-            context={dt_method.component_id: fields})
+    discr = Discretization(cl_ctx, mesh, order=4)
 
-    return dt_stepper
+    sym_op = sym.normal(sym.BTAG_ALL, mesh.dim)
+    #sym_op = sym.nodes(mesh.dim, where=sym.BTAG_ALL)
+    print(sym.pretty(sym_op))
+    op = bind(discr, sym_op)
+    print()
+    print(op.code)
+
+    vec = op(queue)
+
+    bvis = shortcuts.make_boundary_visualizer(discr, 4)
+
+    print(vec[0].shape)
+    print(discr.zeros(queue).shape)
+    bvis.write_vtk_file("geo.vtu", [
+        ("normals", vec)
+        ])
 
 
-def make_visualizer(discr, vis_order):
-    from meshmode.discretization.visualization import make_visualizer
-    with cl.CommandQueue(discr.cl_context) as queue:
-        return make_visualizer(queue, discr.volume_discr, vis_order)
-
-
-def make_boundary_visualizer(discr, vis_order):
-    from meshmode.discretization.visualization import make_visualizer
-    with cl.CommandQueue(discr.cl_context) as queue:
-        return make_visualizer(queue, discr.boundary_discr, vis_order)
+if __name__ == "__main__":
+    main()

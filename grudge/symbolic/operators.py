@@ -35,6 +35,16 @@ from pytools import Record, memoize_method
 # {{{ base classes
 
 class Operator(pymbolic.primitives.Leaf):
+    """
+    .. attribute:: where
+
+        *None* for the default volume discretization or a boundary
+        tag for an operation on the denoted part of the boundary.
+    """
+
+    def __init__(self, where=None):
+        self.where = where
+
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
@@ -73,17 +83,15 @@ class Operator(pymbolic.primitives.Leaf):
         return self.__class__ == other.__class__ and \
                 self.__getinitargs__() == other.__getinitargs__()
 
-
-class StatelessOperator(Operator):
     def __getinitargs__(self):
-        return ()
+        return (self.where,)
 
 # }}}
 
 
 # {{{ sum, integral, max
 
-class NodalReductionOperator(StatelessOperator):
+class NodalReductionOperator(Operator):
     pass
 
 
@@ -159,12 +167,12 @@ class QuadratureStiffnessTOperator(DiffOperatorBase):
         in favor of operators on the reference element.
     """
 
-    def __init__(self, xyz_axis, quadrature_tag):
-        DiffOperatorBase.__init__(self, xyz_axis)
-        self.quadrature_tag = quadrature_tag
+    def __init__(self, xyz_axis, input_quadrature_tag, where=None):
+        super(QuadratureStiffnessTOperator, self).__init__(xyz_axis, where=where)
+        self.input_quadrature_tag = input_quadrature_tag
 
     def __getinitargs__(self):
-        return (self.xyz_axis, self.quadrature_tag)
+        return (self.xyz_axis, self.input_quadrature_tag, self.where)
 
     mapper_method = intern("map_quad_stiffness_t")
 
@@ -179,16 +187,15 @@ def DiffOperatorVector(els):
 # {{{ reference-element differentiation
 
 class ReferenceDiffOperatorBase(Operator):
-    def __init__(self, rst_axis):
-        Operator.__init__(self)
+    def __init__(self, rst_axis, where=None):
+        super(ReferenceDiffOperatorBase, self).__init__(where)
 
         self.rst_axis = rst_axis
+        if self.where is None:
+            1/0
 
     def __getinitargs__(self):
-        return (self.rst_axis,)
-
-    def preimage_ranges(self, eg):
-        return eg.ranges
+        return (self.rst_axis, self.where)
 
     def equal_except_for_axis(self, other):
         return (type(self) == type(other)
@@ -197,18 +204,10 @@ class ReferenceDiffOperatorBase(Operator):
 
 
 class ReferenceDifferentiationOperator(ReferenceDiffOperatorBase):
-    @staticmethod
-    def matrices(element_group):
-        return element_group.differentiation_matrices
-
     mapper_method = intern("map_ref_diff")
 
 
 class ReferenceStiffnessTOperator(ReferenceDiffOperatorBase):
-    @staticmethod
-    def matrices(element_group):
-        return element_group.stiffness_t_matrices
-
     mapper_method = intern("map_ref_stiffness_t")
 
 
@@ -221,21 +220,16 @@ class ReferenceQuadratureStiffnessTOperator(ReferenceDiffOperatorBase):
         when a :class:`StiffnessTOperator` is applied to a quadrature field.
     """
 
-    def __init__(self, rst_axis, quadrature_tag):
-        ReferenceDiffOperatorBase.__init__(self, rst_axis)
-        self.quadrature_tag = quadrature_tag
+    def __init__(self, rst_axis, input_quadrature_tag, where=None):
+        ReferenceDiffOperatorBase.__init__(self, rst_axis, where)
+        self.input_quadrature_tag = input_quadrature_tag
 
     def __getinitargs__(self):
-        return (self.rst_axis, self.quadrature_tag)
+        return (self.rst_axis,
+                self.input_quadrature_tag,
+                self.where)
 
     mapper_method = intern("map_ref_quad_stiffness_t")
-
-    def preimage_ranges(self, eg):
-        return eg.quadrature_info[self.quadrature_tag].ranges
-
-    def matrices(self, element_group):
-        return element_group.quadrature_info[self.quadrature_tag] \
-                .ldis_quad_info.stiffness_t_matrices()
 
 # }}}
 
@@ -254,7 +248,7 @@ class ElementwiseLinearOperator(Operator):
     mapper_method = intern("map_elementwise_linear")
 
 
-class ElementwiseMaxOperator(StatelessOperator):
+class ElementwiseMaxOperator(Operator):
     mapper_method = intern("map_elementwise_max")
 
 
@@ -267,8 +261,9 @@ class QuadratureGridUpsampler(Operator):
     In pre-processing, the boundary quad interpolation is specialized to
     a separate operator, :class:`QuadratureBoundaryGridUpsampler`.
     """
-    def __init__(self, quadrature_tag):
+    def __init__(self, quadrature_tag, where=None):
         self.quadrature_tag = quadrature_tag
+        self.where = where
 
     def __getinitargs__(self):
         return (self.quadrature_tag,)
@@ -290,24 +285,6 @@ class QuadratureInteriorFacesGridUpsampler(Operator):
         return (self.quadrature_tag,)
 
     mapper_method = intern("map_quad_int_faces_grid_upsampler")
-
-
-class QuadratureBoundaryGridUpsampler(Operator):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`MassOperator` is applied to a quadrature field.
-    """
-    def __init__(self, quadrature_tag, boundary_tag):
-        self.quadrature_tag = quadrature_tag
-        self.boundary_tag = boundary_tag
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag, self.boundary_tag)
-
-    mapper_method = intern("map_quad_bdry_grid_upsampler")
 
 # }}}
 
@@ -345,7 +322,7 @@ class FilterOperator(ElementwiseLinearOperator):
         return mat
 
 
-class OnesOperator(ElementwiseLinearOperator, StatelessOperator):
+class OnesOperator(ElementwiseLinearOperator):
     def matrix(self, eg):
         ldis = eg.local_discretization
 
@@ -353,7 +330,7 @@ class OnesOperator(ElementwiseLinearOperator, StatelessOperator):
         return np.ones((node_count, node_count), dtype=np.float64)
 
 
-class AveragingOperator(ElementwiseLinearOperator, StatelessOperator):
+class AveragingOperator(ElementwiseLinearOperator):
     def matrix(self, eg):
         # average matrix, so that AVE*fields = cellaverage(fields)
         # see Hesthaven and Warburton page 227
@@ -367,14 +344,14 @@ class AveragingOperator(ElementwiseLinearOperator, StatelessOperator):
         return avg_mat
 
 
-class InverseVandermondeOperator(ElementwiseLinearOperator, StatelessOperator):
+class InverseVandermondeOperator(ElementwiseLinearOperator):
     def matrix(self, eg):
         return np.asarray(
                 la.inv(eg.local_discretization.vandermonde()),
                 order="C")
 
 
-class VandermondeOperator(ElementwiseLinearOperator, StatelessOperator):
+class VandermondeOperator(ElementwiseLinearOperator):
     def matrix(self, eg):
         return np.asarray(
                 eg.local_discretization.vandermonde(),
@@ -387,7 +364,7 @@ class VandermondeOperator(ElementwiseLinearOperator, StatelessOperator):
 
 # {{{ mass operators
 
-class MassOperatorBase(ElementwiseLinearOperator, StatelessOperator):
+class MassOperatorBase(ElementwiseLinearOperator):
     pass
 
 
@@ -445,11 +422,12 @@ class ReferenceQuadratureMassOperator(Operator):
         when a :class:`MassOperator` is applied to a quadrature field.
     """
 
-    def __init__(self, quadrature_tag):
+    def __init__(self, quadrature_tag, where=None):
+        super(Operator, self).__init__(self.where)
         self.quadrature_tag = quadrature_tag
 
     def __getinitargs__(self):
-        return (self.quadrature_tag,)
+        return (self.quadrature_tag, self.where)
 
     mapper_method = intern("map_ref_quad_mass")
 
