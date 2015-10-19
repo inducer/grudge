@@ -34,7 +34,23 @@ def main(write_output=True):
     queue = cl.CommandQueue(cl_ctx)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
+    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
+            n=(6, 6), order=4)
+
+    def m(x):
+        result = np.empty_like(x)
+        result[0] = (
+                1.5*x[0] + np.cos(x[0])
+                + 0.1*np.sin(10*x[1]))
+        result[1] = (
+                0.05*np.cos(10*x[0])
+                + 1.3*x[1] + np.sin(x[1]))
+        if len(x) == 3:
+            result[2] = x[2]
+        return result
+
+    from meshmode.mesh.processing import map_mesh
+    mesh = map_mesh(mesh, m)
 
     discr = Discretization(cl_ctx, mesh, order=4)
 
@@ -47,11 +63,12 @@ def main(write_output=True):
 
     vec = op(queue)
 
-    bvis = shortcuts.make_boundary_visualizer(discr, 4)
+    vis = shortcuts.make_visualizer(discr, 4)
+    vis.write_vtk_file("geo.vtu", [
+        ])
 
-    print(vec[0].shape)
-    print(discr.zeros(queue).shape)
-    bvis.write_vtk_file("geo.vtu", [
+    bvis = shortcuts.make_boundary_visualizer(discr, 4)
+    bvis.write_vtk_file("bgeo.vtu", [
         ("normals", vec)
         ])
 
