@@ -51,7 +51,6 @@ def main():
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
               "loo.py>=2013.1beta",
-              "sumpy>=2013.1",
               "cgen>=2013.1.2",
               "leap>=2015.1",
               "dagrt>=2015.1",
