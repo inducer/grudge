@@ -4,3 +4,4 @@ git+git://github.com/pyopencl/pyopencl
 git+git://github.com/inducer/loopy
 git+https://gitlab.tiker.net/inducer/dagrt.git
 git+https://gitlab.tiker.net/inducer/leap.git
+git+git://github.com/inducer/meshmode
