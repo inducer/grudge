@@ -91,7 +91,9 @@ class Discretization(object):
 
     def is_volume_where(self, where):
         from grudge import sym
-        return where == sym.VTAG_ALL
+        return (
+                where is None
+                or where == sym.VTAG_ALL)
 
 
 # vim: foldmethod=marker
