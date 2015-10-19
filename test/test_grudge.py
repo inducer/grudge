@@ -37,9 +37,52 @@ from pyopencl.tools import (  # noqa
 import logging
 logger = logging.getLogger(__name__)
 
+from grudge import sym, bind, Discretization
 
-def test_nothing(ctx_getter):
-    pass
+
+@pytest.mark.parametrize("dims", [2, 3])
+def test_inverse_metric(ctx_getter, dims):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(a=(-0.5,)*dims, b=(0.5,)*dims,
+            n=(6,)*dims, order=4)
+
+    def m(x):
+        result = np.empty_like(x)
+        result[0] = (
+                1.5*x[0] + np.cos(x[0])
+                + 0.1*np.sin(10*x[1]))
+        result[1] = (
+                0.05*np.cos(10*x[0])
+                + 1.3*x[1] + np.sin(x[1]))
+        if len(x) == 3:
+            result[2] = x[2]
+        return result
+
+    from meshmode.mesh.processing import map_mesh
+    mesh = map_mesh(mesh, m)
+
+    discr = Discretization(cl_ctx, mesh, order=4)
+
+    sym_op = (
+            sym.forward_metric_derivative_mat(mesh.dim)
+            .dot(
+                sym.inverse_metric_derivative_mat(mesh.dim)
+                )
+            .reshape(-1))
+
+    op = bind(discr, sym_op)
+    mat = op(queue).reshape(mesh.dim, mesh.dim)
+
+    for i in range(mesh.dim):
+        for j in range(mesh.dim):
+            tgt = 1 if i == j else 0
+
+            err = np.max(np.abs((mat[i, j] - tgt).get(queue=queue)))
+            print(i, j, err)
+            assert err < 1e-12, (i, j, err)
 
 
 # You can test individual routines by typing

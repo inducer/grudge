@@ -24,7 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from six.moves import range
+from six.moves import range, intern
 
 import numpy as np
 import pymbolic.primitives
@@ -73,6 +73,9 @@ Geometry data
 .. autofunction:: mv_nodes
 .. autofunction:: forward_metric_derivative
 .. autofunction:: inverse_metric_derivative
+.. autofunction:: forward_metric_derivative_mat
+.. autofunction:: inverse_metric_derivative_mat
+.. autofunction:: pseudoscalar
 .. autofunction:: area_element
 .. autofunction:: mv_normal
 .. autofunction:: normal
@@ -286,30 +289,96 @@ def forward_metric_derivative(xyz_axis, rst_axis, where=None,
             scope=cse_scope.DISCRETIZATION)
 
 
+def forward_metric_derivative_vector(ambient_dim, rst_axis, where=None,
+        quadrature_tag=None):
+    return make_obj_array([
+        forward_metric_derivative(
+            i, rst_axis, where=where, quadrature_tag=quadrature_tag)
+        for i in range(ambient_dim)])
+
+
+def forward_metric_derivative_mv(ambient_dim, rst_axis, where=None,
+        quadrature_tag=None):
+    return MultiVector(
+        forward_metric_derivative_vector(
+            ambient_dim, rst_axis, where=where, quadrature_tag=quadrature_tag))
+
+
 def parametrization_derivative(ambient_dim, dim=None, where=None,
         quadrature_tag=None):
     if dim is None:
         dim = ambient_dim
 
-    par_grad = np.zeros((ambient_dim, dim), np.object)
-    for i in range(ambient_dim):
-        for j in range(dim):
-            par_grad[i, j] = forward_metric_derivative(
-                    i, j, where=where, quadrature_tag=quadrature_tag)
-
     from pytools import product
-    return product(MultiVector(vec) for vec in par_grad.T)
+    return product(
+        forward_metric_derivative_mv(
+            ambient_dim, rst_axis, where, quadrature_tag)
+        for rst_axis in range(dim))
 
 
 def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
-        quadrature_tag=None):
+        where=None, quadrature_tag=None):
     if dim is None:
         dim = ambient_dim
 
     if dim != ambient_dim:
         raise ValueError("not clear what inverse_metric_derivative means if "
                 "the derivative matrix is not square")
-    raise NotImplementedError()
+
+    par_vecs = [
+        forward_metric_derivative_mv(
+            ambient_dim, rst, where, quadrature_tag)
+        for rst in range(dim)]
+
+    # Yay Cramer's rule! (o rly?)
+    from functools import reduce, partial
+    from operator import xor as outerprod_op
+    outerprod = partial(reduce, outerprod_op)
+
+    def outprod_with_unit(i, at):
+        unit_vec = np.zeros(dim)
+        unit_vec[i] = 1
+
+        vecs = par_vecs[:]
+        vecs[at] = MultiVector(unit_vec)
+
+        return outerprod(vecs)
+
+    volume_pseudoscalar_inv = cse(outerprod(
+        forward_metric_derivative_mv(
+            ambient_dim, rst_axis, where, quadrature_tag)
+        for rst_axis in range(dim)).inv())
+
+    return (outprod_with_unit(xyz_axis, rst_axis)
+            * volume_pseudoscalar_inv
+            ).as_scalar()
+
+
+def forward_metric_derivative_mat(ambient_dim, dim=None,
+        where=None, quadrature_tag=None):
+    if dim is None:
+        dim = ambient_dim
+
+    result = np.zeros((ambient_dim, dim), dtype=np.object)
+    for j in range(dim):
+        result[:, j] = forward_metric_derivative_vector(ambient_dim, j,
+                where=where, quadrature_tag=quadrature_tag)
+    return result
+
+
+def inverse_metric_derivative_mat(ambient_dim, dim=None,
+        where=None, quadrature_tag=None):
+    if dim is None:
+        dim = ambient_dim
+
+    result = np.zeros((ambient_dim, dim), dtype=np.object)
+    for i in range(dim):
+        for j in range(ambient_dim):
+            result[i, j] = inverse_metric_derivative(
+                    i, j, ambient_dim, dim,
+                    where=where, quadrature_tag=quadrature_tag)
+
+    return result
 
 
 def pseudoscalar(ambient_dim, dim=None, where=None, quadrature_tag=None):
