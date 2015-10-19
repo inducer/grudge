@@ -50,6 +50,15 @@ class Instruction(Record):
     def get_executor_method(self, executor):
         raise NotImplementedError
 
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return self is other
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
 
 @memoize
 def _make_dep_mapper(include_subscripts):
@@ -286,7 +295,9 @@ class FluxExchangeBatchAssign(Instruction):
 
 
 class VectorExprAssign(Assign):
-    __slots__ = ["compiled"]
+    """
+    .. attribute:: compiled
+    """
 
     def get_executor_method(self, executor):
         return executor.exec_vector_expr_assign
