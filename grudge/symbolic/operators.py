@@ -191,8 +191,6 @@ class ReferenceDiffOperatorBase(Operator):
         super(ReferenceDiffOperatorBase, self).__init__(where)
 
         self.rst_axis = rst_axis
-        if self.where is None:
-            1/0
 
     def __getinitargs__(self):
         return (self.rst_axis, self.where)
