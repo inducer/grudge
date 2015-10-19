@@ -1,7 +1,6 @@
 """Building blocks and mappers for operator expression trees."""
 
-from __future__ import division
-from __future__ import absolute_import
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -25,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import intern
 
 import numpy as np
 import numpy.linalg as la

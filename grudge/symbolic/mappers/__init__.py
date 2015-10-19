@@ -25,6 +25,8 @@ THE SOFTWARE.
 """
 
 
+import six
+
 import numpy as np
 import pymbolic.primitives
 import pymbolic.mapper.stringifier
@@ -1135,7 +1137,7 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
                 else:
                     return self.rec(expr, derivatives)
 
-            for operator, operands in sub_derivatives.iteritems():
+            for operator, operands in six.iteritem(sub_derivatives):
                 for operand in operands:
                     derivatives.setdefault(operator, []).append(
                             factor*operand)
@@ -1185,7 +1187,7 @@ class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
             if not sub_derivatives:
                 return expr
             else:
-                for operator, operands in sub_derivatives.iteritems():
+                for operator, operands in six.iteritems(sub_derivatives):
                     derivatives.setdefault(operator, []).extend(operands)
 
                 return result
@@ -1194,7 +1196,7 @@ class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
         new_children = [invoke_idj(child)
                 for child in expr.children]
 
-        for operator, operands in derivatives.iteritems():
+        for operator, operands in six.iteritems(derivatives):
             new_children.insert(0, operator(
                 sum(self.rec(operand) for operand in operands)))
 

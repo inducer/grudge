@@ -24,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import six
 import pymbolic.mapper
 from grudge import sym
 
@@ -348,8 +349,10 @@ class TypeDict(object):
                 self.change_flag = True
                 self.container[expr] = tp
 
-    def iteritems(self):
-        return self.container.iteritems()
+    def items(self):
+        return six.iteritems(self.container)
+
+    iteritems = items
 
 # }}}
 
@@ -380,7 +383,7 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
                 break
 
         # check that type inference completed successfully
-        for expr, tp in typedict.iteritems():
+        for expr, tp in six.iteritems(typedict):
             if not isinstance(tp, type_info.FinalType):
                 raise RuntimeError("type inference was unable to deduce "
                         "complete type information for '%s' (only '%s')"
