@@ -128,6 +128,12 @@ class CFunction(pymbolic.primitives.Variable):
 
     mapper_method = "map_c_function"
 
+
+sqrt = CFunction("sqrt")
+exp = CFunction("exp")
+sin = CFunction("sin")
+cos = CFunction("cos")
+
 # }}}
 
 
@@ -394,7 +400,7 @@ def pseudoscalar(ambient_dim, dim=None, where=None, quadrature_tag=None):
 
 def area_element(ambient_dim, dim=None, where=None, quadrature_tag=None):
     return cse(
-            CFunction("sqrt")(
+            sqrt(
                 pseudoscalar(ambient_dim, dim, where, quadrature_tag=quadrature_tag)
                 .norm_squared()),
             "area_element", cse_scope.DISCRETIZATION)
