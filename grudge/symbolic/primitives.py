@@ -355,9 +355,11 @@ def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
             ambient_dim, rst_axis, where, quadrature_tag)
         for rst_axis in range(dim)).inv())
 
-    return (outprod_with_unit(xyz_axis, rst_axis)
-            * volume_pseudoscalar_inv
-            ).as_scalar()
+    return cse(
+            (outprod_with_unit(xyz_axis, rst_axis)
+                * volume_pseudoscalar_inv).as_scalar(),
+            prefix="dr%d_dx%d" % (rst_axis, xyz_axis),
+            scope=cse_scope.DISCRETIZATION)
 
 
 def forward_metric_derivative_mat(ambient_dim, dim=None,
