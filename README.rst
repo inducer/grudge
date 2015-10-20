@@ -9,7 +9,7 @@ It relies on
 * `numpy <http://pypi.python.org/pypi/numpy>`_ for arrays
 * `modepy <http://pypi.python.org/pypi/modepy>`_ for modes and nodes on simplices
 * `meshmode <http://pypi.python.org/pypi/meshmode>`_ for modes and nodes on simplices
-* `loopy <http://pypi.python.org/pypi/loopy>`_ for fast array operations
+* `loopy <http://pypi.python.org/pypi/loo.py>`_ for fast array operations
 * `leap <http://pypi.python.org/pypi/leap>`_ for time integration
 * `dagrt <http://pypi.python.org/pypi/dagrt>`_ as an execution runtime
 * `pytest <http://pypi.python.org/pypi/pytest>`_ for automated testing
