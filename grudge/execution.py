@@ -404,7 +404,7 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ executor
 
 class Executor(object):
-    def __init__(self, discr, code, debug_flags, instrumented):
+    def __init__(self, discr, code, debug_flags):
         self.discr = discr
         self.code = code
         self.elwise_linear_cache = {}
@@ -414,43 +414,6 @@ class Executor(object):
             from grudge.tools import open_unique_debug_file
             open_unique_debug_file("op-code", ".txt").write(
                     str(self.code))
-
-        self.instrumented = instrumented
-
-    def instrument(self):
-        discr = self.discr
-        assert discr.instrumented
-
-        from pytools.log import time_and_count_function
-        from grudge.tools import time_count_flop
-
-        from grudge.tools import diff_rst_flops, mass_flops
-
-        if discr.quad_min_degrees:
-            from warnings import warn
-            warn("flop counts for quadrature may be wrong")
-
-        self.diff_rst = \
-                time_count_flop(
-                        self.diff_rst,
-                        discr.diff_timer,
-                        discr.diff_counter,
-                        discr.diff_flop_counter,
-                        diff_rst_flops(discr))
-
-        self.do_elementwise_linear = \
-                time_count_flop(
-                        self.do_elementwise_linear,
-                        discr.el_local_timer,
-                        discr.el_local_counter,
-                        discr.el_local_flop_counter,
-                        mass_flops(discr))
-
-        self.lift_flux = \
-                time_and_count_function(
-                        self.lift_flux,
-                        discr.lift_timer,
-                        discr.lift_counter)
 
     def lift_flux(self, fgroup, matrix, scaling, field, out):
         from grudge._internal import lift_flux
@@ -597,7 +560,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 
 
 def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
-        debug_flags=set(), instrumented=False):
+        debug_flags=set()):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -621,7 +584,7 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
     from grudge.symbolic.compiler import OperatorCompiler
     code = OperatorCompiler()(sym_operator, type_hints)
 
-    ex = Executor(discr, code, type_hints, instrumented=instrumented)
+    ex = Executor(discr, code, type_hints)
 
     if "dump_dataflow_graph" in debug_flags:
         ex.code.dump_dataflow_graph()
