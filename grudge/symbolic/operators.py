@@ -62,20 +62,6 @@ class Operator(pymbolic.primitives.Leaf):
 
         return with_object_array_or_scalar(bind_one, expr)
 
-    @memoize_method
-    def bind(self, discr):
-        from grudge.symbolic import Field
-        bound_op = discr.compile(self(Field("f")))
-
-        def apply_op(field):
-            from grudge.tools import with_object_array_or_scalar
-            return with_object_array_or_scalar(lambda f: bound_op(f=f), field)
-
-        return apply_op
-
-    def apply(self, discr, field):
-        return self.bind(discr)(field)
-
     def get_hash(self):
         return hash((self.__class__,) + (self.__getinitargs__()))
 
