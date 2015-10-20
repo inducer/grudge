@@ -594,7 +594,7 @@ class Code(object):
             self.last_schedule = None
             self.static_schedule_attempts -= 1
 
-        from grudge.tools import with_object_array_or_scalar
+        from pytools.obj_array import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
 
     # }}}

@@ -24,6 +24,11 @@ THE SOFTWARE.
 
 import six
 import numpy as np
+import loopy as lp
+import pyopencl as cl
+import pyopencl.array  # noqa
+from pytools import memoize_in
+
 import grudge.symbolic.mappers as mappers
 from grudge import sym
 
@@ -45,17 +50,17 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ expression mappings -------------------------------------------------
 
     def map_ones(self, expr):
-        # FIXME
         if expr.quadrature_tag is not None:
+            # FIXME
             raise NotImplementedError("ones on quad. grids")
 
-        result = self.discr.empty(self.queue)
+        result = self.discr.empty(self.queue, allocator=self.bound_op.allocator)
         result.fill(1)
         return result
 
     def map_node_coordinate_component(self, expr):
-        # FIXME
         if expr.quadrature_tag is not None:
+            # FIXME
             raise NotImplementedError("node coordinate components on quad. grids")
 
         if self.discr.is_volume_where(expr.where):
@@ -84,32 +89,25 @@ class ExecutionMapper(mappers.Evaluator,
         return func(*[self.rec(p) for p in expr.parameters])
 
     def map_nodal_sum(self, op, field_expr):
-        return np.sum(self.rec(field_expr))
+        return cl.array.sum(self.rec(field_expr))
 
     def map_nodal_max(self, op, field_expr):
-        return np.max(self.rec(field_expr))
+        return cl.array.max(self.rec(field_expr))
 
     def map_nodal_min(self, op, field_expr):
-        return np.min(self.rec(field_expr))
+        return cl.array.min(self.rec(field_expr))
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
+
         then = self.rec(expr.then)
         else_ = self.rec(expr.else_)
 
-        true_indices = np.nonzero(bool_crit)
-        false_indices = np.nonzero(~bool_crit)
+        result = cl.array.empty_like(then, queue=self.queue,
+                allocator=self.bound_op.allocator)
+        cl.array.if_positive(bool_crit, then, else_, out=result,
+                queue=self.queue)
 
-        result = self.discr.volume_empty(
-                kind=self.discr.compute_kind)
-
-        if isinstance(then, np.ndarray):
-            then = then[true_indices]
-        if isinstance(else_, np.ndarray):
-            else_ = else_[false_indices]
-
-        result[true_indices] = then
-        result[false_indices] = else_
         return result
 
     def map_ref_diff_base(self, op, field_expr):
@@ -123,28 +121,43 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        for eg in self.discr.element_groups:
+        @memoize_in(self.bound_op, "elwise_linear_knl")
+        def knl():
+            knl = lp.make_kernel(
+                """{[k,i,j]:
+                    0<=k<nelements and
+                    0<=i,j<ndiscr_nodes}""",
+                "result[k,i] = sum(j, diff_mat[i, j] * vec[k, j])",
+                default_offset=lp.auto, name="diff")
+
+            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            return lp.tag_inames(knl, dict(k="g.0"))
+
+        discr = self.discr.volume_discr
+
+        # FIXME: This shouldn't really assume that it's dealing with a volume
+        # input. What about quadrature? What about boundaries?
+        result = discr.empty(
+                queue=self.queue,
+                dtype=field.dtype, allocator=self.bound_op.allocator)
+
+        for grp in discr.groups:
+            cache_key = grp, op, field.dtype
             try:
-                matrix, coeffs = self.bound_op.elwise_linear_cache[eg, op, field.dtype]
+                matrix = self.bound_op.elwise_linear_cache[cache_key]
             except KeyError:
-                matrix = np.asarray(op.matrix(eg), dtype=field.dtype)
-                coeffs = op.coefficients(eg)
-                self.elwise_linear_cache[eg, op, field.dtype] = matrix, coeffs
+                matrix = (
+                        cl.array.to_device(
+                            self.queue,
+                            np.asarray(op.matrix(grp), dtype=field.dtype))
+                        .with_queue(None))
 
-            from grudge._internal import (
-                    perform_elwise_scaled_operator,
-                    perform_elwise_operator)
+                self.bound_op.elwise_linear_cache[cache_key] = matrix
 
-            if coeffs is None:
-                perform_elwise_operator(eg.ranges, eg.ranges,
-                        matrix, field, out)
-            else:
-                perform_elwise_scaled_operator(eg.ranges, eg.ranges,
-                        coeffs, matrix, field, out)
+            knl()(self.queue, diff_mat=matrix, result=grp.view(result),
+                    vec=grp.view(field))
 
-        out = self.discr.volume_zeros()
-        self.bound_op.do_elementwise_linear(op, field, out)
-        return out
+        return result
 
     def map_ref_quad_mass(self, op, field_expr):
         field = self.rec(field_expr)
@@ -401,6 +414,10 @@ class ExecutionMapper(mappers.Evaluator,
             # FIXME
             raise NotImplementedError()
 
+        # FIXME: There's no real reason why differentiation is special,
+        # execution-wise.
+        # This should be unified with map_elementwise_linear, which should
+        # be extended to support batching.
         if self.discr.is_volume_where(repr_op.where):
             discr = self.discr.volume_discr
         else:
@@ -422,11 +439,12 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ bound operator
 
 class BoundOperator(object):
-    def __init__(self, discr, code, debug_flags):
+    def __init__(self, discr, code, debug_flags, allocator=None):
         self.discr = discr
         self.code = code
         self.elwise_linear_cache = {}
         self.debug_flags = debug_flags
+        self.allocator = allocator
 
     def __call__(self, queue, **context):
         import pyopencl.array as cl_array
@@ -527,7 +545,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 
 
 def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
-        debug_flags=set()):
+        debug_flags=set(), allocator=None):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -549,9 +567,11 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
             type_hints=type_hints)
 
     from grudge.symbolic.compiler import OperatorCompiler
-    code = OperatorCompiler()(sym_operator, type_hints)
+    code = OperatorCompiler()(sym_operator,
+            type_hints=type_hints)
 
-    bound_op = BoundOperator(discr, code, type_hints)
+    bound_op = BoundOperator(discr, code,
+            debug_flags=debug_flags, allocator=allocator)
 
     if "dump_op_code" in debug_flags:
         from grudge.tools import open_unique_debug_file

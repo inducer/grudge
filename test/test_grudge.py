@@ -85,6 +85,82 @@ def test_inverse_metric(ctx_getter, dim):
             assert err < 1e-12, (i, j, err)
 
 
+def test_1d_mass_mat_trig(ctx_getter):
+    """Check the integral of some trig functions on an interval using the mass
+    matrix
+    """
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+
+    mesh = generate_regular_rect_mesh(a=(-4*np.pi,), b=(9*np.pi,),
+            n=(17,), order=1)
+
+    discr = Discretization(cl_ctx, mesh, order=8)
+
+    x = sym.nodes(1)
+    f = bind(discr, sym.cos(x[0])**2)(queue)
+    ones = bind(discr, sym.Ones())(queue)
+
+    mass_op = bind(discr, sym.MassOperator()(sym.Field("f")))
+
+    num_integral_1 = np.dot(ones.get(), mass_op(queue, f=f).get())
+    num_integral_2 = np.dot(f.get(), mass_op(queue, f=ones).get())
+    num_integral_3 = bind(discr, sym.integral(sym.Field("f")))(queue, f=f).get()
+
+    true_integral = 13*np.pi/2
+    err_1 = abs(num_integral_1-true_integral)
+    err_2 = abs(num_integral_2-true_integral)
+    err_3 = abs(num_integral_3-true_integral)
+
+    assert err_1 < 1e-10
+    assert err_2 < 1e-10
+    assert err_3 < 1e-10
+
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_tri_diff_mat(ctx_getter, dim, order=4):
+    """Check differentiation matrix along the coordinate axes on a disk
+
+    Uses sines as the function to differentiate.
+    """
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+
+    from pytools.convergence import EOCRecorder
+    axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
+
+    for n in [10, 20]:
+        mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+                n=(n,)*dim, order=4)
+
+        discr = Discretization(cl_ctx, mesh, order=4)
+        nabla = sym.nabla(dim)
+
+        for axis in range(dim):
+            x = sym.nodes(dim)
+
+            f = bind(discr, sym.sin(3*x[axis]))(queue)
+            df = bind(discr, 3*sym.cos(3*x[axis]))(queue)
+
+            sym_op = nabla[axis](sym.Field("f"))
+            bound_op = bind(discr, sym_op)
+            df_num = bound_op(queue, f=f)
+
+            linf_error = la.norm((df_num-df).get(), np.Inf)
+            axis_eoc_recs[axis].add_data_point(1/n, linf_error)
+
+    for axis, eoc_rec in enumerate(axis_eoc_recs):
+        print(axis)
+        print(eoc_rec)
+        assert eoc_rec.order_estimate() >= order
+
+
 # You can test individual routines by typing
 # $ python test_layer_pot.py 'test_routine()'
 

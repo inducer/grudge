@@ -226,9 +226,6 @@ class ElementwiseLinearOperator(Operator):
     def matrix(self, element_group):
         raise NotImplementedError
 
-    def coefficients(self, element_group):
-        return None
-
     mapper_method = intern("map_elementwise_linear")
 
 
@@ -348,31 +345,15 @@ class VandermondeOperator(ElementwiseLinearOperator):
 
 # {{{ mass operators
 
-class MassOperatorBase(ElementwiseLinearOperator):
+class MassOperatorBase(Operator):
     pass
 
 
 class MassOperator(MassOperatorBase):
-    @staticmethod
-    def matrix(element_group):
-        return element_group.mass_matrix
-
-    @staticmethod
-    def coefficients(element_group):
-        return element_group.jacobians
-
     mapper_method = intern("map_mass")
 
 
 class InverseMassOperator(MassOperatorBase):
-    @staticmethod
-    def matrix(element_group):
-        return element_group.inverse_mass_matrix
-
-    @staticmethod
-    def coefficients(element_group):
-        return element_group.inverse_jacobians
-
     mapper_method = intern("map_inverse_mass")
 
 
@@ -423,11 +404,10 @@ class ReferenceMassOperatorBase(MassOperatorBase):
 class ReferenceMassOperator(ReferenceMassOperatorBase):
     @staticmethod
     def matrix(element_group):
-        return element_group.mass_matrix
-
-    @staticmethod
-    def coefficients(element_group):
-        return None
+        import modepy as mp
+        return mp.mass_matrix(
+                element_group.basis(),
+                element_group.unit_nodes)
 
     mapper_method = intern("map_ref_mass")
 
@@ -435,11 +415,10 @@ class ReferenceMassOperator(ReferenceMassOperatorBase):
 class ReferenceInverseMassOperator(ReferenceMassOperatorBase):
     @staticmethod
     def matrix(element_group):
-        return element_group.inverse_mass_matrix
-
-    @staticmethod
-    def coefficients(element_group):
-        return None
+        import modepy as mp
+        return mp.inverse_mass_matrix(
+                element_group.basis(),
+                element_group.unit_nodes)
 
     mapper_method = intern("map_ref_inverse_mass")
 
@@ -782,7 +761,7 @@ def stiffness_t(dim):
 
 
 def integral(arg):
-    import grudge.symbolic as sym
+    from grudge import sym
     return sym.NodalSum()(sym.MassOperator()(sym.Ones())*arg)
 
 
