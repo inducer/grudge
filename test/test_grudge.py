@@ -40,14 +40,14 @@ logger = logging.getLogger(__name__)
 from grudge import sym, bind, Discretization
 
 
-@pytest.mark.parametrize("dims", [2, 3])
-def test_inverse_metric(ctx_getter, dims):
+@pytest.mark.parametrize("dim", [2, 3])
+def test_inverse_metric(ctx_getter, dim):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5,)*dims, b=(0.5,)*dims,
-            n=(6,)*dims, order=4)
+    mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+            n=(6,)*dim, order=4)
 
     def m(x):
         result = np.empty_like(x)
