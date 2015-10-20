@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
-    def __init__(self, queue, context, executor):
+    def __init__(self, queue, context, bound_op):
         super(ExecutionMapper, self).__init__(context)
-        self.discr = executor.discr
-        self.executor = executor
+        self.discr = bound_op.discr
+        self.bound_op = bound_op
         self.queue = queue
 
     # {{{ expression mappings -------------------------------------------------
@@ -123,8 +123,27 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
+        for eg in self.discr.element_groups:
+            try:
+                matrix, coeffs = self.bound_op.elwise_linear_cache[eg, op, field.dtype]
+            except KeyError:
+                matrix = np.asarray(op.matrix(eg), dtype=field.dtype)
+                coeffs = op.coefficients(eg)
+                self.elwise_linear_cache[eg, op, field.dtype] = matrix, coeffs
+
+            from grudge._internal import (
+                    perform_elwise_scaled_operator,
+                    perform_elwise_operator)
+
+            if coeffs is None:
+                perform_elwise_operator(eg.ranges, eg.ranges,
+                        matrix, field, out)
+            else:
+                perform_elwise_scaled_operator(eg.ranges, eg.ranges,
+                        coeffs, matrix, field, out)
+
         out = self.discr.volume_zeros()
-        self.executor.do_elementwise_linear(op, field, out)
+        self.bound_op.do_elementwise_linear(op, field, out)
         return out
 
     def map_ref_quad_mass(self, op, field_expr):
@@ -145,7 +164,6 @@ class ExecutionMapper(mappers.Evaluator,
             perform_elwise_operator(eg_quad_info.ranges, eg.ranges,
                     eg_quad_info.ldis_quad_info.mass_matrix(),
                     field, out)
-
         return out
 
     def map_quad_grid_upsampler(self, op, field_expr):
@@ -236,10 +254,10 @@ class ExecutionMapper(mappers.Evaluator,
                 for name, expr in zip(insn.names, insn.exprs)], []
 
     def exec_vector_expr_assign(self, insn):
-        if self.executor.instrumented:
+        if self.bound_op.instrumented:
             def stats_callback(n, vec_expr):
-                self.executor.vector_math_flop_counter.add(n*insn.flop_count())
-                return self.executor.vector_math_timer
+                self.bound_op.vector_math_flop_counter.add(n*insn.flop_count())
+                return self.bound_op.vector_math_timer
         else:
             stats_callback = None
 
@@ -248,7 +266,7 @@ class ExecutionMapper(mappers.Evaluator,
             return [(name, self(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
         else:
-            compiled = insn.compiled(self.executor)
+            compiled = insn.compiled(self.bound_op)
             return zip(compiled.result_names(),
                     compiled(self, stats_callback)), []
 
@@ -359,7 +377,7 @@ class ExecutionMapper(mappers.Evaluator,
                     scaling = None
 
                 out = self.discr.volume_zeros(dtype=fluxes_on_faces.dtype)
-                self.executor.lift_flux(fg, mat, scaling, fluxes_on_faces, out)
+                self.bound_op.lift_flux(fg, mat, scaling, fluxes_on_faces, out)
 
                 if self.discr.instrumented:
                     from grudge.tools import lift_flops
@@ -401,65 +419,14 @@ class ExecutionMapper(mappers.Evaluator,
 # }}}
 
 
-# {{{ executor
+# {{{ bound operator
 
-class Executor(object):
+class BoundOperator(object):
     def __init__(self, discr, code, debug_flags):
         self.discr = discr
         self.code = code
         self.elwise_linear_cache = {}
         self.debug_flags = debug_flags
-
-        if "dump_op_code" in debug_flags:
-            from grudge.tools import open_unique_debug_file
-            open_unique_debug_file("op-code", ".txt").write(
-                    str(self.code))
-
-    def lift_flux(self, fgroup, matrix, scaling, field, out):
-        from grudge._internal import lift_flux
-        from pytools import to_uncomplex_dtype
-        lift_flux(fgroup,
-                matrix.astype(to_uncomplex_dtype(field.dtype)),
-                scaling, field, out)
-
-    def diff_rst(self, op, field):
-        result = self.discr.volume_zeros(dtype=field.dtype)
-
-        from grudge._internal import perform_elwise_operator
-        for eg in self.discr.element_groups:
-            perform_elwise_operator(op.preimage_ranges(eg), eg.ranges,
-                    op.matrices(eg)[op.rst_axis].astype(field.dtype),
-                    field, result)
-
-        return result
-
-    def diff_builtin(self, operators, field):
-        """For the batch of reference differentiation operators in
-        *operators*, return the local corresponding derivatives of
-        *field*.
-        """
-
-        return [self.diff_rst(op, field) for op in operators]
-
-    def do_elementwise_linear(self, op, field, out):
-        for eg in self.discr.element_groups:
-            try:
-                matrix, coeffs = self.elwise_linear_cache[eg, op, field.dtype]
-            except KeyError:
-                matrix = np.asarray(op.matrix(eg), dtype=field.dtype)
-                coeffs = op.coefficients(eg)
-                self.elwise_linear_cache[eg, op, field.dtype] = matrix, coeffs
-
-            from grudge._internal import (
-                    perform_elwise_scaled_operator,
-                    perform_elwise_operator)
-
-            if coeffs is None:
-                perform_elwise_operator(eg.ranges, eg.ranges,
-                        matrix, field, out)
-            else:
-                perform_elwise_scaled_operator(eg.ranges, eg.ranges,
-                        coeffs, matrix, field, out)
 
     def __call__(self, queue, **context):
         import pyopencl.array as cl_array
@@ -584,11 +551,16 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
     from grudge.symbolic.compiler import OperatorCompiler
     code = OperatorCompiler()(sym_operator, type_hints)
 
-    ex = Executor(discr, code, type_hints)
+    bound_op = BoundOperator(discr, code, type_hints)
+
+    if "dump_op_code" in debug_flags:
+        from grudge.tools import open_unique_debug_file
+        open_unique_debug_file("op-code", ".txt").write(
+                str(code))
 
     if "dump_dataflow_graph" in debug_flags:
-        ex.code.dump_dataflow_graph()
+        bound_op.code.dump_dataflow_graph()
 
-    return ex
+    return bound_op
 
 # vim: foldmethod=marker

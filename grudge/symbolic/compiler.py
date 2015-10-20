@@ -47,7 +47,7 @@ class Instruction(Record):
     def __str__(self):
         raise NotImplementedError
 
-    def get_executor_method(self, executor):
+    def get_execution_method(self, exec_mapper):
         raise NotImplementedError
 
     def __hash__(self):
@@ -136,8 +136,8 @@ class Assign(Instruction):
             lines.append("}")
             return "\n".join(lines)
 
-    def get_executor_method(self, executor):
-        return executor.exec_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_assign
 
 
 class FluxBatchAssign(Instruction):
@@ -197,8 +197,8 @@ class FluxBatchAssign(Instruction):
         lines.append("}")
         return "\n".join(lines)
 
-    def get_executor_method(self, executor):
-        return executor.exec_flux_batch_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_flux_batch_assign
 
 
 class DiffBatchAssign(Instruction):
@@ -236,13 +236,13 @@ class DiffBatchAssign(Instruction):
 
         return "\n".join(lines)
 
-    def get_executor_method(self, executor):
-        return executor.exec_diff_batch_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_diff_batch_assign
 
 
 class QuadratureDiffBatchAssign(DiffBatchAssign):
-    def get_executor_method(self, executor):
-        return executor.exec_quad_diff_batch_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_quad_diff_batch_assign
 
 
 class FluxExchangeBatchAssign(Instruction):
@@ -290,8 +290,8 @@ class FluxExchangeBatchAssign(Instruction):
 
         return "\n".join(lines)
 
-    def get_executor_method(self, executor):
-        return executor.exec_flux_exchange_batch_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_flux_exchange_batch_assign
 
 
 class VectorExprAssign(Assign):
@@ -299,14 +299,14 @@ class VectorExprAssign(Assign):
     .. attribute:: compiled
     """
 
-    def get_executor_method(self, executor):
-        return executor.exec_vector_expr_assign
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_vector_expr_assign
 
     comment = "compiled"
 
     @memoize_method
-    def compiled(self, executor):
-        discr = executor.discr
+    def compiled(self, exec_mapper):
+        discr = exec_mapper.discr
 
         from grudge.backends.vector_expr import \
                 VectorExpressionInfo, simple_result_dtype_getter
@@ -509,7 +509,7 @@ class Code(object):
 
                     done_insns.add(insn)
                     assignments, new_futures = \
-                            insn.get_executor_method(exec_mapper)(insn)
+                            insn.get_execution_method(exec_mapper)(insn)
 
             if insn is not None:
                 for target, value in assignments:
@@ -574,7 +574,7 @@ class Code(object):
                 del future
             else:
                 assignments, new_futures = \
-                        insn.get_executor_method(exec_mapper)(insn)
+                        insn.get_execution_method(exec_mapper)(insn)
 
             for target, value in assignments:
                 if pre_assign_check is not None:
