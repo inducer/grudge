@@ -33,24 +33,8 @@ def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(6, 6), order=4)
-
-    def m(x):
-        result = np.empty_like(x)
-        result[0] = (
-                1.5*x[0] + np.cos(x[0])
-                + 0.1*np.sin(10*x[1]))
-        result[1] = (
-                0.05*np.cos(10*x[0])
-                + 1.3*x[1] + np.sin(x[1]))
-        if len(x) == 3:
-            result[2] = x[2]
-        return result
-
-    from meshmode.mesh.processing import map_mesh
-    mesh = map_mesh(mesh, m)
+    from meshmode.mesh.generation import generate_warped_rect_mesh
+    mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
 
     discr = Discretization(cl_ctx, mesh, order=4)
 
