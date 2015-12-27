@@ -227,9 +227,9 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PEC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from grudge.symbolic import BoundarizeOperator
-        pec_e = BoundarizeOperator(self.pec_tag)(e)
-        pec_h = BoundarizeOperator(self.pec_tag)(h)
+        from grudge.symbolic import RestrictToBoundary
+        pec_e = RestrictToBoundary(self.pec_tag)(e)
+        pec_h = RestrictToBoundary(self.pec_tag)(h)
 
         return join_fields(-pec_e, pec_h)
 
@@ -237,9 +237,9 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PMC boundary conditions"
         e, h = self.split_eh(self.field_placeholder(w))
 
-        from grudge.symbolic import BoundarizeOperator
-        pmc_e = BoundarizeOperator(self.pmc_tag)(e)
-        pmc_h = BoundarizeOperator(self.pmc_tag)(h)
+        from grudge.symbolic import RestrictToBoundary
+        pmc_e = RestrictToBoundary(self.pmc_tag)(e)
+        pmc_h = RestrictToBoundary(self.pmc_tag)(h)
 
         return join_fields(pmc_e, -pmc_h)
 
@@ -251,7 +251,7 @@ class MaxwellOperator(HyperbolicOperator):
         from grudge.symbolic import normal
         absorb_normal = normal(self.absorb_tag, self.dimensions)
 
-        from grudge.symbolic import BoundarizeOperator, Field
+        from grudge.symbolic import RestrictToBoundary, Field
 
         e, h = self.split_eh(self.field_placeholder(w))
 
@@ -260,15 +260,15 @@ class MaxwellOperator(HyperbolicOperator):
             mu = self.mu
         else:
             epsilon = cse(
-                    BoundarizeOperator(self.absorb_tag)(Field("epsilon")))
+                    RestrictToBoundary(self.absorb_tag)(Field("epsilon")))
             mu = cse(
-                    BoundarizeOperator(self.absorb_tag)(Field("mu")))
+                    RestrictToBoundary(self.absorb_tag)(Field("mu")))
 
         absorb_Z = (mu/epsilon)**0.5
         absorb_Y = 1/absorb_Z
 
-        absorb_e = BoundarizeOperator(self.absorb_tag)(e)
-        absorb_h = BoundarizeOperator(self.absorb_tag)(h)
+        absorb_e = RestrictToBoundary(self.absorb_tag)(e)
+        absorb_h = RestrictToBoundary(self.absorb_tag)(h)
 
         bc = join_fields(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
@@ -350,10 +350,10 @@ class MaxwellOperator(HyperbolicOperator):
             if self.fixed_material:
                 return bc
             else:
-                from grudge.symbolic import BoundarizeOperator
+                from grudge.symbolic import RestrictToBoundary
                 return join_fields(
-                        cse(BoundarizeOperator(tag)(epsilon)),
-                        cse(BoundarizeOperator(tag)(mu)),
+                        cse(RestrictToBoundary(tag)(epsilon)),
+                        cse(RestrictToBoundary(tag)(mu)),
                         bc)
 
         return (

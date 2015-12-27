@@ -498,8 +498,8 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         c0 = (self.equation_of_state.gamma * p0 / rho0)**0.5
 
-        from grudge.symbolic import BoundarizeOperator
-        bdrize_op = BoundarizeOperator(tag)
+        from grudge.symbolic import RestrictToBoundary
+        bdrize_op = RestrictToBoundary(tag)
 
         class SingleBCInfo(Record):
             pass
@@ -567,8 +567,8 @@ class GasDynamicsOperator(TimeDependentOperator):
         return self.inflow_state_inner(normal, bc, "noslip")
 
     def wall_state(self, state):
-        from grudge.symbolic import BoundarizeOperator
-        bc = BoundarizeOperator(self.wall_tag)(state)
+        from grudge.symbolic import RestrictToBoundary
+        bc = RestrictToBoundary(self.wall_tag)(state)
         wall_rho = self.rho(bc)
         wall_e = self.e(bc) # <3 eve
         wall_rho_u = self.rho_u(bc)
@@ -596,12 +596,12 @@ class GasDynamicsOperator(TimeDependentOperator):
     def get_conservative_boundary_conditions(self):
         state = self.state()
 
-        from grudge.symbolic import BoundarizeOperator
+        from grudge.symbolic import RestrictToBoundary
         return {
                 self.supersonic_inflow_tag:
                 make_sym_vector("bc_q_supersonic_in", self.dimensions+2),
                 self.supersonic_outflow_tag:
-                BoundarizeOperator(self.supersonic_outflow_tag)(
+                RestrictToBoundary(self.supersonic_outflow_tag)(
                             (state)),
                 self.wall_tag: self.wall_state(state),
                 }
@@ -664,8 +664,8 @@ class GasDynamicsOperator(TimeDependentOperator):
 
                 return cbstate[expr.index]
             elif isinstance(expr, Variable) and expr.name =="sensor":
-                from grudge.symbolic import BoundarizeOperator
-                result = BoundarizeOperator(tag)(self.sensor())
+                from grudge.symbolic import RestrictToBoundary
+                result = RestrictToBoundary(tag)(self.sensor())
                 return cse(to_bdry_quad(result), "bdry_sensor")
 
         from grudge.symbolic import SubstitutionMapper

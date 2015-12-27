@@ -506,7 +506,7 @@ class TypeInferrer(pymbolic.mapper.RecursiveMapper):
                     type_info.KnownVolume(), expr.field)
             return self.rec(expr.field, typedict)
 
-        elif isinstance(expr.op, sym.BoundarizeOperator):
+        elif isinstance(expr.op, sym.RestrictToBoundary):
             # upward propagation: argument has same rep tag as result
             typedict[expr.field] = type_info.KnownVolume().unify(
                     extract_representation(type_info), expr.field)

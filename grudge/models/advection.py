@@ -163,7 +163,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
                 get_flux_operator,
                 make_stiffness_t,
                 InverseMassOperator,
-                BoundarizeOperator,
+                RestrictToBoundary,
                 QuadratureGridUpsampler,
                 QuadratureInteriorFacesGridUpsampler)
 
@@ -174,7 +174,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
         # boundary conditions -------------------------------------------------
         bc_in = Field("bc_in")
-        bc_out = BoundarizeOperator(self.outflow_tag)*u
+        bc_out = RestrictToBoundary(self.outflow_tag)*u
 
         stiff_t = make_stiffness_t(self.dimensions)
         m_inv = InverseMassOperator()
@@ -281,7 +281,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         # {{{ operator preliminaries ------------------------------------------
         from grudge.symbolic import (Field, BoundaryPair, get_flux_operator,
                 make_stiffness_t, InverseMassOperator, make_sym_vector,
-                ElementwiseMaxOperator, BoundarizeOperator)
+                ElementwiseMaxOperator, RestrictToBoundary)
 
         from grudge.symbolic.primitives import make_common_subexpression as cse
 
@@ -309,9 +309,9 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         # {{{ boundary conditions ---------------------------------------------
 
         from grudge.mesh import BTAG_ALL
-        bc_c = to_quad(BoundarizeOperator(BTAG_ALL)(c))
+        bc_c = to_quad(RestrictToBoundary(BTAG_ALL)(c))
         bc_u = to_quad(Field("bc_u"))
-        bc_v = to_quad(BoundarizeOperator(BTAG_ALL)(v))
+        bc_v = to_quad(RestrictToBoundary(BTAG_ALL)(v))
 
         if self.bc_u_f is "None":
             bc_w = join_fields(0, bc_v, bc_c)

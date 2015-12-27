@@ -427,7 +427,7 @@ class ReferenceInverseMassOperator(ReferenceMassOperatorBase):
 
 # {{{ boundary-related operators
 
-class BoundarizeOperator(Operator):
+class RestrictToBoundary(Operator):
     def __init__(self, tag):
         self.tag = tag
 

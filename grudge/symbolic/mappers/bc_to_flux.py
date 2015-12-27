@@ -43,7 +43,7 @@ class ExpensiveBoundaryOperatorDetector(CombineMapper):
         return False
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, sym.BoundarizeOperator):
+        if isinstance(expr.op, sym.RestrictToBoundary):
             return False
 
         elif isinstance(expr.op, sym.FluxExchangeOperator):
@@ -52,7 +52,7 @@ class ExpensiveBoundaryOperatorDetector(CombineMapper):
 
         elif isinstance(expr.op, (
                 sym.QuadratureGridUpsampler,
-                sym.QuadratureBoundaryGridUpsampler)):
+                sym.QuadratureInteriorFacesGridUpsampler)):
             return True
 
         else:
@@ -204,9 +204,9 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
             map_subscript = map_variable
 
             def map_operator_binding(self, expr):
-                if isinstance(expr.op, sym.BoundarizeOperator):
+                if isinstance(expr.op, sym.RestrictToBoundary):
                     if expr.op.tag != bpair.tag:
-                        raise RuntimeError("BoundarizeOperator and BoundaryPair "
+                        raise RuntimeError("RestrictToBoundary and BoundaryPair "
                                 "do not agree about boundary tag: %s vs %s"
                                 % (expr.op.tag, bpair.tag))
 
@@ -218,7 +218,7 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
                     from grudge.mesh import TAG_RANK_BOUNDARY
                     op_tag = TAG_RANK_BOUNDARY(expr.op.rank)
                     if bpair.tag != op_tag:
-                        raise RuntimeError("BoundarizeOperator and "
+                        raise RuntimeError("RestrictToBoundary and "
                                 "FluxExchangeOperator do not agree about "
                                 "boundary tag: %s vs %s"
                                 % (op_tag, bpair.tag))
@@ -228,7 +228,7 @@ class BCToFluxRewriter(CSECachingMapperMixin, IdentityMapper):
 
                 elif isinstance(expr.op, sym.QuadratureBoundaryGridUpsampler):
                     if bpair.tag != expr.op.boundary_tag:
-                        raise RuntimeError("BoundarizeOperator "
+                        raise RuntimeError("RestrictToBoundary "
                                 "and QuadratureBoundaryGridUpsampler "
                                 "do not agree about boundary tag: %s vs %s"
                                 % (expr.op.boundary_tag, bpair.tag))

@@ -400,8 +400,8 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
                 and isinstance(field_type, type_info.BoundaryVectorBase)):
             # potential shortcut:
             #if (isinstance(expr.field, OperatorBinding)
-                    #and isinstance(expr.field.op, BoundarizeOperator)):
-                #return QuadratureBoundarizeOperator(
+                    #and isinstance(expr.field.op, RestrictToBoundary)):
+                #return QuadratureRestrictToBoundary(
                         #expr.field.op.tag, expr.op.quadrature_tag)(
                                 #self.rec(expr.field.field))
 
@@ -409,8 +409,8 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
                     expr.op.quadrature_tag, field_type.boundary_tag)(expr.field)
         # }}}
 
-        elif isinstance(expr.op, op.BoundarizeOperator) and has_quad_operand:
-            raise TypeError("BoundarizeOperator cannot be applied to "
+        elif isinstance(expr.op, op.RestrictToBoundary) and has_quad_operand:
+            raise TypeError("RestrictToBoundary cannot be applied to "
                     "quadrature-based operands--use QuadUpsample(Boundarize(...))")
 
         # {{{ flux operator specialization
@@ -806,7 +806,7 @@ class PrettyStringifyMapper(
         return "BC%d@%s" % (bc_number, self._format_btag(expr.tag))
 
     def map_operator_binding(self, expr, enclosing_prec):
-        if isinstance(expr.op, op.BoundarizeOperator):
+        if isinstance(expr.op, op.RestrictToBoundary):
             from pymbolic.mapper.stringifier import PREC_CALL, PREC_SUM
             return self.parenthesize_if_needed(
                     "%s@%s" % (

@@ -117,8 +117,8 @@ class StrongWaveOperator(HyperbolicOperator):
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.BoundarizeOperator(self.dirichlet_tag) * u
-        dir_v = sym.BoundarizeOperator(self.dirichlet_tag) * v
+        dir_u = sym.RestrictToBoundary(self.dirichlet_tag) * u
+        dir_v = sym.RestrictToBoundary(self.dirichlet_tag) * v
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
@@ -131,15 +131,15 @@ class StrongWaveOperator(HyperbolicOperator):
             dir_bc = join_fields(-dir_u, dir_v)
 
         # neumann BCs ---------------------------------------------------------
-        neu_u = sym.BoundarizeOperator(self.neumann_tag) * u
-        neu_v = sym.BoundarizeOperator(self.neumann_tag) * v
+        neu_u = sym.RestrictToBoundary(self.neumann_tag) * u
+        neu_v = sym.RestrictToBoundary(self.neumann_tag) * v
         neu_bc = join_fields(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_u = sym.BoundarizeOperator(self.radiation_tag) * u
-        rad_v = sym.BoundarizeOperator(self.radiation_tag) * v
+        rad_u = sym.RestrictToBoundary(self.radiation_tag) * u
+        rad_v = sym.RestrictToBoundary(self.radiation_tag) * v
 
         rad_bc = join_fields(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
@@ -274,25 +274,25 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         # {{{ boundary conditions
 
         # Dirichlet
-        dir_c = sym.BoundarizeOperator(self.dirichlet_tag) * self.c
-        dir_u = sym.BoundarizeOperator(self.dirichlet_tag) * u
-        dir_v = sym.BoundarizeOperator(self.dirichlet_tag) * v
+        dir_c = sym.RestrictToBoundary(self.dirichlet_tag) * self.c
+        dir_u = sym.RestrictToBoundary(self.dirichlet_tag) * u
+        dir_v = sym.RestrictToBoundary(self.dirichlet_tag) * v
 
         dir_bc = join_fields(dir_c, -dir_u, dir_v)
 
         # Neumann
-        neu_c = sym.BoundarizeOperator(self.neumann_tag) * self.c
-        neu_u = sym.BoundarizeOperator(self.neumann_tag) * u
-        neu_v = sym.BoundarizeOperator(self.neumann_tag) * v
+        neu_c = sym.RestrictToBoundary(self.neumann_tag) * self.c
+        neu_u = sym.RestrictToBoundary(self.neumann_tag) * u
+        neu_v = sym.RestrictToBoundary(self.neumann_tag) * v
 
         neu_bc = join_fields(neu_c, neu_u, -neu_v)
 
         # Radiation
         rad_normal = sym.make_normal(self.radiation_tag, d)
 
-        rad_c = sym.BoundarizeOperator(self.radiation_tag) * self.c
-        rad_u = sym.BoundarizeOperator(self.radiation_tag) * u
-        rad_v = sym.BoundarizeOperator(self.radiation_tag) * v
+        rad_c = sym.RestrictToBoundary(self.radiation_tag) * self.c
+        rad_u = sym.RestrictToBoundary(self.radiation_tag) * u
+        rad_v = sym.RestrictToBoundary(self.radiation_tag) * v
 
         rad_bc = join_fields(
                 rad_c,
