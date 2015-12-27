@@ -616,13 +616,13 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # {{{ global differentiation
 
     def map_diff(self, expr, enclosing_prec):
-        return "Diffx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
+        return "Diffx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
 
     def map_minv_st(self, expr, enclosing_prec):
-        return "MInvSTx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
+        return "MInvSTx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
 
     def map_stiffness(self, expr, enclosing_prec):
-        return "Stiffx%d%s" % (expr.xyz_axi, self._format_op_props(expr))
+        return "Stiffx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
 
     def map_stiffness_t(self, expr, enclosing_prec):
         return "StiffTx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
