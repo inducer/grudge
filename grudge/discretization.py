@@ -23,11 +23,18 @@ THE SOFTWARE.
 """
 
 
+from pytools import memoize_method
+
+
 class Discretization(object):
     """
     .. attribute :: volume_discr
-    .. attribute :: boundary_discr
-    .. attribute :: boundary_connection
+
+    .. automethod :: boundary_connection
+    .. automethod :: boundary_discr
+
+    .. automethod :: interior_faces_connection
+    .. automethod :: interior_faces_discr
 
     .. autoattribute :: cl_context
     .. autoattribute :: dim
@@ -54,18 +61,47 @@ class Discretization(object):
         self.volume_discr = Discretization(cl_ctx, mesh,
                 PolynomialWarpAndBlendGroupFactory(order=order))
 
+        self.order = order
         self.quad_min_degrees = quad_min_degrees
 
+    @memoize_method
+    def boundary_connection(self, boundary_tag, quadrature_tag=None):
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
 
-        import pyopencl as cl
-        from meshmode.discretization.connection import make_boundary_restriction
-        with cl.CommandQueue(cl_ctx) as queue:
-            _, self.boundary_discr, self.boundary_connection = \
-                    make_boundary_restriction(
-                            queue, self.volume_discr,
-                            PolynomialWarpAndBlendGroupFactory(order=order))
+        if quadrature_tag is not None:
+            raise NotImplementedError("quadrature")
+
+        from meshmode.discretization.connection import make_face_restriction
+        _, _, boundary_connection = \
+                make_face_restriction(
+                        self.volume_discr,
+                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        boundary_tag=boundary_tag)
+
+        return self.bounds
+
+    def boundary_discr(self, boundary_tag, quadrature_tag=None):
+        return self.boundary_connection(boundary_tag, quadrature_tag).to_discr
+
+    @memoize_method
+    def interior_faces_connection(self, quadrature_tag=None):
+        from meshmode.discretization.poly_element import \
+                PolynomialWarpAndBlendGroupFactory
+
+        if quadrature_tag is not None:
+            raise NotImplementedError("quadrature")
+
+        from meshmode.discretization.connection import make_face_restriction
+        _, _, boundary_connection = \
+                make_face_restriction(
+                        self.volume_discr,
+                        PolynomialWarpAndBlendGroupFactory(order=self.order))
+
+        return self.bounds
+
+    def interior_faces_discr(self, boundary_tag, quadrature_tag=None):
+        return self.boundary_connection(boundary_tag, quadrature_tag).to_discr
 
     @property
     def cl_context(self):
