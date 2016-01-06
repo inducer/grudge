@@ -64,7 +64,7 @@ class ExecutionMapper(mappers.Evaluator,
         elif dd.domain_tag is sym.FRESTR_INTERIOR_FACES:
             return self.discr.interior_faces_discr(qtag)
         elif dd.is_boundary():
-            return self.discr.boundary_connection(dd.domain_tag, qtag)
+            return self.discr.boundary_discr(dd.domain_tag, qtag)
         else:
             raise ValueError("DOF desc tag not understood: " + str(dd))
 
@@ -144,7 +144,7 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
             return lp.tag_inames(knl, dict(k="g.0"))
 
-        discr = self.discr.volume_discr
+        discr = self.get_discr(op.dd_in)
 
         # FIXME: This shouldn't really assume that it's dealing with a volume
         # input. What about quadrature? What about boundaries?
@@ -170,95 +170,6 @@ class ExecutionMapper(mappers.Evaluator,
 
         return result
 
-    def map_ref_quad_mass(self, op, field_expr):
-        field = self.rec(field_expr)
-
-        from grudge.tools import is_zero
-        if is_zero(field):
-            return 0
-
-        qtag = op.quadrature_tag
-
-        from grudge._internal import perform_elwise_operator
-
-        out = self.discr.volume_zeros()
-        for eg in self.discr.element_groups:
-            eg_quad_info = eg.quadrature_info[qtag]
-
-            perform_elwise_operator(eg_quad_info.ranges, eg.ranges,
-                    eg_quad_info.ldis_quad_info.mass_matrix(),
-                    field, out)
-        return out
-
-    def map_quad_grid_upsampler(self, op, field_expr):
-        field = self.rec(field_expr)
-
-        from grudge.tools import is_zero
-        if is_zero(field):
-            return 0
-
-        qtag = op.quadrature_tag
-
-        from grudge._internal import perform_elwise_operator
-        quad_info = self.discr.get_quadrature_info(qtag)
-
-        out = np.zeros(quad_info.node_count, field.dtype)
-        for eg in self.discr.element_groups:
-            eg_quad_info = eg.quadrature_info[qtag]
-
-            perform_elwise_operator(eg.ranges, eg_quad_info.ranges,
-                eg_quad_info.ldis_quad_info.volume_up_interpolation_matrix(),
-                field, out)
-
-        return out
-
-    def map_quad_int_faces_grid_upsampler(self, op, field_expr):
-        field = self.rec(field_expr)
-
-        from grudge.tools import is_zero
-        if is_zero(field):
-            return 0
-
-        qtag = op.quadrature_tag
-
-        from grudge._internal import perform_elwise_operator
-        quad_info = self.discr.get_quadrature_info(qtag)
-
-        out = np.zeros(quad_info.int_faces_node_count, field.dtype)
-        for eg in self.discr.element_groups:
-            eg_quad_info = eg.quadrature_info[qtag]
-
-            perform_elwise_operator(eg.ranges, eg_quad_info.el_faces_ranges,
-                eg_quad_info.ldis_quad_info.volume_to_face_up_interpolation_matrix()
-                .copy(),
-                field, out)
-
-        return out
-
-    def map_quad_bdry_grid_upsampler(self, op, field_expr):
-        field = self.rec(field_expr)
-
-        from grudge.tools import is_zero
-        if is_zero(field):
-            return 0
-
-        bdry = self.discr.get_boundary(op.boundary_tag)
-        bdry_q_info = bdry.get_quadrature_info(op.quadrature_tag)
-
-        out = np.zeros(bdry_q_info.node_count, field.dtype)
-
-        from grudge._internal import perform_elwise_operator
-        for fg, from_ranges, to_ranges, ldis_quad_info in zip(
-                bdry.face_groups,
-                bdry.fg_ranges,
-                bdry_q_info.fg_ranges,
-                bdry_q_info.fg_ldis_quad_infos):
-            perform_elwise_operator(from_ranges, to_ranges,
-                ldis_quad_info.face_up_interpolation_matrix(),
-                field, out)
-
-        return out
-
     def map_elementwise_max(self, op, field_expr):
         from grudge._internal import perform_elwise_max
         field = self.rec(field_expr)
@@ -268,6 +179,63 @@ class ExecutionMapper(mappers.Evaluator,
             perform_elwise_max(eg.ranges, field, out)
 
         return out
+
+    def map_interpolation(self, op, field_expr):
+        if op.dd_in.quadrature_tag not in [None, sym.QTAG_NONE]:
+            raise ValueError("cannot interpolate *from* a quadrature grid")
+
+        dd_in = op.dd_in
+        dd_out = op.dd_out
+
+        qtag = dd_out.quadrature_tag
+        if qtag is None:
+            # FIXME: Remove once proper quadrature support arrives
+            qtag = sym.QTAG_NONE
+
+        if dd_in.is_volume():
+            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+                conn = self.discr.all_faces_connection(qtag)
+            elif dd_out.domain_tag is sym.FRESTR_INTERIOR_FACES:
+                conn = self.discr.interior_faces_connection(qtag)
+            elif dd_out.is_boundary():
+                conn = self.discr.boundary_connection(dd_out.domain_tag, qtag)
+            else:
+                raise ValueError("cannot interpolate from volume to: " + str(dd_out))
+
+        elif dd_in.domain_tag is sym.FRESTR_INTERIOR_FACES:
+            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+                conn = self.discr.all_faces_connection(None, qtag)
+            else:
+                raise ValueError(
+                        "cannot interpolate from interior faces to: "
+                        + str(dd_out))
+
+        elif dd_in.is_boundary():
+            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+                conn = self.discr.all_faces_connection(dd_in.domain_tag, qtag)
+            else:
+                raise ValueError(
+                        "cannot interpolate from interior faces to: "
+                        + str(dd_out))
+
+        else:
+            raise ValueError("cannot interpolate from: " + str(dd_in))
+
+        return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
+
+    def map_opposite_interior_face_swap(self, op, field_expr):
+        dd = op.dd_in
+
+        qtag = dd.quadrature_tag
+        if qtag is None:
+            # FIXME: Remove once proper quadrature support arrives
+            qtag = sym.QTAG_NONE
+
+        return self.discr.opposite_face_connection(qtag)(
+                self.queue, self.rec(field_expr)).with_queue(self.queue)
+
+    def map_face_mass_operator(self, op, field_expr):
+        raise NotImplementedError
 
     # }}}
 

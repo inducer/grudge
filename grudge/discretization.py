@@ -116,12 +116,24 @@ class Discretization(object):
     def interior_faces_discr(self, quadrature_tag=None):
         return self.interior_faces_connection(quadrature_tag).to_discr
 
+    @memoize_method
+    def opposite_face_connection(self, quadrature_tag):
+        if quadrature_tag is not sym.QTAG_NONE:
+            # FIXME
+            raise NotImplementedError("quadrature")
+
+        from meshmode.discretization.connection import \
+                make_opposite_face_connection
+
+        return make_opposite_face_connection(
+                self.interior_faces_connection(quadrature_tag))
+
     # }}}
 
     # {{{ all-faces
 
     @memoize_method
-    def all_faces_discr(self, quadrature_tag=None):
+    def all_faces_volume_connection(self, quadrature_tag=None):
         if quadrature_tag is not sym.QTAG_NONE:
             # FIXME
             raise NotImplementedError("quadrature")
@@ -139,6 +151,9 @@ class Discretization(object):
                         # pyramids or other elements with non-identical face
                         # types.
                         per_face_groups=False)
+
+    def all_faces_discr(self, quadrature_tag=None):
+        return self.all_faces_volume_connection(quadrature_tag).to_discr
 
     @memoize_method
     def all_faces_connection(self, boundary_tag, quadrature_tag=None):
