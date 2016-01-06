@@ -25,7 +25,7 @@ THE SOFTWARE.
 """
 
 
-import six
+import six  # noqa
 from six.moves import zip, reduce
 from pytools import Record, memoize_method, memoize
 from grudge import sym
@@ -140,67 +140,6 @@ class Assign(Instruction):
         return exec_mapper.exec_assign
 
 
-class FluxBatchAssign(Instruction):
-    """
-    .. attribute:: names
-    .. attribute:: expressions
-
-        A list of :class:`grudge.symbolic.primitives.OperatorBinding`
-        instances bound to flux operators.
-
-        .. note ::
-
-            All operators in :attr:`expressions` are guaranteed to
-            yield the same operator from
-            :meth:`grudge.symbolic.operators.FluxOperatorBase.repr_op`.
-
-    .. attribute:: repr_op
-
-        The *repr_op* on which all operators agree.
-
-    .. attribute:: quadrature_tag
-    """
-
-    def get_assignees(self):
-        return set(self.names)
-
-    @memoize_method
-    def get_dependencies(self):
-        deps = set()
-        for wdflux in self.expressions:
-            deps |= set(wdflux.interior_deps)
-            deps |= set(wdflux.boundary_deps)
-
-        dep_mapper = _make_dep_mapper(include_subscripts=False)
-
-        from pytools import flatten
-        return set(flatten(dep_mapper(dep) for dep in deps))
-
-    def __str__(self):
-        from grudge.symbolic.flux.mappers import PrettyFluxStringifyMapper as PFSM
-        flux_strifier = PFSM()
-        op_strifier = mappers.StringifyMapper(flux_stringify_mapper=flux_strifier)
-
-        from pymbolic.mapper.stringifier import PREC_NONE
-
-        lines = []
-        lines.append("{ /* %s */" % self.repr_op)
-
-        lines_expr = []
-        for n, f in zip(self.names, self.expressions):
-            lines_expr.append("  %s <- %s" % (n, op_strifier(f, PREC_NONE)))
-
-        for n, str_f in getattr(flux_strifier, "cse_name_list", []):
-            lines.append("  (flux-local) %s <- %s" % (n, str_f))
-
-        lines.extend(lines_expr)
-        lines.append("}")
-        return "\n".join(lines)
-
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_flux_batch_assign
-
-
 class DiffBatchAssign(Instruction):
     """
     :ivar names:
@@ -238,11 +177,6 @@ class DiffBatchAssign(Instruction):
 
     def get_execution_method(self, exec_mapper):
         return exec_mapper.exec_diff_batch_assign
-
-
-class QuadratureDiffBatchAssign(DiffBatchAssign):
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_quad_diff_batch_assign
 
 
 class FluxExchangeBatchAssign(Instruction):
@@ -605,12 +539,6 @@ class Code(object):
 # {{{ compiler
 
 class OperatorCompiler(mappers.IdentityMapper):
-    class FluxRecord(Record):
-        __slots__ = ["flux_expr", "dependencies", "repr_op"]
-
-    class FluxBatch(Record):
-        __slots__ = ["flux_exprs", "repr_op"]
-
     def __init__(self, prefix="_expr", max_vectors_in_batch_expr=None):
         super(OperatorCompiler, self).__init__()
         self.prefix = prefix
@@ -622,93 +550,24 @@ class OperatorCompiler(mappers.IdentityMapper):
 
         self.assigned_names = set()
 
-    # {{{ collecting various optemplate components ----------------------------
-    def get_contained_fluxes(self, expr):
-        """Recursively enumerate all flux expressions in the expression tree
-        `expr`. The returned list consists of `ExecutionPlanner.FluxRecord`
-        instances with fields `flux_expr` and `dependencies`.
-        """
-
-        contained_flux_ops = mappers.FluxCollector()(expr)
-
-        from pytools import all
-        assert all(isinstance(op, sym.WholeDomainFluxOperator)
-                for op in contained_flux_ops), \
-                        "not all flux operators were of the expected type"
-
-        return [self.FluxRecord(
-            flux_expr=wdflux,
-            dependencies=set(wdflux.interior_deps) | set(wdflux.boundary_deps),
-            repr_op=wdflux.repr_op())
-            for wdflux in contained_flux_ops]
+    # {{{ collect various optemplate components
 
     def collect_diff_ops(self, expr):
-        return mappers.BoundOperatorCollector(sym.ReferenceDiffOperatorBase)(expr)
-
-    def collect_flux_exchange_ops(self, expr):
-        return mappers.FluxExchangeCollector()(expr)
+        return mappers.BoundOperatorCollector(sym.RefDiffOperatorBase)(expr)
 
     # }}}
 
-    # {{{ top-level driver ----------------------------------------------------
-    def __call__(self, expr, type_hints={}):
+    # {{{ top-level driver
+
+    def __call__(self, expr):
         # Put the result expressions into variables as well.
         expr = sym.cse(expr, "_result")
 
-        from grudge.symbolic.mappers.type_inference import TypeInferrer
-        self.typedict = TypeInferrer()(expr, type_hints)
-
-        # {{{ flux batching
-        # Fluxes can be evaluated faster in batches. Here, we find flux
-        # batches that we can evaluate together.
-
-        # For each FluxRecord, find the other fluxes its flux depends on.
-        flux_queue = self.get_contained_fluxes(expr)
-        for fr in flux_queue:
-            fr.dependencies = set(sf.flux_expr
-                    for sf in self.get_contained_fluxes(fr.flux_expr)) \
-                            - set([fr.flux_expr])
-
-        # Then figure out batches of fluxes to evaluate
-        self.flux_batches = []
-        admissible_deps = set()
-        while flux_queue:
-            present_batch = set()
-            i = 0
-            while i < len(flux_queue):
-                fr = flux_queue[i]
-                if fr.dependencies <= admissible_deps:
-                    present_batch.add(fr)
-                    flux_queue.pop(i)
-                else:
-                    i += 1
-
-            if present_batch:
-                # bin batched operators by representative operator
-                batches_by_repr_op = {}
-                for fr in present_batch:
-                    batches_by_repr_op[fr.repr_op] = \
-                            batches_by_repr_op.get(fr.repr_op, set()) \
-                            | set([fr.flux_expr])
-
-                for repr_op, batch in six.iteritems(batches_by_repr_op):
-                    self.flux_batches.append(
-                            self.FluxBatch(
-                                repr_op=repr_op,
-                                flux_exprs=list(batch)))
-
-                admissible_deps |= set(fr.flux_expr for fr in present_batch)
-            else:
-                raise RuntimeError("cannot resolve flux evaluation order")
-
-        # }}}
+        # from grudge.symbolic.mappers.type_inference import TypeInferrer
+        # self.typedict = TypeInferrer()(expr)
 
         # Used for diff batching
-
         self.diff_ops = self.collect_diff_ops(expr)
-
-        # Flux exchange also works better when batched.
-        self.flux_exchange_ops = self.collect_flux_exchange_ops(expr)
 
         # Finally, walk the expression and build the code.
         result = super(OperatorCompiler, self).__call__(expr)
@@ -719,7 +578,8 @@ class OperatorCompiler(mappers.IdentityMapper):
 
     # }}}
 
-    # {{{ variables and names -------------------------------------------------
+    # {{{ variables and names
+
     def get_var_name(self, prefix=None):
         def generate_suffixes():
             yield ""
@@ -747,8 +607,7 @@ class OperatorCompiler(mappers.IdentityMapper):
         self.assigned_names.add(name)
         return name
 
-    def assign_to_new_var(self, expr, priority=0, prefix=None,
-            is_scalar_valued=False):
+    def assign_to_new_var(self, expr, priority=0, prefix=None):
         from pymbolic.primitives import Variable, Subscript
 
         # Observe that the only things that can be legally subscripted in
@@ -759,7 +618,7 @@ class OperatorCompiler(mappers.IdentityMapper):
 
         new_name = self.get_var_name(prefix)
         self.code.append(self.make_assign(
-            new_name, expr, priority, is_scalar_valued))
+            new_name, expr, priority))
 
         return Variable(new_name)
 
@@ -773,9 +632,6 @@ class OperatorCompiler(mappers.IdentityMapper):
         except KeyError:
             priority = getattr(expr, "priority", 0)
 
-            from grudge.symbolic.mappers.type_inference import type_info
-            is_scalar_valued = isinstance(self.typedict[expr], type_info.Scalar)
-
             if isinstance(expr.child, sym.OperatorBinding):
                 # We need to catch operator bindings here and
                 # treat them specially. They get assigned to their
@@ -788,24 +644,14 @@ class OperatorCompiler(mappers.IdentityMapper):
                 rec_child = self.rec(expr.child)
 
             cse_var = self.assign_to_new_var(rec_child,
-                    priority=priority, prefix=expr.prefix,
-                    is_scalar_valued=is_scalar_valued)
+                    priority=priority, prefix=expr.prefix)
 
             self.expr_to_var[expr.child] = cse_var
             return cse_var
 
     def map_operator_binding(self, expr, name_hint=None):
-        from grudge.symbolic.operators import (
-                ReferenceDiffOperatorBase,
-                FluxOperatorBase)
-
-        if isinstance(expr.op, ReferenceDiffOperatorBase):
+        if isinstance(expr.op, sym.RefDiffOperatorBase):
             return self.map_ref_diff_op_binding(expr)
-        elif isinstance(expr.op, FluxOperatorBase):
-            raise RuntimeError("OperatorCompiler encountered a flux operator.\n\n"
-                    "We are expecting flux operators to be converted to custom "
-                    "flux assignment instructions, but the subclassed compiler "
-                    "does not seem to have done this.")
         else:
             # make sure operator assignments stand alone and don't get muddled
             # up in vector math
@@ -859,15 +705,8 @@ class OperatorCompiler(mappers.IdentityMapper):
             from pytools import single_valued
             op_class = single_valued(type(d.op) for d in all_diffs)
 
-            from grudge.symbolic.operators import \
-                    ReferenceQuadratureStiffnessTOperator
-            if isinstance(op_class, ReferenceQuadratureStiffnessTOperator):
-                assign_class = QuadratureDiffBatchAssign
-            else:
-                assign_class = DiffBatchAssign
-
             self.code.append(
-                    assign_class(
+                    DiffBatchAssign(
                         names=names,
                         op_class=op_class,
                         operators=[d.op for d in all_diffs],
@@ -880,84 +719,13 @@ class OperatorCompiler(mappers.IdentityMapper):
 
             return self.expr_to_var[expr]
 
-    def map_flux_exchange(self, expr):
-        try:
-            return self.expr_to_var[expr]
-        except KeyError:
-            from pytools.obj_array import obj_array_equal
-            all_flux_xchgs = [fe
-                    for fe in self.flux_exchange_ops
-                    if obj_array_equal(fe.arg_fields, expr.arg_fields)]
-
-            assert len(all_flux_xchgs) > 0
-
-            names = [self.get_var_name() for d in all_flux_xchgs]
-            self.code.append(
-                    FluxExchangeBatchAssign(
-                        names=names,
-                        indices_and_ranks=[
-                            (fe.index, fe.rank)
-                            for fe in all_flux_xchgs],
-                        arg_fields=[
-                            self.rec(arg_field)
-                            for arg_field in fe.arg_fields]))
-
-            from pymbolic import var
-            for n, d in zip(names, all_flux_xchgs):
-                self.expr_to_var[d] = var(n)
-
-            return self.expr_to_var[expr]
-
-    def map_planned_flux(self, expr):
-        try:
-            return self.expr_to_var[expr]
-        except KeyError:
-            for fb in self.flux_batches:
-                try:
-                    idx = fb.flux_exprs.index(expr)
-                except ValueError:
-                    pass
-                else:
-                    # found at idx
-                    mapped_fluxes = [
-                            self.internal_map_flux(f)
-                            for f in fb.flux_exprs]
-
-                    names = [self.get_var_name() for f in mapped_fluxes]
-                    self.code.append(
-                            self.make_flux_batch_assign(
-                                names, mapped_fluxes, fb.repr_op))
-
-                    from pymbolic import var
-                    for n, f in zip(names, fb.flux_exprs):
-                        self.expr_to_var[f] = var(n)
-
-                    return var(names[idx])
-
-            raise RuntimeError("flux '%s' not in any flux batch" % expr)
-
     # }}}
 
     # {{{ instruction producers
 
-    def make_assign(self, name, expr, priority, is_scalar_valued=False):
+    def make_assign(self, name, expr, priority):
         return Assign(names=[name], exprs=[expr],
-                priority=priority,
-                is_scalar_valued=is_scalar_valued)
-
-    def make_flux_batch_assign(self, names, expressions, repr_op):
-        return FluxBatchAssign(names=names, expressions=expressions, repr_op=repr_op)
-
-    # from CUDA backend:
-    # def make_flux_batch_assign(self, names, expressions, repr_op):
-    #     from pytools import single_valued
-    #     quadrature_tag = single_valued(
-    #             wdflux.quadrature_tag
-    #             for wdflux in expressions)
-
-    #     return CUDAFluxBatchAssign(
-    #             names=names, expressions=expressions, repr_op=repr_op,
-    #             quadrature_tag=quadrature_tag)
+                priority=priority)
 
     # }}}
 
@@ -1163,22 +931,6 @@ class OperatorCompiler(mappers.IdentityMapper):
         # }}}
 
     # }}}
-
-    def internal_map_flux(self, wdflux):
-        return sym.WholeDomainFluxOperator(
-            wdflux.is_lift,
-            [wdflux.InteriorInfo(
-                flux_expr=ii.flux_expr,
-                field_expr=self.rec(ii.field_expr))
-                for ii in wdflux.interiors],
-            [wdflux.BoundaryInfo(
-                flux_expr=bi.flux_expr,
-                bpair=self.rec(bi.bpair))
-                for bi in wdflux.boundaries],
-            wdflux.quadrature_tag)
-
-    def map_whole_domain_flux(self, wdflux):
-        return self.map_planned_flux(wdflux)
 
     def finalize_multi_assign(self, names, exprs, do_not_return, priority):
         return VectorExprAssign(names=names, exprs=exprs,

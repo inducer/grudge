@@ -23,8 +23,5 @@ THE SOFTWARE.
 """
 
 import grudge.sym  # noqa
-import grudge.symbolic.flux.primitives as sym_flux  # noqa
-
 from grudge.execution import bind  # noqa
-
 from grudge.discretization import Discretization  # noqa

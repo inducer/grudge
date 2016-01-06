@@ -33,48 +33,10 @@ import numpy as np
 
 def is_scalar(expr):
     from grudge import sym
-    return isinstance(expr, (int, float, complex, sym.ScalarParameter))
+    if isinstance(expr, sym.Variable) and expr.dd.domain_tag is sym.DTAG_SCALAR:
+        return True
 
-
-def get_flux_dependencies(flux, field, bdry="all"):
-    from grudge.symbolic.flux.mappers import FluxDependencyMapper
-    from grudge.symbolic.flux.primitives import FieldComponent
-    in_fields = list(FluxDependencyMapper(
-        include_calls=False)(flux))
-
-    # check that all in_fields are FieldComponent instances
-    assert not [in_field
-        for in_field in in_fields
-        if not isinstance(in_field, FieldComponent)]
-
-    def maybe_index(fld, index):
-        from pytools.obj_array import is_obj_array
-        if is_obj_array(fld):
-            return fld[inf.index]
-        else:
-            return fld
-
-    from grudge.tools import is_zero
-    from grudge import sym
-    if isinstance(field, sym.BoundaryPair):
-        for inf in in_fields:
-            if inf.is_interior:
-                if bdry in ["all", "int"]:
-                    value = maybe_index(field.field, inf.index)
-
-                    if not is_zero(value):
-                        yield value
-            else:
-                if bdry in ["all", "ext"]:
-                    value = maybe_index(field.bfield, inf.index)
-
-                    if not is_zero(value):
-                        yield value
-    else:
-        for inf in in_fields:
-            value = maybe_index(field, inf.index)
-            if not is_zero(value):
-                yield value
+    return isinstance(expr, (int, float, complex))
 
 
 def split_sym_operator_for_multirate(state_vector, sym_operator,
@@ -169,21 +131,9 @@ def pretty(sym_operator):
 
     splitter = "="*75 + "\n"
 
-    bc_strs = stringify_mapper.get_bc_strings()
-    if bc_strs:
-        result = "\n".join(bc_strs)+"\n"+splitter+result
-
     cse_strs = stringify_mapper.get_cse_strings()
     if cse_strs:
         result = "\n".join(cse_strs)+"\n"+splitter+result
-
-    flux_strs = stringify_mapper.get_flux_strings()
-    if flux_strs:
-        result = "\n".join(flux_strs)+"\n"+splitter+result
-
-    flux_cses = stringify_mapper.flux_stringify_mapper.get_cse_strings()
-    if flux_cses:
-        result = "\n".join("flux "+fs for fs in flux_cses)+"\n\n"+result
 
     return result
 

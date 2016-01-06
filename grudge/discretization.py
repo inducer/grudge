@@ -24,6 +24,7 @@ THE SOFTWARE.
 
 
 from pytools import memoize_method
+from grudge import sym
 
 
 class Discretization(object):
@@ -35,6 +36,9 @@ class Discretization(object):
 
     .. automethod :: interior_faces_connection
     .. automethod :: interior_faces_discr
+
+    .. automethod :: all_faces_connection
+    .. automethod :: all_faces_discr
 
     .. autoattribute :: cl_context
     .. autoattribute :: dim
@@ -64,44 +68,101 @@ class Discretization(object):
         self.order = order
         self.quad_min_degrees = quad_min_degrees
 
+    # {{{ boundary
+
     @memoize_method
     def boundary_connection(self, boundary_tag, quadrature_tag=None):
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
 
-        if quadrature_tag is not None:
+        if quadrature_tag is not sym.QTAG_NONE:
+            # FIXME
             raise NotImplementedError("quadrature")
 
         from meshmode.discretization.connection import make_face_restriction
-        _, _, boundary_connection = \
-                make_face_restriction(
+        return make_face_restriction(
                         self.volume_discr,
                         PolynomialWarpAndBlendGroupFactory(order=self.order),
                         boundary_tag=boundary_tag)
 
-        return self.bounds
-
     def boundary_discr(self, boundary_tag, quadrature_tag=None):
         return self.boundary_connection(boundary_tag, quadrature_tag).to_discr
+
+    # }}}
+
+    # {{{ interior faces
 
     @memoize_method
     def interior_faces_connection(self, quadrature_tag=None):
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
 
-        if quadrature_tag is not None:
+        if quadrature_tag is not sym.QTAG_NONE:
+            # FIXME
             raise NotImplementedError("quadrature")
 
-        from meshmode.discretization.connection import make_face_restriction
-        _, _, boundary_connection = \
-                make_face_restriction(
+        from meshmode.discretization.connection import (
+                make_face_restriction, FRESTR_INTERIOR_FACES)
+        return make_face_restriction(
                         self.volume_discr,
-                        PolynomialWarpAndBlendGroupFactory(order=self.order))
+                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        FRESTR_INTERIOR_FACES,
 
-        return self.bounds
+                        # FIXME: This will need to change as soon as we support
+                        # pyramids or other elements with non-identical face
+                        # types.
+                        per_face_groups=False)
 
-    def interior_faces_discr(self, boundary_tag, quadrature_tag=None):
-        return self.boundary_connection(boundary_tag, quadrature_tag).to_discr
+    def interior_faces_discr(self, quadrature_tag=None):
+        return self.interior_faces_connection(quadrature_tag).to_discr
+
+    # }}}
+
+    # {{{ all-faces
+
+    @memoize_method
+    def all_faces_discr(self, quadrature_tag=None):
+        if quadrature_tag is not sym.QTAG_NONE:
+            # FIXME
+            raise NotImplementedError("quadrature")
+
+        from meshmode.discretization.poly_element import \
+                PolynomialWarpAndBlendGroupFactory
+        from meshmode.discretization.connection import (
+                make_face_restriction, FRESTR_ALL_FACES)
+        return make_face_restriction(
+                        self.volume_discr,
+                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        FRESTR_ALL_FACES,
+
+                        # FIXME: This will need to change as soon as we support
+                        # pyramids or other elements with non-identical face
+                        # types.
+                        per_face_groups=False)
+
+    @memoize_method
+    def all_faces_connection(self, boundary_tag, quadrature_tag=None):
+        """Return a
+        :class:`meshmode.discretization.connection.DiscretizationConnection`
+        that goes from either
+        :meth:`interior_faces_discr` (if *boundary_tag* is None)
+        or
+        :meth:`boundary_discr` (if *boundary_tag* is not None)
+        to a discretization containing all the faces of the volume
+        discretization.
+        """
+        from meshmode.discretization.connection import \
+                make_face_to_all_faces_embedding
+
+        if boundary_tag is None:
+            faces_conn = self.interior_faces_connection(quadrature_tag)
+        else:
+            faces_conn = self.boundary_connection(boundary_tag, quadrature_tag)
+
+        return make_face_to_all_faces_embedding(
+                faces_conn, self.all_faces_discr(quadrature_tag))
+
+    # }}}
 
     @property
     def cl_context(self):

@@ -38,7 +38,6 @@ import pymbolic.mapper.flop_counter
 from pymbolic.mapper import CSECachingMapperMixin
 
 from grudge import sym
-from grudge import sym_flux
 import grudge.symbolic.operators as op
 
 
@@ -128,28 +127,33 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     def _map_op_base(self, expr, *args, **kwargs):
         return self.map_operator(expr, *args, **kwargs)
 
-    map_nodal_sum = _map_op_base
-    map_nodal_max = _map_op_base
-    map_nodal_min = _map_op_base
-
-    map_diff_base = _map_op_base
-    map_ref_diff_base = _map_op_base
     map_elementwise_linear = _map_op_base
-    map_flux_base = _map_op_base
-    map_elementwise_max = _map_op_base
-    map_boundarize = _map_op_base
-    map_flux_exchange = _map_op_base
-    map_quad_grid_upsampler = _map_op_base
-    map_quad_int_faces_grid_upsampler = _map_op_base
-    map_quad_bdry_grid_upsampler = _map_op_base
+
+    map_interpolation = _map_op_base
+
+    map_nodal_sum = _map_op_base
+    map_nodal_min = _map_op_base
+    map_nodal_max = _map_op_base
+
+    map_stiffness = _map_op_base
+    map_diff = _map_op_base
+    map_stiffness_t = _map_op_base
+
+    map_ref_diff = _map_op_base
+    map_ref_stiffness_t = _map_op_base
+
+    map_mass = _map_op_base
+    map_inverse_mass = _map_op_base
+    map_ref_mass = _map_op_base
+    map_ref_inverse_mass = _map_op_base
+
+    map_opposite_interior_face_swap = _map_op_base
+    map_face_mass_operator = _map_op_base
 
 
 class CombineMapperMixin(object):
     def map_operator_binding(self, expr):
         return self.combine([self.rec(expr.op), self.rec(expr.field)])
-
-    def map_boundary_pair(self, expr):
-        return self.combine([self.rec(expr.field), self.rec(expr.bfield)])
 
 
 class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
@@ -158,19 +162,11 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
                 "IdentityMapper instances cannot be combined with " \
                 "the BoundOpMapperMixin"
 
-        return expr.__class__(
+        return type(expr)(
                 self.rec(expr.op, *args, **kwargs),
                 self.rec(expr.field, *args, **kwargs))
 
-    def map_boundary_pair(self, expr, *args, **kwargs):
-        assert not isinstance(self, BoundOpMapperMixin), \
-                "IdentityMapper instances cannot be combined with " \
-                "the BoundOpMapperMixin"
-
-        return expr.__class__(
-                self.rec(expr.field, *args, **kwargs),
-                self.rec(expr.bfield, *args, **kwargs),
-                expr.tag)
+    # {{{ operators
 
     def map_elementwise_linear(self, expr, *args, **kwargs):
         assert not isinstance(self, BoundOpMapperMixin), \
@@ -180,30 +176,41 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
         # it's a leaf--no changing children
         return expr
 
-    def map_scalar_parameter(self, expr, *args, **kwargs):
-        # it's a leaf--no changing children
-        return expr
-
-    map_c_function = map_scalar_parameter
-
-    map_ones = map_scalar_parameter
-    map_node_coordinate_component = map_scalar_parameter
+    map_interpolation = map_elementwise_linear
 
     map_nodal_sum = map_elementwise_linear
     map_nodal_min = map_elementwise_linear
     map_nodal_max = map_elementwise_linear
 
-    map_mass_base = map_elementwise_linear
-    map_ref_mass_base = map_elementwise_linear
-    map_diff_base = map_elementwise_linear
-    map_ref_diff_base = map_elementwise_linear
-    map_flux_base = map_elementwise_linear
-    map_elementwise_max = map_elementwise_linear
-    map_boundarize = map_elementwise_linear
-    map_flux_exchange = map_elementwise_linear
-    map_quad_grid_upsampler = map_elementwise_linear
-    map_quad_int_faces_grid_upsampler = map_elementwise_linear
-    map_quad_bdry_grid_upsampler = map_elementwise_linear
+    map_stiffness = map_elementwise_linear
+    map_diff = map_elementwise_linear
+    map_stiffness_t = map_elementwise_linear
+
+    map_ref_diff = map_elementwise_linear
+    map_ref_stiffness_t = map_elementwise_linear
+
+    map_mass = map_elementwise_linear
+    map_inverse_mass = map_elementwise_linear
+    map_ref_mass = map_elementwise_linear
+    map_ref_inverse_mass = map_elementwise_linear
+
+    map_opposite_interior_face_swap = map_elementwise_linear
+    map_face_mass_operator = map_elementwise_linear
+
+    # }}}
+
+    # {{{ primitives
+
+    def map_grudge_variable(self, expr, *args, **kwargs):
+        # it's a leaf--no changing children
+        return expr
+
+    map_c_function = map_grudge_variable
+
+    map_ones = map_grudge_variable
+    map_node_coordinate_component = map_grudge_variable
+
+    # }}}
 
 
 class BoundOpMapperMixin(object):
@@ -247,14 +254,13 @@ class DependencyMapper(
     def map_operator(self, expr):
         return set()
 
-    def map_scalar_parameter(self, expr):
+    def map_grudge_variable(self, expr):
         return set([expr])
 
     def _map_leaf(self, expr):
         return set()
 
     map_ones = _map_leaf
-
     map_node_coordinate_component = _map_leaf
 
 
@@ -377,12 +383,13 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
         # operators.
 
         # {{{ elementwise operators
+
         if isinstance(expr.op, op.MassOperator) and has_quad_operand:
             return op.QuadratureMassOperator(
                     field_repr_tag.quadrature_tag)(self.rec(expr.field))
 
-        elif isinstance(expr.op, op.ReferenceMassOperator) and has_quad_operand:
-            return op.ReferenceQuadratureMassOperator(
+        elif isinstance(expr.op, op.RefMassOperator) and has_quad_operand:
+            return op.RefQuadratureMassOperator(
                     field_repr_tag.quadrature_tag)(self.rec(expr.field))
 
         elif (isinstance(expr.op, op.StiffnessTOperator) and has_quad_operand):
@@ -390,9 +397,9 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
                     expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
                             self.rec(expr.field))
 
-        elif (isinstance(expr.op, op.ReferenceStiffnessTOperator)
+        elif (isinstance(expr.op, op.RefStiffnessTOperator)
                 and has_quad_operand):
-            return op.ReferenceQuadratureStiffnessTOperator(
+            return op.RefQuadratureStiffnessTOperator(
                     expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
                             self.rec(expr.field))
 
@@ -489,20 +496,12 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         # if we encounter non-quadrature operators here, we know they
         # must be nodal.
 
-        jac_notag = sym.area_element(self.ambient_dim, self.dim,
-                where=expr.op.where, quadrature_tag=None)
+        jac_in = sym.area_element(self.ambient_dim, self.dim, dd=expr.op.dd_in)
+        jac_noquad = sym.area_element(self.ambient_dim, self.dim,
+                dd=expr.op.dd_in.with_qtag(sym.QTAG_NONE))
 
-        def rewrite_derivative(ref_class, field,  where,
-                input_quadrature_tag=None, with_jacobian=True):
-            jac_tag = sym.area_element(self.ambient_dim, self.dim,
-                    where=expr.op.where, quadrature_tag=input_quadrature_tag)
-
-            if input_quadrature_tag is not None:
-                diff_kwargs = dict(input_quadrature_tag=input_quadrature_tag)
-            else:
-                diff_kwargs = {}
-
-            diff_kwargs["where"] = where
+        def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
+            jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
 
             rec_field = self.rec(field)
             if with_jacobian:
@@ -511,45 +510,31 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                     sym.inverse_metric_derivative(
                         rst_axis, expr.op.xyz_axis,
                         ambient_dim=self.ambient_dim, dim=self.dim) *
-                    ref_class(rst_axis, **diff_kwargs)(rec_field)
+                    ref_class(rst_axis, dd_in=dd_in)(rec_field)
                     for rst_axis in range(self.dim))
 
         if isinstance(expr.op, op.MassOperator):
-            return op.ReferenceMassOperator()(
-                    jac_notag * self.rec(expr.field))
-
-        elif isinstance(expr.op, op.QuadratureMassOperator):
-            jac_tag = sym.area_element(self.ambient_dim, self.dim,
-                    where=expr.op.where,
-                    quadrature_tag=expr.op.quadrature_tag)
-            return op.ReferenceQuadratureMassOperator(
-                    expr.op.quadrature_tag, expr.op.where)(
-                            jac_tag * self.rec(expr.field))
+            return op.RefMassOperator(expr.op.dd_in, expr.op.dd_out)(
+                    jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.InverseMassOperator):
-            return op.ReferenceInverseMassOperator(expr.op.where)(
-                1/jac_notag * self.rec(expr.field))
+            return op.RefInverseMassOperator(expr.op.dd_in, expr.op.dd_out)(
+                1/jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.StiffnessOperator):
-            return op.ReferenceMassOperator(expr.op.where)(jac_notag *
+            return op.RefMassOperator()(jac_noquad *
                     self.rec(
-                        op.DifferentiationOperator(expr.op.xyz_axis)(expr.field)))
+                        op.DiffOperator(expr.op.xyz_axis)(expr.field)))
 
-        elif isinstance(expr.op, op.DifferentiationOperator):
+        elif isinstance(expr.op, op.DiffOperator):
             return rewrite_derivative(
-                    op.ReferenceDifferentiationOperator,
-                    expr.field, where=expr.op.where, with_jacobian=False)
+                    op.RefDiffOperator,
+                    expr.field, dd_in=expr.op.dd_in, with_jacobian=False)
 
         elif isinstance(expr.op, op.StiffnessTOperator):
             return rewrite_derivative(
-                    op.ReferenceStiffnessTOperator,
-                    expr.field, where=expr.op.where)
-
-        elif isinstance(expr.op, op.QuadratureStiffnessTOperator):
-            return rewrite_derivative(
-                    op.ReferenceQuadratureStiffnessTOperator,
-                    expr.field, input_quadrature_tag=expr.op.input_quadrature_tag,
-                    where=expr.op.where)
+                    op.RefStiffnessTOperator,
+                    expr.field, dd_in=expr.op.dd_in)
 
         elif isinstance(expr.op, op.MInvSTOperator):
             return self.rec(
@@ -565,72 +550,67 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 # {{{ stringification ---------------------------------------------------------
 
 class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
-    def _format_btag(self, tag):
-        if isinstance(tag, type):
-            return tag.__name__
+    def _format_dd(self, dd):
+        def fmt(s):
+            if isinstance(s, type):
+                return s.__name__
+            else:
+                return repr(s)
+
+        from meshmode.discretization.connection import (
+                FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
+        if dd.domain_tag is None:
+            result = "?"
+        elif dd.domain_tag is sym.DTAG_VOLUME_ALL:
+            result = "vol"
+        elif dd.domain_tag is sym.DTAG_SCALAR:
+            result = "scalar"
+        elif dd.domain_tag is FRESTR_ALL_FACES:
+            result = "all_faces"
+        elif dd.domain_tag is FRESTR_INTERIOR_FACES:
+            result = "int_faces"
         else:
-            return repr(tag)
+            result = fmt(dd.domain_tag)
 
-    def _format_op_props(self, op):
-        result = ""
-
-        if hasattr(op, "where") and op.where is not None:
-            result += "@"+self._format_btag(op)
-
-        if (hasattr(op, "quadrature_tag")
-                and op.quadrature_tag is not None):
-            result += "Q[%s]" % self.quadrature_tag
+        if dd.quadrature_tag is None:
+            pass
+        elif dd.quadrature_tag is sym.QTAG_NONE:
+            result += "q"
+        else:
+            result += "Q"+fmt(dd.quadrature_tag)
 
         return result
 
-    def __init__(self, constant_mapper=str, flux_stringify_mapper=None):
-        pymbolic.mapper.stringifier.StringifyMapper.__init__(
-                self, constant_mapper=constant_mapper)
-
-        if flux_stringify_mapper is None:
-            from grudge.symbolic.flux.mappers import FluxStringifyMapper
-            flux_stringify_mapper = FluxStringifyMapper()
-
-        self.flux_stringify_mapper = flux_stringify_mapper
-
-    def map_boundary_pair(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "BPair(%s, %s, %s)" % (
-                self.rec(expr.field, PREC_NONE),
-                self.rec(expr.bfield, PREC_NONE),
-                self._format_btag(expr.tag))
+    def _format_op_dd(self, op):
+        return "[%s->%s]" % (self._format_dd(op.dd_in), self._format_dd(op.dd_out))
 
     # {{{ nodal ops
 
     def map_nodal_sum(self, expr, enclosing_prec):
-        return "NodalSum"
+        return "NodalSum" + self._format_op_dd(expr)
 
     def map_nodal_max(self, expr, enclosing_prec):
-        return "NodalMax"
+        return "NodalMax" + self._format_op_dd(expr)
 
     def map_nodal_min(self, expr, enclosing_prec):
-        return "NodalMin"
+        return "NodalMin" + self._format_op_dd(expr)
 
     # }}}
 
     # {{{ global differentiation
 
     def map_diff(self, expr, enclosing_prec):
-        return "Diffx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
+        return "Diffx%d%s" % (expr.xyz_axis, self._format_op_dd(expr))
 
     def map_minv_st(self, expr, enclosing_prec):
-        return "MInvSTx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
+        return "MInvSTx%d%s" % (expr.xyz_axis, self._format_op_dd(expr))
 
     def map_stiffness(self, expr, enclosing_prec):
-        return "Stiffx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
+        return "Stiffx%d%s" % (expr.xyz_axis, self._format_op_dd(expr))
 
     def map_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTx%d%s" % (expr.xyz_axis, self._format_op_props(expr))
+        return "StiffTx%d%s" % (expr.xyz_axis, self._format_op_dd(expr))
 
-    def map_quad_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTx%d%s" % (
-                expr.input_quadrature_tag, expr.xyz_axis,
-                self._format_op_props(expr))
     # }}}
 
     # {{{ global mass
@@ -641,96 +621,41 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     def map_inverse_mass(self, expr, enclosing_prec):
         return "InvM"
 
-    def map_quad_mass(self, expr, enclosing_prec):
-        return "Q[%s]M" % expr.quadrature_tag
-
     # }}}
 
     # {{{ reference differentiation
     def map_ref_diff(self, expr, enclosing_prec):
-        return "Diffr%d%s" % (expr.rst_axis, self._format_op_props(expr))
+        return "Diffr%d%s" % (expr.rst_axis, self._format_op_dd(expr))
 
     def map_ref_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTr%d%s" % (expr.rst_axis, self._format_op_props(expr))
+        return "StiffTr%d%s" % (expr.rst_axis, self._format_op_dd(expr))
 
-    def map_ref_quad_stiffness_t(self, expr, enclosing_prec):
-        return "StiffTr%dQ[%s]%s" % (
-                expr.input_quadrature_tag, expr.rst_axis,
-                self._format_op_props(expr))
     # }}}
 
     # {{{ reference mass
 
     def map_ref_mass(self, expr, enclosing_prec):
-        return "RefM" + self._format_op_props(expr)
+        return "RefM" + self._format_op_dd(expr)
 
     def map_ref_inverse_mass(self, expr, enclosing_prec):
-        return "RefInvM" + self._format_op_props(expr)
-
-    def map_ref_quad_mass(self, expr, enclosing_prec):
-        return "RefM" + self._format_op_props(expr)
+        return "RefInvM" + self._format_op_dd(expr)
 
     # }}}
 
     def map_elementwise_linear(self, expr, enclosing_prec):
         return "ElWLin:%s%s" % (
                 expr.__class__.__name__,
-                self._format_op_props(expr))
+                self._format_op_dd(expr))
 
     # {{{ flux
 
-    def map_flux(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "%s(%s)" % (
-                expr.get_flux_or_lift_text(),
-                self.flux_stringify_mapper(expr.flux, PREC_NONE))
+    def map_face_mass_operator(self, expr, enclosing_prec):
+        return "FaceM" + self._format_op_dd(expr)
 
-    def map_bdry_flux(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "B[%s]%s(%s)" % (
-                self._format_btag(expr.boundary_tag),
-                expr.get_flux_or_lift_text(),
-                self.flux_stringify_mapper(expr.flux, PREC_NONE))
+    def map_opposite_interior_face_swap(self, expr, enclosing_prec):
+        return "OppSwap" + self._format_op_dd(expr)
 
-    def map_quad_flux(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "Q[%s]%s(%s)" % (
-                expr.quadrature_tag,
-                expr.get_flux_or_lift_text(),
-                self.flux_stringify_mapper(expr.flux, PREC_NONE))
-
-    def map_quad_bdry_flux(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "Q[%s]B[%s]%s(%s)" % (
-                expr.quadrature_tag,
-                self._format_btag(expr.boundary_tag),
-                expr.get_flux_or_lift_text(),
-                self.flux_stringify_mapper(expr.flux, PREC_NONE))
-
-    def map_whole_domain_flux(self, expr, enclosing_prec):
-        # used from grudge.backends.cuda.optemplate
-        if expr.is_lift:
-            opname = "WLift"
-        else:
-            opname = "WFlux"
-
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "%s(%s)" % (opname,
-                self.rec(expr.rebuild_optemplate(), PREC_NONE))
     # }}}
-
-    def map_elementwise_max(self, expr, enclosing_prec):
-        return "ElWMax" + self._format_op_props(expr)
-
-    def map_boundarize(self, expr, enclosing_prec):
-        return "Boundarize<tag=%s>%s" % (
-                self._format_btag(expr.tag),
-                self._format_op_props(expr))
-
-    def map_flux_exchange(self, expr, enclosing_prec):
-        from pymbolic.mapper.stringifier import PREC_NONE
-        return "FExch<idx=%s,rank=%d>(%s)" % (expr.index, expr.rank,
-                ", ".join(self.rec(arg, PREC_NONE) for arg in expr.arg_fields))
 
     def map_ones(self, expr, enclosing_prec):
         return "Ones" + self._format_op_props(expr)
@@ -738,10 +663,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # {{{ geometry data
 
     def map_node_coordinate_component(self, expr, enclosing_prec):
-        if expr.quadrature_tag is None:
-            return "x[%d]" % expr.axis
-        else:
-            return ("Q[%s]x[%d]" % (expr.quadrature_tag, expr.axis))
+        return "x[%d]@%s" % (expr.axis, self._format_dd(expr.dd))
 
     # }}}
 
@@ -754,100 +676,17 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     def map_c_function(self, expr, enclosing_prec):
         return expr.name
 
-    def map_scalar_parameter(self, expr, enclosing_prec):
-        return "ScalarPar[%s]" % expr.name
+    def map_grudge_variable(self, expr, enclosing_prec):
+        return "%s:%s" % (expr.name, self._format_dd(expr.dd))
 
-    def map_quad_grid_upsampler(self, expr, enclosing_prec):
-        return "Upsamp" + self._format_op_props(expr)
-
-    def map_quad_int_faces_grid_upsampler(self, expr, enclosing_prec):
-        return "ToIntFaceQ[%s]" % expr.quadrature_tag
+    def map_interpolation(self, expr, enclosing_prec):
+        return "Interp" + self._format_op_dd(expr)
 
 
 class PrettyStringifyMapper(
         pymbolic.mapper.stringifier.CSESplittingStringifyMapperMixin,
         StringifyMapper):
-    def __init__(self):
-        pymbolic.mapper.stringifier.CSESplittingStringifyMapperMixin.__init__(self)
-        StringifyMapper.__init__(self)
-
-        self.flux_to_number = {}
-        self.flux_string_list = []
-
-        self.bc_to_number = {}
-        self.bc_string_list = []
-
-        from grudge.symbolic.flux.mappers import PrettyFluxStringifyMapper
-        self.flux_stringify_mapper = PrettyFluxStringifyMapper()
-
-    def get_flux_number(self, flux):
-        try:
-            return self.flux_to_number[flux]
-        except KeyError:
-            from pymbolic.mapper.stringifier import PREC_NONE
-            str_flux = self.flux_stringify_mapper(flux, PREC_NONE)
-
-            flux_number = len(self.flux_to_number)
-            self.flux_string_list.append(str_flux)
-            self.flux_to_number[flux] = flux_number
-            return flux_number
-
-    def map_boundary_pair(self, expr, enclosing_prec):
-        try:
-            bc_number = self.bc_to_number[expr]
-        except KeyError:
-            from pymbolic.mapper.stringifier import PREC_NONE
-            str_bc = StringifyMapper.map_boundary_pair(self, expr, PREC_NONE)
-
-            bc_number = len(self.bc_to_number)
-            self.bc_string_list.append(str_bc)
-            self.bc_to_number[expr] = bc_number
-
-        return "BC%d@%s" % (bc_number, self._format_btag(expr.tag))
-
-    def map_operator_binding(self, expr, enclosing_prec):
-        if isinstance(expr.op, op.RestrictToBoundary):
-            from pymbolic.mapper.stringifier import PREC_CALL, PREC_SUM
-            return self.parenthesize_if_needed(
-                    "%s@%s" % (
-                        self.rec(expr.field, PREC_CALL),
-                        self._format_btag(expr.op.tag)),
-                    enclosing_prec, PREC_SUM)
-        else:
-            return StringifyMapper.map_operator_binding(
-                    self, expr, enclosing_prec)
-
-    def get_bc_strings(self):
-        return ["BC%d : %s" % (i, bc_str)
-                for i, bc_str in enumerate(self.bc_string_list)]
-
-    def get_flux_strings(self):
-        return ["Flux%d : %s" % (i, flux_str)
-                for i, flux_str in enumerate(self.flux_string_list)]
-
-    def map_flux(self, expr, enclosing_prec):
-        return "%s%d" % (
-                expr.get_flux_or_lift_text(),
-                self.get_flux_number(expr.flux))
-
-    def map_bdry_flux(self, expr, enclosing_prec):
-        return "B[%s]%s%d" % (
-                expr.boundary_tag,
-                expr.get_flux_or_lift_text(),
-                self.get_flux_number(expr.flux))
-
-    def map_quad_flux(self, expr, enclosing_prec):
-        return "Q[%s]%s%d" % (
-                expr.quadrature_tag,
-                expr.get_flux_or_lift_text(),
-                self.get_flux_number(expr.flux))
-
-    def map_quad_bdry_flux(self, expr, enclosing_prec):
-        return "Q[%s]B[%s]%s%d" % (
-                expr.quadrature_tag,
-                expr.boundary_tag,
-                expr.get_flux_or_lift_text(),
-                self.get_flux_number(expr.flux))
+    pass
 
 
 class NoCSEStringifyMapper(StringifyMapper):
@@ -974,115 +813,7 @@ class CommutativeConstantFoldingMapper(
         if is_zero(field):
             return 0
 
-        if isinstance(expr.op, op.FluxOperatorBase):
-            if isinstance(field, sym.BoundaryPair):
-                return self.remove_zeros_from_boundary_flux(expr.op, field)
-            else:
-                return self.remove_zeros_from_interior_flux(expr.op, field)
-        else:
-            return expr.op(field)
-
-    # {{{ remove zeros from interior flux
-    def remove_zeros_from_interior_flux(self, op, vol_field):
-        from pytools.obj_array import is_obj_array, make_obj_array
-        if not is_obj_array(vol_field):
-            vol_field = [vol_field]
-
-        subst_map = {}
-
-        from grudge.tools import is_zero
-
-        # process volume field
-        new_vol_field = []
-        new_idx = 0
-        for i, flux_arg in enumerate(vol_field):
-            flux_arg = self.rec(flux_arg)
-
-            if is_zero(flux_arg):
-                subst_map[sym_flux.FieldComponent(i, is_interior=True)] = 0
-                subst_map[sym_flux.FieldComponent(i, is_interior=False)] = 0
-            else:
-                new_vol_field.append(flux_arg)
-                subst_map[sym_flux.FieldComponent(i, is_interior=True)] = \
-                        sym_flux.FieldComponent(new_idx, is_interior=True)
-                subst_map[sym_flux.FieldComponent(i, is_interior=False)] = \
-                        sym_flux.FieldComponent(new_idx, is_interior=False)
-                new_idx += 1
-
-        # substitute results into flux
-        def sub_flux(expr):
-            return subst_map.get(expr, expr)
-
-        from grudge.symbolic.flux.mappers import FluxSubstitutionMapper
-        new_flux = FluxSubstitutionMapper(sub_flux)(op.flux)
-
-        if is_zero(new_flux):
-            return 0
-        else:
-            return type(op)(new_flux, *op.__getinitargs__()[1:])(
-                    make_obj_array(new_vol_field))
-
-    # }}}
-
-    # {{{ remove zeros from boundary flux
-    def remove_zeros_from_boundary_flux(self, op, bpair):
-        vol_field = bpair.field
-        bdry_field = bpair.bfield
-        from pytools.obj_array import is_obj_array, make_obj_array
-        if not is_obj_array(vol_field):
-            vol_field = [vol_field]
-        if not is_obj_array(bdry_field):
-            bdry_field = [bdry_field]
-
-        subst_map = {}
-
-        # process volume field
-        from grudge.tools import is_zero
-        new_vol_field = []
-        new_idx = 0
-        for i, flux_arg in enumerate(vol_field):
-            fc = sym_flux.FieldComponent(i, is_interior=True)
-            flux_arg = self.rec(flux_arg)
-
-            if is_zero(flux_arg):
-                subst_map[fc] = 0
-            else:
-                new_vol_field.append(flux_arg)
-                subst_map[fc] = sym_flux.FieldComponent(new_idx, is_interior=True)
-                new_idx += 1
-
-        # process boundary field
-        new_bdry_field = []
-        new_idx = 0
-        for i, flux_arg in enumerate(bdry_field):
-            fc = sym_flux.FieldComponent(i, is_interior=False)
-            flux_arg = self.rec(flux_arg)
-
-            if is_zero(flux_arg):
-                subst_map[fc] = 0
-            else:
-                new_bdry_field.append(flux_arg)
-                subst_map[fc] = sym_flux.FieldComponent(new_idx, is_interior=False)
-                new_idx += 1
-
-        # substitute results into flux
-        def sub_flux(expr):
-            return subst_map.get(expr, expr)
-
-        from grudge.symbolic.flux.mappers import FluxSubstitutionMapper
-        new_flux = FluxSubstitutionMapper(sub_flux)(op.flux)
-
-        if is_zero(new_flux):
-            return 0
-        else:
-            from grudge.symbolic.primitives import BoundaryPair
-            return type(op)(new_flux, *op.__getinitargs__()[1:])(
-                    BoundaryPair(
-                        make_obj_array(new_vol_field),
-                        make_obj_array(new_bdry_field),
-                        bpair.tag))
-
-    # }}}
+        return expr.op(field)
 
 
 class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
@@ -1094,8 +825,13 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
             IdentityMapper.map_common_subexpression
 
     def map_operator_binding(self, expr):
-        if (isinstance(expr.op, op.BoundaryFluxOperatorBase) and
-                len(self.mesh.tag_to_boundary.get(expr.op.boundary_tag, [])) == 0):
+        from meshmode.mesh import is_boundary_tag_empty
+        if (isinstance(expr.op, sym.InterpolationOperator)
+                and expr.op.dd_out.is_boundary()
+                and expr.op.dd_out.domain_tag not in [
+                    sym.FRESTR_ALL_FACES, sym.FRESTR_INTERIOR_FACES]
+                and is_boundary_tag_empty(self.mesh,
+                    expr.op.dd_out.domain_tag)):
             return 0
         else:
             return IdentityMapper.map_operator_binding(self, expr)
@@ -1139,7 +875,7 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
                 else:
                     return self.rec(expr, derivatives)
 
-            for operator, operands in six.iteritem(sub_derivatives):
+            for operator, operands in six.iteritems(sub_derivatives):
                 for operand in operands:
                     derivatives.setdefault(operator, []).append(
                             factor*operand)
@@ -1283,9 +1019,6 @@ class InverseMassContractor(CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
-    def map_boundary_pair(self, bp):
-        return sym.BoundaryPair(self.rec(bp.field), self.rec(bp.bfield), bp.tag)
-
     def map_operator_binding(self, binding):
         # we only care about bindings of inverse mass operators
 
@@ -1333,62 +1066,23 @@ class ErrorChecker(CSECachingMapperMixin, IdentityMapper):
 # }}}
 
 
-# {{{ collectors for various optemplate components
+# {{{ collectors for various symbolic operator components
 
 class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMixin):
     def combine(self, values):
         from pytools import flatten
         return set(flatten(values))
 
-    def map_constant(self, bpair):
+    def map_constant(self, expr, *args, **kwargs):
         return set()
 
-    map_operator = map_constant
-    map_variable = map_constant
-    map_ones = map_constant
-    map_node_coordinate_component = map_constant
-    map_scalar_parameter = map_constant
-    map_c_function = map_constant
+    map_grudge_variable = map_constant
+    map_c_function = map_grudge_variable
 
-    def map_whole_domain_flux(self, expr):
-        result = set()
+    map_ones = map_grudge_variable
+    map_node_coordinate_component = map_grudge_variable
 
-        for ii in expr.interiors:
-            result.update(self.rec(ii.field_expr))
-
-        for bi in expr.boundaries:
-            result.update(self.rec(bi.bpair.field))
-            result.update(self.rec(bi.bpair.bfield))
-
-        return result
-
-
-class FluxCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper):
-    map_common_subexpression_uncached = \
-            CombineMapper.map_common_subexpression
-
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.FluxOperatorBase):
-            result = set([expr])
-        else:
-            result = set()
-
-        return result | CombineMapper.map_operator_binding(self, expr)
-
-    def map_whole_domain_flux(self, wdflux):
-        result = set([wdflux])
-
-        for intr in wdflux.interiors:
-            result |= self.rec(intr.field_expr)
-        for bdry in wdflux.boundaries:
-            result |= self.rec(bdry.bpair)
-
-        return result
-
-
-class BoundaryTagCollector(CollectorMixin, CombineMapper):
-    def map_boundary_pair(self, bpair):
-        return set([bpair.tag])
+    map_operator = map_grudge_variable
 
 
 # I'm not sure this works still.
@@ -1425,113 +1119,7 @@ class FluxExchangeCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper
 # {{{ evaluation
 
 class Evaluator(pymbolic.mapper.evaluator.EvaluationMapper):
-    def map_boundary_pair(self, bp):
-        return sym.BoundaryPair(self.rec(bp.field), self.rec(bp.bfield), bp.tag)
-# }}}
-
-
-# {{{ boundary combiner
-
-class BoundaryCombiner(CSECachingMapperMixin, IdentityMapper):
-    """Combines inner fluxes and boundary fluxes into a
-    single, whole-domain operator of type
-    :class:`grudge.symbolic.operators.WholeDomainFluxOperator`.
-    """
-    def __init__(self, mesh):
-        self.mesh = mesh
-
-    map_common_subexpression_uncached = \
-            IdentityMapper.map_common_subexpression
-
-    def gather_one_wdflux(self, expressions):
-        from grudge.symbolic.primitives import OperatorBinding, BoundaryPair
-
-        interiors = []
-        boundaries = []
-        is_lift = None
-        # Since None is a valid value of quadrature tags, use
-        # the empty list to symbolize "not known", and add to
-        # list once something is known.
-        quad_tag = []
-
-        rest = []
-
-        for ch in expressions:
-            if (isinstance(ch, OperatorBinding)
-                    and isinstance(ch.op, op.FluxOperatorBase)):
-                skip = False
-
-                my_is_lift = ch.op.is_lift
-
-                if is_lift is None:
-                    is_lift = my_is_lift
-                else:
-                    if is_lift != my_is_lift:
-                        skip = True
-
-                if isinstance(ch.op, op.QuadratureFluxOperatorBase):
-                    my_quad_tag = ch.op.quadrature_tag
-                else:
-                    my_quad_tag = None
-
-                if quad_tag:
-                    if quad_tag[0] != my_quad_tag:
-                        skip = True
-                else:
-                    quad_tag.append(my_quad_tag)
-
-                if skip:
-                    rest.append(ch)
-                    continue
-
-                if isinstance(ch.field, BoundaryPair):
-                    bpair = self.rec(ch.field)
-                    from meshmode.mesh import is_boundary_tag_empty
-                    if not is_boundary_tag_empty(self.mesh, bpair.tag):
-                        boundaries.append(op.WholeDomainFluxOperator.BoundaryInfo(
-                            flux_expr=ch.op.flux,
-                            bpair=bpair))
-                else:
-                    interiors.append(op.WholeDomainFluxOperator.InteriorInfo(
-                            flux_expr=ch.op.flux,
-                            field_expr=self.rec(ch.field)))
-            else:
-                rest.append(ch)
-
-        if interiors or boundaries:
-            wdf = op.WholeDomainFluxOperator(
-                    is_lift=is_lift,
-                    interiors=interiors,
-                    boundaries=boundaries,
-                    quadrature_tag=quad_tag[0])
-        else:
-            wdf = None
-
-        return wdf, rest
-
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.FluxOperatorBase):
-            wdf, rest = self.gather_one_wdflux([expr])
-            assert not rest
-            return wdf
-        else:
-            return IdentityMapper \
-                    .map_operator_binding(self, expr)
-
-    def map_sum(self, expr):
-        # FIXME: With flux joining now in the compiler, this is
-        # probably now unnecessary.
-
-        from pymbolic.primitives import flattened_sum
-
-        result = 0
-        expressions = expr.children
-        while True:
-            wdf, expressions = self.gather_one_wdflux(expressions)
-            if wdf is not None:
-                result += wdf
-            else:
-                return result + flattened_sum(self.rec(r_i) for r_i in expressions)
+    pass
 
 # }}}
 

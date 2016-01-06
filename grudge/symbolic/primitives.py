@@ -29,6 +29,8 @@ from six.moves import range, intern
 import numpy as np
 import pymbolic.primitives
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from meshmode.discretization.connection import (  # noqa
+        FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
 
 from pymbolic.primitives import (  # noqa
         cse_scope as cse_scope_base,
@@ -37,24 +39,40 @@ from pymbolic.geometric_algebra import MultiVector
 from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
-class LeafBase(pymbolic.primitives.AlgebraicLeaf):
+class ExpressionBase(pymbolic.primitives.Expression):
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
 
-class VTAG_ALL:
-    """This is used in a 'where' field to denote the volume discretization."""
-    pass
+def _sym():
+    # A hack to make referring to grudge.sym possible without
+    # circular imports and tons of typing.
+
+    from grudge import sym
+    return sym
 
 
 __doc__ = """
+
+.. currentmodule:: grudge.sym
+
+DOF description
+^^^^^^^^^^^^^^^
+
+.. autoclass:: DTAG_SCALAR
+.. autoclass:: DTAG_VOLUME_ALL
+.. autoclass:: QTAG_NONE
+.. autoclass:: DOFDesc
+.. data:: DD_SCALAR
+.. data:: DD_VOLUME
+
 Symbols
 ^^^^^^^
 
-.. autoclass:: Field
-.. autoclass:: make_sym_vector
+.. autoclass:: Variable
 .. autoclass:: make_sym_array
+.. autoclass:: make_sym_mv
 .. autoclass:: ScalarParameter
 .. autoclass:: CFunction
 
@@ -82,33 +100,205 @@ Geometry data
 """
 
 
+# {{{ DOF description
+
+class DTAG_SCALAR:
+    pass
+
+
+class DTAG_VOLUME_ALL:
+    pass
+
+
+class QTAG_NONE:
+    pass
+
+
+class DOFDesc(object):
+    """Describes the meaning of degrees of freedom.
+
+    .. attribute:: domain_tag
+    .. attribute:: quadrature_tag
+    .. automethod:: is_scalar
+    .. automethod:: is_discretized
+    .. automethod:: is_volume
+    .. automethod:: is_boundary
+    .. automethod:: uses_quadrature
+    .. automethod:: with_qtag
+    .. automethod:: with_dtag
+    .. automethod:: __eq__
+    .. automethod:: __ne__
+    .. automethod:: __hash__
+    """
+
+    def __init__(self, domain_tag, quadrature_tag=None):
+        """
+        :arg domain_tag: One of the following:
+            :class:`grudge.sym.DTAG_SCALAR` (or the string ``"scalar"``),
+            :class:`grudge.sym.DTAG_VOLUME_ALL` (or the string ``"vol"``)
+            for the default volume discretization,
+            :class:`meshmode.discretization.connection.FRESTR_ALL_FACES`
+            (or the string ``"all_faces"``),
+            or
+            :class:`meshmode.discretization.connection.FRESTR_INTERIOR_FACES`
+            (or the string ``"int_faces"``),
+            or *None* to indicate that the geometry is not yet known.
+
+        :arg quadrature_tag:
+            *None* to indicate that the quadrature grid is not known,or
+            :class:`QTAG_NONE` to indicate the use of the basic discretization
+            grid, or a string to indicate the use of the thus-tagged quadratue
+            grid.
+        """
+        if domain_tag == "scalar":
+            domain_tag = DTAG_SCALAR
+        elif domain_tag is DTAG_SCALAR:
+            domain_tag = DTAG_SCALAR
+        elif domain_tag == "vol":
+            domain_tag = DTAG_VOLUME_ALL
+        elif domain_tag is DTAG_VOLUME_ALL:
+            pass
+        elif domain_tag == "all_faces":
+            domain_tag = FRESTR_ALL_FACES
+        elif domain_tag is FRESTR_ALL_FACES:
+            pass
+        elif domain_tag == "int_faces":
+            domain_tag = FRESTR_INTERIOR_FACES
+        elif domain_tag is FRESTR_INTERIOR_FACES:
+            pass
+        elif domain_tag is None:
+            pass
+
+        if domain_tag is DTAG_SCALAR and quadrature_tag is not None:
+            raise ValueError("cannot have nontrivial quadrature tag on scalar")
+
+        self.domain_tag = domain_tag
+        self.quadrature_tag = quadrature_tag
+
+    def is_scalar(self):
+        return self.domain_tag is DTAG_SCALAR
+
+    def is_discretized(self):
+        return not self.is_scalar()
+
+    def is_volume(self):
+        return self.domain_tag is DTAG_VOLUME_ALL
+
+    def is_boundary(self):
+        return not self.is_volume()
+
+    def uses_quadrature(self):
+        if self.quadrature_tag is None:
+            return False
+        if self.quadrature_tag is QTAG_NONE:
+            return False
+
+        return True
+
+    def with_qtag(self, qtag):
+        return type(self)(domain_tag=self.domain_tag, quadrature_tag=qtag)
+
+    def with_dtag(self, dtag):
+        return type(self)(domain_tag=dtag, quadrature_tag=self.quadrature_tag)
+
+    def __eq__(self, other):
+        return (type(self) == type(other)
+                and self.domain_tag == other.domain_tag
+                and self.quadrature_tag == other.quadrature_tag)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((type(self), self.domain_tag, self.quadrature_tag))
+
+    def __repr__(self):
+        def fmt(s):
+            if isinstance(s, type):
+                return s.__name__
+            else:
+                return repr(s)
+
+        return "DOFDesc(%s, %s)" % (fmt(self.domain_tag), fmt(self.quadrature_tag))
+
+
+DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
+
+DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
+
+
+def as_dofdesc(dd):
+    if isinstance(dd, DOFDesc):
+        return dd
+    else:
+        return DOFDesc(dd, None)
+
+# }}}
+
+
+# {{{ has-dof-desc mix-in
+
+class HasDOFDesc(object):
+    """
+    .. attribute:: dd
+
+        an instance of :class:`grudge.sym.DOFDesc` describing the
+        discretization on which this property is given.
+    """
+
+    def __init__(self, dd):
+        self.dd = dd
+
+    def __getinitargs__(self):
+        return (self.dd,)
+
+    def with_dd(self, dd):
+        """Return a copy of *self*, modified to the given DOF descriptor.
+        """
+        return type(self)(
+                *self.__getinitargs__()[:-1],
+                dd=dd or self.dd)
+
+# }}}
+
+
 # {{{ variables
 
 class cse_scope(cse_scope_base):  # noqa
     DISCRETIZATION = "grudge_discretization"
 
 
-Field = pymbolic.primitives.Variable
+class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
+    def __init__(self, name, dd=None):
+        if dd is None:
+            dd = DD_VOLUME
 
-make_sym_vector = pymbolic.primitives.make_sym_vector
-make_sym_array = pymbolic.primitives.make_sym_array
+        HasDOFDesc.__init__(self, dd)
+        pymbolic.primitives.Variable.__init__(self, name)
+
+    def __getinitargs__(self):
+        return (self.name, self.dd,)
+
+    mapper_method = "map_grudge_variable"
+
+var = Variable
 
 
-def make_field(var_or_string):
-    if not isinstance(var_or_string, pymbolic.primitives.Expression):
-        return Field(var_or_string)
-    else:
-        return var_or_string
+class ScalarVariable(Variable):
+    def __init__(self, name):
+        super(ScalarVariable, self).__init__(name, DD_SCALAR)
 
 
-class ScalarParameter(pymbolic.primitives.Variable):
-    """A placeholder for a user-supplied scalar variable."""
+def make_sym_array(name, shape, dd=None):
+    def var_factory(name):
+        return Variable(name, dd)
 
-    def stringifier(self):
-        from grudge.symbolic.mappers import StringifyMapper
-        return StringifyMapper
+    return pymbolic.primitives.make_sym_array(name, shape, var_factory)
 
-    mapper_method = intern("map_scalar_parameter")
+
+def make_sym_mv(name, dim, var_factory=None):
+    return MultiVector(
+            make_sym_array(name, dim, var_factory))
 
 
 class CFunction(pymbolic.primitives.Variable):
@@ -139,7 +329,7 @@ cos = CFunction("cos")
 
 # {{{ technical helpers
 
-class OperatorBinding(LeafBase):
+class OperatorBinding(ExpressionBase):
     def __init__(self, op, field):
         self.op = op
         self.field = field
@@ -179,99 +369,47 @@ class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
     def get_extra_properties(self):
         return {"priority": self.priority}
 
-
-class BoundaryPair(LeafBase):
-    """Represents a pairing of a volume and a boundary field, used for the
-    application of boundary fluxes.
-    """
-
-    def __init__(self, field, bfield, tag=BTAG_ALL):
-        self.field = field
-        self.bfield = bfield
-        self.tag = tag
-
-    mapper_method = intern("map_boundary_pair")
-
-    def __getinitargs__(self):
-        return (self.field, self.bfield, self.tag)
-
-    def get_hash(self):
-        from pytools.obj_array import obj_array_to_hashable
-
-        return hash((self.__class__,
-            obj_array_to_hashable(self.field),
-            obj_array_to_hashable(self.bfield),
-            self.tag))
-
-    def is_equal(self, other):
-        from pytools.obj_array import obj_array_equal
-        return (self.__class__ == other.__class__
-                and obj_array_equal(other.field,  self.field)
-                and obj_array_equal(other.bfield, self.bfield)
-                and other.tag == self.tag)
-
 # }}}
 
 
-class Ones(LeafBase):
-    def __init__(self, quadrature_tag=None, where=None):
-        self.where = where
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.where, self.quadrature_tag,)
-
+class Ones(ExpressionBase, HasDOFDesc):
     mapper_method = intern("map_ones")
 
 
 # {{{ geometry data
 
-class DiscretizationProperty(LeafBase):
-    """
-    .. attribute:: where
-
-        *None* for the default volume discretization or a boundary
-        tag for an operation on the denoted part of the boundary.
-
-    .. attribute:: quadrature_tag
-
-        quadrature tag for the grid on
-        which this geometric factor is needed, or None for
-        nodal representation.
-    """
-
-    def __init__(self, quadrature_tag, where=None):
-        self.quadrature_tag = quadrature_tag
-        self.where = where
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag, self.where)
+class DiscretizationProperty(ExpressionBase, HasDOFDesc):
+    pass
 
 
 class NodeCoordinateComponent(DiscretizationProperty):
+    def __init__(self, axis, dd=None):
+        if dd is None:
+            dd = DD_VOLUME
 
-    def __init__(self, axis, quadrature_tag=None, where=None):
-        super(NodeCoordinateComponent, self).__init__(quadrature_tag, where)
+        if not dd.is_discretized():
+            raise ValueError("dd must be a discretization for "
+                    "NodeCoordinateComponent")
+
+        super(NodeCoordinateComponent, self).__init__(dd)
         self.axis = axis
 
     def __getinitargs__(self):
-        return (self.axis, self.quadrature_tag)
+        return (self.axis, self.dd)
 
     mapper_method = intern("map_node_coordinate_component")
 
 
-def nodes(ambient_dim, quadrature_tag=None, where=None):
-    return np.array([NodeCoordinateComponent(i, quadrature_tag, where)
+def nodes(ambient_dim, dd=None):
+    return np.array([NodeCoordinateComponent(i, dd)
         for i in range(ambient_dim)], dtype=object)
 
 
-def mv_nodes(ambient_dim, quadrature_tag=None, where=None):
-    return MultiVector(
-            nodes(ambient_dim, quadrature_tag=quadrature_tag, where=where))
+def mv_nodes(ambient_dim, dd=None):
+    return MultiVector(nodes(ambient_dim, dd))
 
 
-def forward_metric_derivative(xyz_axis, rst_axis, where=None,
-        quadrature_tag=None):
+def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
     r"""
     Pointwise metric derivatives representing
 
@@ -279,15 +417,17 @@ def forward_metric_derivative(xyz_axis, rst_axis, where=None,
 
         \frac{d x_{\mathtt{xyz\_axis}} }{d r_{\mathtt{rst\_axis}} }
     """
-    from grudge.symbolic.operators import (
-            ReferenceDifferentiationOperator, QuadratureGridUpsampler)
-    diff_op = ReferenceDifferentiationOperator(
-            rst_axis, where=where)
+    if dd is None:
+        dd = DD_VOLUME
 
-    result = diff_op(NodeCoordinateComponent(xyz_axis, where=where))
+    inner_dd = dd.with_qtag(QTAG_NONE)
 
-    if quadrature_tag is not None:
-        result = QuadratureGridUpsampler(quadrature_tag, where)(result)
+    diff_op = _sym().RefDiffOperator(rst_axis, inner_dd)
+
+    result = diff_op(NodeCoordinateComponent(xyz_axis, inner_dd))
+
+    if dd.uses_quadrature():
+        result = _sym().interp(inner_dd, dd)(result)
 
     return cse(
             result,
@@ -295,35 +435,29 @@ def forward_metric_derivative(xyz_axis, rst_axis, where=None,
             scope=cse_scope.DISCRETIZATION)
 
 
-def forward_metric_derivative_vector(ambient_dim, rst_axis, where=None,
-        quadrature_tag=None):
+def forward_metric_derivative_vector(ambient_dim, rst_axis, dd=None):
     return make_obj_array([
-        forward_metric_derivative(
-            i, rst_axis, where=where, quadrature_tag=quadrature_tag)
+        forward_metric_derivative(i, rst_axis, dd=dd)
         for i in range(ambient_dim)])
 
 
-def forward_metric_derivative_mv(ambient_dim, rst_axis, where=None,
-        quadrature_tag=None):
+def forward_metric_derivative_mv(ambient_dim, rst_axis, dd=None):
     return MultiVector(
-        forward_metric_derivative_vector(
-            ambient_dim, rst_axis, where=where, quadrature_tag=quadrature_tag))
+        forward_metric_derivative_vector(ambient_dim, rst_axis, dd=dd))
 
 
-def parametrization_derivative(ambient_dim, dim=None, where=None,
-        quadrature_tag=None):
+def parametrization_derivative(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
     from pytools import product
     return product(
-        forward_metric_derivative_mv(
-            ambient_dim, rst_axis, where, quadrature_tag)
+        forward_metric_derivative_mv(ambient_dim, rst_axis, dd)
         for rst_axis in range(dim))
 
 
 def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
-        where=None, quadrature_tag=None):
+        dd=None):
     if dim is None:
         dim = ambient_dim
 
@@ -332,8 +466,7 @@ def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
                 "the derivative matrix is not square")
 
     par_vecs = [
-        forward_metric_derivative_mv(
-            ambient_dim, rst, where, quadrature_tag)
+        forward_metric_derivative_mv(ambient_dim, rst, dd)
         for rst in range(dim)]
 
     # Yay Cramer's rule! (o rly?)
@@ -352,7 +485,7 @@ def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
 
     volume_pseudoscalar_inv = cse(outerprod(
         forward_metric_derivative_mv(
-            ambient_dim, rst_axis, where, quadrature_tag)
+            ambient_dim, rst_axis, dd=dd)
         for rst_axis in range(dim)).inv())
 
     return cse(
@@ -362,20 +495,17 @@ def inverse_metric_derivative(rst_axis, xyz_axis, ambient_dim, dim=None,
             scope=cse_scope.DISCRETIZATION)
 
 
-def forward_metric_derivative_mat(ambient_dim, dim=None,
-        where=None, quadrature_tag=None):
+def forward_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
     result = np.zeros((ambient_dim, dim), dtype=np.object)
     for j in range(dim):
-        result[:, j] = forward_metric_derivative_vector(ambient_dim, j,
-                where=where, quadrature_tag=quadrature_tag)
+        result[:, j] = forward_metric_derivative_vector(ambient_dim, j, dd=dd)
     return result
 
 
-def inverse_metric_derivative_mat(ambient_dim, dim=None,
-        where=None, quadrature_tag=None):
+def inverse_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
@@ -383,33 +513,36 @@ def inverse_metric_derivative_mat(ambient_dim, dim=None,
     for i in range(dim):
         for j in range(ambient_dim):
             result[i, j] = inverse_metric_derivative(
-                    i, j, ambient_dim, dim,
-                    where=where, quadrature_tag=quadrature_tag)
+                    i, j, ambient_dim, dim, dd=dd)
 
     return result
 
 
-def pseudoscalar(ambient_dim, dim=None, where=None, quadrature_tag=None):
+def pseudoscalar(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
     return cse(
-        parametrization_derivative(ambient_dim, dim, where=where,
-            quadrature_tag=quadrature_tag)
+        parametrization_derivative(ambient_dim, dim, dd=dd)
         .project_max_grade(),
         "pseudoscalar", cse_scope.DISCRETIZATION)
 
 
-def area_element(ambient_dim, dim=None, where=None, quadrature_tag=None):
+def area_element(ambient_dim, dim=None, dd=None):
     return cse(
             sqrt(
-                pseudoscalar(ambient_dim, dim, where, quadrature_tag=quadrature_tag)
+                pseudoscalar(ambient_dim, dim, dd=dd)
                 .norm_squared()),
             "area_element", cse_scope.DISCRETIZATION)
 
 
-def mv_normal(tag, ambient_dim, dim=None, quadrature_tag=None):
+def mv_normal(dd, ambient_dim, dim=None):
     """Exterior unit normal as a MultiVector."""
+
+    dd = as_dofdesc(dd)
+
+    if not dd.is_boundary():
+        raise ValueError("may only request normals on boundaries")
 
     if dim is None:
         dim = ambient_dim - 1
@@ -418,16 +551,95 @@ def mv_normal(tag, ambient_dim, dim=None, quadrature_tag=None):
     # exterior normals for positively oriented curves.
 
     pder = (
-            pseudoscalar(ambient_dim, dim, tag, quadrature_tag=quadrature_tag)
+            pseudoscalar(ambient_dim, dim, dd=dd)
             /
-            area_element(ambient_dim, dim, tag, quadrature_tag=quadrature_tag))
+            area_element(ambient_dim, dim, dd=dd))
     return cse(pder.I | pder, "normal",
             cse_scope.DISCRETIZATION)
 
 
-def normal(tag, ambient_dim, dim=None, quadrature_tag=None):
-    return mv_normal(tag, ambient_dim, dim,
-            quadrature_tag=quadrature_tag).as_vector()
+def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
+    return mv_normal(dd, ambient_dim, dim).as_vector()
+
+# }}}
+
+
+# {{{ flux parir
+
+class FluxPair:
+    """
+    .. attribute:: dd
+
+        an instance of :class:`grudge.sym.DOFDesc` describing the
+        discretization on which :attr:`interior` and :attr:`exterior`
+        live.
+
+    .. attribute:: interior
+
+        an expression representing the interior value to
+        be used for the flux.
+
+    .. attribute:: exterior
+
+        an expression representing the exterior value to
+        be used for the flux.
+    """
+    def __init__(self, dd, interior, exterior):
+        """
+        """
+
+        self.dd = as_dofdesc(dd)
+        self.interior = interior
+        self.exterior = exterior
+
+    def __getitem__(self, index):
+        return FluxPair(
+                self.dd,
+                self.exterior[index],
+                self.interior[index])
+
+    @property
+    def int(self):
+        return self.interior
+
+    @property
+    def ext(self):
+        return self.exterior
+
+    @property
+    def avg(self):
+        return 0.5*(self.int + self.ext)
+
+
+def int_fpair(expression):
+    i = cse(_sym().interp("vol", "int_faces")(expression))
+    e = cse(_sym().OppositeInteriorFaceSwap()(i))
+    return FluxPair("int_faces", i, e)
+
+
+def bdry_fpair(dd, interior, exterior):
+    """
+    :arg interior: an expression that already lives on the boundary
+        representing the interior value to be used
+        for the flux.
+    :arg exterior: an expression that already lives on the boundary
+        representing the exterior value to be used
+        for the flux.
+    """
+    return FluxPair(dd, interior, exterior)
+
+
+def bv_fpair(dd, interior, exterior):
+    """
+    :arg interior: an expression that lives in the volume
+        and will be restricted to the boundary identified by
+        *tag* before use.
+    :arg exterior: an expression that already lives on the boundary
+        representing the exterior value to be used
+        for the flux.
+    """
+    interior = _sym().cse(_sym().interp("vol", dd)(interior))
+    return FluxPair(dd, interior, exterior)
 
 # }}}
 

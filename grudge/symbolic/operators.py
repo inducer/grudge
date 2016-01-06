@@ -27,23 +27,36 @@ THE SOFTWARE.
 from six.moves import intern
 
 import numpy as np
-import numpy.linalg as la
+import numpy.linalg as la  # noqa
 import pymbolic.primitives
-from pytools import Record, memoize_method
+
+
+def _sym():
+    # A hack to make referring to grudge.sym possible without
+    # circular imports and tons of typing.
+
+    from grudge import sym
+    return sym
 
 
 # {{{ base classes
 
-class Operator(pymbolic.primitives.Leaf):
+class Operator(pymbolic.primitives.Expression):
     """
-    .. attribute:: where
+    .. attribute:: dd_in
 
-        *None* for the default volume discretization or a boundary
-        tag for an operation on the denoted part of the boundary.
+        an instance of :class:`grudge.sym.DOFDesc` describing the
+        input discretization.
+
+    .. attribute:: dd_out
+
+        an instance of :class:`grudge.sym.DOFDesc` describing the
+        output discretization.
     """
 
-    def __init__(self, where=None):
-        self.where = where
+    def __init__(self, dd_in, dd_out):
+        self.dd_in = _sym().as_dofdesc(dd_in)
+        self.dd_out = _sym().as_dofdesc(dd_out)
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -62,23 +75,47 @@ class Operator(pymbolic.primitives.Leaf):
 
         return with_object_array_or_scalar(bind_one, expr)
 
-    def get_hash(self):
-        return hash((self.__class__,) + (self.__getinitargs__()))
-
-    def is_equal(self, other):
-        return self.__class__ == other.__class__ and \
-                self.__getinitargs__() == other.__getinitargs__()
+    def with_dd(self, dd_in=None, dd_out=None):
+        """Return a copy of *self*, modified to the given DOF descriptors.
+        """
+        return type(self)(
+                *self.__getinitargs__()[:-2],
+                dd_in=dd_in or self.dd_in,
+                dd_out=dd_out or self.dd_out)
 
     def __getinitargs__(self):
-        return (self.where,)
+        return (self.dd_in, self.dd_out,)
 
 # }}}
 
 
-# {{{ sum, integral, max
+class ElementwiseLinearOperator(Operator):
+    def matrix(self, element_group):
+        raise NotImplementedError
+
+    mapper_method = intern("map_elementwise_linear")
+
+
+class InterpolationOperator(Operator):
+    mapper_method = intern("map_interpolation")
+
+interp = InterpolationOperator
+
+
+class ElementwiseMaxOperator(Operator):
+    mapper_method = intern("map_elementwise_max")
+
+
+# {{{ nodal reduction: sum, integral, max
 
 class NodalReductionOperator(Operator):
-    pass
+    def __init__(self, dd_in, dd_out=None):
+        if dd_out is None:
+            dd_out = _sym().DD_SCALAR
+
+        assert dd_out.is_scalar()
+
+        super(NodalReductionOperator, self).__init__(dd_out=dd_out, dd_in=dd_in)
 
 
 class NodalSum(NodalReductionOperator):
@@ -100,16 +137,18 @@ class NodalMin(NodalReductionOperator):
 # {{{ global differentiation
 
 class DiffOperatorBase(Operator):
-    def __init__(self, xyz_axis):
-        Operator.__init__(self)
+    def __init__(self, xyz_axis, dd_in=None, dd_out=None):
+        if dd_in is None:
+            dd_in = _sym().DD_VOLUME
+        if dd_out is None:
+            dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+
+        super(DiffOperatorBase, self).__init__(dd_in, dd_out)
 
         self.xyz_axis = xyz_axis
 
     def __getinitargs__(self):
-        return (self.xyz_axis,)
-
-    def preimage_ranges(self, eg):
-        return eg.ranges
+        return (self.xyz_axis, self.dd_in, self.dd_out)
 
     def equal_except_for_axis(self, other):
         return (type(self) == type(other)
@@ -129,7 +168,7 @@ class StiffnessOperator(StrongFormDiffOperatorBase):
     mapper_method = intern("map_stiffness")
 
 
-class DifferentiationOperator(StrongFormDiffOperatorBase):
+class DiffOperator(StrongFormDiffOperatorBase):
     mapper_method = intern("map_diff")
 
 
@@ -140,46 +179,24 @@ class StiffnessTOperator(WeakFormDiffOperatorBase):
 class MInvSTOperator(WeakFormDiffOperatorBase):
     mapper_method = intern("map_minv_st")
 
-
-class QuadratureStiffnessTOperator(DiffOperatorBase):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`StiffnessTOperator` is applied to a quadrature
-        field, and then eliminated by
-        :class:`grudge.symbolic.mappers.GlobalToReferenceMapper`
-        in favor of operators on the reference element.
-    """
-
-    def __init__(self, xyz_axis, input_quadrature_tag, where=None):
-        super(QuadratureStiffnessTOperator, self).__init__(xyz_axis, where=where)
-        self.input_quadrature_tag = input_quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.xyz_axis, self.input_quadrature_tag, self.where)
-
-    mapper_method = intern("map_quad_stiffness_t")
-
-
-def DiffOperatorVector(els):
-    from grudge.tools import join_fields
-    return join_fields(*els)
-
 # }}}
 
 
 # {{{ reference-element differentiation
 
-class ReferenceDiffOperatorBase(Operator):
-    def __init__(self, rst_axis, where=None):
-        super(ReferenceDiffOperatorBase, self).__init__(where)
+class RefDiffOperatorBase(ElementwiseLinearOperator):
+    def __init__(self, rst_axis, dd_in=None, dd_out=None):
+        if dd_in is None:
+            dd_in = _sym().DD_VOLUME
+        if dd_out is None:
+            dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+
+        super(RefDiffOperatorBase, self).__init__(dd_in, dd_out)
 
         self.rst_axis = rst_axis
 
     def __getinitargs__(self):
-        return (self.rst_axis, self.where)
+        return (self.rst_axis, self.dd_in, self.dd_out)
 
     def equal_except_for_axis(self, other):
         return (type(self) == type(other)
@@ -187,85 +204,14 @@ class ReferenceDiffOperatorBase(Operator):
                 and self.__getinitargs__()[1:] == other.__getinitargs__()[1:])
 
 
-class ReferenceDifferentiationOperator(ReferenceDiffOperatorBase):
+class RefDiffOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_diff")
 
 
-class ReferenceStiffnessTOperator(ReferenceDiffOperatorBase):
+class RefStiffnessTOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_stiffness_t")
 
-
-class ReferenceQuadratureStiffnessTOperator(ReferenceDiffOperatorBase):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`StiffnessTOperator` is applied to a quadrature field.
-    """
-
-    def __init__(self, rst_axis, input_quadrature_tag, where=None):
-        ReferenceDiffOperatorBase.__init__(self, rst_axis, where)
-        self.input_quadrature_tag = input_quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.rst_axis,
-                self.input_quadrature_tag,
-                self.where)
-
-    mapper_method = intern("map_ref_quad_stiffness_t")
-
 # }}}
-
-# }}}
-
-
-# {{{ elementwise operators
-
-class ElementwiseLinearOperator(Operator):
-    def matrix(self, element_group):
-        raise NotImplementedError
-
-    mapper_method = intern("map_elementwise_linear")
-
-
-class ElementwiseMaxOperator(Operator):
-    mapper_method = intern("map_elementwise_max")
-
-
-# {{{ quadrature upsamplers
-
-class QuadratureGridUpsampler(Operator):
-    """In a user-specified optemplate, this operator can be used to interpolate
-    volume and boundary data to their corresponding quadrature grids.
-
-    In pre-processing, the boundary quad interpolation is specialized to
-    a separate operator, :class:`QuadratureBoundaryGridUpsampler`.
-    """
-    def __init__(self, quadrature_tag, where=None):
-        self.quadrature_tag = quadrature_tag
-        self.where = where
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag,)
-
-    mapper_method = intern("map_quad_grid_upsampler")
-
-
-class QuadratureInteriorFacesGridUpsampler(Operator):
-    """Interpolates nodal volume data to interior face data on a quadrature
-    grid.
-
-    Note that the "interior faces" grid includes faces lying opposite to the
-    boundary.
-    """
-    def __init__(self, quadrature_tag):
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag,)
-
-    mapper_method = intern("map_quad_int_faces_grid_upsampler")
 
 # }}}
 
@@ -273,7 +219,7 @@ class QuadratureInteriorFacesGridUpsampler(Operator):
 # {{{ various elementwise linear operators
 
 class FilterOperator(ElementwiseLinearOperator):
-    def __init__(self, mode_response_func):
+    def __init__(self, mode_response_func, dd_in=None, dd_out=None):
         """
         :param mode_response_func: A function mapping
           ``(mode_tuple, local_discretization)`` to a float indicating the
@@ -281,12 +227,27 @@ class FilterOperator(ElementwiseLinearOperator):
           (For example an instance of
           :class:`ExponentialFilterResponseFunction`.
         """
+        if dd_in is None:
+            dd_in = _sym().DD_VOLUME
+        if dd_out is None:
+            dd_out = dd_in
+
+        if dd_in.uses_quadrature():
+            raise ValueError("dd_in may not use quadrature")
+        if dd_in != dd_out:
+            raise ValueError("dd_in and dd_out must be identical")
+
+        super(FilterOperator, self).__init__(dd_in, dd_out)
+
         self.mode_response_func = mode_response_func
 
     def __getinitargs__(self):
-        return (self.mode_response_func,)
+        return (self.mode_response_func, self.dd_in, self.dd_out)
 
     def matrix(self, eg):
+        # FIXME
+        raise NotImplementedError()
+
         ldis = eg.local_discretization
 
         filter_coeffs = [self.mode_response_func(mid, ldis)
@@ -303,18 +264,26 @@ class FilterOperator(ElementwiseLinearOperator):
         return mat
 
 
-class OnesOperator(ElementwiseLinearOperator):
-    def matrix(self, eg):
-        ldis = eg.local_discretization
-
-        node_count = ldis.node_count()
-        return np.ones((node_count, node_count), dtype=np.float64)
-
-
 class AveragingOperator(ElementwiseLinearOperator):
+    def __init__(self, dd_in=None, dd_out=None):
+        if dd_in is None:
+            dd_in = _sym().DD_VOLUME
+        if dd_out is None:
+            dd_out = dd_in
+
+        if dd_in.uses_quadrature():
+            raise ValueError("dd_in may not use quadrature")
+        if dd_in != dd_out:
+            raise ValueError("dd_in and dd_out must be identical")
+
+        super(FilterOperator, self).__init__(dd_in, dd_out)
+
     def matrix(self, eg):
         # average matrix, so that AVE*fields = cellaverage(fields)
         # see Hesthaven and Warburton page 227
+
+        # FIXME
+        raise NotImplementedError()
 
         mmat = eg.local_discretization.mass_matrix()
         standard_el_vol = np.sum(np.dot(mmat, np.ones(mmat.shape[0])))
@@ -326,17 +295,13 @@ class AveragingOperator(ElementwiseLinearOperator):
 
 
 class InverseVandermondeOperator(ElementwiseLinearOperator):
-    def matrix(self, eg):
-        return np.asarray(
-                la.inv(eg.local_discretization.vandermonde()),
-                order="C")
+    def matrix(self, element_group):
+        raise NotImplementedError()  # FIXME
 
 
 class VandermondeOperator(ElementwiseLinearOperator):
-    def matrix(self, eg):
-        return np.asarray(
-                eg.local_discretization.vandermonde(),
-                order="C")
+    def matrix(self, element_group):
+        raise NotImplementedError()  # FIXME
 
 # }}}
 
@@ -346,7 +311,19 @@ class VandermondeOperator(ElementwiseLinearOperator):
 # {{{ mass operators
 
 class MassOperatorBase(Operator):
-    pass
+    def __init__(self, dd_in=None, dd_out=None):
+        if dd_in is None:
+            dd_in = _sym().DD_VOLUME
+        if dd_out is None:
+            dd_out = dd_in
+
+        if not dd_in.is_volume():
+            raise ValueError("mass operators only work on volume "
+                    "discretization")
+        if dd_out != dd_in:
+            raise ValueError("dd_out and dd_in must be identical")
+
+        super(MassOperatorBase, self).__init__(dd_in, dd_out)
 
 
 class MassOperator(MassOperatorBase):
@@ -357,51 +334,11 @@ class InverseMassOperator(MassOperatorBase):
     mapper_method = intern("map_inverse_mass")
 
 
-class QuadratureMassOperator(Operator):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`StiffnessTOperator` is applied to a quadrature
-        field, and then eliminated by
-        :class:`grudge.symbolic.mappers.GlobalToReferenceMapper`
-        in favor of operators on the reference element.
-    """
-
-    def __init__(self, quadrature_tag):
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag,)
-
-    mapper_method = intern("map_quad_mass")
-
-
-class ReferenceQuadratureMassOperator(Operator):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`MassOperator` is applied to a quadrature field.
-    """
-
-    def __init__(self, quadrature_tag, where=None):
-        super(Operator, self).__init__(self.where)
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.quadrature_tag, self.where)
-
-    mapper_method = intern("map_ref_quad_mass")
-
-
-class ReferenceMassOperatorBase(MassOperatorBase):
+class RefMassOperatorBase(ElementwiseLinearOperator):
     pass
 
 
-class ReferenceMassOperator(ReferenceMassOperatorBase):
+class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(element_group):
         import modepy as mp
@@ -412,7 +349,7 @@ class ReferenceMassOperator(ReferenceMassOperatorBase):
     mapper_method = intern("map_ref_mass")
 
 
-class ReferenceInverseMassOperator(ReferenceMassOperatorBase):
+class RefInverseMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(element_group):
         import modepy as mp
@@ -427,319 +364,53 @@ class ReferenceInverseMassOperator(ReferenceMassOperatorBase):
 
 # {{{ boundary-related operators
 
-class RestrictToBoundary(Operator):
-    def __init__(self, tag):
-        self.tag = tag
+class OppositeInteriorFaceSwap(Operator):
+    def __init__(self, dd_in=None, dd_out=None):
+        sym = _sym()
 
-    def __getinitargs__(self):
-        return (self.tag,)
+        if dd_in is None:
+            dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES, None)
+        if dd_out is None:
+            dd_out = dd_in
 
-    mapper_method = intern("map_boundarize")
+        if dd_in.domain_tag is not sym.FRESTR_INTERIOR_FACES:
+            raise ValueError("dd_in must be an interior faces domain")
+        if dd_out != dd_in:
+            raise ValueError("dd_out and dd_in must be identical")
 
+        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
 
-class FluxExchangeOperator(pymbolic.primitives.AlgebraicLeaf):
-    """An operator that results in the sending and receiving of
-    boundary information for its argument fields.
-    """
+    mapper_method = intern("map_opposite_interior_face_swap")
 
-    def __init__(self, idx, rank, arg_fields):
-        self.index = idx
-        self.rank = rank
-        self.arg_fields = arg_fields
 
-        # only tuples are hashable
-        if not isinstance(arg_fields, tuple):
-            raise TypeError("FluxExchangeOperator: arg_fields must be a tuple")
+class FaceMassOperator(ElementwiseLinearOperator):
+    def __init__(self, dd_in=None, dd_out=None):
+        sym = _sym()
 
-    def __getinitargs__(self):
-        return (self.index, self.rank, self.arg_fields)
+        if dd_in is None:
+            dd_in = sym.DOFDesc(sym.FRESTR_ALL_FACES, None)
 
-    def get_hash(self):
-        return hash((self.__class__, self.index, self.rank, self.arg_fields))
+        if dd_out is None:
+            dd_out = sym.DOFDesc("vol", None)
 
-    mapper_method = intern("map_flux_exchange")
+        if not dd_out.is_volume():
+            raise ValueError("dd_out must be a volume domain")
+        if dd_in.domain_tag is not sym.FRESTR_ALL_FACES:
+            raise ValueError("dd_in must be an interior faces domain")
 
-    def is_equal(self, other):
-        return self.__class__ == other.__class__ and \
-                self.__getinitargs__() == other.__getinitargs__()
+        super(FaceMassOperator, self).__init__(dd_in, dd_out)
 
-# }}}
-
-
-# {{{ flux-like operators
-
-class FluxOperatorBase(Operator):
-    def __init__(self, flux, is_lift=False):
-        Operator.__init__(self)
-        self.flux = flux
-        self.is_lift = is_lift
-
-    def get_flux_or_lift_text(self):
-        if self.is_lift:
-            return "Lift"
-        else:
-            return "Flux"
-
-    def repr_op(self):
-        """Return an equivalent operator with the flux expression set to 0."""
-        return type(self)(0, *self.__getinitargs__()[1:])
-
-    def __call__(self, arg):
-        # override to suppress apply-operator-to-each-operand
-        # behavior from superclass
-
-        from grudge.symbolic.primitives import OperatorBinding
-        return OperatorBinding(self, arg)
-
-    def __mul__(self, arg):
-        from warnings import warn
-        warn("Multiplying by a flux operator is deprecated. "
-                "Use the less ambiguous parenthesized syntax instead.",
-                DeprecationWarning, stacklevel=2)
-        return self.__call__(arg)
-
-
-class QuadratureFluxOperatorBase(FluxOperatorBase):
-    pass
-
-
-class BoundaryFluxOperatorBase(FluxOperatorBase):
-    pass
-
-
-class FluxOperator(FluxOperatorBase):
-    def __getinitargs__(self):
-        return (self.flux, self.is_lift)
-
-    mapper_method = intern("map_flux")
-
-
-class BoundaryFluxOperator(BoundaryFluxOperatorBase):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`FluxOperator` is applied to a boundary field.
-    """
-    def __init__(self, flux, boundary_tag, is_lift=False):
-        FluxOperatorBase.__init__(self, flux, is_lift)
-        self.boundary_tag = boundary_tag
-
-    def __getinitargs__(self):
-        return (self.flux, self.boundary_tag, self.is_lift)
-
-    mapper_method = intern("map_bdry_flux")
-
-
-class QuadratureFluxOperator(QuadratureFluxOperatorBase):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`FluxOperator` is applied to a quadrature field.
-    """
-
-    def __init__(self, flux, quadrature_tag):
-        FluxOperatorBase.__init__(self, flux, is_lift=False)
-
-        self.quadrature_tag = quadrature_tag
-
-    def __getinitargs__(self):
-        return (self.flux, self.quadrature_tag)
-
-    mapper_method = intern("map_quad_flux")
-
-
-class QuadratureBoundaryFluxOperator(
-        QuadratureFluxOperatorBase, BoundaryFluxOperatorBase):
-    """
-    .. note::
-
-        This operator is purely for internal use. It is inserted
-        by :class:`grudge.symbolic.mappers.OperatorSpecializer`
-        when a :class:`FluxOperator` is applied to a quadrature
-        boundary field.
-    """
-    def __init__(self, flux, quadrature_tag, boundary_tag):
-        FluxOperatorBase.__init__(self, flux, is_lift=False)
-        self.quadrature_tag = quadrature_tag
-        self.boundary_tag = boundary_tag
-
-    def __getinitargs__(self):
-        return (self.flux, self.quadrature_tag, self.boundary_tag)
-
-    mapper_method = intern("map_quad_bdry_flux")
-
-
-class VectorFluxOperator(object):
-    """Note that this isn't an actual operator. It's just a placeholder that pops
-    out a vector of FluxOperators when applied to an operand.
-    """
-    def __init__(self, fluxes):
-        self.fluxes = fluxes
-
-    def __call__(self, arg):
-        if isinstance(arg, int) and arg == 0:
-            return 0
-        from pytools.obj_array import make_obj_array
-        from grudge.symbolic.primitives import OperatorBinding
-
-        return make_obj_array(
-                [OperatorBinding(FluxOperator(f), arg)
-                    for f in self.fluxes])
-
-    def __mul__(self, arg):
-        from warnings import warn
-        warn("Multiplying by a vector flux operator is deprecated. "
-                "Use the less ambiguous parenthesized syntax instead.",
-                DeprecationWarning, stacklevel=2)
-        return self.__call__(arg)
-
-
-class WholeDomainFluxOperator(pymbolic.primitives.AlgebraicLeaf):
-    """Used by the CUDA backend to represent a flux computation on the
-    whole domain--interior and boundary.
-
-    Unlike other operators, :class:`WholeDomainFluxOperator` instances
-    are not bound.
-    """
-
-    class FluxInfo(Record):
-        __slots__ = []
-
-        def __repr__(self):
-            # override because we want flux_expr in infix
-            return "%s(%s)" % (
-                    self.__class__.__name__,
-                    ", ".join("%s=%s" % (fld, getattr(self, fld))
-                        for fld in self.__class__.fields
-                        if hasattr(self, fld)))
-
-    class InteriorInfo(FluxInfo):
-        # attributes: flux_expr, field_expr,
-
-        @property
-        @memoize_method
-        def dependencies(self):
-            from grudge.symbolic.tools import get_flux_dependencies
-            return set(get_flux_dependencies(
-                self.flux_expr, self.field_expr))
-
-    class BoundaryInfo(FluxInfo):
-        # attributes: flux_expr, bpair
-
-        @property
-        @memoize_method
-        def int_dependencies(self):
-            from grudge.symbolic.tools import get_flux_dependencies
-            return set(get_flux_dependencies(
-                    self.flux_expr, self.bpair, bdry="int"))
-
-        @property
-        @memoize_method
-        def ext_dependencies(self):
-            from grudge.symbolic.tools import get_flux_dependencies
-            return set(get_flux_dependencies(
-                    self.flux_expr, self.bpair, bdry="ext"))
-
-    def __init__(self, is_lift, interiors, boundaries,
-            quadrature_tag):
-        from grudge.symbolic.tools import get_flux_dependencies
-
-        self.is_lift = is_lift
-
-        self.interiors = tuple(interiors)
-        self.boundaries = tuple(boundaries)
-        self.quadrature_tag = quadrature_tag
-
-        from pytools import set_sum
-        interior_deps = set_sum(iflux.dependencies
-                for iflux in interiors)
-        boundary_int_deps = set_sum(bflux.int_dependencies
-                for bflux in boundaries)
-        boundary_ext_deps = set_sum(bflux.ext_dependencies
-                for bflux in boundaries)
-
-        self.interior_deps = list(interior_deps)
-        self.boundary_int_deps = list(boundary_int_deps)
-        self.boundary_ext_deps = list(boundary_ext_deps)
-        self.boundary_deps = list(boundary_int_deps | boundary_ext_deps)
-
-        self.dep_to_tag = {}
-        for bflux in boundaries:
-            for dep in get_flux_dependencies(
-                    bflux.flux_expr, bflux.bpair, bdry="ext"):
-                self.dep_to_tag[dep] = bflux.bpair.tag
-
-    def stringifier(self):
-        from grudge.symbolic.mappers import StringifyMapper
-        return StringifyMapper
-
-    def repr_op(self):
-        return type(self)(False, [], [], self.quadrature_tag)
-
-    @memoize_method
-    def rebuild_optemplate(self):
-        def generate_summands():
-            for i in self.interiors:
-                if self.quadrature_tag is None:
-                    yield FluxOperator(
-                            i.flux_expr, self.is_lift)(i.field_expr)
-                else:
-                    yield QuadratureFluxOperator(
-                            i.flux_expr, self.quadrature_tag)(i.field_expr)
-            for b in self.boundaries:
-                if self.quadrature_tag is None:
-                    yield BoundaryFluxOperator(
-                            b.flux_expr, b.bpair.tag, self.is_lift)(b.bpair)
-                else:
-                    yield QuadratureBoundaryFluxOperator(
-                            b.flux_expr, self.quadrature_tag,
-                            b.bpair.tag)(b.bpair)
-
-        from pymbolic.primitives import flattened_sum
-        return flattened_sum(generate_summands())
-
-    # infrastructure interaction
-    def get_hash(self):
-        return hash((self.__class__, self.rebuild_optemplate()))
-
-    def is_equal(self, other):
-        return (other.__class__ == WholeDomainFluxOperator
-                and self.rebuild_optemplate() == other.rebuild_optemplate())
-
-    def __getinitargs__(self):
-        return (self.is_lift, self.interiors, self.boundaries,
-                self.quadrature_tag)
-
-    mapper_method = intern("map_whole_domain_flux")
+    mapper_method = intern("map_face_mass_operator")
 
 # }}}
 
 
 # {{{ convenience functions for operator creation
 
-def get_flux_operator(flux):
-    """Return a flux operator that can be multiplied with
-    a volume field to obtain the interior fluxes
-    or with a :class:`BoundaryPair` to obtain the lifted boundary
-    flux.
-    """
-    from pytools.obj_array import is_obj_array
-    from grudge.symbolic.operators import VectorFluxOperator, FluxOperator
-
-    if is_obj_array(flux):
-        return VectorFluxOperator(flux)
-    else:
-        return FluxOperator(flux)
-
-
 def nabla(dim):
     from pytools.obj_array import make_obj_array
     return make_obj_array(
-            [DifferentiationOperator(i) for i in range(dim)])
+            [DiffOperator(i) for i in range(dim)])
 
 
 def minv_stiffness_t(dim):
@@ -760,19 +431,25 @@ def stiffness_t(dim):
         [StiffnessTOperator(i) for i in range(dim)])
 
 
-def integral(arg):
+def integral(arg, dd=None):
+    if dd is None:
+        dd = _sym().DD_VOLUME
+
     from grudge import sym
-    return sym.NodalSum()(sym.MassOperator()(sym.Ones())*arg)
+    return sym.NodalSum(dd)(sym.MassOperator()(sym.Ones(dd))*arg)
 
 
-def norm(p, arg):
+def norm(p, arg, dd=None):
     """
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
     import grudge.symbolic as sym
 
+    if dd is None:
+        dd = _sym().DD_VOLUME
+
     if p == 2:
-        comp_norm_squared = sym.NodalSum()(
+        comp_norm_squared = sym.NodalSum(dd_in=dd)(
                 sym.CFunction("fabs")(
                     arg * sym.MassOperator()(arg)))
         return sym.CFunction("sqrt")(sum(comp_norm_squared))
@@ -783,7 +460,7 @@ def norm(p, arg):
         return reduce(Max, comp_norm)
 
     else:
-        return sum(sym.NodalSum()(sym.CFunction("fabs")(arg)**p))**(1/p)
+        return sum(sym.NodalSum(dd_in=dd)(sym.CFunction("fabs")(arg)**p))**(1/p)
 
 # }}}
 

@@ -47,27 +47,38 @@ class ExecutionMapper(mappers.Evaluator,
         self.bound_op = bound_op
         self.queue = queue
 
+    def get_discr(self, dd):
+        qtag = dd.quadrature_tag
+        if qtag is None:
+            # FIXME: Remove once proper quadrature support arrives
+            qtag = sym.QTAG_NONE
+
+        if dd.is_volume():
+            if qtag is not sym.QTAG_NONE:
+                # FIXME
+                raise NotImplementedError("quadrature")
+            return self.discr.volume_discr
+
+        elif dd.domain_tag is sym.FRESTR_ALL_FACES:
+            return self.discr.all_faces_discr(qtag)
+        elif dd.domain_tag is sym.FRESTR_INTERIOR_FACES:
+            return self.discr.interior_faces_discr(qtag)
+        elif dd.is_boundary():
+            return self.discr.boundary_connection(dd.domain_tag, qtag)
+        else:
+            raise ValueError("DOF desc tag not understood: " + str(dd))
+
     # {{{ expression mappings -------------------------------------------------
 
     def map_ones(self, expr):
-        if expr.quadrature_tag is not None:
-            # FIXME
-            raise NotImplementedError("ones on quad. grids")
+        discr = self.get_discr(expr.dd)
 
-        result = self.discr.empty(self.queue, allocator=self.bound_op.allocator)
+        result = discr.empty(self.queue, allocator=self.bound_op.allocator)
         result.fill(1)
         return result
 
     def map_node_coordinate_component(self, expr):
-        if expr.quadrature_tag is not None:
-            # FIXME
-            raise NotImplementedError("node coordinate components on quad. grids")
-
-        if self.discr.is_volume_where(expr.where):
-            discr = self.discr.volume_discr
-        else:
-            discr = self.discr.boundary_discr
-
+        discr = self.get_discr(expr.dd)
         return discr.nodes()[expr.axis].with_queue(self.queue)
 
     def map_boundarize(self, op, field_expr):
@@ -75,7 +86,7 @@ class ExecutionMapper(mappers.Evaluator,
                 self.rec(field_expr), tag=op.tag,
                 kind=self.discr.compute_kind)
 
-    def map_scalar_parameter(self, expr):
+    def map_grudge_variable(self, expr):
         return self.context[expr.name]
 
     def map_call(self, expr):
@@ -127,7 +138,7 @@ class ExecutionMapper(mappers.Evaluator,
                 """{[k,i,j]:
                     0<=k<nelements and
                     0<=i,j<ndiscr_nodes}""",
-                "result[k,i] = sum(j, diff_mat[i, j] * vec[k, j])",
+                "result[k,i] = sum(j, mat[i, j] * vec[k, j])",
                 default_offset=lp.auto, name="diff")
 
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
@@ -154,7 +165,7 @@ class ExecutionMapper(mappers.Evaluator,
 
                 self.bound_op.elwise_linear_cache[cache_key] = matrix
 
-            knl()(self.queue, diff_mat=matrix, result=grp.view(result),
+            knl()(self.queue, mat=matrix, result=grp.view(result),
                     vec=grp.view(field))
 
         return result
@@ -283,134 +294,10 @@ class ExecutionMapper(mappers.Evaluator,
             return zip(compiled.result_names(),
                     compiled(self, stats_callback)), []
 
-    def exec_flux_batch_assign(self, insn):
-        from pymbolic.primitives import is_zero
-
-        class ZeroSpec:
-            pass
-
-        class BoundaryZeros(ZeroSpec):
-            pass
-
-        class VolumeZeros(ZeroSpec):
-            pass
-
-        def eval_arg(arg_spec):
-            arg_expr, is_int = arg_spec
-            arg = self.rec(arg_expr)
-            if is_zero(arg):
-                if insn.is_boundary and not is_int:
-                    return BoundaryZeros()
-                else:
-                    return VolumeZeros()
-            else:
-                return arg
-
-        args = [eval_arg(arg_expr)
-                for arg_expr in insn.flux_var_info.arg_specs]
-
-        from pytools import common_dtype
-        max_dtype = common_dtype(
-                [a.dtype for a in args if not isinstance(a, ZeroSpec)],
-                self.discr.default_scalar_type)
-
-        def cast_arg(arg):
-            if isinstance(arg, BoundaryZeros):
-                return self.discr.boundary_zeros(
-                        insn.repr_op.boundary_tag, dtype=max_dtype)
-            elif isinstance(arg, VolumeZeros):
-                return self.discr.volume_zeros(
-                        dtype=max_dtype)
-            elif isinstance(arg, np.ndarray):
-                return np.asarray(arg, dtype=max_dtype)
-            else:
-                return arg
-
-        args = [cast_arg(arg) for arg in args]
-
-        if insn.quadrature_tag is None:
-            if insn.is_boundary:
-                face_groups = self.discr.get_boundary(insn.repr_op.boundary_tag)\
-                        .face_groups
-            else:
-                face_groups = self.discr.face_groups
-        else:
-            if insn.is_boundary:
-                face_groups = self.discr.get_boundary(insn.repr_op.boundary_tag)\
-                        .get_quadrature_info(insn.quadrature_tag).face_groups
-            else:
-                face_groups = self.discr.get_quadrature_info(insn.quadrature_tag) \
-                        .face_groups
-
-        result = []
-
-        for fg in face_groups:
-            # grab module
-            module = insn.get_module(self.discr, max_dtype)
-            func = module.gather_flux
-
-            # set up argument structure
-            arg_struct = module.ArgStruct()
-            for arg_name, arg in zip(insn.flux_var_info.arg_names, args):
-                setattr(arg_struct, arg_name, arg)
-            for arg_num, scalar_arg_expr in enumerate(
-                    insn.flux_var_info.scalar_parameters):
-                setattr(arg_struct,
-                        "_scalar_arg_%d" % arg_num,
-                        self.rec(scalar_arg_expr))
-
-            fof_shape = (fg.face_count*fg.face_length()*fg.element_count(),)
-            all_fluxes_on_faces = [
-                    np.zeros(fof_shape, dtype=max_dtype)
-                    for f in insn.expressions]
-            for i, fof in enumerate(all_fluxes_on_faces):
-                setattr(arg_struct, "flux%d_on_faces" % i, fof)
-
-            # make sure everything ended up in Boost.Python attributes
-            # (i.e. empty __dict__)
-            assert not arg_struct.__dict__, arg_struct.__dict__.keys()
-
-            # perform gather
-            func(fg, arg_struct)
-
-            # do lift, produce output
-            for name, flux_bdg, fluxes_on_faces in zip(insn.names, insn.expressions,
-                    all_fluxes_on_faces):
-
-                if insn.quadrature_tag is None:
-                    if flux_bdg.op.is_lift:
-                        mat = fg.ldis_loc.lifting_matrix()
-                        scaling = fg.local_el_inverse_jacobians
-                    else:
-                        mat = fg.ldis_loc.multi_face_mass_matrix()
-                        scaling = None
-                else:
-                    assert not flux_bdg.op.is_lift
-                    mat = fg.ldis_loc_quad_info.multi_face_mass_matrix()
-                    scaling = None
-
-                out = self.discr.volume_zeros(dtype=fluxes_on_faces.dtype)
-                self.bound_op.lift_flux(fg, mat, scaling, fluxes_on_faces, out)
-
-                if self.discr.instrumented:
-                    from grudge.tools import lift_flops
-
-                    # correct for quadrature, too.
-                    self.discr.lift_flop_counter.add(lift_flops(fg))
-
-                result.append((name, out))
-
-        if not face_groups:
-            # No face groups? Still assign context variables.
-            for name, flux_bdg in zip(insn.names, insn.expressions):
-                result.append((name, self.discr.volume_zeros()))
-
-        return result, []
-
     def exec_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
-        if not isinstance(repr_op, sym.ReferenceDifferentiationOperator):
+        if not isinstance(repr_op, sym.RefDiffOperator):
             # FIXME
             raise NotImplementedError()
 
@@ -418,18 +305,14 @@ class ExecutionMapper(mappers.Evaluator,
         # execution-wise.
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
-        if self.discr.is_volume_where(repr_op.where):
-            discr = self.discr.volume_discr
-        else:
-            discr = self.discr.boundary_discr
+
+        discr = self.get_discr(repr_op.dd_in)
 
         return [
             (name, discr.num_reference_derivative(
                 self.queue, (op.rst_axis,), field)
                 .with_queue(self.queue))
             for name, op in zip(insn.names, insn.operators)], []
-
-    exec_quad_diff_batch_assign = exec_diff_batch_assign
 
     # }}}
 
@@ -469,12 +352,9 @@ class BoundOperator(object):
 # {{{ process_sym_operator function
 
 def process_sym_operator(sym_operator, post_bind_mapper=None,
-        dumper=lambda name, sym_operator: None, mesh=None,
-        type_hints={}):
+        dumper=lambda name, sym_operator: None, mesh=None):
 
     import grudge.symbolic.mappers as mappers
-    from grudge.symbolic.mappers.bc_to_flux import BCToFluxRewriter
-    from grudge.symbolic.mappers.type_inference import TypeInferrer
 
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
@@ -492,22 +372,19 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
-    dumper("before-bc2flux", sym_operator)
-    sym_operator = BCToFluxRewriter()(sym_operator)
-
     # Ordering restriction:
     #
     # - Must run constant fold before first type inference pass, because zeros,
     # while allowed, violate typing constraints (because they can't be assigned
     # a unique type), and need to be killed before the type inferrer sees them.
-    #
-    # - Must run BC-to-flux before first type inferrer run so that zeros in
-    # flux arguments can be removed.
 
-    dumper("before-specializer", sym_operator)
-    sym_operator = mappers.OperatorSpecializer(
-            TypeInferrer()(sym_operator, type_hints)
-            )(sym_operator)
+    # FIXME: Reenable type inference
+
+    # from grudge.symbolic.mappers.type_inference import TypeInferrer
+    # dumper("before-specializer", sym_operator)
+    # sym_operator = mappers.OperatorSpecializer(
+    #         TypeInferrer()(sym_operator)
+    #         )(sym_operator)
 
     # Ordering restriction:
     #
@@ -531,11 +408,9 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     dumper("before-cfold-2", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
-    dumper("before-derivative-join", sym_operator)
-    sym_operator = mappers.DerivativeJoiner()(sym_operator)
-
-    dumper("before-boundary-combiner", sym_operator)
-    sym_operator = mappers.BoundaryCombiner(mesh)(sym_operator)
+    # FIXME: Reenable derivative joiner
+    # dumper("before-derivative-join", sym_operator)
+    # sym_operator = mappers.DerivativeJoiner()(sym_operator)
 
     dumper("process-finished", sym_operator)
 
@@ -544,7 +419,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
 # }}}
 
 
-def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
+def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
         debug_flags=set(), allocator=None):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
@@ -563,12 +438,10 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x, type_hints={},
     sym_operator = process_sym_operator(sym_operator,
             post_bind_mapper=post_bind_mapper,
             dumper=dump_optemplate,
-            mesh=discr.mesh,
-            type_hints=type_hints)
+            mesh=discr.mesh)
 
     from grudge.symbolic.compiler import OperatorCompiler
-    code = OperatorCompiler()(sym_operator,
-            type_hints=type_hints)
+    code = OperatorCompiler()(sym_operator)
 
     bound_op = BoundOperator(discr, code,
             debug_flags=debug_flags, allocator=allocator)

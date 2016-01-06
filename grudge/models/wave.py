@@ -31,7 +31,7 @@ import numpy as np
 from grudge.models import HyperbolicOperator
 from grudge.models.second_order import CentralSecondDerivative
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-from grudge import sym, sym_flux
+from grudge import sym
 from pytools.obj_array import join_fields
 
 
@@ -55,16 +55,16 @@ class StrongWaveOperator(HyperbolicOperator):
     :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(self, c, dimensions, source_f=0,
+    def __init__(self, c, ambient_dim, source_f=0,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_NONE):
-        assert isinstance(dimensions, int)
+        assert isinstance(ambient_dim, int)
 
         self.c = c
-        self.dimensions = dimensions
+        self.ambient_dim = ambient_dim
         self.source_f = source_f
 
         if self.c > 0:
@@ -80,12 +80,10 @@ class StrongWaveOperator(HyperbolicOperator):
 
         self.flux_type = flux_type
 
-    def flux(self):
-        dim = self.dimensions
-        w = sym_flux.FluxVectorPlaceholder(1+dim)
+    def flux(self, w):
         u = w[0]
         v = w[1:]
-        normal = sym_flux.normal(dim)
+        normal = sym.normal(w.dd, self.ambient_dim)
 
         flux_weak = join_fields(
                 np.dot(v.avg, normal),
@@ -108,17 +106,17 @@ class StrongWaveOperator(HyperbolicOperator):
         return -self.c*flux_strong
 
     def sym_operator(self):
-        d = self.dimensions
+        d = self.ambient_dim
 
-        w = sym.make_sym_vector("w", d+1)
+        w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.RestrictToBoundary(self.dirichlet_tag) * u
-        dir_v = sym.RestrictToBoundary(self.dirichlet_tag) * v
+        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
@@ -130,25 +128,30 @@ class StrongWaveOperator(HyperbolicOperator):
         else:
             dir_bc = join_fields(-dir_u, dir_v)
 
+        dir_bc = sym.cse(dir_bc, "dir_bc")
+
         # neumann BCs ---------------------------------------------------------
-        neu_u = sym.RestrictToBoundary(self.neumann_tag) * u
-        neu_v = sym.RestrictToBoundary(self.neumann_tag) * v
-        neu_bc = join_fields(neu_u, -neu_v)
+        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_u = sym.RestrictToBoundary(self.radiation_tag) * u
-        rad_v = sym.RestrictToBoundary(self.radiation_tag) * v
+        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_bc = join_fields(
+        rad_bc = sym.cse(join_fields(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
-                )
+                ), "rad_bc")
 
         # entire operator -----------------------------------------------------
         nabla = sym.nabla(d)
-        flux_op = sym.get_flux_operator(self.flux())
+
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(
+                    self.flux(pair))
 
         result = (
                 - join_fields(
@@ -156,12 +159,13 @@ class StrongWaveOperator(HyperbolicOperator):
                     -self.c*(nabla*u)
                     )
                 +
-                sym.InverseMassOperator() * (
-                    flux_op(w)
-                    + flux_op(sym.BoundaryPair(w, dir_bc, self.dirichlet_tag))
-                    + flux_op(sym.BoundaryPair(w, neu_bc, self.neumann_tag))
-                    + flux_op(sym.BoundaryPair(w, rad_bc, self.radiation_tag))
-                    ))
+                sym.InverseMassOperator()(
+                    sym.FaceMassOperator()(
+                        flux(sym.int_fpair(w))
+                        + flux(sym.bv_fpair(self.dirichlet_tag, w, dir_bc))
+                        + flux(sym.bv_fpair(self.neumann_tag, w, neu_bc))
+                        + flux(sym.bv_fpair(self.radiation_tag, w, rad_bc))
+                        )))
 
         result[0] += self.source_f
 
@@ -196,7 +200,7 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
     """
 
     def __init__(
-            self, c, dimensions, source=0,
+            self, c, ambient_dim, source=0,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             neumann_tag=BTAG_NONE,
@@ -207,11 +211,11 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
             ):
         """*c* and *source* are optemplate expressions.
         """
-        assert isinstance(dimensions, int)
+        assert isinstance(ambient_dim, int)
 
         self.c = c
         self.time_sign = time_sign
-        self.dimensions = dimensions
+        self.ambient_dim = ambient_dim
         self.source = source
 
         self.dirichlet_tag = dirichlet_tag
@@ -224,13 +228,12 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         self.diffusion_scheme = diffusion_scheme
 
     # {{{ flux ----------------------------------------------------------------
-    def flux(self):
-        dim = self.dimensions
-        w = sym_flux.FluxVectorPlaceholder(2+dim)
-        c = w[0]
-        u = w[1]
-        v = w[2:]
-        normal = sym_flux.normal(dim)
+    def flux(self, w, c_vol):
+        u = w[0]
+        v = w[1:]
+        normal = sym.normal(w.tag, self.ambient_dim)
+
+        c = sym.RestrictToBoundary(w.tag)(c_vol)
 
         flux = self.time_sign*1/2*join_fields(
                 c.ext * np.dot(v.ext, normal)
@@ -263,9 +266,9 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
         return do
 
     def sym_operator(self, with_sensor=False):
-        d = self.dimensions
+        d = self.ambient_dim
 
-        w = sym.make_sym_vector("w", d+1)
+        w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
 
@@ -320,14 +323,14 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
 
                 # strong_form here allows the reuse the value of grad u.
                 grad_tgt = SecondDerivativeTarget(
-                        self.dimensions, strong_form=True,
+                        self.ambient_dim, strong_form=True,
                         operand=arg)
 
                 self.diffusion_scheme.grad(grad_tgt, bc_getter=None,
                         dirichlet_tags=[], neumann_tags=[])
 
                 div_tgt = SecondDerivativeTarget(
-                        self.dimensions, strong_form=False,
+                        self.ambient_dim, strong_form=False,
                         operand=diffusion_coeff*grad_tgt.minv_all)
 
                 self.diffusion_scheme.div(div_tgt,

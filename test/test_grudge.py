@@ -102,13 +102,13 @@ def test_1d_mass_mat_trig(ctx_getter):
 
     x = sym.nodes(1)
     f = bind(discr, sym.cos(x[0])**2)(queue)
-    ones = bind(discr, sym.Ones())(queue)
+    ones = bind(discr, sym.Ones(sym.DD_VOLUME))(queue)
 
-    mass_op = bind(discr, sym.MassOperator()(sym.Field("f")))
+    mass_op = bind(discr, sym.MassOperator()(sym.var("f")))
 
     num_integral_1 = np.dot(ones.get(), mass_op(queue, f=f).get())
     num_integral_2 = np.dot(f.get(), mass_op(queue, f=ones).get())
-    num_integral_3 = bind(discr, sym.integral(sym.Field("f")))(queue, f=f).get()
+    num_integral_3 = bind(discr, sym.integral(sym.var("f")))(queue, f=f).get()
 
     true_integral = 13*np.pi/2
     err_1 = abs(num_integral_1-true_integral)
@@ -148,7 +148,7 @@ def test_tri_diff_mat(ctx_getter, dim, order=4):
             f = bind(discr, sym.sin(3*x[axis]))(queue)
             df = bind(discr, 3*sym.cos(3*x[axis]))(queue)
 
-            sym_op = nabla[axis](sym.Field("f"))
+            sym_op = nabla[axis](sym.var("f"))
             bound_op = bind(discr, sym_op)
             df_num = bound_op(queue, f=f)
 
