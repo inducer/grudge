@@ -31,14 +31,15 @@ from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, Discretization
 
 
-def main(write_output=True):
+def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5))
+    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
+            n=(20, 20))
 
-    discr = Discretization(cl_ctx, mesh, order=4)
+    discr = Discretization(cl_ctx, mesh, order=order)
 
     #from grudge.visualization import VtkVisualizer
     #vis = VtkVisualizer(discr, None, "fld")
@@ -49,16 +50,14 @@ def main(write_output=True):
 
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
-    sym_sin = sym.CFunction("sin")
-    sym_exp = sym.CFunction("sin")
     sym_t = sym.ScalarVariable("t")
 
     from grudge.models.wave import StrongWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
     op = StrongWaveOperator(-0.1, discr.dim,
             source_f=(
-                sym_sin(source_omega*sym_t)
-                * sym_exp(
+                sym.sin(source_omega*sym_t)
+                * sym.exp(
                     -np.dot(sym_source_center_dist, sym_source_center_dist)
                     / source_width**2)),
             dirichlet_tag=BTAG_NONE,
@@ -76,38 +75,39 @@ def main(write_output=True):
 
     op.check_bc_coverage(mesh)
 
-    print(sym.pretty(op.sym_operator()))
+    # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    print(bound_op.code)
+    # print(bound_op.code)
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
 
-    dt = 0.001
+    dt = 0.04
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 10
     nsteps = int(final_t/dt)
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
+    from grudge.shortcuts import make_visualizer
+    vis = make_visualizer(discr, vis_order=order)
+
     step = 0
+
+    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
-            assert event.component_id == "y"
+            assert event.component_id == "w"
 
             step += 1
 
-            # if step % 10 == 0 and write_output:
-            #     print(step, event.t, discr.norm(fields[0]))
-            #     visf = vis.make_file("fld-%04d" % step)
-
-            #     vis.add_data(visf,
-            #             [("u", fields[0]), ("v", fields[1:]), ],
-            #             time=event.t, step=step)
-            #     visf.close()
-
-    #vis.close()
+            print(step, event.t, norm(queue, u=event.state_component[0]))
+            vis.write_vtk_file("fld-%04d.vtu" % step,
+                    [
+                        ("u", event.state_component[0]),
+                        ("v", event.state_component[1:]),
+                        ])
 
 
 if __name__ == "__main__":
