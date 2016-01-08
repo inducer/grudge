@@ -94,10 +94,15 @@ class ExecutionMapper(mappers.Evaluator,
         assert isinstance(expr.function, Variable)
 
         # FIXME: Make a way to register functions
-        import pyopencl.clmath as clmath
-        func = getattr(clmath, expr.function.name)
 
-        return func(*[self.rec(p) for p in expr.parameters])
+        pars = [self.rec(p) for p in expr.parameters]
+        if any(isinstance(par, cl.array.Array) for par in pars):
+            import pyopencl.clmath as clmath
+            func = getattr(clmath, expr.function.name)
+        else:
+            func = getattr(np, expr.function.name)
+
+        return func(*pars)
 
     def map_nodal_sum(self, op, field_expr):
         return cl.array.sum(self.rec(field_expr))
