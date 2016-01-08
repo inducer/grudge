@@ -142,6 +142,9 @@ class DiffOperatorBase(Operator):
             dd_in = _sym().DD_VOLUME
         if dd_out is None:
             dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+        if dd_out.uses_quadrature():
+            raise ValueError("differentiation outputs are not on "
+                    "quadrature grids")
 
         super(DiffOperatorBase, self).__init__(dd_in, dd_out)
 
@@ -190,6 +193,9 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
             dd_in = _sym().DD_VOLUME
         if dd_out is None:
             dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+        if dd_out.uses_quadrature():
+            raise ValueError("differentiation outputs are not on "
+                    "quadrature grids")
 
         super(RefDiffOperatorBase, self).__init__(dd_in, dd_out)
 
