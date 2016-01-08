@@ -239,8 +239,68 @@ class ExecutionMapper(mappers.Evaluator,
         return self.discr.opposite_face_connection(qtag)(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
 
-    def map_face_mass_operator(self, op, field_expr):
-        raise NotImplementedError
+    # {{{ face mass operator
+
+    def map_ref_face_mass_operator(self, op, field_expr):
+        field = self.rec(field_expr)
+
+        from grudge.tools import is_zero
+        if is_zero(field):
+            return 0
+
+        @memoize_in(self.bound_op, "face_mass_knl")
+        def knl():
+            knl = lp.make_kernel(
+                """{[k,i,f,j]:
+                    0<=k<nelements and
+                    0<=f<nfaces and
+                    0<=i<nvol_nodes and
+                    0<=j<nface_nodes}""",
+                "result[k,i] = sum(f, sum(j, mat[i, f, j] * vec[f, k, j]))",
+                default_offset=lp.auto, name="face_mass")
+
+            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            return lp.tag_inames(knl, dict(k="g.0"))
+
+        qtag = op.dd_in.quadrature_tag
+        if qtag is None:
+            # FIXME: Remove once proper quadrature support arrives
+            qtag = sym.QTAG_NONE
+
+        all_faces_conn = self.discr.all_faces_volume_connection(qtag)
+        all_faces_discr = all_faces_conn.to_discr
+        vol_discr = all_faces_conn.from_discr
+
+        result = vol_discr.empty(
+                queue=self.queue,
+                dtype=field.dtype, allocator=self.bound_op.allocator)
+
+        assert len(all_faces_discr.groups) == len(vol_discr.groups)
+
+        for cgrp, afgrp, volgrp in zip(all_faces_conn.groups,
+                all_faces_discr.groups, vol_discr.groups):
+            cache_key = "face_mass", afgrp, op, field.dtype
+
+            nfaces = volgrp.mesh_el_group.nfaces
+
+            try:
+                matrix = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrix = op.matrix(afgrp, volgrp, field.dtype)
+                matrix = (
+                        cl.array.to_device(self.queue, matrix)
+                        .with_queue(None))
+
+                self.bound_op.operator_data_cache[cache_key] = matrix
+
+            input_view = afgrp.view(field).reshape(
+                    nfaces, volgrp.nelements, afgrp.nunit_nodes)
+            knl()(self.queue, mat=matrix, result=volgrp.view(result),
+                    vec=input_view)
+
+        return result
+
+    # }}}
 
     # }}}
 

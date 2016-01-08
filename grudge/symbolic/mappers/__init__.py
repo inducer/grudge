@@ -149,6 +149,7 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_opposite_interior_face_swap = _map_op_base
     map_face_mass_operator = _map_op_base
+    map_ref_face_mass_operator = _map_op_base
 
 
 class CombineMapperMixin(object):
@@ -196,6 +197,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_opposite_interior_face_swap = map_elementwise_linear
     map_face_mass_operator = map_elementwise_linear
+    map_ref_face_mass_operator = map_elementwise_linear
 
     # }}}
 
@@ -521,6 +523,12 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
             return op.RefInverseMassOperator(expr.op.dd_in, expr.op.dd_out)(
                 1/jac_in * self.rec(expr.field))
 
+        elif isinstance(expr.op, op.FaceMassOperator):
+            jac_in_surf = sym.area_element(self.ambient_dim, self.dim - 1,
+                    dd=expr.op.dd_in)
+            return op.RefFaceMassOperator(expr.op.dd_in, expr.op.dd_out)(
+                    jac_in_surf * self.rec(expr.field))
+
         elif isinstance(expr.op, op.StiffnessOperator):
             return op.RefMassOperator()(jac_noquad *
                     self.rec(
@@ -651,6 +659,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_face_mass_operator(self, expr, enclosing_prec):
         return "FaceM" + self._format_op_dd(expr)
+
+    def map_ref_face_mass_operator(self, expr, enclosing_prec):
+        return "RefFaceM" + self._format_op_dd(expr)
 
     def map_opposite_interior_face_swap(self, expr, enclosing_prec):
         return "OppSwap" + self._format_op_dd(expr)

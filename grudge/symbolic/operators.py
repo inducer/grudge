@@ -383,7 +383,7 @@ class OppositeInteriorFaceSwap(Operator):
     mapper_method = intern("map_opposite_interior_face_swap")
 
 
-class FaceMassOperator(ElementwiseLinearOperator):
+class FaceMassOperatorBase(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
@@ -391,16 +391,52 @@ class FaceMassOperator(ElementwiseLinearOperator):
             dd_in = sym.DOFDesc(sym.FRESTR_ALL_FACES, None)
 
         if dd_out is None:
-            dd_out = sym.DOFDesc("vol", None)
+            dd_out = sym.DOFDesc("vol", sym.QTAG_NONE)
+        if dd_out.uses_quadrature():
+            raise ValueError("face mass operator outputs are not on "
+                    "quadrature grids")
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
         if dd_in.domain_tag is not sym.FRESTR_ALL_FACES:
             raise ValueError("dd_in must be an interior faces domain")
 
-        super(FaceMassOperator, self).__init__(dd_in, dd_out)
+        super(FaceMassOperatorBase, self).__init__(dd_in, dd_out)
 
+
+class FaceMassOperator(FaceMassOperatorBase):
     mapper_method = intern("map_face_mass_operator")
+
+
+class RefFaceMassOperator(ElementwiseLinearOperator):
+    def matrix(self, afgrp, volgrp, dtype):
+        nfaces = volgrp.mesh_el_group.nfaces
+        assert afgrp.nelements == nfaces * volgrp.nelements
+
+        matrix = np.empty(
+                (volgrp.nunit_nodes,
+                    nfaces,
+                    afgrp.nunit_nodes),
+                dtype=dtype)
+
+        from modepy.tools import UNIT_VERTICES
+        import modepy as mp
+        for iface, fvi in enumerate(
+                volgrp.mesh_el_group.face_vertex_indices()):
+            face_vertices = UNIT_VERTICES[volgrp.dim][np.array(fvi)].T
+            matrix[:, iface, :] = mp.nodal_face_mass_matrix(
+                    volgrp.basis(), volgrp.unit_nodes, afgrp.unit_nodes,
+                    volgrp.order,
+                    face_vertices)
+
+        # np.set_printoptions(linewidth=200, precision=3)
+        # matrix[np.abs(matrix) < 1e-13] = 0
+        # print(matrix)
+        # 1/0
+
+        return matrix
+
+    mapper_method = intern("map_ref_face_mass_operator")
 
 # }}}
 
