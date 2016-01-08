@@ -153,9 +153,9 @@ class ExecutionMapper(mappers.Evaluator,
                 dtype=field.dtype, allocator=self.bound_op.allocator)
 
         for grp in discr.groups:
-            cache_key = grp, op, field.dtype
+            cache_key = "elwise_linear", grp, op, field.dtype
             try:
-                matrix = self.bound_op.elwise_linear_cache[cache_key]
+                matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
                 matrix = (
                         cl.array.to_device(
@@ -163,7 +163,7 @@ class ExecutionMapper(mappers.Evaluator,
                             np.asarray(op.matrix(grp), dtype=field.dtype))
                         .with_queue(None))
 
-                self.bound_op.elwise_linear_cache[cache_key] = matrix
+                self.bound_op.operator_data_cache[cache_key] = matrix
 
             knl()(self.queue, mat=matrix, result=grp.view(result),
                     vec=grp.view(field))
@@ -293,7 +293,7 @@ class BoundOperator(object):
     def __init__(self, discr, code, debug_flags, allocator=None):
         self.discr = discr
         self.code = code
-        self.elwise_linear_cache = {}
+        self.operator_data_cache = {}
         self.debug_flags = debug_flags
         self.allocator = allocator
 
