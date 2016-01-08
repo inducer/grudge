@@ -485,24 +485,33 @@ def norm(p, arg, dd=None):
     """
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
-    import grudge.symbolic as sym
+    sym = _sym()
 
     if dd is None:
         dd = _sym().DD_VOLUME
 
     if p == 2:
-        comp_norm_squared = sym.NodalSum(dd_in=dd)(
+        norm_squared = sym.NodalSum(dd_in=dd)(
                 sym.CFunction("fabs")(
                     arg * sym.MassOperator()(arg)))
-        return sym.CFunction("sqrt")(sum(comp_norm_squared))
+
+        if isinstance(norm_squared, np.ndarray):
+            norm_squared = norm_squared.sum()
+
+        return sym.CFunction("sqrt")(norm_squared)
 
     elif p == np.Inf:
-        comp_norm = sym.NodalMax()(sym.CFunction("fabs")(arg))
+        result = sym.NodalMax()(sym.CFunction("fabs")(arg))
         from pymbolic.primitives import Max
-        return reduce(Max, comp_norm)
+
+        if isinstance(norm_squared, np.ndarray):
+            from functools import reduce
+            result = reduce(Max, result)
+
+        return result
 
     else:
-        return sum(sym.NodalSum(dd_in=dd)(sym.CFunction("fabs")(arg)**p))**(1/p)
+        raise ValueError("unsupported value of p")
 
 # }}}
 
