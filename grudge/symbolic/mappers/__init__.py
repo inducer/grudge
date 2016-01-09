@@ -547,7 +547,8 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         elif isinstance(expr.op, op.MInvSTOperator):
             return self.rec(
                     op.InverseMassOperator()(
-                        op.StiffnessTOperator(expr.op.xyz_axis)(expr.field)))
+                        op.StiffnessTOperator(expr.op.xyz_axis)(
+                            self.rec(expr.field))))
 
         else:
             return IdentityMapper.map_operator_binding(self, expr)
