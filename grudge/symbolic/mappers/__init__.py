@@ -675,7 +675,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # }}}
 
     def map_ones(self, expr, enclosing_prec):
-        return "Ones" + self._format_op_props(expr)
+        return "Ones:" + self._format_dd(expr.dd)
 
     # {{{ geometry data
 
