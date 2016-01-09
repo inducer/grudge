@@ -326,7 +326,7 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
                         % first)
             return sym.OperatorBinding(first, self.rec(prod))
         else:
-            return first * self.rec(flattened_product(expr.children[1:]))
+            return self.rec(first) * self.rec(flattened_product(expr.children[1:]))
 
 # }}}
 
