@@ -596,7 +596,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return result
 
     def _format_op_dd(self, op):
-        return "[%s->%s]" % (self._format_dd(op.dd_in), self._format_dd(op.dd_out))
+        return ":%s->%s" % (self._format_dd(op.dd_in), self._format_dd(op.dd_out))
 
     # {{{ nodal ops
 
