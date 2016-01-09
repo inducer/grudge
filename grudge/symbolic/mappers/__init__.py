@@ -498,8 +498,13 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         # if we encounter non-quadrature operators here, we know they
         # must be nodal.
 
-        jac_in = sym.area_element(self.ambient_dim, self.dim, dd=expr.op.dd_in)
-        jac_noquad = sym.area_element(self.ambient_dim, self.dim,
+        if expr.op.dd_in.is_volume():
+            dim = self.dim
+        else:
+            dim = self.dim - 1
+
+        jac_in = sym.area_element(self.ambient_dim, dim, dd=expr.op.dd_in)
+        jac_noquad = sym.area_element(self.ambient_dim, dim,
                 dd=expr.op.dd_in.with_qtag(sym.QTAG_NONE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
