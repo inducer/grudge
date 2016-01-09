@@ -475,11 +475,18 @@ def stiffness_t(dim):
 
 
 def integral(arg, dd=None):
-    if dd is None:
-        dd = _sym().DD_VOLUME
+    sym = _sym()
 
-    from grudge import sym
-    return sym.NodalSum(dd)(sym.MassOperator()(sym.Ones(dd))*arg)
+    if dd is None:
+        dd = sym.DD_VOLUME
+
+    dd = sym.as_dofdesc(dd)
+
+    return sym.NodalSum(dd)(
+            arg * sym.cse(
+                sym.MassOperator(dd_in=dd)(sym.Ones(dd)),
+                "mass_quad_weights",
+                sym.cse_scope.DISCRETIZATION))
 
 
 def norm(p, arg, dd=None):
@@ -489,7 +496,9 @@ def norm(p, arg, dd=None):
     sym = _sym()
 
     if dd is None:
-        dd = _sym().DD_VOLUME
+        dd = sym.DD_VOLUME
+
+    dd = sym.as_dofdesc(dd)
 
     if p == 2:
         norm_squared = sym.NodalSum(dd_in=dd)(
