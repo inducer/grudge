@@ -317,15 +317,16 @@ class VandermondeOperator(ElementwiseLinearOperator):
 # {{{ mass operators
 
 class MassOperatorBase(Operator):
+    """
+    :attr:`dd_in` and :attr:`dd_out` may be surface or volume discretizations.
+    """
+
     def __init__(self, dd_in=None, dd_out=None):
         if dd_in is None:
             dd_in = _sym().DD_VOLUME
         if dd_out is None:
             dd_out = dd_in
 
-        if not dd_in.is_volume():
-            raise ValueError("mass operators only work on volume "
-                    "discretization")
         if dd_out != dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
