@@ -1,8 +1,7 @@
 # -*- coding: utf8 -*-
 """Operators modeling advective phenomena."""
 
-from __future__ import division
-from __future__ import absolute_import
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -27,16 +26,12 @@ THE SOFTWARE.
 """
 
 
-
-
-import numpy
+import numpy as np
 import numpy.linalg as la
 
 import grudge.data
 from grudge.models import HyperbolicOperator
 from grudge.second_order import CentralSecondDerivative
-
-
 
 
 # {{{ constant-coefficient advection ------------------------------------------
@@ -47,7 +42,8 @@ class AdvectionOperatorBase(HyperbolicOperator):
             "lf"
             ]
 
-    def __init__(self, v,
+    def __init__(
+            self, v,
             inflow_tag="inflow",
             inflow_u=grudge.data.make_tdep_constant(0),
             outflow_tag="outflow",
@@ -68,13 +64,13 @@ class AdvectionOperatorBase(HyperbolicOperator):
         normal = make_normal(self.dimensions)
 
         if self.flux_type == "central":
-            return u.avg*numpy.dot(normal, self.v)
+            return u.avg*np.dot(normal, self.v)
         elif self.flux_type == "lf":
-            return u.avg*numpy.dot(normal, self.v) \
+            return u.avg*np.dot(normal, self.v) \
                     + 0.5*la.norm(self.v)*(u.int - u.ext)
         elif self.flux_type == "upwind":
-            return (numpy.dot(normal, self.v)*
-                    IfPositive(numpy.dot(normal, self.v),
+            return (np.dot(normal, self.v)*
+                    IfPositive(np.dot(normal, self.v),
                         u.int, # outflow
                         u.ext, # inflow
                         ))
@@ -129,7 +125,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
         u = FluxScalarPlaceholder(0)
         normal = make_normal(self.dimensions)
 
-        return u.int * numpy.dot(normal, self.v) - self.weak_flux()
+        return u.int * np.dot(normal, self.v) - self.weak_flux()
 
     def sym_operator(self):
         from grudge.symbolic import Field, BoundaryPair, \
@@ -144,7 +140,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
         flux_op = get_flux_operator(self.flux())
 
         return (
-                -numpy.dot(self.v, nabla*u)
+                -np.dot(self.v, nabla*u)
                 + m_inv(
                 flux_op(u)
                 + flux_op(BoundaryPair(u, bc_in, self.inflow_tag))))
@@ -181,15 +177,13 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
         flux_op = get_flux_operator(self.flux())
 
-        return m_inv(numpy.dot(self.v, stiff_t*u) - (
+        return m_inv(np.dot(self.v, stiff_t*u) - (
                     flux_op(u)
                     + flux_op(BoundaryPair(u, bc_in, self.inflow_tag))
                     + flux_op(BoundaryPair(u, bc_out, self.outflow_tag))
                     ))
 
 # }}}
-
-
 
 
 # {{{ variable-coefficient advection ------------------------------------------
@@ -243,20 +237,20 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         normal = make_normal(self.dimensions)
 
         if self.flux_type == "central":
-            return (u.int*numpy.dot(v.int, normal )
-                    + u.ext*numpy.dot(v.ext, normal)) * 0.5
+            return (u.int*np.dot(v.int, normal )
+                    + u.ext*np.dot(v.ext, normal)) * 0.5
         elif self.flux_type == "lf":
-            n_vint = numpy.dot(normal, v.int)
-            n_vext = numpy.dot(normal, v.ext)
+            n_vint = np.dot(normal, v.int)
+            n_vext = np.dot(normal, v.ext)
             return 0.5 * (n_vint * u.int + n_vext * u.ext) \
                    - 0.5 * (u.ext - u.int) \
                    * flux_max(c.int, c.ext)
 
         elif self.flux_type == "upwind":
             return (
-                    IfPositive(numpy.dot(normal, v.avg),
-                        numpy.dot(normal, v.int) * u.int, # outflow
-                        numpy.dot(normal, v.ext) * u.ext, # inflow
+                    IfPositive(np.dot(normal, v.avg),
+                        np.dot(normal, v.int) * u.int, # outflow
+                        np.dot(normal, v.ext) * u.ext, # inflow
                         ))
         else:
             raise ValueError("invalid flux type")
@@ -268,7 +262,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         from grudge.symbolic import make_sym_vector
         velocity_vec = make_sym_vector("v", self.dimensions)
         velocity = ElementwiseMaxOperator()(
-                numpy.dot(velocity_vec, velocity_vec)**0.5)
+                np.dot(velocity_vec, velocity_vec)**0.5)
 
         compiled = discr.compile(velocity)
 
@@ -363,7 +357,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         quad_u = cse(to_quad(u))
         quad_v = cse(to_quad(v))
 
-        return m_inv(numpy.dot(minv_st, cse(quad_v*quad_u))
+        return m_inv(np.dot(minv_st, cse(quad_v*quad_u))
                 - (flux_op(quad_face_w)
                     + flux_op(BoundaryPair(quad_face_w, bc_w, BTAG_ALL)))) \
                             + diffusion_part
@@ -403,8 +397,6 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         return discr.nodewise_max(ptwise_dot(1, 1, v, v)**0.5)
 
 # }}}
-
-
 
 
 # vim: foldmethod=marker
