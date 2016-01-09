@@ -564,9 +564,9 @@ def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
 # }}}
 
 
-# {{{ flux parir
+# {{{ trace pair
 
-class FluxPair:
+class TracePair:
     """
     .. attribute:: dd
 
@@ -593,7 +593,7 @@ class FluxPair:
         self.exterior = exterior
 
     def __getitem__(self, index):
-        return FluxPair(
+        return TracePair(
                 self.dd,
                 self.exterior[index],
                 self.interior[index])
@@ -611,13 +611,13 @@ class FluxPair:
         return 0.5*(self.int + self.ext)
 
 
-def int_fpair(expression):
+def int_tpair(expression):
     i = cse(_sym().interp("vol", "int_faces")(expression))
     e = cse(_sym().OppositeInteriorFaceSwap()(i))
-    return FluxPair("int_faces", i, e)
+    return TracePair("int_faces", i, e)
 
 
-def bdry_fpair(dd, interior, exterior):
+def bdry_tpair(dd, interior, exterior):
     """
     :arg interior: an expression that already lives on the boundary
         representing the interior value to be used
@@ -626,10 +626,10 @@ def bdry_fpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    return FluxPair(dd, interior, exterior)
+    return TracePair(dd, interior, exterior)
 
 
-def bv_fpair(dd, interior, exterior):
+def bv_tpair(dd, interior, exterior):
     """
     :arg interior: an expression that lives in the volume
         and will be restricted to the boundary identified by
@@ -639,7 +639,7 @@ def bv_fpair(dd, interior, exterior):
         for the flux.
     """
     interior = _sym().cse(_sym().interp("vol", dd)(interior))
-    return FluxPair(dd, interior, exterior)
+    return TracePair(dd, interior, exterior)
 
 # }}}
 
