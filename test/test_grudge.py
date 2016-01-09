@@ -41,7 +41,7 @@ from grudge import sym, bind, Discretization
 
 
 @pytest.mark.parametrize("dim", [2, 3])
-def test_inverse_metric(ctx_getter, dim):
+def test_inverse_metric(ctx_factory, dim):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -85,7 +85,7 @@ def test_inverse_metric(ctx_getter, dim):
             assert err < 1e-12, (i, j, err)
 
 
-def test_1d_mass_mat_trig(ctx_getter):
+def test_1d_mass_mat_trig(ctx_factory):
     """Check the integral of some trig functions on an interval using the mass
     matrix
     """
@@ -121,7 +121,7 @@ def test_1d_mass_mat_trig(ctx_getter):
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-def test_tri_diff_mat(ctx_getter, dim, order=4):
+def test_tri_diff_mat(ctx_factory, dim, order=4):
     """Check differentiation matrix along the coordinate axes on a disk
 
     Uses sines as the function to differentiate.
@@ -159,6 +159,46 @@ def test_tri_diff_mat(ctx_getter, dim, order=4):
         print(axis)
         print(eoc_rec)
         assert eoc_rec.order_estimate() >= order
+
+
+def test_2d_gauss_theorem(ctx_factory):
+    """Verify Gauss's theorem explicitly on a mesh"""
+
+    from meshpy.geometry import make_circle, GeometryBuilder
+    from meshpy.triangle import MeshInfo, build
+
+    geob = GeometryBuilder()
+    geob.add_geometry(*make_circle(1))
+    mesh_info = MeshInfo()
+    geob.set(mesh_info)
+
+    mesh_info = build(mesh_info)
+
+    from meshmode.mesh.io import from_meshpy
+    mesh = from_meshpy(mesh_info, order=1)
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    discr = Discretization(cl_ctx, mesh, order=2)
+
+    def f(x):
+        return sym.join_fields(
+                sym.sin(3*x[0])+sym.cos(3*x[1]),
+                sym.sin(2*x[0])+sym.cos(x[1]))
+
+    gauss_err = bind(discr,
+            sym.integral((
+                sym.nabla(2) * f(sym.nodes(2))
+                ).sum())
+            -
+            sym.integral(
+                sym.interp("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
+                .dot(sym.normal(sym.BTAG_ALL, 2)),
+                dd=sym.BTAG_ALL)
+            )(queue)
+
+    assert abs(gauss_err.get()) < 5e-15
 
 
 # You can test individual routines by typing
