@@ -161,10 +161,10 @@ class StrongWaveOperator(HyperbolicOperator):
                 +
                 sym.InverseMassOperator()(
                     sym.FaceMassOperator()(
-                        flux(sym.int_fpair(w))
-                        + flux(sym.bv_fpair(self.dirichlet_tag, w, dir_bc))
-                        + flux(sym.bv_fpair(self.neumann_tag, w, neu_bc))
-                        + flux(sym.bv_fpair(self.radiation_tag, w, rad_bc))
+                        flux(sym.int_tpair(w))
+                        + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
+                        + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
+                        + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
                         )))
 
         result[0] += self.source_f
