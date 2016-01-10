@@ -41,9 +41,6 @@ def main(write_output=True, order=4):
 
     discr = Discretization(cl_ctx, mesh, order=order)
 
-    #from grudge.visualization import VtkVisualizer
-    #vis = VtkVisualizer(discr, None, "fld")
-
     source_center = np.array([0.1, 0.22])
     source_width = 0.05
     source_omega = 3
