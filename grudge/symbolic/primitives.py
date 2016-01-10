@@ -28,7 +28,7 @@ from six.moves import range, intern
 
 import numpy as np
 import pymbolic.primitives
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE  # noqa
 from meshmode.discretization.connection import (  # noqa
         FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
 
@@ -110,6 +110,11 @@ class DTAG_VOLUME_ALL:
     pass
 
 
+class DTAG_BOUNDARY:
+    def __init__(self, tag):
+        self.tag = tag
+
+
 class QTAG_NONE:
     pass
 
@@ -123,6 +128,7 @@ class DOFDesc(object):
     .. automethod:: is_discretized
     .. automethod:: is_volume
     .. automethod:: is_boundary
+    .. automethod:: is_trace
     .. automethod:: uses_quadrature
     .. automethod:: with_qtag
     .. automethod:: with_dtag
@@ -142,6 +148,11 @@ class DOFDesc(object):
             or
             :class:`meshmode.discretization.connection.FRESTR_INTERIOR_FACES`
             (or the string ``"int_faces"``),
+            or one of
+            :class:`meshmode.discretization.BTAG_ALL`,
+            :class:`meshmode.discretization.BTAG_NONE`,
+            :class:`meshmode.discretization.BTAG_REALLY_ALL`,
+            or :class
             or *None* to indicate that the geometry is not yet known.
 
         :arg quadrature_tag:
@@ -168,6 +179,12 @@ class DOFDesc(object):
             pass
         elif domain_tag is None:
             pass
+        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
+            pass
+        elif isinstance(domain_tag, DTAG_BOUNDARY):
+            pass
+        else:
+            raise ValueError("domain tag not understood: %s" % domain_tag)
 
         if domain_tag is DTAG_SCALAR and quadrature_tag is not None:
             raise ValueError("cannot have nontrivial quadrature tag on scalar")
@@ -185,7 +202,16 @@ class DOFDesc(object):
         return self.domain_tag is DTAG_VOLUME_ALL
 
     def is_boundary(self):
-        return not self.is_volume()
+        return (
+                self.domain_tag in [
+                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL]
+                or isinstance(self.domain_tag, DTAG_BOUNDARY))
+
+    def is_trace(self):
+        return (self.is_boundary()
+                or self.domain_tag in [
+                    FRESTR_ALL_FACES,
+                    FRESTR_INTERIOR_FACES])
 
     def uses_quadrature(self):
         if self.quadrature_tag is None:
