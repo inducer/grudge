@@ -29,12 +29,13 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
-import grudge.data
 from grudge.models import HyperbolicOperator
-from grudge.second_order import CentralSecondDerivative
+from grudge.models.second_order import CentralSecondDerivative
+from grudge import sym
 
 
-# {{{ constant-coefficient advection ------------------------------------------
+# {{{ constant-coefficient advection
+
 class AdvectionOperatorBase(HyperbolicOperator):
     flux_types = [
             "central",
@@ -42,37 +43,28 @@ class AdvectionOperatorBase(HyperbolicOperator):
             "lf"
             ]
 
-    def __init__(
-            self, v,
-            inflow_tag="inflow",
-            inflow_u=grudge.data.make_tdep_constant(0),
-            outflow_tag="outflow",
-            flux_type="central"
-            ):
-        self.dimensions = len(v)
+    def __init__(self, v, inflow_u, flux_type="central"):
+        self.ambient_dim = len(v)
         self.v = v
-        self.inflow_tag = inflow_tag
         self.inflow_u = inflow_u
-        self.outflow_tag = outflow_tag
         self.flux_type = flux_type
 
-    def weak_flux(self):
-        from grudge.flux import make_normal, FluxScalarPlaceholder
-        from pymbolic.primitives import IfPositive
+    def weak_flux(self, u):
+        normal = sym.normal(u. dd, self.ambient_dim)
 
-        u = FluxScalarPlaceholder(0)
-        normal = make_normal(self.dimensions)
+        v_dot_normal = sym.cse(self.v.dot(normal), "v_dot_normal")
+        norm_v = sym.sqrt((self.v**2).sum())
 
         if self.flux_type == "central":
-            return u.avg*np.dot(normal, self.v)
+            return u.avg*v_dot_normal
         elif self.flux_type == "lf":
-            return u.avg*np.dot(normal, self.v) \
-                    + 0.5*la.norm(self.v)*(u.int - u.ext)
+            return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
         elif self.flux_type == "upwind":
-            return (np.dot(normal, self.v)*
-                    IfPositive(np.dot(normal, self.v),
-                        u.int, # outflow
-                        u.ext, # inflow
+            return (
+                    v_dot_normal * sym.If(
+                        sym.Comparison(v_dot_normal, ">", 0),
+                        u.int,  # outflow
+                        u.ext,  # inflow
                         ))
         else:
             raise ValueError("invalid flux type")
@@ -80,72 +72,27 @@ class AdvectionOperatorBase(HyperbolicOperator):
     def max_eigenvalue(self, t=None, fields=None, discr=None):
         return la.norm(self.v)
 
-    def bind(self, discr):
-        compiled_sym_operator = discr.compile(self.op_template())
-
-        from grudge.mesh import check_bc_coverage
-        check_bc_coverage(discr.mesh, [self.inflow_tag, self.outflow_tag])
-
-        def rhs(t, u):
-            bc_in = self.inflow_u.boundary_interpolant(t, discr, self.inflow_tag)
-            return compiled_sym_operator(u=u, bc_in=bc_in)
-
-        return rhs
-
-    def bind_interdomain(self,
-            my_discr, my_part_data,
-            nb_discr, nb_part_data):
-        from grudge.partition import compile_interdomain_flux
-        compiled_sym_operator, from_nb_indices = compile_interdomain_flux(
-                self.sym_operator(), "u", "nb_bdry_u",
-                my_discr, my_part_data, nb_discr, nb_part_data,
-                use_stupid_substitution=True)
-
-        from grudge.tools import with_object_array_or_scalar, is_zero
-
-        def nb_bdry_permute(fld):
-            if is_zero(fld):
-                return 0
-            else:
-                return fld[from_nb_indices]
-
-        def rhs(t, u, u_neighbor):
-            return compiled_sym_operator(u=u,
-                    nb_bdry_u=with_object_array_or_scalar(nb_bdry_permute, u_neighbor))
-
-        return rhs
-
-
-
 
 class StrongAdvectionOperator(AdvectionOperatorBase):
-    def flux(self):
-        from grudge.flux import make_normal, FluxScalarPlaceholder
+    def flux(self, u):
+        normal = sym.normal(u. dd, self.ambient_dim)
+        v_dot_normal = sym.cse(self.v.dot(normal), "v_dot_normal")
 
-        u = FluxScalarPlaceholder(0)
-        normal = make_normal(self.dimensions)
-
-        return u.int * np.dot(normal, self.v) - self.weak_flux()
+        return u.int * v_dot_normal - self.weak_flux(u)
 
     def sym_operator(self):
-        from grudge.symbolic import Field, BoundaryPair, \
-                get_flux_operator, make_nabla, InverseMassOperator
+        u = sym.var("u")
 
-        u = Field("u")
-        bc_in = Field("bc_in")
-
-        nabla = make_nabla(self.dimensions)
-        m_inv = InverseMassOperator()
-
-        flux_op = get_flux_operator(self.flux())
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(
+                    self.flux(pair))
 
         return (
-                -np.dot(self.v, nabla*u)
-                + m_inv(
-                flux_op(u)
-                + flux_op(BoundaryPair(u, bc_in, self.inflow_tag))))
-
-
+                -self.v.dot(sym.nabla(self.ambient_dim)*u)
+                + sym.InverseMassOperator()(
+                    sym.FaceMassOperator()(
+                        flux(sym.int_tpair(u))
+                        + flux(sym.bv_tpair(sym.BTAG_ALL, u, self.inflow_u)))))
 
 
 class WeakAdvectionOperator(AdvectionOperatorBase):
@@ -186,7 +133,8 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 # }}}
 
 
-# {{{ variable-coefficient advection ------------------------------------------
+# {{{ variable-coefficient advection
+
 class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     """A class for space- and time-dependent DG advection operators.
 
@@ -237,7 +185,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         normal = make_normal(self.dimensions)
 
         if self.flux_type == "central":
-            return (u.int*np.dot(v.int, normal )
+            return (u.int*np.dot(v.int, normal)
                     + u.ext*np.dot(v.ext, normal)) * 0.5
         elif self.flux_type == "lf":
             n_vint = np.dot(normal, v.int)
