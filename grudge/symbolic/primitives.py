@@ -410,15 +410,14 @@ class DiscretizationProperty(ExpressionBase, HasDOFDesc):
 
 class NodeCoordinateComponent(DiscretizationProperty):
     def __init__(self, axis, dd=None):
-        if dd is None:
-            dd = DD_VOLUME
-
         if not dd.is_discretized():
             raise ValueError("dd must be a discretization for "
                     "NodeCoordinateComponent")
 
         super(NodeCoordinateComponent, self).__init__(dd)
         self.axis = axis
+
+        assert dd.domain_tag is not None
 
     def __getinitargs__(self):
         return (self.axis, self.dd)
@@ -427,6 +426,11 @@ class NodeCoordinateComponent(DiscretizationProperty):
 
 
 def nodes(ambient_dim, dd=None):
+    if dd is None:
+        dd = DD_VOLUME
+
+    dd = as_dofdesc(dd)
+
     return np.array([NodeCoordinateComponent(i, dd)
         for i in range(ambient_dim)], dtype=object)
 
@@ -567,7 +571,7 @@ def mv_normal(dd, ambient_dim, dim=None):
 
     dd = as_dofdesc(dd)
 
-    if not dd.is_boundary():
+    if not dd.is_trace():
         raise ValueError("may only request normals on boundaries")
 
     if dim is None:
