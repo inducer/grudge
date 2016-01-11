@@ -103,7 +103,7 @@ class StrongWaveOperator(HyperbolicOperator):
                 np.dot(v.int, normal),
                 u.int * normal) - flux_weak
 
-        return -self.c*flux_strong
+        return self.c*flux_strong
 
     def sym_operator(self):
         d = self.ambient_dim

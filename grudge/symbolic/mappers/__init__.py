@@ -529,7 +529,7 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                 1/jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.FaceMassOperator):
-            jac_in_surf = - sym.area_element(self.ambient_dim, self.dim - 1,
+            jac_in_surf = sym.area_element(self.ambient_dim, self.dim - 1,
                     dd=expr.op.dd_in)
             return op.RefFaceMassOperator(expr.op.dd_in, expr.op.dd_out)(
                     jac_in_surf * self.rec(expr.field))
