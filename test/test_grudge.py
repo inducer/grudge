@@ -200,7 +200,7 @@ def test_2d_gauss_theorem(ctx_factory):
                 dd=sym.BTAG_ALL)
             )(queue)
 
-    assert abs(gauss_err.get()) < 5e-15
+    assert abs(gauss_err.get()) < 1e-13
 
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
