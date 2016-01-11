@@ -6,3 +6,6 @@ git+https://gitlab.tiker.net/inducer/dagrt.git
 git+https://gitlab.tiker.net/inducer/leap.git
 git+git://github.com/inducer/modepy
 git+git://github.com/inducer/meshmode
+
+# mesh generation for tests
+meshpy
