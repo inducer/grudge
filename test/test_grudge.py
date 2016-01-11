@@ -164,6 +164,8 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
 def test_2d_gauss_theorem(ctx_factory):
     """Verify Gauss's theorem explicitly on a mesh"""
 
+    pytest.importorskip("meshpy")
+
     from meshpy.geometry import make_circle, GeometryBuilder
     from meshpy.triangle import MeshInfo, build
 
@@ -201,8 +203,129 @@ def test_2d_gauss_theorem(ctx_factory):
     assert abs(gauss_err.get()) < 5e-15
 
 
+@pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
+    ("disk", [0.1, 0.05]),
+    ("rect2", [4, 8]),
+    ("rect3", [4, 6]),
+    ])
+@pytest.mark.parametrize("flux_type", ["upwind"])
+@pytest.mark.parametrize("order", [3, 4, 5])
+def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, flux_type, order,
+        visualize=False):
+    """Test whether 2D advection actually converges"""
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    for mesh_par in mesh_pars:
+        if mesh_name == "disk":
+            pytest.importorskip("meshpy")
+
+            from meshpy.geometry import make_circle, GeometryBuilder
+            from meshpy.triangle import MeshInfo, build
+
+            geob = GeometryBuilder()
+            geob.add_geometry(*make_circle(1))
+            mesh_info = MeshInfo()
+            geob.set(mesh_info)
+
+            mesh_info = build(mesh_info, max_volume=mesh_par)
+
+            from meshmode.mesh.io import from_meshpy
+            mesh = from_meshpy(mesh_info, order=1)
+            h = np.sqrt(mesh_par)
+            dim = 2
+            dt_factor = 4
+
+        elif mesh_name.startswith("rect"):
+            dim = int(mesh_name[4:])
+            from meshmode.mesh.generation import generate_regular_rect_mesh
+            mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+                    n=(mesh_par,)*dim, order=4)
+
+            h = 1/mesh_par
+            if dim == 2:
+                dt_factor = 4
+            elif dim == 3:
+                dt_factor = 2
+            else:
+                raise ValueError("dt_factor not known for %dd" % dim)
+
+        else:
+            raise ValueError("invalid mesh name: " + mesh_name)
+
+        v = np.array([0.27, 0.31, 0.1])[:dim]
+        norm_v = la.norm(v)
+
+        def f(x):
+            return sym.sin(10*x)
+
+        def u_analytic(x):
+            return f(
+                    -v.dot(x)/norm_v
+                    + sym.var("t", sym.DD_SCALAR)*norm_v)
+
+        from grudge.models.advection import StrongAdvectionOperator
+        discr = Discretization(cl_ctx, mesh, order=order)
+        op = StrongAdvectionOperator(v,
+                inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
+                flux_type=flux_type)
+
+        bound_op = bind(discr, op.sym_operator())
+
+        u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
+
+        def rhs(t, u):
+            return bound_op(queue, t=t, u=u)
+
+        if dim == 3:
+            final_time = 0.1
+        else:
+            final_time = 0.2
+
+        dt = dt_factor * h/order**2
+        nsteps = (final_time // dt) + 1
+        dt = final_time/nsteps + 1e-15
+
+        from grudge.shortcuts import set_up_rk4
+        dt_stepper = set_up_rk4("u", dt, u, rhs)
+
+        last_u = None
+
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(discr, vis_order=order)
+
+        step = 0
+
+        for event in dt_stepper.run(t_end=final_time):
+            if isinstance(event, dt_stepper.StateComputed):
+                step += 1
+                print(event.t)
+
+                last_t = event.t
+                last_u = event.state_component
+
+                if visualize:
+                    vis.write_vtk_file("fld-%04d.vtu" % step,
+                            [("u", event.state_component)])
+
+        error_l2 = bind(discr,
+            sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
+                queue, t=last_t, u=last_u).get()
+        print(h, error_l2)
+        eoc_rec.add_data_point(h, error_l2)
+
+    print(eoc_rec.pretty_print(abscissa_label="h",
+            error_label="L2 Error"))
+
+    assert eoc_rec.order_estimate() > order
+
+
 # You can test individual routines by typing
-# $ python test_layer_pot.py 'test_routine()'
+# $ python test_grudge.py 'test_routine()'
 
 if __name__ == "__main__":
     import sys
