@@ -57,6 +57,8 @@ __doc__ = """
 
 .. currentmodule:: grudge.sym
 
+.. autoclass:: If
+
 DOF description
 ^^^^^^^^^^^^^^^
 

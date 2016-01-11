@@ -905,7 +905,7 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
     def map_scalar_parameter(self, expr, *args):
         return DerivativeJoiner()(expr)
 
-    def map_if_positive(self, expr, *args):
+    def map_if(self, expr, *args):
         return DerivativeJoiner()(expr)
 
     def map_power(self, expr, *args):
