@@ -1,11 +1,12 @@
 numpy
-git+git://github.com/inducer/islpy
-git+git://github.com/pyopencl/pyopencl
-git+git://github.com/inducer/loopy
+git+https://github.com/inducer/islpy
+git+https://github.com/pyopencl/pyopencl
+git+https://github.com/inducer/loopy
 git+https://gitlab.tiker.net/inducer/dagrt.git
 git+https://gitlab.tiker.net/inducer/leap.git
-git+git://github.com/inducer/modepy
-git+git://github.com/inducer/meshmode
+git+https://github.com/inducer/meshpy
+git+https://github.com/inducer/modepy
+git+https://github.com/inducer/meshmode
 
 # mesh generation for tests
 meshpy
