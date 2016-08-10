@@ -30,3 +30,5 @@ run-debug-*
 *.vtk
 *.silo
 *.dat
+
+.cache
