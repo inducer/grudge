@@ -104,20 +104,20 @@ Geometry data
 
 # {{{ DOF description
 
-class DTAG_SCALAR:
+class DTAG_SCALAR:  # noqa
     pass
 
 
-class DTAG_VOLUME_ALL:
+class DTAG_VOLUME_ALL:  # noqa
     pass
 
 
-class DTAG_BOUNDARY:
+class DTAG_BOUNDARY:  # noqa
     def __init__(self, tag):
         self.tag = tag
 
 
-class QTAG_NONE:
+class QTAG_NONE:  # noqa
     pass
 
 
@@ -308,6 +308,7 @@ class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
         return (self.name, self.dd,)
 
     mapper_method = "map_grudge_variable"
+
 
 var = Variable
 

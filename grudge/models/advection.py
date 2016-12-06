@@ -106,14 +106,9 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
                 get_flux_operator,
                 make_stiffness_t,
                 InverseMassOperator,
-                RestrictToBoundary,
-                QuadratureGridUpsampler,
-                QuadratureInteriorFacesGridUpsampler)
+                RestrictToBoundary)
 
         u = Field("u")
-
-        to_quad = QuadratureGridUpsampler("quad")
-        to_int_face_quad = QuadratureInteriorFacesGridUpsampler("quad")
 
         # boundary conditions -------------------------------------------------
         bc_in = Field("bc_in")
@@ -196,9 +191,10 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         elif self.flux_type == "upwind":
             return (
-                    IfPositive(np.dot(normal, v.avg),
-                        np.dot(normal, v.int) * u.int, # outflow
-                        np.dot(normal, v.ext) * u.ext, # inflow
+                    IfPositive(
+                        np.dot(normal, v.avg),
+                        np.dot(normal, v.int) * u.int,  # outflow
+                        np.dot(normal, v.ext) * u.ext,  # inflow
                         ))
         else:
             raise ValueError("invalid flux type")

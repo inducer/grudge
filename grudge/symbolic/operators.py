@@ -99,6 +99,7 @@ class ElementwiseLinearOperator(Operator):
 class InterpolationOperator(Operator):
     mapper_method = intern("map_interpolation")
 
+
 interp = InterpolationOperator
 
 

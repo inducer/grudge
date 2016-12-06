@@ -72,7 +72,7 @@ class QuadratureRepresentation(object):
 
 # {{{ type information --------------------------------------------------------
 
-class type_info:
+class type_info:  # noqa
     """These classes represent various bits and pieces of information that
     we may deduce about expressions in our symbolic operator.
     """
