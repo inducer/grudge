@@ -310,6 +310,19 @@ class ExecutionMapper(mappers.Evaluator,
         return [(name, self.rec(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
 
+    def exec_assign_to_discr_scoped(self, insn):
+        assignments = []
+        for name, expr in zip(insn.names, insn.exprs):
+            value = self.rec(expr)
+            self.discr._discr_scoped_subexpr_name_to_value[name] = value
+            assignments.append((name, value))
+
+        return assignments, []
+
+    def exec_assign_from_discr_scoped(self, insn):
+        return [(insn.name,
+            self.discr._discr_scoped_subexpr_name_to_value[insn.name])], []
+
     def exec_vector_expr_assign(self, insn):
         if self.bound_op.instrumented:
             def stats_callback(n, vec_expr):
@@ -355,12 +368,25 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ bound operator
 
 class BoundOperator(object):
-    def __init__(self, discr, code, debug_flags, allocator=None):
+    def __init__(self, discr, discr_code, eval_code, debug_flags, allocator=None):
         self.discr = discr
-        self.code = code
+        self.discr_code = discr_code
+        self.eval_code = eval_code
         self.operator_data_cache = {}
         self.debug_flags = debug_flags
         self.allocator = allocator
+
+    def __str__(self):
+        sep = 75 * "=" + "\n"
+        return (
+                sep
+                + "DISCRETIZATION-SCOPE CODE\n"
+                + sep
+                + str(self.discr_code) + "\n"
+                + sep
+                + "PER-EVALUATION CODE\n"
+                + sep
+                + str(self.eval_code))
 
     def __call__(self, queue, **context):
         import pyopencl.array as cl_array
@@ -373,11 +399,21 @@ class BoundOperator(object):
 
         from pytools.obj_array import with_object_array_or_scalar
 
+        # {{{ discr-scope evaluation
+
+        if any(result_var.name not in self.discr._discr_scoped_subexpr_name_to_value
+                for result_var in self.discr_code.result):
+            # need to do discr-scope evaluation
+            discr_eval_context = {}
+            self.discr_code.execute(ExecutionMapper(queue, discr_eval_context, self))
+
+        # }}}
+
         new_context = {}
         for name, var in six.iteritems(context):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
-        return self.code.execute(ExecutionMapper(queue, new_context, self))
+        return self.eval_code.execute(ExecutionMapper(queue, new_context, self))
 
 # }}}
 
@@ -474,15 +510,15 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
             mesh=discr.mesh)
 
     from grudge.symbolic.compiler import OperatorCompiler
-    code = OperatorCompiler()(sym_operator)
+    discr_code, eval_code = OperatorCompiler(discr)(sym_operator)
 
-    bound_op = BoundOperator(discr, code,
+    bound_op = BoundOperator(discr, discr_code, eval_code,
             debug_flags=debug_flags, allocator=allocator)
 
     if "dump_op_code" in debug_flags:
         from grudge.tools import open_unique_debug_file
         open_unique_debug_file("op-code", ".txt").write(
-                str(code))
+                str(bound_op))
 
     if "dump_dataflow_graph" in debug_flags:
         bound_op.code.dump_dataflow_graph()
