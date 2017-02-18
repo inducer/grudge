@@ -623,7 +623,8 @@ class OperatorCompiler(mappers.IdentityMapper):
         self.max_vectors_in_batch_expr = max_vectors_in_batch_expr
 
         self.discr_code = []
-        self.used_discr_scope_names = set()
+        self.discr_scope_names_created = set()
+        self.discr_scope_names_copied_to_eval = set()
 
         self.eval_code = []
         self.expr_to_var = {}
@@ -665,7 +666,8 @@ class OperatorCompiler(mappers.IdentityMapper):
         return (
                 Code(self.discr_code,
                     make_obj_array(
-                        [Variable(name) for name in self.used_discr_scope_names])),
+                        [Variable(name)
+                            for name in self.discr_scope_names_copied_to_eval])),
                 Code(self.eval_code, result))
 
     # }}}
@@ -713,26 +715,31 @@ class OperatorCompiler(mappers.IdentityMapper):
 
             assert expr_name.startswith("discr.")
 
-            if expr_name in self.used_discr_scope_names:
-                return var(expr_name)
-
             priority = getattr(expr, "priority", 0)
 
-            new_codegen_state = codegen_state.copy(generating_discr_code=True)
-            rec_child = get_rec_child(new_codegen_state)
+            if expr_name not in self.discr_scope_names_created:
+                new_codegen_state = codegen_state.copy(generating_discr_code=True)
+                rec_child = get_rec_child(new_codegen_state)
 
-            new_codegen_state.get_code_list(self).append(
-                    ToDiscretizationScopedAssign(
-                        (expr_name,), (rec_child,), priority=priority))
+                new_codegen_state.get_code_list(self).append(
+                        ToDiscretizationScopedAssign(
+                            (expr_name,), (rec_child,), priority=priority))
 
-            if not codegen_state.generating_discr_code:
+                self.discr_scope_names_created.add(expr_name)
+
+            if codegen_state.generating_discr_code:
+                return var(expr_name)
+            else:
+                if expr_name in self.discr_scope_names_copied_to_eval:
+                    return var(expr_name)
+
                 self.eval_code.append(
                         FromDiscretizationScopedAssign(
                             expr_name, priority=priority))
 
-            self.used_discr_scope_names.add(expr_name)
+                self.discr_scope_names_copied_to_eval.add(expr_name)
 
-            return Variable(expr_name)
+                return var(expr_name)
 
         else:
             try:
