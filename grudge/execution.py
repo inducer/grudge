@@ -341,11 +341,46 @@ class ExecutionMapper(mappers.Evaluator,
 
         discr = self.get_discr(repr_op.dd_in)
 
-        return [
-            (name, discr.num_reference_derivative(
-                self.queue, (op.rst_axis,), field)
-                .with_queue(self.queue))
-            for name, op in zip(insn.names, insn.operators)], []
+        # FIXME: Enable
+        # assert repr_op.dd_in == repr_op.dd_out
+        assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
+
+        @memoize_in(self.discr, "reference_derivative_knl")
+        def knl():
+            knl = lp.make_kernel(
+                """{[imatrix,k,i,j]:
+                    0<=imatrix<nmatrices and
+                    0<=k<nelements and
+                    0<=i,j<nunit_nodes}""",
+                """
+                result[imatrix, k, i] = sum(
+                        j, diff_mat[imatrix, i, j] * vec[k, j])
+                """,
+                default_offset=lp.auto, name="diff")
+
+            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            return lp.tag_inames(knl, dict(k="g.0"))
+
+        noperators = len(insn.operators)
+        result = discr.empty(
+                dtype=field.dtype, extra_dims=(noperators,)).with_queue(self.queue)
+
+        for grp in discr.groups:
+            if grp.nelements == 0:
+                continue
+
+            # FIXME: Should make matrices on device and cache them
+            diff_matrices = grp.diff_matrices()
+            diff_matrices_ary = np.empty((
+                noperators, grp.nunit_nodes, grp.nunit_nodes))
+            for i, op in enumerate(insn.operators):
+                diff_matrices_ary[i] = diff_matrices[op.rst_axis]
+
+            knl()(self.queue,
+                    diff_mat=diff_matrices_ary,
+                    result=grp.view(result), vec=grp.view(field))
+
+        return [(name, result[i]) for i, name in enumerate(insn.names)], []
 
     # }}}
 
