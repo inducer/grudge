@@ -196,11 +196,11 @@ class Discretization(object):
         return self.volume_discr.mesh
 
     def empty(self, queue=None, dtype=None, extra_dims=None, allocator=None):
-        return self.volume_discr.empty(queue, dtype, extra_dims=None,
+        return self.volume_discr.empty(queue, dtype, extra_dims=extra_dims,
                 allocator=allocator)
 
     def zeros(self, queue, dtype=None, extra_dims=None, allocator=None):
-        return self.volume_discr.zeros(queue, dtype, extra_dims=None,
+        return self.volume_discr.zeros(queue, dtype, extra_dims=extra_dims,
                 allocator=allocator)
 
     def is_volume_where(self, where):
