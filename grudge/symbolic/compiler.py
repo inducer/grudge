@@ -30,6 +30,7 @@ from six.moves import zip, reduce
 from pytools import Record, memoize_method, memoize
 from grudge import sym
 import grudge.symbolic.mappers as mappers
+from pymbolic.primitives import Variable, Subscript
 
 
 # {{{ instructions
@@ -82,6 +83,7 @@ class Assign(Instruction):
     """
 
     comment = ""
+    scope_indicator = ""
 
     def __init__(self, names, exprs, **kwargs):
         Instruction.__init__(self, names=names, exprs=exprs, **kwargs)
@@ -119,7 +121,9 @@ class Assign(Instruction):
             if comment:
                 comment = "/* %s */ " % comment
 
-            return "%s <- %s%s" % (self.names[0], comment, self.exprs[0])
+            return "%s <-%s %s%s" % (
+                    self.names[0], self.scope_indicator, comment,
+                    self.exprs[0])
         else:
             if comment:
                 comment = " /* %s */" % comment
@@ -132,12 +136,39 @@ class Assign(Instruction):
                 else:
                     dnr_indicator = ""
 
-                lines.append("  %s <%s- %s" % (n, dnr_indicator, e))
+                lines.append("  %s <%s-%s %s" % (
+                    n, dnr_indicator, self.scope_indicator, e))
             lines.append("}")
             return "\n".join(lines)
 
     def get_execution_method(self, exec_mapper):
         return exec_mapper.exec_assign
+
+
+class ToDiscretizationScopedAssign(Assign):
+    scope_indicator = "(to discr)-"
+
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_assign_to_discr_scoped
+
+
+class FromDiscretizationScopedAssign(Assign):
+    scope_indicator = "(discr)-"
+
+    def __init__(self, name, **kwargs):
+        Instruction.__init__(self, name=name, **kwargs)
+
+    def get_assignees(self):
+        return frozenset([self.name])
+
+    def get_dependencies(self):
+        return frozenset()
+
+    def __str__(self):
+        return "%s <-(from discr)" % self.name
+
+    def get_execution_method(self, exec_mapper):
+        return exec_mapper.exec_assign_from_discr_scoped
 
 
 class DiffBatchAssign(Instruction):
@@ -155,7 +186,7 @@ class DiffBatchAssign(Instruction):
     """
 
     def get_assignees(self):
-        return set(self.names)
+        return frozenset(self.names)
 
     @memoize_method
     def get_dependencies(self):
@@ -334,6 +365,41 @@ class Code(object):
                 .write(dot_dataflow_graph(self, max_node_label_length=None))
 
     def __str__(self):
+        var_to_writer = dict(
+                (var_name, insn)
+                for insn in self.instructions
+                for var_name in insn.get_assignees())
+
+        if 1:
+            # {{{ topological sort
+
+            added_insns = set()
+            ordered_insns = []
+
+            def insert_insn(insn):
+                if insn in added_insns:
+                    return
+
+                for dep in insn.get_dependencies():
+                    try:
+                        writer = var_to_writer[dep.name]
+                    except KeyError:
+                        # input variables won't be found
+                        pass
+                    else:
+                        insert_insn(writer)
+
+                ordered_insns.append(insn)
+                added_insns.add(insn)
+
+            for insn in self.instructions:
+                insert_insn(insn)
+
+            assert len(ordered_insns) == len(self.instructions)
+            assert len(added_insns) == len(self.instructions)
+
+            # }}}
+
         lines = []
         for insn in self.instructions:
             lines.extend(str(insn).split("\n"))
@@ -377,7 +443,6 @@ class Code(object):
             # not consist of just variables.
 
             for var in dm(result_expr):
-                from pymbolic.primitives import Variable
                 assert isinstance(var, Variable)
                 discardable_vars.discard(var.name)
 
@@ -538,17 +603,38 @@ class Code(object):
 
 # {{{ compiler
 
+class CodeGenerationState(Record):
+    """
+    .. attribute:: generating_discr_code
+    """
+
+    def get_code_list(self, compiler):
+        if self.generating_discr_code:
+            return compiler.discr_code
+        else:
+            return compiler.eval_code
+
+
 class OperatorCompiler(mappers.IdentityMapper):
-    def __init__(self, prefix="_expr", max_vectors_in_batch_expr=None):
+    def __init__(self, discr, prefix="_expr", max_vectors_in_batch_expr=None):
         super(OperatorCompiler, self).__init__()
         self.prefix = prefix
 
         self.max_vectors_in_batch_expr = max_vectors_in_batch_expr
 
-        self.code = []
+        self.discr_code = []
+        self.discr_scope_names_created = set()
+        self.discr_scope_names_copied_to_eval = set()
+
+        self.eval_code = []
         self.expr_to_var = {}
 
         self.assigned_names = set()
+
+        self.discr = discr
+
+        from pytools import UniqueNameGenerator
+        self.name_gen = UniqueNameGenerator()
 
     # {{{ collect various optemplate components
 
@@ -569,56 +655,35 @@ class OperatorCompiler(mappers.IdentityMapper):
         # Used for diff batching
         self.diff_ops = self.collect_diff_ops(expr)
 
+        codegen_state = CodeGenerationState(generating_discr_code=False)
         # Finally, walk the expression and build the code.
-        result = super(OperatorCompiler, self).__call__(expr)
+        result = super(OperatorCompiler, self).__call__(expr, codegen_state)
 
         # FIXME: Reenable assignment aggregation
-        #return Code(self.aggregate_assignments(self.code, result), result)
-        return Code(self.code, result)
+        #return Code(self.aggregate_assignments(self.eval_code, result), result)
+
+        from pytools.obj_array import make_obj_array
+        return (
+                Code(self.discr_code,
+                    make_obj_array(
+                        [Variable(name)
+                            for name in self.discr_scope_names_copied_to_eval])),
+                Code(self.eval_code, result))
 
     # }}}
 
     # {{{ variables and names
 
-    def get_var_name(self, prefix=None):
-        def generate_suffixes():
-            yield ""
-            i = 2
-            while True:
-                yield "_%d" % i
-                i += 1
-
-        def generate_plain_names():
-            i = 0
-            while True:
-                yield self.prefix + str(i)
-                i += 1
-
-        if prefix is None:
-            for name in generate_plain_names():
-                if name not in self.assigned_names:
-                    break
-        else:
-            for suffix in generate_suffixes():
-                name = prefix + suffix
-                if name not in self.assigned_names:
-                    break
-
-        self.assigned_names.add(name)
-        return name
-
-    def assign_to_new_var(self, expr, priority=0, prefix=None):
-        from pymbolic.primitives import Variable, Subscript
-
+    def assign_to_new_var(self, codegen_state, expr, priority=0, prefix=None):
         # Observe that the only things that can be legally subscripted in
         # grudge are variables. All other expressions are broken down into
         # their scalar components.
         if isinstance(expr, (Variable, Subscript)):
             return expr
 
-        new_name = self.get_var_name(prefix)
-        self.code.append(self.make_assign(
-            new_name, expr, priority))
+        new_name = self.name_gen(prefix if prefix is not None else "expr")
+        codegen_state.get_code_list(self).append(Assign(
+            (new_name,), (expr,), priority=priority))
 
         return Variable(new_name)
 
@@ -626,72 +691,104 @@ class OperatorCompiler(mappers.IdentityMapper):
 
     # {{{ map_xxx routines
 
-    def map_common_subexpression(self, expr):
-        try:
-            return self.expr_to_var[expr.child]
-        except KeyError:
-            priority = getattr(expr, "priority", 0)
-
+    def map_common_subexpression(self, expr, codegen_state):
+        def get_rec_child(codegen_state):
             if isinstance(expr.child, sym.OperatorBinding):
                 # We need to catch operator bindings here and
                 # treat them specially. They get assigned to their
                 # own variable by default, which would mean the
                 # CSE prefix would be omitted, making the resulting
                 # code less readable.
-                rec_child = self.map_operator_binding(
-                        expr.child, name_hint=expr.prefix)
+                return self.map_operator_binding(
+                        expr.child, codegen_state, name_hint=expr.prefix)
             else:
-                rec_child = self.rec(expr.child)
+                return self.rec(expr.child, codegen_state)
 
-            cse_var = self.assign_to_new_var(rec_child,
-                    priority=priority, prefix=expr.prefix)
+        if expr.scope == sym.cse_scope.DISCRETIZATION:
+            from pymbolic import var
+            try:
+                expr_name = self.discr._discr_scoped_subexpr_to_name[expr.child]
+            except KeyError:
+                expr_name = "discr." + self.discr._discr_scoped_name_gen(
+                        expr.prefix if expr.prefix is not None else "expr")
+                self.discr._discr_scoped_subexpr_to_name[expr.child] = expr_name
 
-            self.expr_to_var[expr.child] = cse_var
-            return cse_var
+            assert expr_name.startswith("discr.")
 
-    def map_operator_binding(self, expr, name_hint=None):
+            priority = getattr(expr, "priority", 0)
+
+            if expr_name not in self.discr_scope_names_created:
+                new_codegen_state = codegen_state.copy(generating_discr_code=True)
+                rec_child = get_rec_child(new_codegen_state)
+
+                new_codegen_state.get_code_list(self).append(
+                        ToDiscretizationScopedAssign(
+                            (expr_name,), (rec_child,), priority=priority))
+
+                self.discr_scope_names_created.add(expr_name)
+
+            if codegen_state.generating_discr_code:
+                return var(expr_name)
+            else:
+                if expr_name in self.discr_scope_names_copied_to_eval:
+                    return var(expr_name)
+
+                self.eval_code.append(
+                        FromDiscretizationScopedAssign(
+                            expr_name, priority=priority))
+
+                self.discr_scope_names_copied_to_eval.add(expr_name)
+
+                return var(expr_name)
+
+        else:
+            try:
+                return self.expr_to_var[expr.child]
+            except KeyError:
+                priority = getattr(expr, "priority", 0)
+
+                rec_child = get_rec_child(codegen_state)
+
+                cse_var = self.assign_to_new_var(
+                        codegen_state, rec_child,
+                        priority=priority, prefix=expr.prefix)
+
+                self.expr_to_var[expr.child] = cse_var
+                return cse_var
+
+    def map_operator_binding(self, expr, codegen_state, name_hint=None):
         if isinstance(expr.op, sym.RefDiffOperatorBase):
-            return self.map_ref_diff_op_binding(expr)
+            return self.map_ref_diff_op_binding(expr, codegen_state)
         else:
             # make sure operator assignments stand alone and don't get muddled
             # up in vector math
             field_var = self.assign_to_new_var(
-                    self.rec(expr.field))
+                    codegen_state,
+                    self.rec(expr.field, codegen_state))
             result_var = self.assign_to_new_var(
+                    codegen_state,
                     expr.op(field_var),
                     prefix=name_hint)
             return result_var
 
-    def map_ones(self, expr):
-        # make sure expression stands alone and doesn't get
-        # muddled up in vector math
-        return self.assign_to_new_var(expr, prefix="ones")
-
-    def map_node_coordinate_component(self, expr):
-        # make sure expression stands alone and doesn't get
-        # muddled up in vector math
-        return self.assign_to_new_var(expr, prefix="nodes%d" % expr.axis)
-
-    def map_normal_component(self, expr):
-        # make sure expression stands alone and doesn't get
-        # muddled up in vector math
-        return self.assign_to_new_var(expr, prefix="normal%d" % expr.axis)
-
-    def map_call(self, expr):
+    def map_call(self, expr, codegen_state):
         from grudge.symbolic.primitives import CFunction
         if isinstance(expr.function, CFunction):
-            return super(OperatorCompiler, self).map_call(expr)
+            return super(OperatorCompiler, self).map_call(expr, codegen_state)
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
 
             return self.assign_to_new_var(
+                    codegen_state,
                     type(expr)(
                         expr.function,
-                        [self.assign_to_new_var(self.rec(par))
+                        [self.assign_to_new_var(
+                            codegen_state,
+                            self.rec(par, codegen_state))
                             for par in expr.parameters]))
 
-    def map_ref_diff_op_binding(self, expr):
+    def map_ref_diff_op_binding(self, expr, codegen_state):
         try:
             return self.expr_to_var[expr]
         except KeyError:
@@ -700,32 +797,25 @@ class OperatorCompiler(mappers.IdentityMapper):
                     if diff.op.equal_except_for_axis(expr.op)
                     and diff.field == expr.field]
 
-            names = [self.get_var_name() for d in all_diffs]
+            names = [self.name_gen("expr") for d in all_diffs]
 
             from pytools import single_valued
             op_class = single_valued(type(d.op) for d in all_diffs)
 
-            self.code.append(
+            codegen_state.get_code_list(self).append(
                     DiffBatchAssign(
                         names=names,
                         op_class=op_class,
                         operators=[d.op for d in all_diffs],
                         field=self.rec(
-                            single_valued(d.field for d in all_diffs))))
+                            single_valued(d.field for d in all_diffs),
+                            codegen_state)))
 
             from pymbolic import var
             for n, d in zip(names, all_diffs):
                 self.expr_to_var[d] = var(n)
 
             return self.expr_to_var[expr]
-
-    # }}}
-
-    # {{{ instruction producers
-
-    def make_assign(self, name, expr, priority):
-        return Assign(names=[name], exprs=[expr],
-                priority=priority)
 
     # }}}
 

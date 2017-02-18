@@ -74,7 +74,8 @@ def main(write_output=True, order=4):
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    # print(bound_op.code)
+    print(bound_op)
+    # 1/0
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
@@ -93,18 +94,23 @@ def main(write_output=True, order=4):
 
     norm = bind(discr, sym.norm(2, sym.var("u")))
 
+    from time import time
+    t_last_step = time()
+
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
 
             step += 1
 
-            print(step, event.t, norm(queue, u=event.state_component[0]))
+            print(step, event.t, norm(queue, u=event.state_component[0]),
+                    time()-t_last_step)
             vis.write_vtk_file("fld-%04d.vtu" % step,
                     [
                         ("u", event.state_component[0]),
                         ("v", event.state_component[1:]),
                         ])
+            t_last_step = time()
 
 
 if __name__ == "__main__":

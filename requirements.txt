@@ -1,4 +1,5 @@
 numpy
+git+https://github.com/inducer/pymbolic.git
 git+https://github.com/inducer/islpy.git
 git+https://github.com/pyopencl/pyopencl.git
 git+https://github.com/inducer/loopy.git
