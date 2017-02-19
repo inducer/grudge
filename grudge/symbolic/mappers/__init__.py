@@ -272,7 +272,7 @@ class FlopCounter(
     def map_operator_binding(self, expr):
         return self.rec(expr.field)
 
-    def map_scalar_parameter(self, expr):
+    def map_grudge_variable(self, expr):
         return 0
 
     def map_c_function(self, expr):

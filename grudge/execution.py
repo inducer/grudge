@@ -323,23 +323,6 @@ class ExecutionMapper(mappers.Evaluator,
         return [(insn.name,
             self.discr._discr_scoped_subexpr_name_to_value[insn.name])], []
 
-    def exec_vector_expr_assign(self, insn):
-        if self.bound_op.instrumented:
-            def stats_callback(n, vec_expr):
-                self.bound_op.vector_math_flop_counter.add(n*insn.flop_count())
-                return self.bound_op.vector_math_timer
-        else:
-            stats_callback = None
-
-        # FIXME: Reenable compiled vector exprs
-        if True:  # insn.flop_count() == 0:
-            return [(name, self(expr))
-                for name, expr in zip(insn.names, insn.exprs)], []
-        else:
-            compiled = insn.compiled(self.bound_op)
-            return zip(compiled.result_names(),
-                    compiled(self, stats_callback)), []
-
     def exec_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
