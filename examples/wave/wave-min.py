@@ -35,17 +35,20 @@ def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
+    dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(20, 20))
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*dims,
+            b=(0.5,)*dims,
+            n=(8,)*dims)
 
     discr = Discretization(cl_ctx, mesh, order=order)
 
-    source_center = np.array([0.1, 0.22])
+    source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05
     source_omega = 3
 
-    sym_x = sym.nodes(2)
+    sym_x = sym.nodes(mesh.dim)
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
 
@@ -80,7 +83,11 @@ def main(write_output=True, order=4):
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
 
-    dt = 0.04
+    if mesh.dim == 2:
+        dt = 0.04
+    elif mesh.dim == 3:
+        dt = 0.02
+
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 10
@@ -105,11 +112,12 @@ def main(write_output=True, order=4):
 
             print(step, event.t, norm(queue, u=event.state_component[0]),
                     time()-t_last_step)
-            vis.write_vtk_file("fld-%04d.vtu" % step,
-                    [
-                        ("u", event.state_component[0]),
-                        ("v", event.state_component[1:]),
-                        ])
+            if step % 10 == 0:
+                vis.write_vtk_file("fld-%04d.vtu" % step,
+                        [
+                            ("u", event.state_component[0]),
+                            ("v", event.state_component[1:]),
+                            ])
             t_last_step = time()
 
 
