@@ -88,41 +88,43 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
                     self.flux(pair))
 
         return (
-                -self.v.dot(sym.nabla(self.ambient_dim)*u)
+                - self.v.dot(sym.nabla(self.ambient_dim)*u)
                 + sym.InverseMassOperator()(
                     sym.FaceMassOperator()(
                         flux(sym.int_tpair(u))
-                        + flux(sym.bv_tpair(sym.BTAG_ALL, u, self.inflow_u)))))
+                        + flux(sym.bv_tpair(sym.BTAG_ALL, u, self.inflow_u))
+
+                        # FIXME: Add back support for inflow/outflow tags
+                        #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
+                        #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
+                        )))
 
 
 class WeakAdvectionOperator(AdvectionOperatorBase):
-    def flux(self):
-        return self.weak_flux()
+    def flux(self, u):
+        return self.weak_flux(u)
 
     def sym_operator(self):
-        from grudge.symbolic import (
-                Field,
-                BoundaryPair,
-                get_flux_operator,
-                make_stiffness_t,
-                InverseMassOperator,
-                RestrictToBoundary)
-
-        u = Field("u")
+        u = sym.var("u")
 
         # boundary conditions -------------------------------------------------
-        bc_in = Field("bc_in")
-        bc_out = RestrictToBoundary(self.outflow_tag)*u
+        bc_in = self.inflow_u
+        # bc_out = sym.interp("vol", self.outflow_tag)(u)
 
-        stiff_t = make_stiffness_t(self.dimensions)
-        m_inv = InverseMassOperator()
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(
+                    self.flux(pair))
 
-        flux_op = get_flux_operator(self.flux())
+        return sym.InverseMassOperator()(
+                np.dot(
+                    self.v, sym.stiffness_t(self.ambient_dim)*u)
+                - sym.FaceMassOperator()(
+                    flux(sym.int_tpair(u))
+                    + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
 
-        return m_inv(np.dot(self.v, stiff_t*u) - (
-                    flux_op(u)
-                    + flux_op(BoundaryPair(u, bc_in, self.inflow_tag))
-                    + flux_op(BoundaryPair(u, bc_out, self.outflow_tag))
+                    # FIXME: Add back support for inflow/outflow tags
+                    #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
+                    #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
                     ))
 
 # }}}

@@ -343,10 +343,6 @@ class ExecutionMapper(mappers.Evaluator,
     def exec_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
-        if not isinstance(repr_op, sym.RefDiffOperator):
-            # FIXME
-            raise NotImplementedError()
-
         # FIXME: There's no real reason why differentiation is special,
         # execution-wise.
         # This should be unified with map_elementwise_linear, which should
@@ -376,21 +372,24 @@ class ExecutionMapper(mappers.Evaluator,
 
         noperators = len(insn.operators)
         result = discr.empty(
-                dtype=field.dtype, extra_dims=(noperators,)).with_queue(self.queue)
+                queue=self.queue,
+                dtype=field.dtype, extra_dims=(noperators,),
+                allocator=self.bound_op.allocator)
 
         for grp in discr.groups:
             if grp.nelements == 0:
                 continue
 
-            # FIXME: Should make matrices on device and cache them
-            diff_matrices = grp.diff_matrices()
-            diff_matrices_ary = np.empty((
+            matrices = repr_op.matrices(grp)
+
+            # FIXME: Should transfer matrices to device and cache them
+            matrices_ary = np.empty((
                 noperators, grp.nunit_nodes, grp.nunit_nodes))
             for i, op in enumerate(insn.operators):
-                diff_matrices_ary[i] = diff_matrices[op.rst_axis]
+                matrices_ary[i] = matrices[op.rst_axis]
 
             knl()(self.queue,
-                    diff_mat=diff_matrices_ary,
+                    diff_mat=matrices_ary,
                     result=grp.view(result), vec=grp.view(field))
 
         return [(name, result[i]) for i, name in enumerate(insn.names)], []

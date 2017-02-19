@@ -214,9 +214,19 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
 class RefDiffOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_diff")
 
+    @staticmethod
+    def matrices(element_group):
+        return element_group.diff_matrices()
+
 
 class RefStiffnessTOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_stiffness_t")
+
+    @staticmethod
+    def matrices(element_group):
+        assert element_group.is_orthogonal_basis()
+        mmat = element_group.mass_matrix()
+        return [dmat.T.dot(mmat.T) for dmat in element_group.diff_matrices()]
 
 # }}}
 
@@ -349,10 +359,7 @@ class RefMassOperatorBase(ElementwiseLinearOperator):
 class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(element_group):
-        import modepy as mp
-        return mp.mass_matrix(
-                element_group.basis(),
-                element_group.unit_nodes)
+        return element_group.mass_matrix()
 
     mapper_method = intern("map_ref_mass")
 

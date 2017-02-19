@@ -208,10 +208,11 @@ def test_2d_gauss_theorem(ctx_factory):
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
     ])
+@pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["upwind"])
 @pytest.mark.parametrize("order", [3, 4, 5])
-def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, flux_type, order,
-        visualize=False):
+def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
+        order, visualize=False):
     """Test whether 2D advection actually converges"""
 
     cl_ctx = cl.create_some_context()
@@ -268,13 +269,20 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, flux_type, order,
                     -v.dot(x)/norm_v
                     + sym.var("t", sym.DD_SCALAR)*norm_v)
 
-        from grudge.models.advection import StrongAdvectionOperator
+        from grudge.models.advection import (
+                StrongAdvectionOperator, WeakAdvectionOperator)
         discr = Discretization(cl_ctx, mesh, order=order)
-        op = StrongAdvectionOperator(v,
+        op_class = {
+                "strong": StrongAdvectionOperator,
+                "weak": WeakAdvectionOperator,
+                }[op_type]
+        op = op_class(v,
                 inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
                 flux_type=flux_type)
 
         bound_op = bind(discr, op.sym_operator())
+        #print(bound_op)
+        #1/0
 
         u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
 
@@ -309,7 +317,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, flux_type, order,
                 last_u = event.state_component
 
                 if visualize:
-                    vis.write_vtk_file("fld-%04d.vtu" % step,
+                    vis.write_vtk_file("fld-%s-%04d.vtu" % (mesh_par, step),
                             [("u", event.state_component)])
 
         error_l2 = bind(discr,
