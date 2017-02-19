@@ -370,38 +370,37 @@ class Code(object):
                 for insn in self.instructions
                 for var_name in insn.get_assignees())
 
-        if 1:
-            # {{{ topological sort
+        # {{{ topological sort
 
-            added_insns = set()
-            ordered_insns = []
+        added_insns = set()
+        ordered_insns = []
 
-            def insert_insn(insn):
-                if insn in added_insns:
-                    return
+        def insert_insn(insn):
+            if insn in added_insns:
+                return
 
-                for dep in insn.get_dependencies():
-                    try:
-                        writer = var_to_writer[dep.name]
-                    except KeyError:
-                        # input variables won't be found
-                        pass
-                    else:
-                        insert_insn(writer)
+            for dep in insn.get_dependencies():
+                try:
+                    writer = var_to_writer[dep.name]
+                except KeyError:
+                    # input variables won't be found
+                    pass
+                else:
+                    insert_insn(writer)
 
-                ordered_insns.append(insn)
-                added_insns.add(insn)
+            ordered_insns.append(insn)
+            added_insns.add(insn)
 
-            for insn in self.instructions:
-                insert_insn(insn)
+        for insn in self.instructions:
+            insert_insn(insn)
 
-            assert len(ordered_insns) == len(self.instructions)
-            assert len(added_insns) == len(self.instructions)
+        assert len(ordered_insns) == len(self.instructions)
+        assert len(added_insns) == len(self.instructions)
 
-            # }}}
+        # }}}
 
         lines = []
-        for insn in self.instructions:
+        for insn in ordered_insns:
             lines.extend(str(insn).split("\n"))
         lines.append("RESULT: " + str(self.result))
 
