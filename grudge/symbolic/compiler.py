@@ -314,7 +314,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
         for dep in insn.get_dependencies():
             gen_expr_arrow(dep, node_names[insn])
 
-    from grudge.tools import is_obj_array
+    from pytools.obj_array import is_obj_array
 
     if is_obj_array(code.result):
         for subexp in code.result:
