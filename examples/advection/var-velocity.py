@@ -16,7 +16,6 @@
 
 
 import numpy as np
-import math
 import pyopencl as cl  # noqa
 import pyopencl.array  # noqa
 import pyopencl.clmath  # noqa
@@ -30,13 +29,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from grudge import sym, bind, Discretization
-
-import numpy.linalg as la
-
 from pytools.obj_array import join_fields
-
-
-
 
 
 def main(write_output=True, order=4):
@@ -44,7 +37,6 @@ def main(write_output=True, order=4):
     queue = cl.CommandQueue(cl_ctx)
 
     dim = 2
-
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
@@ -55,28 +47,17 @@ def main(write_output=True, order=4):
 
     discr = Discretization(cl_ctx, mesh, order=order)
 
-    c = np.array([0.1,0.1])
-    norm_c = la.norm(c)
-
     sym_x = sym.nodes(2)
 
-    #advec_v = sym.If(sym.Comparison(
-                        #np.dot(sym_x, sym_x), "<", 0.4**2),
-                                        #0.4, 0.1)
-
-    advec_v = sym_v = join_fields(-1*sym_x[1],sym_x[0]  )  / 2
-    omega =  1/2
-
+    advec_v = join_fields(-1*sym_x[1], sym_x[0]) / 2
 
     flux_type = "central"
 
     source_center = np.array([0.1, 0.1])
     source_width = 0.05
-    source_omega = 3
 
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
-         
 
     def f(x):
         return sym.exp(
@@ -86,12 +67,10 @@ def main(write_output=True, order=4):
     def u_analytic(x):
         return 0
 
-    from grudge.models.advection import VariableCoefficientAdvectionOperator, WeakAdvectionOperator
-    from meshmode.mesh import BTAG_ALL, BTAG_NONE
+    from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    
     discr = Discretization(cl_ctx, mesh, order=order)
-    op = VariableCoefficientAdvectionOperator(2,advec_v,
+    op = VariableCoefficientAdvectionOperator(2, advec_v,
         inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
         flux_type=flux_type)
 
@@ -108,18 +87,13 @@ def main(write_output=True, order=4):
     nsteps = (final_time // dt) + 1
     dt = final_time/nsteps + 1e-15
 
-
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-
-    last_u = None
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(discr, vis_order=order)
 
     step = 0
-
-    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     for event in dt_stepper.run(t_end=final_time):
         if isinstance(event, dt_stepper.StateComputed):
@@ -128,15 +102,8 @@ def main(write_output=True, order=4):
 
             #print(step, event.t, norm(queue, u=event.state_component[0]))
             vis.write_vtk_file("fld-%04d.vtu" % step,
-                    [  ("u", event.state_component) ])
-
-
-
-
-
+                    [("u", event.state_component)])
 
 
 if __name__ == "__main__":
     main()
-
-

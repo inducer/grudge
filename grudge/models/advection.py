@@ -177,9 +177,9 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
                     flux(sym.int_tpair(u))
                     + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
 
-                # FIXME: Add back support for inflow/outflow tags
-                #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
-                #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
+                    # FIXME: Add back support for inflow/outflow tags
+                    #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
+                    #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
                 ))
 # }}}
 
