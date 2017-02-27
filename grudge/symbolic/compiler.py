@@ -69,7 +69,38 @@ def _make_dep_mapper(include_subscripts):
             include_calls="descend_args")
 
 
-class Assign(Instruction):
+class AssignBase(Instruction):
+    comment = ""
+    scope_indicator = ""
+
+    def __str__(self):
+        comment = self.comment
+        if len(self.names) == 1:
+            if comment:
+                comment = "/* %s */ " % comment
+
+            return "%s <-%s %s%s" % (
+                    self.names[0], self.scope_indicator, comment,
+                    self.exprs[0])
+        else:
+            if comment:
+                comment = " /* %s */" % comment
+
+            lines = []
+            lines.append("{" + comment)
+            for n, e, dnr in zip(self.names, self.exprs, self.do_not_return):
+                if dnr:
+                    dnr_indicator = "-#"
+                else:
+                    dnr_indicator = ""
+
+                lines.append("  %s <%s-%s %s" % (
+                    n, dnr_indicator, self.scope_indicator, e))
+            lines.append("}")
+            return "\n".join(lines)
+
+
+class Assign(AssignBase):
     """
     .. attribute:: names
     .. attribute:: exprs
@@ -81,9 +112,6 @@ class Assign(Instruction):
     .. attribute:: priority
     .. attribute:: is_scalar_valued
     """
-
-    comment = ""
-    scope_indicator = ""
 
     def __init__(self, names, exprs, **kwargs):
         Instruction.__init__(self, names=names, exprs=exprs, **kwargs)
@@ -115,32 +143,6 @@ class Assign(Instruction):
 
         return deps
 
-    def __str__(self):
-        comment = self.comment
-        if len(self.names) == 1:
-            if comment:
-                comment = "/* %s */ " % comment
-
-            return "%s <-%s %s%s" % (
-                    self.names[0], self.scope_indicator, comment,
-                    self.exprs[0])
-        else:
-            if comment:
-                comment = " /* %s */" % comment
-
-            lines = []
-            lines.append("{" + comment)
-            for n, e, dnr in zip(self.names, self.exprs, self.do_not_return):
-                if dnr:
-                    dnr_indicator = "-#"
-                else:
-                    dnr_indicator = ""
-
-                lines.append("  %s <%s-%s %s" % (
-                    n, dnr_indicator, self.scope_indicator, e))
-            lines.append("}")
-            return "\n".join(lines)
-
     def get_execution_method(self, exec_mapper):
         return exec_mapper.exec_assign
 
@@ -152,11 +154,15 @@ class ToDiscretizationScopedAssign(Assign):
         return exec_mapper.exec_assign_to_discr_scoped
 
 
-class FromDiscretizationScopedAssign(Assign):
+class FromDiscretizationScopedAssign(AssignBase):
     scope_indicator = "(discr)-"
 
     def __init__(self, name, **kwargs):
-        Instruction.__init__(self, name=name, **kwargs)
+        super(FromDiscretizationScopedAssign, self).__init__(name=name, **kwargs)
+
+    @memoize_method
+    def flop_count(self):
+        return 0
 
     def get_assignees(self):
         return frozenset([self.name])
@@ -258,34 +264,6 @@ class FluxExchangeBatchAssign(Instruction):
     def get_execution_method(self, exec_mapper):
         return exec_mapper.exec_flux_exchange_batch_assign
 
-
-class VectorExprAssign(Assign):
-    """
-    .. attribute:: compiled
-    """
-
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_vector_expr_assign
-
-    comment = "compiled"
-
-    @memoize_method
-    def compiled(self, exec_mapper):
-        discr = exec_mapper.discr
-
-        from grudge.backends.vector_expr import \
-                VectorExpressionInfo, simple_result_dtype_getter
-        from grudge.backends.cuda.vector_expr import CompiledVectorExpression
-        return CompiledVectorExpression(
-                [VectorExpressionInfo(
-                    name=name,
-                    expr=expr,
-                    do_not_return=dnr)
-                    for name, expr, dnr in zip(
-                        self.names, self.exprs, self.do_not_return)],
-                result_dtype_getter=simple_result_dtype_getter,
-                allocator=discr.pool.allocate)
-
 # }}}
 
 
@@ -336,7 +314,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
         for dep in insn.get_dependencies():
             gen_expr_arrow(dep, node_names[insn])
 
-    from grudge.tools import is_obj_array
+    from pytools.obj_array import is_obj_array
 
     if is_obj_array(code.result):
         for subexp in code.result:
@@ -370,38 +348,37 @@ class Code(object):
                 for insn in self.instructions
                 for var_name in insn.get_assignees())
 
-        if 1:
-            # {{{ topological sort
+        # {{{ topological sort
 
-            added_insns = set()
-            ordered_insns = []
+        added_insns = set()
+        ordered_insns = []
 
-            def insert_insn(insn):
-                if insn in added_insns:
-                    return
+        def insert_insn(insn):
+            if insn in added_insns:
+                return
 
-                for dep in insn.get_dependencies():
-                    try:
-                        writer = var_to_writer[dep.name]
-                    except KeyError:
-                        # input variables won't be found
-                        pass
-                    else:
-                        insert_insn(writer)
+            for dep in insn.get_dependencies():
+                try:
+                    writer = var_to_writer[dep.name]
+                except KeyError:
+                    # input variables won't be found
+                    pass
+                else:
+                    insert_insn(writer)
 
-                ordered_insns.append(insn)
-                added_insns.add(insn)
+            ordered_insns.append(insn)
+            added_insns.add(insn)
 
-            for insn in self.instructions:
-                insert_insn(insn)
+        for insn in self.instructions:
+            insert_insn(insn)
 
-            assert len(ordered_insns) == len(self.instructions)
-            assert len(added_insns) == len(self.instructions)
+        assert len(ordered_insns) == len(self.instructions)
+        assert len(added_insns) == len(self.instructions)
 
-            # }}}
+        # }}}
 
         lines = []
-        for insn in self.instructions:
+        for insn in ordered_insns:
             lines.extend(str(insn).split("\n"))
         lines.append("RESULT: " + str(self.result))
 
@@ -659,16 +636,17 @@ class OperatorCompiler(mappers.IdentityMapper):
         # Finally, walk the expression and build the code.
         result = super(OperatorCompiler, self).__call__(expr, codegen_state)
 
-        # FIXME: Reenable assignment aggregation
-        #return Code(self.aggregate_assignments(self.eval_code, result), result)
-
         from pytools.obj_array import make_obj_array
         return (
                 Code(self.discr_code,
                     make_obj_array(
                         [Variable(name)
                             for name in self.discr_scope_names_copied_to_eval])),
-                Code(self.eval_code, result))
+                Code(
+                    # FIXME: Enable
+                    #self.aggregate_assignments(self.eval_code, result),
+                    self.eval_code,
+                    result))
 
     # }}}
 
@@ -876,7 +854,8 @@ class OperatorCompiler(mappers.IdentityMapper):
 
         from pytools import partition
         unprocessed_assigns, other_insns = partition(
-                lambda insn: isinstance(insn, Assign) and not insn.is_scalar_valued,
+                # FIXME: Re-add check for scalar result, exclude
+                lambda insn: isinstance(insn, Assign),
                 instructions)
 
         # filter out zero-flop-count assigns--no need to bother with those
@@ -1023,7 +1002,7 @@ class OperatorCompiler(mappers.IdentityMapper):
     # }}}
 
     def finalize_multi_assign(self, names, exprs, do_not_return, priority):
-        return VectorExprAssign(names=names, exprs=exprs,
+        return Assign(names=names, exprs=exprs,
                 do_not_return=do_not_return,
                 priority=priority)
 
