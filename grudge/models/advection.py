@@ -30,7 +30,6 @@ import numpy as np
 import numpy.linalg as la
 
 from grudge.models import HyperbolicOperator
-from grudge.models.second_order import CentralSecondDerivative
 from grudge import sym
 
 
@@ -134,25 +133,21 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
 class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     def __init__(self, dim, v, inflow_u, flux_type="central"):
-        self.ambient_dim = dim 
+        self.ambient_dim = dim
         self.v = v
         self.inflow_u = inflow_u
         self.flux_type = flux_type
-    def flux(self, u): 
+
+    def flux(self, u):
         normal = sym.normal(u. dd, self.ambient_dim)
-        
+
         surf_v = sym.interp("vol", u.dd)(self.v)
-        
-        
-        v_dot_normal = sym.cse(np.dot(surf_v,normal), "v_dot_normal")
+
+        v_dot_normal = sym.cse(np.dot(surf_v, normal), "v_dot_normal")
         norm_v = sym.sqrt(np.sum(self.v**2))
-        
+
         if self.flux_type == "central":
             return u.avg*v_dot_normal
-            # versus??
-            #return v_dot_normal
-            #return (u.int*v_dot_normal
-                    #+ u.ext*v_dot_normal) * 0.5
 
         elif self.flux_type == "lf":
             return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
@@ -176,7 +171,6 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
             return sym.interp(pair.dd, "all_faces")(
                     self.flux(pair))
 
-
         return sym.InverseMassOperator()(
                 np.dot(
                     sym.stiffness_t(self.ambient_dim), sym.cse(self.v*u))
@@ -187,7 +181,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
                     # FIXME: Add back support for inflow/outflow tags
                     #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
                     #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
-                   ))
+                    ))
 # }}}
 
 # vim: foldmethod=marker
