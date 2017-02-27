@@ -141,7 +141,6 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     def flux(self, u): 
         normal = sym.normal(u. dd, self.ambient_dim)
         
-        #v = sym.nodes(2,u.dd)#self.v
         surf_v = sym.interp("vol", u.dd)(self.v)
         
         
@@ -149,11 +148,11 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         norm_v = sym.sqrt(np.sum(self.v**2))
         
         if self.flux_type == "central":
-            #return u.avg*v_dot_normal
+            return u.avg*v_dot_normal
             # versus??
             #return v_dot_normal
-            return (u.int*v_dot_normal
-                    + u.ext*v_dot_normal) * 0.5
+            #return (u.int*v_dot_normal
+                    #+ u.ext*v_dot_normal) * 0.5
 
         elif self.flux_type == "lf":
             return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
@@ -172,7 +171,6 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
        # boundary conditions -------------------------------------------------
         bc_in = self.inflow_u
-        # bc_out = sym.interp("vol", self.outflow_tag)(u)
 
         def flux(pair):
             return sym.interp(pair.dd, "all_faces")(
