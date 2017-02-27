@@ -169,7 +169,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
     def sym_operator(self):
         u = sym.var("u")
 
-       # boundary conditions -------------------------------------------------
+        # boundary conditions -------------------------------------------------
         bc_in = self.inflow_u
 
         def flux(pair):
@@ -179,20 +179,15 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         return sym.InverseMassOperator()(
                 np.dot(
-                    #self.v, sym.stiffness_t(self.ambient_dim)*u)
                     sym.stiffness_t(self.ambient_dim), sym.cse(self.v*u))
-                 - sym.FaceMassOperator()(
+                    - sym.FaceMassOperator()(
                     flux(sym.int_tpair(u))
-  		 + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
+  		    + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
 
                     # FIXME: Add back support for inflow/outflow tags
                     #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
                     #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
                    ))
-
-
-
 # }}}
-
 
 # vim: foldmethod=marker
