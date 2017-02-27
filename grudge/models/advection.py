@@ -174,8 +174,8 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         return sym.InverseMassOperator()(
                 np.dot(sym.stiffness_t(self.ambient_dim), sym.cse(self.v*u))
                 - sym.FaceMassOperator()(
-                flux(sym.int_tpair(u))
-                + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
+                    flux(sym.int_tpair(u))
+                    + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
 
                 # FIXME: Add back support for inflow/outflow tags
                 #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
