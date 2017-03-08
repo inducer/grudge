@@ -1,4 +1,3 @@
-"""grudge is the Hybrid'n'Easy Discontinuous Galerkin Environment."""
 
 from __future__ import division
 from __future__ import absolute_import

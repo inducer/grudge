@@ -1,4 +1,3 @@
-# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 # Adapted 2010 by David Powell
 #

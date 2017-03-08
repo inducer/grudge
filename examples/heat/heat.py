@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 from __future__ import print_function
-# grudge - the Hybrid'n'Easy DG Environment
 # Copyright (C) 2007 Andreas Kloeckner
 #
 # This program is free software: you can redistribute it and/or modify
