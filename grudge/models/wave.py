@@ -180,187 +180,158 @@ class StrongWaveOperator(HyperbolicOperator):
     def max_eigenvalue(self, t, fields=None, discr=None):
         return abs(self.c)
 
-# }}}
-
-
-# {{{ variable-velocity
-
-class VariableVelocityStrongWaveOperator(HyperbolicOperator):
-    r"""This operator discretizes the wave equation
-    :math:`\partial_t^2 u = c^2 \Delta u`.
+class WeakWaveOperator(HyperbolicOperator):
+    """This operator discretizes the wave equation
+    :math:`\\partial_t^2 u = c^2 \\Delta u`.
 
     To be precise, we discretize the hyperbolic system
 
     .. math::
 
-        \partial_t u - c \nabla \cdot v = 0
+        \partial_t u - c \\nabla \\cdot v = 0
 
-        \partial_t v - c \nabla u = 0
+        \partial_t v - c \\nabla u = 0
+
+    The sign of :math:`v` determines whether we discretize the forward or the
+    backward wave equation.
+
+    :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(
-            self, c, ambient_dim, source=0,
+    def __init__(self, c, ambient_dim, source_f=0,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
+            dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_NONE,
-            time_sign=1,
-            diffusion_coeff=None,
-            diffusion_scheme=CentralSecondDerivative()
-            ):
-        """*c* and *source* are optemplate expressions.
-        """
+            radiation_tag=BTAG_NONE):
         assert isinstance(ambient_dim, int)
 
         self.c = c
-        self.time_sign = time_sign
         self.ambient_dim = ambient_dim
-        self.source = source
+        self.source_f = source_f
+
+        if self.c > 0:
+            self.sign = 1
+        else:
+            self.sign = -1
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag
         self.radiation_tag = radiation_tag
 
+        self.dirichlet_bc_f = dirichlet_bc_f
+
         self.flux_type = flux_type
 
-        self.diffusion_coeff = diffusion_coeff
-        self.diffusion_scheme = diffusion_scheme
-
-    # {{{ flux ----------------------------------------------------------------
-    def flux(self, w, c_vol):
+    def flux(self, w):
         u = w[0]
         v = w[1:]
-        normal = sym.normal(w.tag, self.ambient_dim)
+        normal = sym.normal(w.dd, self.ambient_dim)
 
-        c = sym.RestrictToBoundary(w.tag)(c_vol)
+        flux_weak = join_fields(
+                np.dot(v.avg, normal),
+                u.avg * normal)
 
-        flux = self.time_sign*1/2*join_fields(
-                c.ext * np.dot(v.ext, normal)
-                - c.int * np.dot(v.int, normal),
-                normal*(c.ext*u.ext - c.int*u.int))
 
         if self.flux_type == "central":
-            pass
+            return -self.c*flux_weak
         elif self.flux_type == "upwind":
-            flux += join_fields(
-                    c.ext*u.ext - c.int*u.int,
-                    c.ext*normal*np.dot(normal, v.ext)
-                    - c.int*normal*np.dot(normal, v.int)
-                    )
-        else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
+            return -self.c*(flux_weak + self.sign*join_fields(
+                    0.5*(u.int-u.ext),
+                    0.5*(normal * np.dot(normal, v.int-v.ext))))
+            # see doc/notes/grudge-notes.tm
+            # THis is terrible
+            #flux_weak -= self.sign*join_fields(
+                    #0.5*(u.int-u.ext),
+                    #0.5*(normal * np.dot(normal, v.int-v.ext)))
+        #else:
+            #raise ValueError("invalid flux type '%s'" % self.flux_type)
 
-        return flux
+        #flux_strong = join_fields(
+                #np.dot(v.int, normal),
+                #u.int * normal) - flux_weak
 
-    # }}}
+        #return self.c*flux_strong
 
-    def bind_characteristic_velocity(self, discr):
-        from grudge.symbolic.operators import ElementwiseMaxOperator
-
-        compiled = discr.compile(ElementwiseMaxOperator()(self.c))
-
-        def do(t, w, **extra_context):
-            return compiled(t=t, w=w, **extra_context)
-
-        return do
-
-    def sym_operator(self, with_sensor=False):
+    def sym_operator(self):
         d = self.ambient_dim
 
         w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
 
-        flux_w = join_fields(self.c, w)
+        # boundary conditions -------------------------------------------------
 
-        # {{{ boundary conditions
+        # dirichlet BCs -------------------------------------------------------
+        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
+        if self.dirichlet_bc_f:
+            # FIXME
+            from warnings import warn
+            warn("Inhomogeneous Dirichlet conditions on the wave equation "
+                    "are still having issues.")
 
-        # Dirichlet
-        dir_c = sym.RestrictToBoundary(self.dirichlet_tag) * self.c
-        dir_u = sym.RestrictToBoundary(self.dirichlet_tag) * u
-        dir_v = sym.RestrictToBoundary(self.dirichlet_tag) * v
+            dir_g = sym.Field("dir_bc_u")
+            dir_bc = join_fields(2*dir_g - dir_u, dir_v)
+        else:
+            dir_bc = join_fields(-dir_u, dir_v)
 
-        dir_bc = join_fields(dir_c, -dir_u, dir_v)
+        dir_bc = sym.cse(dir_bc, "dir_bc")
 
-        # Neumann
-        neu_c = sym.RestrictToBoundary(self.neumann_tag) * self.c
-        neu_u = sym.RestrictToBoundary(self.neumann_tag) * u
-        neu_v = sym.RestrictToBoundary(self.neumann_tag) * v
+        # neumann BCs ---------------------------------------------------------
+        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
 
-        neu_bc = join_fields(neu_c, neu_u, -neu_v)
+        # radiation BCs -------------------------------------------------------
+        rad_normal = sym.normal(self.radiation_tag, d)
 
-        # Radiation
-        rad_normal = sym.make_normal(self.radiation_tag, d)
+        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_c = sym.RestrictToBoundary(self.radiation_tag) * self.c
-        rad_u = sym.RestrictToBoundary(self.radiation_tag) * u
-        rad_v = sym.RestrictToBoundary(self.radiation_tag) * v
-
-        rad_bc = join_fields(
-                rad_c,
-                0.5*(rad_u - self.time_sign*np.dot(rad_normal, rad_v)),
-                0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.time_sign*rad_u)
-                )
-
-        # }}}
-
-        # {{{ diffusion -------------------------------------------------------
-        from pytools.obj_array import with_object_array_or_scalar
-
-        def make_diffusion(arg):
-            if with_sensor or (
-                    self.diffusion_coeff is not None and self.diffusion_coeff != 0):
-                if self.diffusion_coeff is None:
-                    diffusion_coeff = 0
-                else:
-                    diffusion_coeff = self.diffusion_coeff
-
-                if with_sensor:
-                    diffusion_coeff += sym.Field("sensor")
-
-                from grudge.second_order import SecondDerivativeTarget
-
-                # strong_form here allows the reuse the value of grad u.
-                grad_tgt = SecondDerivativeTarget(
-                        self.ambient_dim, strong_form=True,
-                        operand=arg)
-
-                self.diffusion_scheme.grad(grad_tgt, bc_getter=None,
-                        dirichlet_tags=[], neumann_tags=[])
-
-                div_tgt = SecondDerivativeTarget(
-                        self.ambient_dim, strong_form=False,
-                        operand=diffusion_coeff*grad_tgt.minv_all)
-
-                self.diffusion_scheme.div(div_tgt,
-                        bc_getter=None,
-                        dirichlet_tags=[], neumann_tags=[])
-
-                return div_tgt.minv_all
-            else:
-                return 0
-
-        # }}}
+        rad_bc = sym.cse(join_fields(
+                0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
+                0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
+                ), "rad_bc")
 
         # entire operator -----------------------------------------------------
         nabla = sym.nabla(d)
-        flux_op = sym.get_flux_operator(self.flux())
 
-        return (
-                - join_fields(
-                    - self.time_sign*self.c*np.dot(nabla, v) - make_diffusion(u)
-                    + self.source,
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
-                    -self.time_sign*self.c*(nabla*u) - with_object_array_or_scalar(
-                        make_diffusion, v)
+
+        #result = (
+                #- join_fields(
+                    #-self.c*np.dot(nabla, v),
+                    #-self.c*(nabla*u)
+                    #)
+                #+
+                #sym.InverseMassOperator()(
+                    #sym.FaceMassOperator()(
+                        #flux(sym.int_tpair(w))
+                        #+ flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
+                        #+ flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
+                        #+ flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
+                        #)))
+
+        result = sym.InverseMassOperator()( 
+                join_fields(
+                    -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
+                    -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
-                +
-                sym.InverseMassOperator() * (
-                    flux_op(flux_w)
-                    + flux_op(sym.BoundaryPair(flux_w, dir_bc, self.dirichlet_tag))
-                    + flux_op(sym.BoundaryPair(flux_w, neu_bc, self.neumann_tag))
-                    + flux_op(sym.BoundaryPair(flux_w, rad_bc, self.radiation_tag))
-                    ))
+
+
+                - sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
+                    + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
+                    + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
+                    + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
+
+                    ) )
+
+        result[0] += self.source_f
+
+        return result
 
     def check_bc_coverage(self, mesh):
         from meshmode.mesh import check_bc_coverage
@@ -369,9 +340,176 @@ class VariableVelocityStrongWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-    def max_eigenvalue_expr(self):
-        import grudge.symbolic as sym
-        return sym.NodalMax()(sym.CFunction("fabs")(self.c))
+    def max_eigenvalue(self, t, fields=None, discr=None):
+        return abs(self.c)
+
+
+# }}}
+
+
+# {{{ variable-velocity
+
+class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
+    """This operator discretizes the wave equation
+    :math:`\\partial_t^2 u = c^2 \\Delta u`.
+
+    To be precise, we discretize the hyperbolic system
+
+    .. math::
+
+        \partial_t u - c \\nabla \\cdot v = 0
+
+        \partial_t v - c \\nabla u = 0
+
+    The sign of :math:`v` determines whether we discretize the forward or the
+    backward wave equation.
+
+    :math:`c` is assumed to be constant across all space.
+    """
+
+    def __init__(self, c, ambient_dim, source_f=0,
+            flux_type="upwind",
+            dirichlet_tag=BTAG_ALL,
+            dirichlet_bc_f=0,
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_NONE):
+        assert isinstance(ambient_dim, int)
+
+        self.c = c
+        self.ambient_dim = ambient_dim
+        self.source_f = source_f
+
+        self.sign = sym.If(sym.Comparison(
+                            self.c, ">", 0),
+                                            1, -1)
+
+        self.dirichlet_tag = dirichlet_tag
+        self.neumann_tag = neumann_tag
+        self.radiation_tag = radiation_tag
+
+        self.dirichlet_bc_f = dirichlet_bc_f
+
+        self.flux_type = flux_type
+
+    def flux(self, w):
+        u = w[0]
+        v = w[1:]
+        normal = sym.normal(w.dd, self.ambient_dim)
+
+        surf_c = sym.interp("vol", u.dd)(self.c)
+
+        flux_weak = join_fields(
+                np.dot(v.avg, normal),
+                u.avg * normal)
+        return -surf_c*flux_weak
+
+
+        if self.flux_type == "central":
+            return -surf_c*flux_weak
+        #elif self.flux_type == "upwind":
+            # see doc/notes/grudge-notes.tm
+            #flux_weak -= self.sign*join_fields(
+                    #0.5*(u.int-u.ext),
+                    #0.5*(normal * np.dot(normal, v.int-v.ext)))
+        #else:
+            #raise ValueError("invalid flux type '%s'" % self.flux_type)
+
+        #flux_strong = join_fields(
+                #np.dot(v.int, normal),
+                #u.int * normal) - flux_weak
+
+        #return self.c*flux_strong
+
+    def sym_operator(self):
+        d = self.ambient_dim
+
+        w = sym.make_sym_array("w", d+1)
+        u = w[0]
+        v = w[1:]
+
+        # boundary conditions -------------------------------------------------
+
+        # dirichlet BCs -------------------------------------------------------
+        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
+        if self.dirichlet_bc_f:
+            # FIXME
+            from warnings import warn
+            warn("Inhomogeneous Dirichlet conditions on the wave equation "
+                    "are still having issues.")
+
+            dir_g = sym.Field("dir_bc_u")
+            dir_bc = join_fields(2*dir_g - dir_u, dir_v)
+        else:
+            dir_bc = join_fields(-dir_u, dir_v)
+
+        dir_bc = sym.cse(dir_bc, "dir_bc")
+
+        # neumann BCs ---------------------------------------------------------
+        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
+
+        # radiation BCs -------------------------------------------------------
+        rad_normal = sym.normal(self.radiation_tag, d)
+
+        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
+
+        rad_bc = sym.cse(join_fields(
+                0.5*(rad_u - sym.interp("vol",self.radiation_tag)(self.sign)*np.dot(rad_normal, rad_v)),
+                0.5*rad_normal*(np.dot(rad_normal, rad_v) -sym.interp("vol",self.radiation_tag)(self.sign)*rad_u)
+                ), "rad_bc")
+
+        # entire operator -----------------------------------------------------
+        nabla = sym.nabla(d)
+
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
+
+
+        #result = sym.InverseMassOperator()( 
+                #join_fields(
+                    #-self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
+                    #-self.c*(sym.stiffness_t(self.ambient_dim)*u)
+                    #)
+
+
+                #- sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
+                    #+ flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
+                    #+ flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
+                    #+ flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
+
+                    #)# )
+
+        result = sym.InverseMassOperator()( 
+                join_fields(
+                    -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
+                    -self.c*(sym.stiffness_t(self.ambient_dim)*u)
+                    )
+
+
+                - sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
+                    + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
+                    + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
+                    + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
+
+                    ) )
+
+        result[0] += self.source_f
+
+        return result
+
+    def check_bc_coverage(self, mesh):
+        from meshmode.mesh import check_bc_coverage
+        check_bc_coverage(mesh, [
+            self.dirichlet_tag,
+            self.neumann_tag,
+            self.radiation_tag])
+
+    def max_eigenvalue(self, t, fields=None, discr=None):
+        return abs(self.c)
+
 
 # }}}
 

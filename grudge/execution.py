@@ -119,12 +119,37 @@ class ExecutionMapper(mappers.Evaluator,
         then = self.rec(expr.then)
         else_ = self.rec(expr.else_)
 
-        result = cl.array.empty_like(then, queue=self.queue,
-                allocator=self.bound_op.allocator)
-        cl.array.if_positive(bool_crit, then, else_, out=result,
-                queue=self.queue)
+        import pymbolic.primitives as p
 
-        return result
+        var = p.Variable
+
+        i = var("i") #sym.Variable("i")
+        if isinstance(then,  pyopencl.array.Array):
+            sym_then = var("a")[i] #sym.Variable("a")[i]
+        else:
+            sym_then = var("a") # sym.Variable("a")
+            then = np.float64(then)
+
+        if isinstance(else_,  pyopencl.array.Array):
+            sym_else = var("b")[i] # sym.Variable("b")[i]
+        else:
+            sym_else = var("b") # sym.Variable("b")
+            else_ = np.float64(else_)
+
+        @memoize_in(self.bound_op, "map_if_knl")
+        def knl():
+            knl = lp.make_kernel(
+               "{[i]: 0<=i<n}",
+                [
+                    lp.Assignment(var("out")[i], p.If(var("crit")[i], sym_then, sym_else))
+
+                   #lp.Assignment(sym.Variable("out")[i], sym.If(sym.Variable("crit")[i], sym_then, sym_else))
+                ])
+            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
+
+        evt, (out,) = knl()(self.queue, crit=bool_crit, a=then, b=else_)
+
+        return out
 
     def map_ref_diff_base(self, op, field_expr):
         raise NotImplementedError(
