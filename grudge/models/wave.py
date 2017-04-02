@@ -28,7 +28,6 @@ THE SOFTWARE.
 
 import numpy as np
 from grudge.models import HyperbolicOperator
-from grudge.models.second_order import CentralSecondDerivative
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym
 from pytools.obj_array import join_fields
@@ -180,6 +179,7 @@ class StrongWaveOperator(HyperbolicOperator):
     def max_eigenvalue(self, t, fields=None, discr=None):
         return abs(self.c)
 
+
 class WeakWaveOperator(HyperbolicOperator):
     """This operator discretizes the wave equation
     :math:`\\partial_t^2 u = c^2 \\Delta u`.
@@ -232,26 +232,14 @@ class WeakWaveOperator(HyperbolicOperator):
                 np.dot(v.avg, normal),
                 u.avg * normal)
 
-
         if self.flux_type == "central":
             return -self.c*flux_weak
         elif self.flux_type == "upwind":
             return -self.c*(flux_weak + self.sign*join_fields(
                     0.5*(u.int-u.ext),
                     0.5*(normal * np.dot(normal, v.int-v.ext))))
-            # see doc/notes/grudge-notes.tm
-            # THis is terrible
-            #flux_weak -= self.sign*join_fields(
-                    #0.5*(u.int-u.ext),
-                    #0.5*(normal * np.dot(normal, v.int-v.ext)))
-        #else:
-            #raise ValueError("invalid flux type '%s'" % self.flux_type)
-
-        #flux_strong = join_fields(
-                #np.dot(v.int, normal),
-                #u.int * normal) - flux_weak
-
-        #return self.c*flux_strong
+        else:
+            raise ValueError("invalid flux type '%s'" % self.flux_type)
 
     def sym_operator(self):
         d = self.ambient_dim
@@ -295,39 +283,22 @@ class WeakWaveOperator(HyperbolicOperator):
                 ), "rad_bc")
 
         # entire operator -----------------------------------------------------
-        nabla = sym.nabla(d)
-
         def flux(pair):
             return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
-
-        #result = (
-                #- join_fields(
-                    #-self.c*np.dot(nabla, v),
-                    #-self.c*(nabla*u)
-                    #)
-                #+
-                #sym.InverseMassOperator()(
-                    #sym.FaceMassOperator()(
-                        #flux(sym.int_tpair(w))
-                        #+ flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
-                        #+ flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
-                        #+ flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
-                        #)))
-
-        result = sym.InverseMassOperator()( 
+        result = sym.InverseMassOperator()(
                 join_fields(
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
 
 
-                - sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
+                - sym.FaceMassOperator()(flux(sym.int_tpair(w))
                     + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
                     + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
                     + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
 
-                    ) )
+                    ))
 
         result[0] += self.source_f
 
@@ -381,7 +352,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
         self.sign = sym.If(sym.Comparison(
                             self.c, ">", 0),
-                                            1, -1)
+                                            np.int32(1), np.int32(-1))
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag
@@ -401,24 +372,15 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         flux_weak = join_fields(
                 np.dot(v.avg, normal),
                 u.avg * normal)
-        return -surf_c*flux_weak
-
 
         if self.flux_type == "central":
             return -surf_c*flux_weak
-        #elif self.flux_type == "upwind":
-            # see doc/notes/grudge-notes.tm
-            #flux_weak -= self.sign*join_fields(
-                    #0.5*(u.int-u.ext),
-                    #0.5*(normal * np.dot(normal, v.int-v.ext)))
-        #else:
-            #raise ValueError("invalid flux type '%s'" % self.flux_type)
-
-        #flux_strong = join_fields(
-                #np.dot(v.int, normal),
-                #u.int * normal) - flux_weak
-
-        #return self.c*flux_strong
+        elif self.flux_type == "upwind":
+            return -self.c*(flux_weak + self.sign*join_fields(
+                    0.5*(u.int-u.ext),
+                    0.5*(normal * np.dot(normal, v.int-v.ext))))
+        else:
+            raise ValueError("invalid flux type '%s'" % self.flux_type)
 
     def sym_operator(self):
         d = self.ambient_dim
@@ -457,44 +419,29 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
         rad_bc = sym.cse(join_fields(
-                0.5*(rad_u - sym.interp("vol",self.radiation_tag)(self.sign)*np.dot(rad_normal, rad_v)),
-                0.5*rad_normal*(np.dot(rad_normal, rad_v) -sym.interp("vol",self.radiation_tag)(self.sign)*rad_u)
+                0.5*(rad_u - sym.interp("vol", self.radiation_tag)(self.sign)
+                    * np.dot(rad_normal, rad_v)),
+                0.5*rad_normal*(np.dot(rad_normal, rad_v)
+                    - sym.interp("vol", self.radiation_tag)(self.sign)*rad_u)
                 ), "rad_bc")
 
         # entire operator -----------------------------------------------------
-        nabla = sym.nabla(d)
-
         def flux(pair):
             return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
-
-        #result = sym.InverseMassOperator()( 
-                #join_fields(
-                    #-self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
-                    #-self.c*(sym.stiffness_t(self.ambient_dim)*u)
-                    #)
-
-
-                #- sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
-                    #+ flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
-                    #+ flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
-                    #+ flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
-
-                    #)# )
-
-        result = sym.InverseMassOperator()( 
+        result = sym.InverseMassOperator()(
                 join_fields(
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
 
 
-                - sym.FaceMassOperator()( flux(sym.int_tpair(w)) 
+                - sym.FaceMassOperator()(flux(sym.int_tpair(w))
                     + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
                     + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
                     + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
 
-                    ) )
+                    ))
 
         result[0] += self.source_f
 

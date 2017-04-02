@@ -51,10 +51,9 @@ def main(write_output=True, order=4):
     sym_x = sym.nodes(mesh.dim)
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
-    c =    sym.If(sym.Comparison(
-                np.dot(sym_x, sym_x), "<", 0.2),
-                -0.1, -0.2)
-    #c = np.dot(sym_x,sym_x)
+    c = sym.If(sym.Comparison(
+                np.dot(sym_x, sym_x), "<", 0.15),
+                np.float32(-0.1), np.float32(-0.2))
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -75,15 +74,9 @@ def main(write_output=True, order=4):
     fields = join_fields(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
-    # FIXME
-    #dt = op.estimate_rk4_timestep(discr, fields=fields)
-
     op.check_bc_coverage(mesh)
 
-    # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    print(bound_op)
-    # 1/0
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)

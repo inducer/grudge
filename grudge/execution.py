@@ -120,30 +120,32 @@ class ExecutionMapper(mappers.Evaluator,
         else_ = self.rec(expr.else_)
 
         import pymbolic.primitives as p
-
         var = p.Variable
 
-        i = var("i") #sym.Variable("i")
+        i = var("i")
         if isinstance(then,  pyopencl.array.Array):
-            sym_then = var("a")[i] #sym.Variable("a")[i]
+            sym_then = var("a")[i]
+        elif isinstance(then,  np.number):
+            sym_then = var("a")
         else:
-            sym_then = var("a") # sym.Variable("a")
-            then = np.float64(then)
+            raise TypeError(
+                "Expected parameter to be of type np.number or pyopencl.array.Array")
 
         if isinstance(else_,  pyopencl.array.Array):
-            sym_else = var("b")[i] # sym.Variable("b")[i]
+            sym_else = var("b")[i]
+        elif isinstance(then,  np.number):
+            sym_else = var("b")
         else:
-            sym_else = var("b") # sym.Variable("b")
-            else_ = np.float64(else_)
+            raise TypeError(
+                "Expected parameter to be of type np.number or pyopencl.array.Array")
 
         @memoize_in(self.bound_op, "map_if_knl")
         def knl():
             knl = lp.make_kernel(
-               "{[i]: 0<=i<n}",
+                "{[i]: 0<=i<n}",
                 [
-                    lp.Assignment(var("out")[i], p.If(var("crit")[i], sym_then, sym_else))
-
-                   #lp.Assignment(sym.Variable("out")[i], sym.If(sym.Variable("crit")[i], sym_then, sym_else))
+                    lp.Assignment(var("out")[i],
+                        p.If(var("crit")[i], sym_then, sym_else))
                 ])
             return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
