@@ -67,7 +67,7 @@ def main(write_output=True, order=4):
             dirichlet_tag=BTAG_NONE,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_ALL,
-            flux_type="central")
+            flux_type="upwind")
 
     queue = cl.CommandQueue(discr.cl_context)
     from pytools.obj_array import join_fields

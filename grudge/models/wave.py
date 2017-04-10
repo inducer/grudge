@@ -363,22 +363,37 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         self.flux_type = flux_type
 
     def flux(self, w):
-        u = w[0]
-        v = w[1:]
+        c = w[0]
+        u = w[1]
+        v = w[2:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
-        surf_c = sym.interp("vol", u.dd)(self.c)
-
         flux_weak = join_fields(
-                np.dot(v.avg, normal),
-                u.avg * normal)
+                np.dot(v.int*c.int + v.ext*c.ext, normal),
+                (u.int * c.int + u.ext*c.ext) * normal) * -0.5
+
+        flux = sym.interp("vol",u.dd)(self.sign) * join_fields(
+                c.ext * np.dot(v.ext, normal) - c.int*np.dot(v.int,normal),
+                normal * (c.ext*u.ext - c.int* u.int)) * -0.5
+
+        flux_strong = join_fields(
+                np.dot(v.int, normal),
+                u.int * normal) * -c.int
 
         if self.flux_type == "central":
-            return -surf_c*flux_weak
+            return flux_strong - flux 
         elif self.flux_type == "upwind":
-            return -self.c*(flux_weak + self.sign*join_fields(
-                    0.5*(u.int-u.ext),
-                    0.5*(normal * np.dot(normal, v.int-v.ext))))
+            flux += join_fields(
+                c.ext*u.ext - c.int*u.int,
+                c.ext*normal*np.dot(normal, v.ext)
+                - c.int*normal*np.dot(normal, v.int)
+                )
+            return flux_strong - flux 
+            return (flux_weak + join_fields(
+                c.ext*u.ext - c.int*u.int,
+                c.ext*normal*np.dot(normal, v.ext)
+                - c.int*normal*np.dot(normal, v.int)
+                ))
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
@@ -388,10 +403,12 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
+        flux_w = join_fields(self.c,w)
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
+        dir_c = sym.cse(sym.interp("vol", self.dirichlet_tag)(self.c))
         dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
         dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
         if self.dirichlet_bc_f:
@@ -401,24 +418,26 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     "are still having issues.")
 
             dir_g = sym.Field("dir_bc_u")
-            dir_bc = join_fields(2*dir_g - dir_u, dir_v)
+            dir_bc = join_fields(dir_c,2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = join_fields(-dir_u, dir_v)
+            dir_bc = join_fields(dir_c,-dir_u, dir_v)
 
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
+        neu_c = sym.cse(sym.interp("vol", self.neumann_tag)(self.c))
         neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
         neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
+        neu_bc = sym.cse(join_fields(neu_c,neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
+        rad_c = sym.cse(sym.interp("vol", self.radiation_tag)(self.c))
         rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
         rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_bc = sym.cse(join_fields(
+        rad_bc = sym.cse(join_fields(rad_c,
                 0.5*(rad_u - sym.interp("vol", self.radiation_tag)(self.sign)
                     * np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v)
@@ -436,10 +455,10 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     )
 
 
-                - sym.FaceMassOperator()(flux(sym.int_tpair(w))
-                    + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
-                    + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
-                    + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
+                - sym.FaceMassOperator()(flux(sym.int_tpair(flux_w))
+                    + flux(sym.bv_tpair(self.dirichlet_tag, flux_w, dir_bc))
+                    + flux(sym.bv_tpair(self.neumann_tag, flux_w, neu_bc))
+                    + flux(sym.bv_tpair(self.radiation_tag, flux_w, rad_bc))
 
                     ))
 
