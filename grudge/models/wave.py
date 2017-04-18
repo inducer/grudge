@@ -369,13 +369,15 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         normal = sym.normal(w.dd, self.ambient_dim)
 
         if self.flux_type == "central":
-            return join_fields(
+            return -0.5 * join_fields(
                 np.dot(v.int*c.int + v.ext*c.ext, normal),
-                (u.int * c.int + u.ext*c.ext) * normal) * -0.5
+                (u.int * c.int + u.ext*c.ext) * normal)
 
         elif self.flux_type == "upwind":
-            return join_fields(np.dot(normal,c.ext * v.ext + c.int * v.int) + c.ext*u.ext - c.int * u.int,
-                normal *( np.dot(normal, c.ext * v.ext - c.int * v.int) + c.ext*u.ext + c.int * u.int )  ) * -0.5
+            return -0.5 * join_fields(np.dot(normal, c.ext * v.ext + c.int * v.int)
+                    + c.ext*u.ext - c.int * u.int,
+                normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)
+                    + c.ext*u.ext + c.int * u.int))
 
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
@@ -386,7 +388,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
-        flux_w = join_fields(self.c,w)
+        flux_w = join_fields(self.c, w)
 
         # boundary conditions -------------------------------------------------
 
@@ -401,9 +403,9 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     "are still having issues.")
 
             dir_g = sym.Field("dir_bc_u")
-            dir_bc = join_fields(dir_c,2*dir_g - dir_u, dir_v)
+            dir_bc = join_fields(dir_c, 2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = join_fields(dir_c,-dir_u, dir_v)
+            dir_bc = join_fields(dir_c, -dir_u, dir_v)
 
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
@@ -411,7 +413,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_c = sym.cse(sym.interp("vol", self.neumann_tag)(self.c))
         neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
         neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(join_fields(neu_c,neu_u, -neu_v), "neu_bc")
+        neu_bc = sym.cse(join_fields(neu_c, neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
