@@ -368,32 +368,15 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         v = w[2:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
-        flux_weak = join_fields(
+        if self.flux_type == "central":
+            return join_fields(
                 np.dot(v.int*c.int + v.ext*c.ext, normal),
                 (u.int * c.int + u.ext*c.ext) * normal) * -0.5
 
-        flux = sym.interp("vol",u.dd)(self.sign) * join_fields(
-                c.ext * np.dot(v.ext, normal) - c.int*np.dot(v.int,normal),
-                normal * (c.ext*u.ext - c.int* u.int)) * -0.5
-
-        flux_strong = join_fields(
-                np.dot(v.int, normal),
-                u.int * normal) * -c.int
-
-        if self.flux_type == "central":
-            return flux_strong - flux 
         elif self.flux_type == "upwind":
-            flux += join_fields(
-                c.ext*u.ext - c.int*u.int,
-                c.ext*normal*np.dot(normal, v.ext)
-                - c.int*normal*np.dot(normal, v.int)
-                )
-            return flux_strong - flux 
-            return (flux_weak + join_fields(
-                c.ext*u.ext - c.int*u.int,
-                c.ext*normal*np.dot(normal, v.ext)
-                - c.int*normal*np.dot(normal, v.int)
-                ))
+            return join_fields(np.dot(normal,c.ext * v.ext + c.int * v.int) + c.ext*u.ext - c.int * u.int,
+                normal *( np.dot(normal, c.ext * v.ext - c.int * v.int) + c.ext*u.ext + c.int * u.int )  ) * -0.5
+
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
@@ -474,8 +457,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_eigenvalue(self, t, fields=None, discr=None):
-        return abs(self.c)
-
+        return sym.NodalMax()(sym.CFunction("fabs")(self.c))
 
 # }}}
 

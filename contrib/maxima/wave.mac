@@ -79,11 +79,11 @@ print("Wave equation flux in terms of characteristic variables:");
 print(wave_sflux);
 
 
-print("Wave equation flux in terms of physical variables:");
-print(wave_wflux);
 print("Weak flux divided by (-c), as implemented in StrongWaveOperator:");
 print(hypsimp(ev(wave_wflux, cp=c, cm=c)/(-c)));
 */
+print("Wave equation weak flux in terms of physical variables:");
+print(wave_wflux);
 
 print("Strong-form wave equation flux in terms of physical variables:");
 /*print(wave_strongwflux);*/
