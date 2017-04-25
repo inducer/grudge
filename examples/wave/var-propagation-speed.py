@@ -1,11 +1,8 @@
-"""Variable-coefficient wave propagation."""
+"""Minimal example of a grudge driver."""
 
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
-from six.moves import range
+from __future__ import division, print_function
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,171 +26,98 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.mesh import BTAG_ALL, BTAG_NONE
+import pyopencl as cl
+from grudge.shortcuts import set_up_rk4
+from grudge import sym, bind, Discretization
 
 
-def main(write_output=True,
-        dir_tag=BTAG_NONE,
-        neu_tag=BTAG_NONE,
-        rad_tag=BTAG_ALL,
-        flux_type_arg="upwind"):
-    from math import sin, cos, pi, exp, sqrt  # noqa
+def main(write_output=True, order=4):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
 
-    from grudge.backends import guess_run_context
-    rcon = guess_run_context()
+    dims = 2
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*dims,
+            b=(0.5,)*dims,
+            n=(8,)*dims)
 
-    dim = 2
+    discr = Discretization(cl_ctx, mesh, order=order)
 
-    if dim == 1:
-        if rcon.is_head_rank:
-            from grudge.mesh.generator import make_uniform_1d_mesh
-            mesh = make_uniform_1d_mesh(-10, 10, 500)
-    elif dim == 2:
-        from grudge.mesh.generator import make_rect_mesh
-        if rcon.is_head_rank:
-            mesh = make_rect_mesh(a=(-1, -1), b=(1, 1), max_area=0.003)
-    elif dim == 3:
-        if rcon.is_head_rank:
-            from grudge.mesh.generator import make_ball_mesh
-            mesh = make_ball_mesh(max_volume=0.0005)
-    else:
-        raise RuntimeError("bad number of dimensions")
-
-    if rcon.is_head_rank:
-        print("%d elements" % len(mesh.elements))
-        mesh_data = rcon.distribute_mesh(mesh)
-    else:
-        mesh_data = rcon.receive_mesh()
-
-    discr = rcon.make_discretization(mesh_data, order=4)
-
-    from grudge.timestep.runge_kutta import LSRK4TimeStepper
-    stepper = LSRK4TimeStepper()
-
-    from grudge.visualization import VtkVisualizer
-    if write_output:
-        vis = VtkVisualizer(discr, rcon, "fld")
-
-    source_center = np.array([0.7, 0.4])
-    source_width = 1/16
+    source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
+    source_width = 0.05
     source_omega = 3
 
-    import grudge.symbolic as sym
-    sym_x = sym.nodes(2)
+    sym_x = sym.nodes(mesh.dim)
     sym_source_center_dist = sym_x - source_center
+    sym_t = sym.ScalarVariable("t")
+    c = sym.If(sym.Comparison(
+                np.dot(sym_x, sym_x), "<", 0.15),
+                np.float32(-0.1), np.float32(-0.2))
 
-    from grudge.models.wave import VariableVelocityStrongWaveOperator
-    op = VariableVelocityStrongWaveOperator(
-            c=sym.If(sym.Comparison(
-                np.dot(sym_x, sym_x), "<", 0.4**2),
-                1, 0.5),
-            dimensions=discr.dimensions,
-            source=
-            sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
-            * sym.CFunction("exp")(
-                -np.dot(sym_source_center_dist, sym_source_center_dist)
-                / source_width**2),
-            dirichlet_tag=dir_tag,
-            neumann_tag=neu_tag,
-            radiation_tag=rad_tag,
-            flux_type=flux_type_arg
-            )
+    from grudge.models.wave import VariableCoefficientWeakWaveOperator
+    from meshmode.mesh import BTAG_ALL, BTAG_NONE
+    op = VariableCoefficientWeakWaveOperator(c,
+            discr.dim,
+            source_f=(
+                sym.sin(source_omega*sym_t)
+                * sym.exp(
+                    -np.dot(sym_source_center_dist, sym_source_center_dist)
+                    / source_width**2)),
+            dirichlet_tag=BTAG_NONE,
+            neumann_tag=BTAG_NONE,
+            radiation_tag=BTAG_ALL,
+            flux_type="upwind")
 
-    from grudge.tools import join_fields
-    fields = join_fields(discr.volume_zeros(),
-            [discr.volume_zeros() for i in range(discr.dimensions)])
+    queue = cl.CommandQueue(discr.cl_context)
+    from pytools.obj_array import join_fields
+    fields = join_fields(discr.zeros(queue),
+            [discr.zeros(queue) for i in range(discr.dim)])
 
-    # {{{ diagnostics setup
+    op.check_bc_coverage(mesh)
 
-    from pytools.log import LogManager, \
-            add_general_quantities, \
-            add_simulation_quantities, \
-            add_run_info
+    bound_op = bind(discr, op.sym_operator())
 
-    if write_output:
-        log_file_name = "wave.dat"
-    else:
-        log_file_name = None
+    def rhs(t, w):
+        return bound_op(queue, t=t, w=w)
 
-    logmgr = LogManager(log_file_name, "w", rcon.communicator)
-    add_run_info(logmgr)
-    add_general_quantities(logmgr)
-    add_simulation_quantities(logmgr)
-    discr.add_instrumentation(logmgr)
+    if mesh.dim == 2:
+        dt = 0.04
+    elif mesh.dim == 3:
+        dt = 0.02
 
-    from pytools.log import IntervalTimer
-    vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
-    logmgr.add_quantity(vis_timer)
-    stepper.add_instrumentation(logmgr)
+    dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    from grudge.log import LpNorm
-    u_getter = lambda: fields[0]
-    logmgr.add_quantity(LpNorm(u_getter, discr, 1, name="l1_u"))
-    logmgr.add_quantity(LpNorm(u_getter, discr, name="l2_u"))
+    final_t = 10
+    nsteps = int(final_t/dt)
+    print("dt=%g nsteps=%d" % (dt, nsteps))
 
-    logmgr.add_watches(["step.max", "t_sim.max", "l2_u", "t_step.max"])
+    from grudge.shortcuts import make_visualizer
+    vis = make_visualizer(discr, vis_order=order)
 
-    # }}}
+    step = 0
 
-    # {{{ timestep loop
+    norm = bind(discr, sym.norm(2, sym.var("u")))
 
-    rhs = op.bind(discr)
-    try:
-        from grudge.timestep.stability import \
-                approximate_rk4_relative_imag_stability_region
-        max_dt = (
-                1/discr.compile(op.max_eigenvalue_expr())()
-                * discr.dt_non_geometric_factor()
-                * discr.dt_geometric_factor()
-                * approximate_rk4_relative_imag_stability_region(stepper))
-        if flux_type_arg == "central":
-            max_dt *= 0.25
+    from time import time
+    t_last_step = time()
 
-        from grudge.timestep import times_and_steps
-        step_it = times_and_steps(final_time=3, logmgr=logmgr,
-                max_dt_getter=lambda t: max_dt)
+    for event in dt_stepper.run(t_end=final_t):
+        if isinstance(event, dt_stepper.StateComputed):
+            assert event.component_id == "w"
 
-        for step, t, dt in step_it:
-            if step % 10 == 0 and write_output:
-                visf = vis.make_file("fld-%04d" % step)
+            step += 1
 
-                vis.add_data(visf,
+            print(step, event.t, norm(queue, u=event.state_component[0]),
+                    time()-t_last_step)
+            if step % 10 == 0:
+                vis.write_vtk_file("fld-%04d.vtu" % step,
                         [
-                            ("u", fields[0]),
-                            ("v", fields[1:]),
-                        ],
-                        time=t,
-                        step=step)
-                visf.close()
+                            ("u", event.state_component[0]),
+                            ("v", event.state_component[1:]),
+                            ])
+            t_last_step = time()
 
-            fields = stepper(fields, t, dt, rhs)
-
-        assert discr.norm(fields) < 1
-    finally:
-        if write_output:
-            vis.close()
-
-        logmgr.close()
-        discr.close()
-
-    # }}}
 
 if __name__ == "__main__":
-    main(flux_type_arg="upwind")
-
-
-# entry points for py.test ----------------------------------------------------
-def test_var_velocity_wave():
-    from pytools.test import mark_test
-    mark_long = mark_test.long
-
-    for flux_type in ["upwind", "central"]:
-        yield ("dirichlet var-v wave equation with %s flux" % flux_type,
-                mark_long(main),
-                False, BTAG_ALL, BTAG_NONE, TAG_NONE, flux_type)
-    yield ("neumann var-v wave equation", mark_long(main),
-            False, BTAG_NONE, BTAG_ALL, TAG_NONE)
-    yield ("radiation-bc var-v wave equation", mark_long(main),
-            False, BTAG_NONE, TAG_NONE, BTAG_ALL)
-
-# vim: foldmethod=marker
+    main()

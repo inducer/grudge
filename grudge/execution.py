@@ -119,12 +119,39 @@ class ExecutionMapper(mappers.Evaluator,
         then = self.rec(expr.then)
         else_ = self.rec(expr.else_)
 
-        result = cl.array.empty_like(then, queue=self.queue,
-                allocator=self.bound_op.allocator)
-        cl.array.if_positive(bool_crit, then, else_, out=result,
-                queue=self.queue)
+        import pymbolic.primitives as p
+        var = p.Variable
 
-        return result
+        i = var("i")
+        if isinstance(then,  pyopencl.array.Array):
+            sym_then = var("a")[i]
+        elif isinstance(then,  np.number):
+            sym_then = var("a")
+        else:
+            raise TypeError(
+                "Expected parameter to be of type np.number or pyopencl.array.Array")
+
+        if isinstance(else_,  pyopencl.array.Array):
+            sym_else = var("b")[i]
+        elif isinstance(then,  np.number):
+            sym_else = var("b")
+        else:
+            raise TypeError(
+                "Expected parameter to be of type np.number or pyopencl.array.Array")
+
+        @memoize_in(self.bound_op, "map_if_knl")
+        def knl():
+            knl = lp.make_kernel(
+                "{[i]: 0<=i<n}",
+                [
+                    lp.Assignment(var("out")[i],
+                        p.If(var("crit")[i], sym_then, sym_else))
+                ])
+            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
+
+        evt, (out,) = knl()(self.queue, crit=bool_crit, a=then, b=else_)
+
+        return out
 
     def map_ref_diff_base(self, op, field_expr):
         raise NotImplementedError(
