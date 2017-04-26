@@ -35,12 +35,12 @@ def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    dims = 2
+    dims = 3
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(8,)*dims)
+            n=(20,)*dims)
 
     discr = Discretization(cl_ctx, mesh, order=order)
 
@@ -76,15 +76,17 @@ def main(write_output=True, order=4):
 
     op.check_bc_coverage(mesh)
 
+    c_eval = bind(discr, c)(queue)
+
     bound_op = bind(discr, op.sym_operator())
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
 
     if mesh.dim == 2:
-        dt = 0.04
+        dt = 0.04 * 0.3
     elif mesh.dim == 3:
-        dt = 0.02
+        dt = 0.02 * 0.1
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
@@ -115,6 +117,7 @@ def main(write_output=True, order=4):
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
+                            ("c", c_eval),
                             ])
             t_last_step = time()
 
