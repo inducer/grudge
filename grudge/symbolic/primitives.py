@@ -587,8 +587,10 @@ def mv_normal(dd, ambient_dim, dim=None):
             pseudoscalar(ambient_dim, dim, dd=dd)
             /
             area_element(ambient_dim, dim, dd=dd))
-    return cse(pder.I | pder, "normal",
-            cse_scope.DISCRETIZATION)
+    return cse(
+            # Dorst Section 3.7.2
+            pder << pder.I.inv(),
+            "normal", cse_scope.DISCRETIZATION)
 
 
 def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
