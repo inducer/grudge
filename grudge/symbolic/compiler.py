@@ -31,6 +31,7 @@ from pytools import Record, memoize_method, memoize
 from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
+from sys import intern
 
 
 # {{{ instructions
@@ -38,6 +39,7 @@ from pymbolic.primitives import Variable, Subscript
 class Instruction(Record):
     __slots__ = []
     priority = 0
+    neglect_for_dofdesc_inference = False
 
     def get_assignees(self):
         raise NotImplementedError("no get_assignees in %s" % self.__class__)
@@ -46,9 +48,6 @@ class Instruction(Record):
         raise NotImplementedError("no get_dependencies in %s" % self.__class__)
 
     def __str__(self):
-        raise NotImplementedError
-
-    def get_execution_method(self, exec_mapper):
         raise NotImplementedError
 
     def __hash__(self):
@@ -67,6 +66,27 @@ def _make_dep_mapper(include_subscripts):
             include_operator_bindings=False,
             include_subscripts=include_subscripts,
             include_calls="descend_args")
+
+
+# {{{ loopy kernel instruction
+
+class LoopyKernelDescriptor(object):
+    def __init__(self, loopy_kernel, input_mappings, output_mappings,
+            fixed_arguments):
+        self.loopy_kernel = loopy_kernel
+        self.input_mappings = input_mappings
+        self.output_mappings = output_mappings
+        self.fixed_arguments = fixed_arguments
+
+
+class LoopyKernelInstruction(Instruction):
+    comment = ""
+    scope_indicator = ""
+
+    def __init__(self, per_group_kernel_descriptors):
+        self.per_group_kernel_descriptors = per_group_kernel_descriptors
+
+# }}}
 
 
 class AssignBase(Instruction):
@@ -143,19 +163,18 @@ class Assign(AssignBase):
 
         return deps
 
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_assign
+    mapper_method = intern("map_insn_assign")
 
 
 class ToDiscretizationScopedAssign(Assign):
     scope_indicator = "(to discr)-"
 
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_assign_to_discr_scoped
+    mapper_method = intern("map_insn_assign_to_discr_scoped")
 
 
 class FromDiscretizationScopedAssign(AssignBase):
     scope_indicator = "(discr)-"
+    neglect_for_dofdesc_inference = True
 
     def __init__(self, name, **kwargs):
         super(FromDiscretizationScopedAssign, self).__init__(name=name, **kwargs)
@@ -173,8 +192,7 @@ class FromDiscretizationScopedAssign(AssignBase):
     def __str__(self):
         return "%s <-(from discr)" % self.name
 
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_assign_from_discr_scoped
+    mapper_method = intern("map_insn_assign_from_discr_scoped")
 
 
 class DiffBatchAssign(Instruction):
@@ -212,57 +230,7 @@ class DiffBatchAssign(Instruction):
 
         return "\n".join(lines)
 
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_diff_batch_assign
-
-
-class FluxExchangeBatchAssign(Instruction):
-    """
-    .. attribute:: names
-    .. attribute:: indices_and_ranks
-    .. attribute:: rank_to_index_and_name
-    .. attribute:: arg_fields
-    """
-
-    priority = 1
-
-    def __init__(self, names, indices_and_ranks, arg_fields):
-        rank_to_index_and_name = {}
-        for name, (index, rank) in zip(
-                names, indices_and_ranks):
-            rank_to_index_and_name.setdefault(rank, []).append(
-                (index, name))
-
-        Instruction.__init__(self,
-                names=names,
-                indices_and_ranks=indices_and_ranks,
-                rank_to_index_and_name=rank_to_index_and_name,
-                arg_fields=arg_fields)
-
-    def get_assignees(self):
-        return set(self.names)
-
-    @memoize_method
-    def get_dependencies(self):
-        dep_mapper = _make_dep_mapper()
-        result = set()
-        for fld in self.arg_fields:
-            result |= dep_mapper(fld)
-        return result
-
-    def __str__(self):
-        lines = []
-
-        lines.append("{")
-        for n, (index, rank) in zip(self.names, self.indices_and_ranks):
-            lines.append("  %s <- receive index %s from rank %d [%s]" % (
-                n, index, rank, self.arg_fields))
-        lines.append("}")
-
-        return "\n".join(lines)
-
-    def get_execution_method(self, exec_mapper):
-        return exec_mapper.exec_flux_exchange_batch_assign
+    mapper_method = intern("map_insn_diff_batch_assign")
 
 # }}}
 
@@ -484,8 +452,8 @@ class Code(object):
                         del context[name]
 
                     done_insns.add(insn)
-                    assignments, new_futures = \
-                            insn.get_execution_method(exec_mapper)(insn)
+                    mapper_method = getattr(exec_mapper, insn.mapper_method)
+                    assignments, new_futures = mapper_method(insn)
 
             if insn is not None:
                 for target, value in assignments:
@@ -636,6 +604,9 @@ class OperatorCompiler(mappers.IdentityMapper):
         # Finally, walk the expression and build the code.
         result = super(OperatorCompiler, self).__call__(expr, codegen_state)
 
+        from grudge.symbolic.dofdesc_inference import DOFDescInferenceMapper
+        inf_mapper = DOFDescInferenceMapper(self.discr_code + self.eval_code)
+
         from pytools.obj_array import make_obj_array
         return (
                 Code(self.discr_code,
@@ -643,9 +614,7 @@ class OperatorCompiler(mappers.IdentityMapper):
                         [Variable(name)
                             for name in self.discr_scope_names_copied_to_eval])),
                 Code(
-                    # FIXME: Enable
-                    #self.aggregate_assignments(self.eval_code, result),
-                    self.eval_code,
+                    self.aggregate_assignments(inf_mapper, self.eval_code, result),
                     result))
 
     # }}}
@@ -799,7 +768,7 @@ class OperatorCompiler(mappers.IdentityMapper):
 
     # {{{ assignment aggregration pass
 
-    def aggregate_assignments(self, instructions, result):
+    def aggregate_assignments(self, inf_mapper, instructions, result):
         from pymbolic.primitives import Variable
 
         # {{{ aggregation helpers
@@ -853,9 +822,16 @@ class OperatorCompiler(mappers.IdentityMapper):
                     for assignee in insn.get_assignees())
 
         from pytools import partition
+        from grudge.symbolic.primitives import DTAG_SCALAR
+
         unprocessed_assigns, other_insns = partition(
-                # FIXME: Re-add check for scalar result, exclude
-                lambda insn: isinstance(insn, Assign),
+                lambda insn: (
+                    isinstance(insn, Assign)
+                    and not isinstance(insn, ToDiscretizationScopedAssign)
+                    and not isinstance(insn, FromDiscretizationScopedAssign)
+                    and not any(
+                        inf_mapper.infer_for_name(n).domain_tag == DTAG_SCALAR
+                        for n in insn.names)),
                 instructions)
 
         # filter out zero-flop-count assigns--no need to bother with those
@@ -864,7 +840,6 @@ class OperatorCompiler(mappers.IdentityMapper):
                 unprocessed_assigns)
 
         # filter out zero assignments
-        from pytools import any
         from grudge.tools import is_zero
 
         i = 0
@@ -872,7 +847,7 @@ class OperatorCompiler(mappers.IdentityMapper):
         while i < len(unprocessed_assigns):
             my_assign = unprocessed_assigns[i]
             if any(is_zero(expr) for expr in my_assign.exprs):
-                processed_assigns.append(unprocessed_assigns.pop())
+                processed_assigns.append(unprocessed_assigns.pop(i))
             else:
                 i += 1
 

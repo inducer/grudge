@@ -191,6 +191,9 @@ class DOFDesc(object):
         if domain_tag is DTAG_SCALAR and quadrature_tag is not None:
             raise ValueError("cannot have nontrivial quadrature tag on scalar")
 
+        if quadrature_tag is None:
+            quadrature_tag = QTAG_NONE
+
         self.domain_tag = domain_tag
         self.quadrature_tag = quadrature_tag
 

@@ -333,11 +333,11 @@ class ExecutionMapper(mappers.Evaluator,
 
     # {{{ code execution functions
 
-    def exec_assign(self, insn):
+    def map_insn_assign(self, insn):
         return [(name, self.rec(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
 
-    def exec_assign_to_discr_scoped(self, insn):
+    def map_insn_assign_to_discr_scoped(self, insn):
         assignments = []
         for name, expr in zip(insn.names, insn.exprs):
             value = self.rec(expr)
@@ -346,11 +346,11 @@ class ExecutionMapper(mappers.Evaluator,
 
         return assignments, []
 
-    def exec_assign_from_discr_scoped(self, insn):
+    def map_insn_assign_from_discr_scoped(self, insn):
         return [(insn.name,
             self.discr._discr_scoped_subexpr_name_to_value[insn.name])], []
 
-    def exec_diff_batch_assign(self, insn):
+    def map_insn_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
         # FIXME: There's no real reason why differentiation is special,
