@@ -35,12 +35,19 @@ def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    dims = 2
+    dims = 3
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(8,)*dims)
+            n=(16,)*dims)
+
+    if mesh.dim == 2:
+        dt = 0.04
+    elif mesh.dim == 3:
+        dt = 0.02
+
+    print("%d elements" % mesh.nelements)
 
     discr = Discretization(cl_ctx, mesh, order=order)
 
@@ -77,16 +84,11 @@ def main(write_output=True, order=4):
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    print(bound_op)
+    # print(bound_op)
     # 1/0
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
-
-    if mesh.dim == 2:
-        dt = 0.04
-    elif mesh.dim == 3:
-        dt = 0.02
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
