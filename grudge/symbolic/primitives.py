@@ -73,9 +73,9 @@ Symbols
 ^^^^^^^
 
 .. autoclass:: Variable
+.. autoclass:: ScalarVariable
 .. autoclass:: make_sym_array
 .. autoclass:: make_sym_mv
-.. autoclass:: ScalarParameter
 .. autoclass:: CFunction
 
 Helpers
@@ -300,6 +300,9 @@ class cse_scope(cse_scope_base):  # noqa
 
 
 class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
+    """A user-supplied input variable with a known :class:`DOFDesc`.
+    """
+
     def __init__(self, name, dd=None):
         if dd is None:
             dd = DD_VOLUME
