@@ -487,6 +487,7 @@ class Code(object):
     # }}}
 
     # {{{ static schedule execution
+
     class EvaluateFuture(object):
         """A fake 'instruction' that represents evaluation of a future."""
         def __init__(self, future_id):
@@ -540,6 +541,218 @@ class Code(object):
 
         from pytools.obj_array import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
+
+    # }}}
+
+# }}}
+
+
+# {{{ assignment aggregration pass
+
+def aggregate_assignments(inf_mapper, instructions, result,
+        max_vectors_in_batch_expr):
+    from pymbolic.primitives import Variable
+
+    # {{{ aggregation helpers
+
+    def get_complete_origins_set(insn, skip_levels=0):
+        if skip_levels < 0:
+            skip_levels = 0
+
+        result = set()
+        for dep in insn.get_dependencies():
+            if isinstance(dep, Variable):
+                dep_origin = origins_map.get(dep.name, None)
+                if dep_origin is not None:
+                    if skip_levels <= 0:
+                        result.add(dep_origin)
+                    result |= get_complete_origins_set(
+                            dep_origin, skip_levels-1)
+
+        return result
+
+    var_assignees_cache = {}
+
+    def get_var_assignees(insn):
+        try:
+            return var_assignees_cache[insn]
+        except KeyError:
+            result = set(Variable(assignee)
+                    for assignee in insn.get_assignees())
+            var_assignees_cache[insn] = result
+            return result
+
+    def aggregate_two_assignments(ass_1, ass_2):
+        names = ass_1.names + ass_2.names
+
+        from pymbolic.primitives import Variable
+        deps = (ass_1.get_dependencies() | ass_2.get_dependencies()) \
+                - set(Variable(name) for name in names)
+
+        return Assign(
+                names=names, exprs=ass_1.exprs + ass_2.exprs,
+                _dependencies=deps,
+                priority=max(ass_1.priority, ass_2.priority))
+
+    # }}}
+
+    # {{{ main aggregation pass
+
+    origins_map = dict(
+                (assignee, insn)
+                for insn in instructions
+                for assignee in insn.get_assignees())
+
+    from pytools import partition
+    from grudge.symbolic.primitives import DTAG_SCALAR
+
+    unprocessed_assigns, other_insns = partition(
+            lambda insn: (
+                isinstance(insn, Assign)
+                and not isinstance(insn, ToDiscretizationScopedAssign)
+                and not isinstance(insn, FromDiscretizationScopedAssign)
+                and not any(
+                    inf_mapper.infer_for_name(n).domain_tag == DTAG_SCALAR
+                    for n in insn.names)),
+            instructions)
+
+    # filter out zero-flop-count assigns--no need to bother with those
+    processed_assigns, unprocessed_assigns = partition(
+            lambda ass: ass.flop_count() == 0,
+            unprocessed_assigns)
+
+    # filter out zero assignments
+    from grudge.tools import is_zero
+
+    i = 0
+
+    while i < len(unprocessed_assigns):
+        my_assign = unprocessed_assigns[i]
+        if any(is_zero(expr) for expr in my_assign.exprs):
+            processed_assigns.append(unprocessed_assigns.pop(i))
+        else:
+            i += 1
+
+    # greedy aggregation
+    while unprocessed_assigns:
+        my_assign = unprocessed_assigns.pop()
+
+        my_deps = my_assign.get_dependencies()
+        my_assignees = get_var_assignees(my_assign)
+
+        agg_candidates = []
+        for i, other_assign in enumerate(unprocessed_assigns):
+            other_deps = other_assign.get_dependencies()
+            other_assignees = get_var_assignees(other_assign)
+
+            if ((my_deps & other_deps
+                    or my_deps & other_assignees
+                    or other_deps & my_assignees)
+                    and my_assign.priority == other_assign.priority):
+                agg_candidates.append((i, other_assign))
+
+        did_work = False
+
+        if agg_candidates:
+            my_indirect_origins = get_complete_origins_set(
+                    my_assign, skip_levels=1)
+
+            for other_assign_index, other_assign in agg_candidates:
+                if max_vectors_in_batch_expr is not None:
+                    new_assignee_count = len(
+                            set(my_assign.get_assignees())
+                            | set(other_assign.get_assignees()))
+                    new_dep_count = len(
+                            my_assign.get_dependencies(
+                                each_vector=True)
+                            | other_assign.get_dependencies(
+                                each_vector=True))
+
+                    if (new_assignee_count + new_dep_count
+                            > max_vectors_in_batch_expr):
+                        continue
+
+                other_indirect_origins = get_complete_origins_set(
+                        other_assign, skip_levels=1)
+
+                if (my_assign not in other_indirect_origins and
+                        other_assign not in my_indirect_origins):
+                    did_work = True
+
+                    # aggregate the two assignments
+                    new_assignment = aggregate_two_assignments(
+                            my_assign, other_assign)
+                    del unprocessed_assigns[other_assign_index]
+                    unprocessed_assigns.append(new_assignment)
+                    for assignee in new_assignment.get_assignees():
+                        origins_map[assignee] = new_assignment
+
+                    break
+
+        if not did_work:
+            processed_assigns.append(my_assign)
+
+    externally_used_names = set(
+            expr
+            for insn in processed_assigns + other_insns
+            for expr in insn.get_dependencies())
+
+    from pytools.obj_array import is_obj_array
+    if is_obj_array(result):
+        externally_used_names |= set(expr for expr in result)
+    else:
+        externally_used_names |= set([result])
+
+    def schedule_and_finalize_assignment(ass):
+        dep_mapper = _make_dep_mapper(include_subscripts=False)
+
+        names_exprs = list(zip(ass.names, ass.exprs))
+
+        my_assignees = set(name for name, expr in names_exprs)
+        names_exprs_deps = [
+                (name, expr,
+                    set(dep.name for dep in dep_mapper(expr) if
+                        isinstance(dep, Variable)) & my_assignees)
+                for name, expr in names_exprs]
+
+        ordered_names_exprs = []
+        available_names = set()
+
+        while names_exprs_deps:
+            schedulable = []
+
+            i = 0
+            while i < len(names_exprs_deps):
+                name, expr, deps = names_exprs_deps[i]
+
+                unsatisfied_deps = deps - available_names
+
+                if not unsatisfied_deps:
+                    schedulable.append((str(expr), name, expr))
+                    del names_exprs_deps[i]
+                else:
+                    i += 1
+
+            # make sure these come out in a constant order
+            schedulable.sort()
+
+            if schedulable:
+                for key, name, expr in schedulable:
+                    ordered_names_exprs.append((name, expr))
+                    available_names.add(name)
+            else:
+                raise RuntimeError("aggregation resulted in an "
+                        "impossible assignment")
+
+        return Assign(
+                names=[name for name, expr in ordered_names_exprs],
+                exprs=[expr for name, expr in ordered_names_exprs],
+                do_not_return=[Variable(name) not in externally_used_names
+                    for name, expr in ordered_names_exprs],
+                priority=ass.priority)
+
+    return [schedule_and_finalize_assignment(ass)
+        for ass in processed_assigns] + other_insns
 
     # }}}
 
@@ -607,15 +820,17 @@ class OperatorCompiler(mappers.IdentityMapper):
         from grudge.symbolic.dofdesc_inference import DOFDescInferenceMapper
         inf_mapper = DOFDescInferenceMapper(self.discr_code + self.eval_code)
 
+        eval_code = aggregate_assignments(
+                inf_mapper, self.eval_code, result, self.max_vectors_in_batch_expr)
+        del self.eval_code[:]
+
         from pytools.obj_array import make_obj_array
         return (
                 Code(self.discr_code,
                     make_obj_array(
                         [Variable(name)
                             for name in self.discr_scope_names_copied_to_eval])),
-                Code(
-                    self.aggregate_assignments(inf_mapper, self.eval_code, result),
-                    result))
+                Code(eval_code, result))
 
     # }}}
 
@@ -765,221 +980,6 @@ class OperatorCompiler(mappers.IdentityMapper):
             return self.expr_to_var[expr]
 
     # }}}
-
-    # {{{ assignment aggregration pass
-
-    def aggregate_assignments(self, inf_mapper, instructions, result):
-        from pymbolic.primitives import Variable
-
-        # {{{ aggregation helpers
-
-        def get_complete_origins_set(insn, skip_levels=0):
-            if skip_levels < 0:
-                skip_levels = 0
-
-            result = set()
-            for dep in insn.get_dependencies():
-                if isinstance(dep, Variable):
-                    dep_origin = origins_map.get(dep.name, None)
-                    if dep_origin is not None:
-                        if skip_levels <= 0:
-                            result.add(dep_origin)
-                        result |= get_complete_origins_set(
-                                dep_origin, skip_levels-1)
-
-            return result
-
-        var_assignees_cache = {}
-
-        def get_var_assignees(insn):
-            try:
-                return var_assignees_cache[insn]
-            except KeyError:
-                result = set(Variable(assignee)
-                        for assignee in insn.get_assignees())
-                var_assignees_cache[insn] = result
-                return result
-
-        def aggregate_two_assignments(ass_1, ass_2):
-            names = ass_1.names + ass_2.names
-
-            from pymbolic.primitives import Variable
-            deps = (ass_1.get_dependencies() | ass_2.get_dependencies()) \
-                    - set(Variable(name) for name in names)
-
-            return Assign(
-                    names=names, exprs=ass_1.exprs + ass_2.exprs,
-                    _dependencies=deps,
-                    priority=max(ass_1.priority, ass_2.priority))
-
-        # }}}
-
-        # {{{ main aggregation pass
-
-        origins_map = dict(
-                    (assignee, insn)
-                    for insn in instructions
-                    for assignee in insn.get_assignees())
-
-        from pytools import partition
-        from grudge.symbolic.primitives import DTAG_SCALAR
-
-        unprocessed_assigns, other_insns = partition(
-                lambda insn: (
-                    isinstance(insn, Assign)
-                    and not isinstance(insn, ToDiscretizationScopedAssign)
-                    and not isinstance(insn, FromDiscretizationScopedAssign)
-                    and not any(
-                        inf_mapper.infer_for_name(n).domain_tag == DTAG_SCALAR
-                        for n in insn.names)),
-                instructions)
-
-        # filter out zero-flop-count assigns--no need to bother with those
-        processed_assigns, unprocessed_assigns = partition(
-                lambda ass: ass.flop_count() == 0,
-                unprocessed_assigns)
-
-        # filter out zero assignments
-        from grudge.tools import is_zero
-
-        i = 0
-
-        while i < len(unprocessed_assigns):
-            my_assign = unprocessed_assigns[i]
-            if any(is_zero(expr) for expr in my_assign.exprs):
-                processed_assigns.append(unprocessed_assigns.pop(i))
-            else:
-                i += 1
-
-        # greedy aggregation
-        while unprocessed_assigns:
-            my_assign = unprocessed_assigns.pop()
-
-            my_deps = my_assign.get_dependencies()
-            my_assignees = get_var_assignees(my_assign)
-
-            agg_candidates = []
-            for i, other_assign in enumerate(unprocessed_assigns):
-                other_deps = other_assign.get_dependencies()
-                other_assignees = get_var_assignees(other_assign)
-
-                if ((my_deps & other_deps
-                        or my_deps & other_assignees
-                        or other_deps & my_assignees)
-                        and my_assign.priority == other_assign.priority):
-                    agg_candidates.append((i, other_assign))
-
-            did_work = False
-
-            if agg_candidates:
-                my_indirect_origins = get_complete_origins_set(
-                        my_assign, skip_levels=1)
-
-                for other_assign_index, other_assign in agg_candidates:
-                    if self.max_vectors_in_batch_expr is not None:
-                        new_assignee_count = len(
-                                set(my_assign.get_assignees())
-                                | set(other_assign.get_assignees()))
-                        new_dep_count = len(
-                                my_assign.get_dependencies(
-                                    each_vector=True)
-                                | other_assign.get_dependencies(
-                                    each_vector=True))
-
-                        if (new_assignee_count + new_dep_count
-                                > self.max_vectors_in_batch_expr):
-                            continue
-
-                    other_indirect_origins = get_complete_origins_set(
-                            other_assign, skip_levels=1)
-
-                    if (my_assign not in other_indirect_origins and
-                            other_assign not in my_indirect_origins):
-                        did_work = True
-
-                        # aggregate the two assignments
-                        new_assignment = aggregate_two_assignments(
-                                my_assign, other_assign)
-                        del unprocessed_assigns[other_assign_index]
-                        unprocessed_assigns.append(new_assignment)
-                        for assignee in new_assignment.get_assignees():
-                            origins_map[assignee] = new_assignment
-
-                        break
-
-            if not did_work:
-                processed_assigns.append(my_assign)
-
-        externally_used_names = set(
-                expr
-                for insn in processed_assigns + other_insns
-                for expr in insn.get_dependencies())
-
-        from pytools.obj_array import is_obj_array
-        if is_obj_array(result):
-            externally_used_names |= set(expr for expr in result)
-        else:
-            externally_used_names |= set([result])
-
-        def schedule_and_finalize_assignment(ass):
-            dep_mapper = _make_dep_mapper(include_subscripts=False)
-
-            names_exprs = list(zip(ass.names, ass.exprs))
-
-            my_assignees = set(name for name, expr in names_exprs)
-            names_exprs_deps = [
-                    (name, expr,
-                        set(dep.name for dep in dep_mapper(expr) if
-                            isinstance(dep, Variable)) & my_assignees)
-                    for name, expr in names_exprs]
-
-            ordered_names_exprs = []
-            available_names = set()
-
-            while names_exprs_deps:
-                schedulable = []
-
-                i = 0
-                while i < len(names_exprs_deps):
-                    name, expr, deps = names_exprs_deps[i]
-
-                    unsatisfied_deps = deps - available_names
-
-                    if not unsatisfied_deps:
-                        schedulable.append((str(expr), name, expr))
-                        del names_exprs_deps[i]
-                    else:
-                        i += 1
-
-                # make sure these come out in a constant order
-                schedulable.sort()
-
-                if schedulable:
-                    for key, name, expr in schedulable:
-                        ordered_names_exprs.append((name, expr))
-                        available_names.add(name)
-                else:
-                    raise RuntimeError("aggregation resulted in an "
-                            "impossible assignment")
-
-            return self.finalize_multi_assign(
-                    names=[name for name, expr in ordered_names_exprs],
-                    exprs=[expr for name, expr in ordered_names_exprs],
-                    do_not_return=[Variable(name) not in externally_used_names
-                        for name, expr in ordered_names_exprs],
-                    priority=ass.priority)
-
-        return [schedule_and_finalize_assignment(ass)
-            for ass in processed_assigns] + other_insns
-
-        # }}}
-
-    # }}}
-
-    def finalize_multi_assign(self, names, exprs, do_not_return, priority):
-        return Assign(names=names, exprs=exprs,
-                do_not_return=do_not_return,
-                priority=priority)
 
 # }}}
 
