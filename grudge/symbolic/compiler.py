@@ -78,13 +78,40 @@ class LoopyKernelDescriptor(object):
         self.output_mappings = output_mappings
         self.fixed_arguments = fixed_arguments
 
+    @memoize_method
+    def scalar_args(self):
+        import loopy as lp
+        return [arg.name for arg in self.loopy_kernel.args
+                if isinstance(arg, lp.ValueArg)
+                and arg.name != "grdg_n"]
+
 
 class LoopyKernelInstruction(Instruction):
     comment = ""
     scope_indicator = ""
 
-    def __init__(self, per_group_kernel_descriptors):
-        self.per_group_kernel_descriptors = per_group_kernel_descriptors
+    def __init__(self, kernel_descriptor):
+        self.kernel_descriptor = kernel_descriptor
+
+    @memoize_method
+    def get_assignees(self):
+        return set(
+                k
+                for k in self.kernel_descriptor.output_mappings.keys())
+
+    @memoize_method
+    def get_dependencies(self):
+        from pymbolic.primitives import Variable, Subscript
+        return set(
+                v
+                for v in self.kernel_descriptor.input_mappings.values()
+                if isinstance(v, (Variable, Subscript)))
+
+    def __str__(self):
+        knl_str = self.kernel_descriptor.loopy_kernel.stringify("di")
+        return "{ /* loopy */\n  %s\n}" % knl_str.replace("\n", "\n  ")
+
+    mapper_method = "map_insn_loopy_kernel"
 
 # }}}
 
@@ -130,7 +157,6 @@ class Assign(AssignBase):
         exprs describes an expression that is not needed beyond this assignment
 
     .. attribute:: priority
-    .. attribute:: is_scalar_valued
     """
 
     def __init__(self, names, exprs, **kwargs):
@@ -518,8 +544,8 @@ class Code(object):
                 assignments, new_futures = future()
                 del future
             else:
-                assignments, new_futures = \
-                        insn.get_execution_method(exec_mapper)(insn)
+                mapper_method = getattr(exec_mapper, insn.mapper_method)
+                assignments, new_futures = mapper_method(insn)
 
             for target, value in assignments:
                 if pre_assign_check is not None:
@@ -759,6 +785,154 @@ def aggregate_assignments(inf_mapper, instructions, result,
 # }}}
 
 
+# {{{
+
+def set_once(d, k, v):
+    try:
+        v_prev = d[k]
+    except KeyError:
+        d[k] = v
+    else:
+        assert v_prev == d[k]
+
+
+class ToLoopyExpressionMapper(mappers.IdentityMapper):
+    def __init__(self, dd_inference_mapper, output_names, temp_names, iname):
+        self.dd_inference_mapper = dd_inference_mapper
+        self.output_names = output_names
+        self.temp_names = temp_names
+        self.iname = iname
+        from pymbolic import var
+        self.iname_expr = var(iname)
+
+        self.input_mappings = {}
+        self.output_mappings = {}
+        self.non_scalar_vars = []
+
+    def map_name(self, name):
+        dot_idx = name.find(".")
+        if dot_idx != -1:
+            return "grdg_sub_%s_%s" % (name[:dot_idx], name[dot_idx+1:])
+        else:
+            return name
+
+    def map_variable_reference(self, name, expr):
+        from pymbolic import var
+        dd = self.dd_inference_mapper(expr)
+
+        mapped_name = self.map_name(name)
+        if name in self.output_names:
+            set_once(self.output_mappings, name, expr)
+        else:
+            set_once(self.input_mappings, mapped_name, expr)
+
+        from grudge.symbolic.primitives import DTAG_SCALAR
+        if dd.domain_tag == DTAG_SCALAR or name in self.temp_names:
+            return var(mapped_name)
+        else:
+            self.non_scalar_vars.append(name)
+            return var(mapped_name)[self.iname_expr]
+
+    def map_variable(self, expr):
+        return self.map_variable_reference(expr.name, expr)
+
+    def map_grudge_variable(self, expr):
+        return self.map_variable_reference(expr.name, expr)
+
+    def map_subscript(self, expr):
+        return self.map_variable_reference(expr.aggregate.name, expr)
+
+    def map_call(self, expr):
+        if isinstance(expr.function, sym.CFunction):
+            from pymbolic import var
+            return var(expr.function.name)(
+                    *[self.rec(par) for par in expr.parameters])
+        else:
+            raise NotImplementedError(
+                    "do not know how to map function '%s' into loopy"
+                    % expr.function)
+
+    def map_node_coordinate_component(self, expr):
+        mapped_name = "grdg_ncc%d" % expr.axis
+        set_once(self.input_mappings, mapped_name, expr)
+
+        from pymbolic import var
+        return var(mapped_name)[self.iname_expr]
+
+    def map_common_subexpression(self, expr):
+        raise ValueError("not expecting CSEs at this stage in the "
+                "compilation process")
+
+
+class ToLoopyInstructionMapper(object):
+    def __init__(self, dd_inference_mapper):
+        self.dd_inference_mapper = dd_inference_mapper
+
+    def map_insn_assign(self, insn):
+        from grudge.symbolic.primitives import OperatorBinding
+        if len(insn.exprs) == 1 and isinstance(insn.exprs[0], OperatorBinding):
+            return insn
+
+        iname = "grdg_i"
+        size_name = "grdg_n"
+
+        temp_names = [
+                name
+                for name, dnr in zip(insn.names, insn.do_not_return)
+                if dnr]
+
+        expr_mapper = ToLoopyExpressionMapper(
+                self.dd_inference_mapper, insn.names, temp_names, iname)
+        insns = []
+
+        import loopy as lp
+        from pymbolic import var
+        for name, expr, dnr in zip(insn.names, insn.exprs, insn.do_not_return):
+            insns.append(
+                    lp.Assignment(
+                        expr_mapper(var(name)),
+                        expr_mapper(expr),
+                        temp_var_type=lp.auto if dnr else None))
+
+        if not expr_mapper.non_scalar_vars:
+            return insn
+
+        knl = lp.make_kernel(
+                "{[%s]: 0 <= %s < %s}" % (iname, iname, size_name),
+                insns,
+                default_offset=lp.auto)
+
+        knl = lp.set_options(knl, return_dict=True)
+        knl = lp.split_iname(knl, iname, 128, outer_tag="g.0", inner_tag="l.0")
+
+        return LoopyKernelInstruction(
+            LoopyKernelDescriptor(
+                loopy_kernel=knl,
+                input_mappings=expr_mapper.input_mappings,
+                output_mappings=expr_mapper.output_mappings,
+                fixed_arguments={})
+            )
+
+    def map_insn_assign_to_discr_scoped(self, insn):
+        return insn
+
+    def map_insn_assign_from_discr_scoped(self, insn):
+        return insn
+
+    def map_insn_diff_batch_assign(self, insn):
+        return insn
+
+
+def rewrite_insn_to_loopy_insns(inf_mapper, insn_list):
+    insn_mapper = ToLoopyInstructionMapper(inf_mapper)
+
+    return [
+            getattr(insn_mapper, insn.mapper_method)(insn)
+            for insn in insn_list]
+
+# }}}
+
+
 # {{{ compiler
 
 class CodeGenerationState(Record):
@@ -817,16 +991,23 @@ class OperatorCompiler(mappers.IdentityMapper):
         # Finally, walk the expression and build the code.
         result = super(OperatorCompiler, self).__call__(expr, codegen_state)
 
+        eval_code = self.eval_code
+        del self.eval_code
+        discr_code = self.discr_code
+        del self.discr_code
+
         from grudge.symbolic.dofdesc_inference import DOFDescInferenceMapper
-        inf_mapper = DOFDescInferenceMapper(self.discr_code + self.eval_code)
+        inf_mapper = DOFDescInferenceMapper(discr_code + eval_code)
 
         eval_code = aggregate_assignments(
-                inf_mapper, self.eval_code, result, self.max_vectors_in_batch_expr)
-        del self.eval_code[:]
+                inf_mapper, eval_code, result, self.max_vectors_in_batch_expr)
+
+        discr_code = rewrite_insn_to_loopy_insns(inf_mapper, discr_code)
+        eval_code = rewrite_insn_to_loopy_insns(inf_mapper, eval_code)
 
         from pytools.obj_array import make_obj_array
         return (
-                Code(self.discr_code,
+                Code(discr_code,
                     make_obj_array(
                         [Variable(name)
                             for name in self.discr_scope_names_copied_to_eval])),

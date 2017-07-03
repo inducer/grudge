@@ -81,11 +81,6 @@ class ExecutionMapper(mappers.Evaluator,
         discr = self.get_discr(expr.dd)
         return discr.nodes()[expr.axis].with_queue(self.queue)
 
-    def map_boundarize(self, op, field_expr):
-        return self.discr.boundarize_volume_field(
-                self.rec(field_expr), tag=op.tag,
-                kind=self.discr.compute_kind)
-
     def map_grudge_variable(self, expr):
         return self.context[expr.name]
 
@@ -105,13 +100,16 @@ class ExecutionMapper(mappers.Evaluator,
         return func(*pars)
 
     def map_nodal_sum(self, op, field_expr):
-        return cl.array.sum(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.sum(self.rec(field_expr)).get()[()]
 
     def map_nodal_max(self, op, field_expr):
-        return cl.array.max(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.max(self.rec(field_expr)).get()[()]
 
     def map_nodal_min(self, op, field_expr):
-        return cl.array.min(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.min(self.rec(field_expr)).get()[()]
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
@@ -332,6 +330,28 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     # {{{ code execution functions
+
+    def map_insn_loopy_kernel(self, insn):
+        kwargs = {}
+        kdescr = insn.kernel_descriptor
+        for name, expr in six.iteritems(kdescr.input_mappings):
+            kwargs[name] = self.rec(expr)
+
+        vdiscr = self.discr.volume_discr
+        for name in kdescr.scalar_args():
+            v = kwargs[name]
+            if isinstance(v, (int, float)):
+                kwargs[name] = vdiscr.real_dtype.type(v)
+            elif isinstance(v, complex):
+                kwargs[name] = vdiscr.complex_dtype.type(v)
+            elif isinstance(v, np.number):
+                pass
+            else:
+                raise ValueError("unrecognized scalar type for variable '%s': %s"
+                        % (name, type(v)))
+
+        evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
+        return list(result_dict.items()), []
 
     def map_insn_assign(self, insn):
         return [(name, self.rec(expr))
