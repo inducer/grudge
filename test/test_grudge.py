@@ -106,9 +106,9 @@ def test_1d_mass_mat_trig(ctx_factory):
 
     mass_op = bind(discr, sym.MassOperator()(sym.var("f")))
 
-    num_integral_1 = np.dot(ones.get(), mass_op(queue, f=f).get())
-    num_integral_2 = np.dot(f.get(), mass_op(queue, f=ones).get())
-    num_integral_3 = bind(discr, sym.integral(sym.var("f")))(queue, f=f).get()
+    num_integral_1 = np.dot(ones.get(), mass_op(queue, f=f))
+    num_integral_2 = np.dot(f.get(), mass_op(queue, f=ones))
+    num_integral_3 = bind(discr, sym.integral(sym.var("f")))(queue, f=f)
 
     true_integral = 13*np.pi/2
     err_1 = abs(num_integral_1-true_integral)
@@ -211,6 +211,7 @@ def test_2d_gauss_theorem(ctx_factory):
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["upwind"])
 @pytest.mark.parametrize("order", [3, 4, 5])
+# test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
 def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
     """Test whether 2D advection actually converges"""
@@ -322,7 +323,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         error_l2 = bind(discr,
             sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
-                queue, t=last_t, u=last_u).get()
+                queue, t=last_t, u=last_u)
         print(h, error_l2)
         eoc_rec.add_data_point(h, error_l2)
 

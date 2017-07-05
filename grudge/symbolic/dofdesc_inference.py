@@ -126,7 +126,7 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
         # FIXME: Subscript has same type as aggregate--a bit weird
         return self.rec(expr.aggregate)
 
-    def map_arithmetic(self, expr, children):
+    def map_multi_child(self, expr, children):
         dofdesc = None
 
         for ch in children:
@@ -138,15 +138,21 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
             return dofdesc
 
     def map_sum(self, expr):
-        return self.map_arithmetic(expr, expr.children)
+        return self.map_multi_child(expr, expr.children)
 
     map_product = map_sum
 
     def map_quotient(self, expr):
-        return self.map_arithmetic(expr, (expr.numerator, expr.denominator))
+        return self.map_multi_child(expr, (expr.numerator, expr.denominator))
 
     def map_power(self, expr):
-        return self.map_arithmetic(expr, (expr.base, expr.exponent))
+        return self.map_multi_child(expr, (expr.base, expr.exponent))
+
+    def map_if(self, expr):
+        return self.map_multi_child(expr, [expr.condition, expr.then, expr.else_])
+
+    def map_comparison(self, expr):
+        return self.map_multi_child(expr, [expr.left, expr.right])
 
     def map_nodal_sum(self, expr, enclosing_prec):
         return DOFDesc(DTAG_SCALAR)

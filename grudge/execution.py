@@ -337,19 +337,20 @@ class ExecutionMapper(mappers.Evaluator,
         for name, expr in six.iteritems(kdescr.input_mappings):
             kwargs[name] = self.rec(expr)
 
-        vdiscr = self.discr.volume_discr
+        discr = self.get_discr(kdescr.governing_dd)
         for name in kdescr.scalar_args():
             v = kwargs[name]
             if isinstance(v, (int, float)):
-                kwargs[name] = vdiscr.real_dtype.type(v)
+                kwargs[name] = discr.real_dtype.type(v)
             elif isinstance(v, complex):
-                kwargs[name] = vdiscr.complex_dtype.type(v)
+                kwargs[name] = discr.complex_dtype.type(v)
             elif isinstance(v, np.number):
                 pass
             else:
                 raise ValueError("unrecognized scalar type for variable '%s': %s"
                         % (name, type(v)))
 
+        kwargs["grdg_n"] = discr.nnodes
         evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
         return list(result_dict.items()), []
 

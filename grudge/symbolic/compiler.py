@@ -72,11 +72,12 @@ def _make_dep_mapper(include_subscripts):
 
 class LoopyKernelDescriptor(object):
     def __init__(self, loopy_kernel, input_mappings, output_mappings,
-            fixed_arguments):
+            fixed_arguments, governing_dd):
         self.loopy_kernel = loopy_kernel
         self.input_mappings = input_mappings
         self.output_mappings = output_mappings
         self.fixed_arguments = fixed_arguments
+        self.governing_dd = governing_dd
 
     @memoize_method
     def scalar_args(self):
@@ -852,6 +853,9 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
                     "do not know how to map function '%s' into loopy"
                     % expr.function)
 
+    def map_ones(self, expr):
+        return 1
+
     def map_node_coordinate_component(self, expr):
         mapped_name = "grdg_ncc%d" % expr.axis
         set_once(self.input_mappings, mapped_name, expr)
@@ -905,12 +909,18 @@ class ToLoopyInstructionMapper(object):
         knl = lp.set_options(knl, return_dict=True)
         knl = lp.split_iname(knl, iname, 128, outer_tag="g.0", inner_tag="l.0")
 
+        from pytools import single_valued
+        governing_dd = single_valued(
+                self.dd_inference_mapper(expr)
+                for expr in insn.exprs)
+
         return LoopyKernelInstruction(
             LoopyKernelDescriptor(
                 loopy_kernel=knl,
                 input_mappings=expr_mapper.input_mappings,
                 output_mappings=expr_mapper.output_mappings,
-                fixed_arguments={})
+                fixed_arguments={},
+                governing_dd=governing_dd)
             )
 
     def map_insn_assign_to_discr_scoped(self, insn):
