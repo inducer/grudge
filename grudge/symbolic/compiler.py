@@ -31,7 +31,7 @@ from pytools import Record, memoize_method, memoize
 from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
-from sys import intern
+from six.moves import intern
 
 
 # {{{ instructions
