@@ -109,7 +109,12 @@ class LoopyKernelInstruction(Instruction):
                 if isinstance(v, (Variable, Subscript)))
 
     def __str__(self):
-        knl_str = self.kernel_descriptor.loopy_kernel.stringify("di")
+        knl_str = "\n".join(
+                "%s = %s" % (insn.assignee, insn.expression)
+                for insn in self.kernel_descriptor.loopy_kernel.instructions)
+
+        knl_str = knl_str.replace("grdg_", "")
+
         return "{ /* loopy */\n  %s\n}" % knl_str.replace("\n", "\n  ")
 
     mapper_method = "map_insn_loopy_kernel"
@@ -278,7 +283,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
         node_names[insn] = node_name
         node_label = str(insn)
 
-        if max_node_label_length is not None:
+        if (max_node_label_length is not None
+                and not isinstance(insn, LoopyKernelInstruction)):
             node_label = node_label[:max_node_label_length]
 
         if label_wrap_width is not None:
