@@ -81,11 +81,6 @@ class ExecutionMapper(mappers.Evaluator,
         discr = self.get_discr(expr.dd)
         return discr.nodes()[expr.axis].with_queue(self.queue)
 
-    def map_boundarize(self, op, field_expr):
-        return self.discr.boundarize_volume_field(
-                self.rec(field_expr), tag=op.tag,
-                kind=self.discr.compute_kind)
-
     def map_grudge_variable(self, expr):
         return self.context[expr.name]
 
@@ -105,13 +100,16 @@ class ExecutionMapper(mappers.Evaluator,
         return func(*pars)
 
     def map_nodal_sum(self, op, field_expr):
-        return cl.array.sum(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.sum(self.rec(field_expr)).get()[()]
 
     def map_nodal_max(self, op, field_expr):
-        return cl.array.max(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.max(self.rec(field_expr)).get()[()]
 
     def map_nodal_min(self, op, field_expr):
-        return cl.array.min(self.rec(field_expr))
+        # FIXME: Could allow array scalars
+        return cl.array.min(self.rec(field_expr)).get()[()]
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
@@ -333,11 +331,34 @@ class ExecutionMapper(mappers.Evaluator,
 
     # {{{ code execution functions
 
-    def exec_assign(self, insn):
+    def map_insn_loopy_kernel(self, insn):
+        kwargs = {}
+        kdescr = insn.kernel_descriptor
+        for name, expr in six.iteritems(kdescr.input_mappings):
+            kwargs[name] = self.rec(expr)
+
+        discr = self.get_discr(kdescr.governing_dd)
+        for name in kdescr.scalar_args():
+            v = kwargs[name]
+            if isinstance(v, (int, float)):
+                kwargs[name] = discr.real_dtype.type(v)
+            elif isinstance(v, complex):
+                kwargs[name] = discr.complex_dtype.type(v)
+            elif isinstance(v, np.number):
+                pass
+            else:
+                raise ValueError("unrecognized scalar type for variable '%s': %s"
+                        % (name, type(v)))
+
+        kwargs["grdg_n"] = discr.nnodes
+        evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
+        return list(result_dict.items()), []
+
+    def map_insn_assign(self, insn):
         return [(name, self.rec(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
 
-    def exec_assign_to_discr_scoped(self, insn):
+    def map_insn_assign_to_discr_scoped(self, insn):
         assignments = []
         for name, expr in zip(insn.names, insn.exprs):
             value = self.rec(expr)
@@ -346,11 +367,11 @@ class ExecutionMapper(mappers.Evaluator,
 
         return assignments, []
 
-    def exec_assign_from_discr_scoped(self, insn):
+    def map_insn_assign_from_discr_scoped(self, insn):
         return [(insn.name,
             self.discr._discr_scoped_subexpr_name_to_value[insn.name])], []
 
-    def exec_diff_batch_assign(self, insn):
+    def map_insn_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
         # FIXME: There's no real reason why differentiation is special,

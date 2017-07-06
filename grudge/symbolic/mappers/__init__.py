@@ -638,6 +638,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # }}}
 
     # {{{ reference differentiation
+
     def map_ref_diff(self, expr, enclosing_prec):
         return "Diffr%d%s" % (expr.rst_axis, self._format_op_dd(expr))
 
