@@ -71,6 +71,9 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ expression mappings -------------------------------------------------
 
     def map_ones(self, expr):
+        if expr.dd.is_scalar():
+            return 1
+
         discr = self.get_discr(expr.dd)
 
         result = discr.empty(self.queue, allocator=self.bound_op.allocator)
@@ -82,7 +85,30 @@ class ExecutionMapper(mappers.Evaluator,
         return discr.nodes()[expr.axis].with_queue(self.queue)
 
     def map_grudge_variable(self, expr):
-        return self.context[expr.name]
+        from numbers import Number
+
+        value = self.context[expr.name]
+        if not expr.dd.is_scalar() and isinstance(value, Number):
+            discr = self.get_discr(expr.dd)
+            ary = discr.empty(self.queue)
+            ary.fill(value)
+            value = ary
+
+        return value
+
+    def map_subscript(self, expr):
+        value = super(ExecutionMapper, self).map_subscript(expr)
+
+        if isinstance(expr.aggregate, sym.Variable):
+            dd = expr.aggregate.dd
+
+            from numbers import Number
+            if not dd.is_scalar() and isinstance(value, Number):
+                discr = self.get_discr(dd)
+                ary = discr.empty(self.queue)
+                ary.fill(value)
+                value = ary
+        return value
 
     def map_call(self, expr):
         from pymbolic.primitives import Variable
