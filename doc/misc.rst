@@ -3,28 +3,83 @@
 Installation
 ============
 
-This command should install :mod:`grudge`::
+Installing :mod:`grudge`
+------------------------
 
-    pip install grudge
+This set of instructions is intended for 64-bit Linux computers.
+MacOS support is in the works.
 
-(Note the extra "."!)
+#.  Make sure your system has the basics to build software.
 
-You may need to run this with :command:`sudo`.
-If you don't already have `pip <https://pypi.python.org/pypi/pip>`_,
-run this beforehand::
+    On Debian derivatives (Ubuntu and many more),
+    installing ``build-essential`` should do the trick.
 
-    curl -O https://raw.github.com/pypa/pip/master/contrib/get-pip.py
-    python get-pip.py
+    Everywhere else, just making sure you have the ``g++`` package should be
+    enough.
 
-For a more manual installation, `download the source
-<http://pypi.python.org/pypi/grudge>`_, unpack it, and say::
+#.  Installing `miniconda for Python 3 on 64-bit Linux <https://conda.io/miniconda.html>`_.
 
-    python setup.py install
+#.  ``export CONDA=/WHERE/YOU/INSTALLED/miniconda3``
 
-You may also clone its git repository::
+    If you accepted the default location, this should work:
 
-    git clone --recursive git://github.com/inducer/grudge
-    git clone --recursive http://git.tiker.net/trees/grudge.git
+    ``export CONDA=$HOME/miniconda3``
+
+#.  ``$CONDA/bin/conda create -n dgfem``
+
+#.  ``source $CONDA/bin/activate dgfem``
+
+#.  ``conda config --add channels conda-forge``
+
+#.  ``conda install git pip pocl islpy pyopencl``
+
+#.  Type the following command::
+
+        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy meshmode dagrt leap grudge; do python -m pip install git+https://gitlab.tiker.net/inducer/$i.git; done
+
+Next time you want to use `grudge`, just run the following command::
+
+    source /WHERE/YOU/INSTALLED/miniconda3/bin/activate dgfem
+
+You may also like to add this to a startup file (like :file:`$HOME/.bashrc`) or create an alias for it.
+
+After this, you should be able to run the `tests <https://gitlab.tiker.net/inducer/grudge/tree/master/test>`_
+or `examples <https://gitlab.tiker.net/inducer/grudge/tree/master/examples>`_.
+
+Troubleshooting the Installation
+--------------------------------
+
+/usr/bin/ld: cannot find -lstdc++
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Try::
+
+    sudo apt-get install libstdc++-6-dev
+
+to install the missing C++ development package.
+
+No CL platforms found/unknown error -1001
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If you get::
+
+    pyopencl.cffi_cl.LogicError: clGetPlatformIDs failed: <unknown error -1001>
+
+try::
+
+    conda update ocl-icd pocl
+
+(This indicates that the OpenCL driver loader didn't find any drivers, or the
+drivers were themselves missing dependencies.)
+
+Assertion 'error == 0'
+~~~~~~~~~~~~~~~~~~~~~~~
+
+If you get::
+
+    /opt/conda/conda-bld/home_1484016200338/work/pocl-0.13/lib/CL/devices/common.c:108:
+    llvm_codegen: Assertion 'error == 0 ' failed. Aborted (core dumped)
+
+then you're likely out of memory.
 
 User-visible Changes
 ====================
