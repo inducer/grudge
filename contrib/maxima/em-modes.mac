@@ -1,0 +1,157 @@
+kill(all);
+load("eigen");
+load("itensor");
+load("diag");
+
+/* -------------------------------------------------------------------------- */
+/* Utilities */
+/* -------------------------------------------------------------------------- */
+
+curl(x):=crossfunc(lambda([i,j], diff(x[j], coords[i])));
+div(f):=sum(diff(f[j], coords[j]), j, 1, length(coords));
+
+assert(condition):=if not condition then error("Assertion violated") else true$
+
+norm_2_squared(v):=v.v;
+
+crossfunc(f):=makelist(
+  sum(sum(
+      levi_civita([i,j,k])*f(j,k),
+   j,1,3),k,1,3),i,1,3)$
+
+crossprod(a,b):=crossfunc(lambda([j,k], a[j]*b[k]));
+
+/* -------------------------------------------------------------------------- */
+/* Variable declarations */
+/* -------------------------------------------------------------------------- */
+
+coords:[x,y,z];
+allvars:append([t],coords);
+
+mu: 1;
+epsilon: 1;
+c: 1/sqrt(mu*epsilon);
+
+epsilon_0: 1;
+mu_0: 1;
+c_0: 1/sqrt(mu_0*epsilon_0);
+
+max_B(max_H):= mu*max_H;
+max_D(max_E):= epsilon*max_E;
+
+/* SI conventions, assumed time dep: exp(%i*omega*t) */
+faraday(max_E, max_H):= curl(max_E) + %i * omega * max_B(max_H);
+ampere(max_E, max_H):= curl(max_B(max_H)) - %i * omega / c_0**2 * max_E;
+
+div_e(max_E, max_H):= div(max_E);
+div_h(max_E, max_H):= div(max_H);
+
+maxwell_pde(max_E, max_H):=append(
+    faraday(max_E, max_H),
+    ampere(max_E, max_H),
+    [div_e(max_E, max_H), div_h(max_E, max_H)]);
+
+/*
+spatial_deps:[
+  exp(%i*m*x)*exp(%i*n*y),
+  exp(%i*m*x)*exp(-%i*n*y),
+  exp(-%i*m*x)*exp(%i*n*y),
+  exp(-%i*m*x)*exp(-%i*n*y)
+  ];
+*/
+
+spatial_deps:[
+  exp(+%i*m*x)*exp(+%i*n*y)*exp(+%i*l*z),
+  exp(+%i*m*x)*exp(+%i*n*y)*exp(-%i*l*z),
+  exp(+%i*m*x)*exp(-%i*n*y)*exp(+%i*l*z),
+  exp(+%i*m*x)*exp(-%i*n*y)*exp(-%i*l*z)
+
+  /*
+  exp(-%i*m*x)*exp(+%i*n*y)*exp(+%i*l*z),
+  exp(-%i*m*x)*exp(+%i*n*y)*exp(-%i*l*z),
+  exp(-%i*m*x)*exp(-%i*n*y)*exp(+%i*l*z),
+  exp(-%i*m*x)*exp(-%i*n*y)*exp(-%i*l*z)
+  */
+  ];
+
+declare(m, integer, n, integer, l, integer);
+
+get_maxwell_solution(spatial_dep):=block([
+  max_B, max_D, coeffs, max_E, max_H, faraday, ampere, div_e, div_h, maxwell_pde, soln
+  ],
+  max_B: mu*max_H,
+  max_D: epsilon*max_E,
+
+  coeffs: [
+    Exr, Eyr, Ezr, Hxr, Hyr, Hzr,
+    Exi, Eyi, Ezi, Hxi, Hyi, Hzi
+    ],
+
+  max_E: [
+      (Exr+%i*Exi)*spatial_dep,
+      (Eyr+%i*Eyi)*spatial_dep,
+      (Ezr+%i*Ezi)*spatial_dep
+      ],
+  max_H: [
+      (Hxr+%i*Hxi)*spatial_dep,
+      (Hyr+%i*Hyi)*spatial_dep,
+      (Hzr+%i*Hzi)*spatial_dep
+      ],
+
+  soln:solve(
+    maxwell_pde(max_E, max_H),
+    append(coeffs, [omega])),
+
+  family1: soln[1],
+  omega_eq: family1[length(family1)],
+  assert(lhs(omega_eq) = omega),
+
+  [subst(family1, [max_E, max_H]), rhs(omega_eq)]
+  );
+
+maxwell_solutions:makelist(
+  get_maxwell_solution(spatial_deps[i]),
+  i, 1, length(spatial_deps));
+
+omegas:makelist(
+  maxwell_solutions[i][2],
+  i, 1, length(maxwell_solutions));
+display(omegas);
+
+max_E:ratsimp(sum(
+  maxwell_solutions[i][1][1],
+  i, 1, length(maxwell_solutions)));
+max_H:ratsimp(sum(
+  maxwell_solutions[i][1][2],
+  i, 1, length(maxwell_solutions)));
+
+print("Check Maxwell:");
+print(ratsimp(subst([omega=omegas[1]],maxwell_pde(max_E,max_H))));
+
+pec_bcs:append(
+    realpart(crossprod([-1,0,0], subst(x=0, max_E))),
+    realpart(crossprod([1,0,0], subst(x=%pi, max_E))),
+    realpart(crossprod([0,-1,0], subst(y=0, max_E))),
+    realpart(crossprod([0,1,0], subst(y=%pi, max_E))),
+    [
+      realpart([-1,0,0].subst(x=0, max_H)),
+      realpart([1,0,0].subst(x=%pi, max_H)),
+      realpart([0,-1,0].subst(y=0, max_H)),
+      realpart([0,1,0].subst(y=%pi, max_H))
+    ]);
+
+freevars: sublist(
+    listofvars([max_E, max_H]),
+    lambda([rvar], substring(string(rvar),1,2) = "%"));
+
+ev_pec_bcs:append(
+  subst([x=0, y=0, z=0], pec_bcs),
+  subst([x=0, y=0, z=%pi], pec_bcs),
+  subst([x=0, y=%pi, z=%pi], pec_bcs)
+  );
+
+/*
+Fails:
+
+pec_soln:linsolve(pec_bcs, freevars);
+*/
