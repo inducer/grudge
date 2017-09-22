@@ -27,7 +27,11 @@ from pytools import memoize_method
 from grudge import sym
 
 
-class Discretization(object):
+class DiscretizationBase(object):
+    pass
+
+
+class Discretization(DiscretizationBase):
     """
     .. attribute :: volume_discr
 
@@ -218,6 +222,33 @@ class Discretization(object):
         return (
                 where is None
                 or where == sym.VTAG_ALL)
+
+
+class PointsDiscretization(DiscretizationBase):
+    """Implements just enough of the discretization interface to be
+    able to smuggle some points into :func:`bind`.
+    """
+
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def ambient_dim(self):
+        return self._nodes.shape[0]
+
+    @property
+    def mesh(self):
+        return self
+
+    @property
+    def nnodes(self):
+        return self._nodes.shape[-1]
+
+    def nodes(self):
+        return self._nodes
+
+    @property
+    def volume_discr(self):
+        return self
 
 
 # vim: foldmethod=marker

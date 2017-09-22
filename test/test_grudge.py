@@ -333,6 +333,22 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
     assert eoc_rec.order_estimate() > order
 
 
+def test_foreign_points(ctx_factory):
+    pytest.importorskip("sumpy")
+    import sumpy.point_calculus as pc
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    dim = 2
+    cp = pc.CalculusPatch(np.zeros(dim))
+
+    from grudge.discretization import PointsDiscretization
+    pdiscr = PointsDiscretization(cl.array.to_device(queue, cp.points))
+
+    bind(pdiscr, sym.nodes(dim)**2)(queue)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
