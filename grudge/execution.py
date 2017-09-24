@@ -279,6 +279,10 @@ class ExecutionMapper(mappers.Evaluator,
 
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
+    def map_opposite_partition_face_swap(self, op, field_expr):
+        raise NotImplementedError("map_opposite_partition_face_swap")
+        return None
+
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in
 
