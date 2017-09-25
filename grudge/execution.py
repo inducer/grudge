@@ -286,7 +286,8 @@ class ExecutionMapper(mappers.Evaluator,
         local_mesh = None
         vol_discr = None
         group_factory = None
-        TAG_SEND_MESH = 1
+        cl_ctx = None
+        TAG_SEND_MESH = 1  # noqa
 
         from mpi4py import MPI
         comm = MPI.COMM_WORLD
@@ -369,6 +370,27 @@ class ExecutionMapper(mappers.Evaluator,
 
         for req in send_reqs:
             req.wait()
+
+        connections = []
+        for i_remote_part, data in remote_data.items():
+            if data is None:
+                # Local mesh is not connected to remote mesh
+                continue
+            remote_bdry_mesh = data['bdry_mesh']
+            from meshmode.discretization import Discretization
+            remote_bdry = Discretization(cl_ctx, remote_bdry_mesh, group_factory)
+            remote_adj_groups = data['adj']
+            remote_to_elem_faces = data['to_elem_faces']
+            remote_to_elem_indices = data['to_elem_indices']
+            # Connect local_mesh to remote_mesh
+            from meshmode.discretization.connection import make_partition_connection
+            connection = make_partition_connection(local_bdry_conns[i_remote_part],
+                                                   i_local_part,
+                                                   remote_bdry,
+                                                   remote_adj_groups,
+                                                   remote_to_elem_faces,
+                                                   remote_to_elem_indices)
+            connections.append(connection)
 
         return None
 
