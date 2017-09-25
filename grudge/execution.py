@@ -283,7 +283,6 @@ class ExecutionMapper(mappers.Evaluator,
         raise NotImplementedError("map_opposite_partition_face_swap")
 
         # TODO: Fetch these variables
-        local_mesh = None
         vol_discr = None
         group_factory = None
         cl_ctx = None
@@ -324,6 +323,7 @@ class ExecutionMapper(mappers.Evaluator,
 
             # Gather information to send to other ranks
             local_bdry = local_bdry_conns[i_remote_part].to_discr
+            local_mesh = local_bdry_conns[i_remote_part].from_discr.mesh
             local_adj_groups = [local_mesh.facial_adjacency_groups[i][None]
                                 for i in range(len(local_mesh.groups))]
             local_batches = [local_bdry_conns[i_remote_part].groups[i].batches
