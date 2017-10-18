@@ -383,6 +383,7 @@ class OppositeRankFaceSwap(Operator):
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
+        from meshmode.mesh import BTAG_PARTITION
         if dd_in is None:
             dd_in = sym.DOFDesc(BTAG_PARTITION, None)
         if dd_out is None:

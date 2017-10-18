@@ -575,6 +575,8 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     # dumper("before-derivative-join", sym_operator)
     # sym_operator = mappers.DerivativeJoiner()(sym_operator)
 
+    sys_operator = mappers.DistributedMapper()(sym_operator)
+
     dumper("process-finished", sym_operator)
 
     return sym_operator

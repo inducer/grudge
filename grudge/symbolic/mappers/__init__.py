@@ -331,6 +331,19 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 # }}}
 
 
+class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
+
+    # FIXME: Not sure what this is
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def map_operator_binding(self, expr):
+        if isinstance(expr.op, op.OppositeInteriorFaceSwap):
+            return 42
+            # return expr.op + op.OppositeRankFaceSwap()(self.rec(expr.field))
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
 # {{{ operator specializer
 
 class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):

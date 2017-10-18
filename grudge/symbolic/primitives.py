@@ -28,7 +28,7 @@ from six.moves import range, intern
 
 import numpy as np
 import pymbolic.primitives
-from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE  # noqa
+from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.discretization.connection import (  # noqa
         FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
 
@@ -182,6 +182,8 @@ class DOFDesc(object):
         elif domain_tag is None:
             pass
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
+            pass
+        elif domain_tag is BTAG_PARTITION:
             pass
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass
