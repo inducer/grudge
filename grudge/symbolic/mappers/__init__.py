@@ -147,6 +147,7 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ref_mass = _map_op_base
     map_ref_inverse_mass = _map_op_base
 
+    map_opposite_rank_face_swap = _map_op_base
     map_opposite_interior_face_swap = _map_op_base
     map_face_mass_operator = _map_op_base
     map_ref_face_mass_operator = _map_op_base
@@ -195,6 +196,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ref_mass = map_elementwise_linear
     map_ref_inverse_mass = map_elementwise_linear
 
+    map_opposite_rank_face_swap = map_elementwise_linear
     map_opposite_interior_face_swap = map_elementwise_linear
     map_face_mass_operator = map_elementwise_linear
     map_ref_face_mass_operator = map_elementwise_linear
@@ -338,8 +340,7 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            return 42
-            # return expr.op + op.OppositeRankFaceSwap()(self.rec(expr.field))
+            return op.OppositeRankFaceSwap()(self.rec(expr.field))
         else:
             return IdentityMapper.map_operator_binding(self, expr)
 
@@ -682,6 +683,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_ref_face_mass_operator(self, expr, enclosing_prec):
         return "RefFaceM" + self._format_op_dd(expr)
+
+    def map_opposite_rank_face_swap(self, expr, enclosing_prec):
+        return "RankSwap" + self._format_op_dd(expr)
 
     def map_opposite_interior_face_swap(self, expr, enclosing_prec):
         return "OppSwap" + self._format_op_dd(expr)

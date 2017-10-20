@@ -35,7 +35,7 @@ def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    dims = 3
+    dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -84,8 +84,8 @@ def main(write_output=True, order=4):
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    # print(bound_op)
-    # 1/0
+    print(bound_op)
+    1/0
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)

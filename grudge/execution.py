@@ -559,6 +559,9 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     dumper("before-global-to-reference", sym_operator)
     sym_operator = mappers.GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
 
+    dumper("before-distributed", sym_operator)
+    sys_operator = mappers.DistributedMapper()(sym_operator)
+
     # Ordering restriction:
     #
     # - Must specialize quadrature operators before performing inverse mass
@@ -574,8 +577,6 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     # FIXME: Reenable derivative joiner
     # dumper("before-derivative-join", sym_operator)
     # sym_operator = mappers.DerivativeJoiner()(sym_operator)
-
-    sys_operator = mappers.DistributedMapper()(sym_operator)
 
     dumper("process-finished", sym_operator)
 
