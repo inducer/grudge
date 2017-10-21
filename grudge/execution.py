@@ -532,7 +532,6 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
         dumper("before-empty-flux-killer", sym_operator)
         sym_operator = mappers.EmptyFluxKiller(mesh)(sym_operator)
 
-
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
