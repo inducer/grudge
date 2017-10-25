@@ -280,7 +280,17 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_rank_face_swap(self, op, field_expr):
-        raise NotImplementedError("map_opposite_rank_face_swap")
+        # raise NotImplementedError("map_opposite_rank_face_swap")
+        from mpi4py import MPI
+        mpi_comm = MPI.COMM_WORLD
+        from meshmode.discretization.poly_element\
+                        import PolynomialWarpAndBlendGroupFactory
+        group_factory = PolynomialWarpAndBlendGroupFactory(4)
+        vol_discr = self.discr.boundary_discr(sym.BTAG_PARTITION, sym.QTAG_NONE)
+
+        from meshmode.distributed import MPIBoundaryCommunicator
+        bdry_comm = MPIBoundaryCommunicator(mpi_comm, self.queue, vol_discr, group_factory)
+        return bdry_comm(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in
