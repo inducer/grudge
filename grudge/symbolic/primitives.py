@@ -183,9 +183,6 @@ class DOFDesc(object):
             pass
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
             pass
-        # FIXME: I think I need to pass BTAG_PARTITION from OppositeRankFaceSwap
-        # elif domain_tag is BTAG_PARTITION:
-        #     pass
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass
         else:

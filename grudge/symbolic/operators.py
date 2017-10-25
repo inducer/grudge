@@ -383,16 +383,14 @@ class OppositeRankFaceSwap(Operator):
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
-        # from meshmode.mesh import BTAG_PARTITION
         if dd_in is None:
-            # FIXME: What is FRESTR_INTERIOR_FACES?
+            # FIXME: Is this correct?
             dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES)
-            # dd_in = sym.DOFDesc(BTAG_PARTITION)
         if dd_out is None:
             dd_out = dd_in
 
-        # if dd_in.domain_tag is not BTAG_PARTITION:
-        #     raise ValueError("dd_in must be a rank boundary faces domain")
+        if dd_in.domain_tag is not sym.FRESTR_INTERIOR_FACES:
+            raise ValueError("dd_in must be an interior faces domain")
         if dd_out != dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
