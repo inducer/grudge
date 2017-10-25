@@ -280,17 +280,22 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_rank_face_swap(self, op, field_expr):
-        # raise NotImplementedError("map_opposite_rank_face_swap")
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
+
+        # TODO: Where can I find the group factory?
         from meshmode.discretization.poly_element\
                         import PolynomialWarpAndBlendGroupFactory
-        group_factory = PolynomialWarpAndBlendGroupFactory(4)
-        vol_discr = self.discr.boundary_discr(sym.BTAG_PARTITION, sym.QTAG_NONE)
+        group_factory = PolynomialWarpAndBlendGroupFactory(self.discr.order)
 
         from meshmode.distributed import MPIBoundaryCommunicator
-        bdry_comm = MPIBoundaryCommunicator(mpi_comm, self.queue, vol_discr, group_factory)
-        return bdry_comm(self.queue, self.rec(field_expr)).with_queue(self.queue)
+        bdry_comm = MPIBoundaryCommunicator(mpi_comm, self.queue,
+                                            self.discr.volume_discr,
+                                            group_factory)
+
+        raise NotImplementedError("map_opposite_rank_face_swap")
+        # TODO: How do we use bdry_comm.remote_to_local_bdry_conns to communicate
+        #       data?
 
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in

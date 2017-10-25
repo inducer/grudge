@@ -163,6 +163,7 @@ def test_mpi_communication(num_partitions):
 
 # }}}
 
+
 if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
         mpi_communication_entrypoint()

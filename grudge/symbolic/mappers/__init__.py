@@ -340,6 +340,7 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
+            # FIXME: I'm sure this is not right....but it's a start
             return (op.OppositeInteriorFaceSwap()(self.rec(expr.field))
                     + op.OppositeRankFaceSwap()(self.rec(expr.field)))
         else:
