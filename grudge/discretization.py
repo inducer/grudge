@@ -236,7 +236,7 @@ class PointsDiscretization(DiscretizationBase):
         self.complex_dtype = np.dtype({
                 np.float32: np.complex64,
                 np.float64: np.complex128
-}[self.real_dtype.type])
+        }[self.real_dtype.type])
 
     def ambient_dim(self):
         return self._nodes.shape[0]

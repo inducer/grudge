@@ -121,12 +121,14 @@ def sumpy_test_3D(order, cl_ctx, queue):
     fields = bind(pdiscr, sym_mode)(queue, t=0, epsilon=epsilon, mu=mu)
 
     for i in range(len(fields)):
-        if type(fields[i]) == type(0):
+        if isinstance(fields[i], (int, float)):
             fields[i] = np.zeros(patch.points.shape[1])
         else:
             fields[i] = fields[i].get()
 
-    print(frequency_domain_maxwell(patch, np.array([fields[0], fields[1], fields[2]]), np.array([fields[3], fields[4], fields[5]]), k))
+    e = np.array([fields[0], fields[1], fields[2]])
+    h = np.array([fields[3], fields[4], fields[5]])
+    print(frequency_domain_maxwell(patch, e, h, k))
     return
 
 
