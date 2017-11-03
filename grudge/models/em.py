@@ -1,11 +1,13 @@
 # -*- coding: utf8 -*-
 """grudge operators modelling electromagnetic phenomena."""
 
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
+from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2007, 2010 Andreas Kloeckner, David Powell"
+__copyright__ = """
+Copyright (C) 2007-2017 Andreas Kloeckner
+Copyright (C) 2010 David Powell
+Copyright (C) 2017 Bogdan Enache
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -27,11 +29,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import range
+
 from pytools import memoize_method
 
 from grudge.models import HyperbolicOperator
-from grudge.symbolic.primitives import make_common_subexpression as cse
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
+from grudge import sym
 from pytools.obj_array import join_fields, make_obj_array
 
 # TODO: Check PML
@@ -106,17 +110,8 @@ class MaxwellOperator(HyperbolicOperator):
         self.current = current
         self.incident_bc_data = incident_bc
 
-    @property
-    def c(self):
-        from warnings import warn
-        warn("MaxwellOperator.c is deprecated", DeprecationWarning)
-        if not self.fixed_material:
-            raise RuntimeError("Cannot compute speed of light "
-                    "for non-constant material")
 
-        return 1/(self.mu*self.epsilon)**0.5
-
-    def flux(self, flux_type):
+    def flux(self, w):
         """The template for the numerical flux for variable coefficients.
 
         :param flux_type: can be in [0,1] for anything between central and upwind,
@@ -124,88 +119,72 @@ class MaxwellOperator(HyperbolicOperator):
 
         As per Hesthaven and Warburton page 433.
         """
-        from grudge.flux import (make_normal, FluxVectorPlaceholder,
-                FluxConstantPlaceholder)
 
-        normal = make_normal(self.dimensions)
+        normal = sym.normal(w.dd, self.dimensions)
 
         if self.fixed_material:
-            from grudge.tools import count_subset
-            w = FluxVectorPlaceholder(count_subset(self.get_eh_subset()))
-
             e, h = self.split_eh(w)
-            epsilon = FluxConstantPlaceholder(self.epsilon)
-            mu = FluxConstantPlaceholder(self.mu)
+            epsilon = self.epsilon
+            mu = self.mu
 
-        else:
-            from grudge.tools import count_subset
-            w = FluxVectorPlaceholder(count_subset(self.get_eh_subset())+2)
 
-            epsilon, mu, e, h = self.split_eps_mu_eh(w)
-
-        Z_int = (mu.int/epsilon.int)**0.5
+        Z_int = (mu/epsilon)**0.5
         Y_int = 1/Z_int
-        Z_ext = (mu.ext/epsilon.ext)**0.5
+        Z_ext = (mu/epsilon)**0.5
         Y_ext = 1/Z_ext
 
-        if flux_type == "lf":
+        if self.flux_type == "lf":
             if self.fixed_material:
                 max_c = (self.epsilon*self.mu)**(-0.5)
-            else:
-                from grudge.flux import Max
-                c_int = (epsilon.int*mu.int)**(-0.5)
-                c_ext = (epsilon.ext*mu.ext)**(-0.5)
-                max_c = Max(c_int, c_ext)  # noqa
 
             return join_fields(
                     # flux e,
                     1/2*(
                         -self.space_cross_h(normal, h.int-h.ext)
                         # multiplication by epsilon undoes material divisor below
-                        #-max_c*(epsilon.int*e.int - epsilon.ext*e.ext)
+                        #-max_c*(epsilon*e.int - epsilon*e.ext)
                     ),
                     # flux h
                     1/2*(
                         self.space_cross_e(normal, e.int-e.ext)
                         # multiplication by mu undoes material divisor below
-                        #-max_c*(mu.int*h.int - mu.ext*h.ext)
+                        #-max_c*(mu*h.int - mu*h.ext)
                     ))
-        elif isinstance(flux_type, (int, float)):
+        elif isinstance(self.flux_type, (int, float)):
             # see doc/maxima/maxwell.mac
             return join_fields(
                     # flux e,
                     (
                         -1/(Z_int+Z_ext)*self.space_cross_h(normal,
                             Z_ext*(h.int-h.ext)
-                            - flux_type*self.space_cross_e(normal, e.int-e.ext))
+                            - self.flux_type*self.space_cross_e(normal, e.int-e.ext))
                         ),
                     # flux h
                     (
                         1/(Y_int + Y_ext)*self.space_cross_e(normal,
                             Y_ext*(e.int-e.ext)
-                            + flux_type*self.space_cross_h(normal, h.int-h.ext))
+                            + self.flux_type*self.space_cross_h(normal, h.int-h.ext))
                         ),
                     )
         else:
             raise ValueError("maxwell: invalid flux_type (%s)"
                     % self.flux_type)
 
-    def local_derivatives(self, w=None):
+    def local_derivatives(self, w):
         """Template for the spatial derivatives of the relevant components of
         :math:`E` and :math:`H`
         """
 
-        e, h = self.split_eh(self.field_placeholder(w))
+        e, h = self.split_eh(w)
 
+        nabla = sym.nabla(self.dimensions)
         def e_curl(field):
             return self.space_cross_e(nabla, field)
 
         def h_curl(field):
             return self.space_cross_h(nabla, field)
 
-        from grudge.symbolic import make_nabla
 
-        nabla = make_nabla(self.dimensions)
 
         # in conservation form: u_t + A u_x = 0
         return join_fields(
@@ -213,62 +192,44 @@ class MaxwellOperator(HyperbolicOperator):
                 e_curl(e)
                 )
 
-    def field_placeholder(self, w=None):
-        "A placeholder for E and H."
-        from grudge.tools import count_subset
-        fld_cnt = count_subset(self.get_eh_subset())
-        if w is None:
-            from grudge.symbolic import make_sym_vector
-            w = make_sym_vector("w", fld_cnt)
-
-        return w
-
-    def pec_bc(self, w=None):
+    def pec_bc(self, w):
         "Construct part of the flux operator template for PEC boundary conditions"
-        e, h = self.split_eh(self.field_placeholder(w))
+        e, h = self.split_eh(w)
 
-        from grudge.symbolic import RestrictToBoundary
-        pec_e = RestrictToBoundary(self.pec_tag)(e)
-        pec_h = RestrictToBoundary(self.pec_tag)(h)
+        pec_e = sym.cse(sym.interp("vol", self.pec_tag)(e))
+        pec_h = sym.cse(sym.interp("vol", self.pec_tag)(h))
+
 
         return join_fields(-pec_e, pec_h)
 
-    def pmc_bc(self, w=None):
+    def pmc_bc(self, w):
         "Construct part of the flux operator template for PMC boundary conditions"
-        e, h = self.split_eh(self.field_placeholder(w))
+        e, h = self.split_eh(w)
 
-        from grudge.symbolic import RestrictToBoundary
-        pmc_e = RestrictToBoundary(self.pmc_tag)(e)
-        pmc_h = RestrictToBoundary(self.pmc_tag)(h)
+        pmc_e = sym.cse(sym.interp("vol", self.pmc_tag)(e))
+        pmc_h = sym.cse(sym.interp("vol", self.pmc_tag)(h))
 
         return join_fields(pmc_e, -pmc_h)
 
-    def absorbing_bc(self, w=None):
+    def absorbing_bc(self, w):
         """Construct part of the flux operator template for 1st order
         absorbing boundary conditions.
         """
 
-        from grudge.symbolic import normal
-        absorb_normal = normal(self.absorb_tag, self.dimensions)
+        absorb_normal = sym.normal(self.absorb_tag, self.dimensions)
 
-        from grudge.symbolic import RestrictToBoundary, Field
 
-        e, h = self.split_eh(self.field_placeholder(w))
+        e, h = self.split_eh(w)
 
         if self.fixed_material:
             epsilon = self.epsilon
             mu = self.mu
-        else:
-            epsilon = cse(
-                    RestrictToBoundary(self.absorb_tag)(Field("epsilon")))
-            mu = cse(
-                    RestrictToBoundary(self.absorb_tag)(Field("mu")))
 
         absorb_Z = (mu/epsilon)**0.5
         absorb_Y = 1/absorb_Z
 
-        absorb_e = RestrictToBoundary(self.absorb_tag)(e)
-        absorb_h = RestrictToBoundary(self.absorb_tag)(h)
+        absorb_e = sym.cse(sym.interp("vol", self.absorb_tag)(e))
+        absorb_h = sym.cse(sym.interp("vol", self.absorb_tag)(h))
 
         bc = join_fields(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
@@ -281,17 +242,12 @@ class MaxwellOperator(HyperbolicOperator):
 
         return bc
 
-    def incident_bc(self, w=None):
+    def incident_bc(self, w):
         "Flux terms for incident boundary conditions"
         # NOTE: Untested for inhomogeneous materials, but would usually be
         # physically meaningless anyway (are there exceptions to this?)
 
-        e, h = self.split_eh(self.field_placeholder(w))
-        if not self.fixed_material:
-            from warnings import warn
-            if self.incident_tag != BTAG_NONE:
-                warn("Incident boundary conditions assume homogeneous"
-                     " background material, results may be unphysical")
+        e, h = self.split_eh(w)
 
         from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
@@ -301,7 +257,7 @@ class MaxwellOperator(HyperbolicOperator):
         if is_zero(incident_bc_data):
             return make_obj_array([0]*fld_cnt)
         else:
-            return cse(-incident_bc_data)
+            return sym.cse(-incident_bc_data)
 
     def sym_operator(self, w=None):
         """The full operator template - the high level description of
@@ -310,23 +266,9 @@ class MaxwellOperator(HyperbolicOperator):
         Combines the relevant operator templates for spatial
         derivatives, flux, boundary conditions etc.
         """
-        w = self.field_placeholder(w)
+        from grudge.tools import count_subset
+        w = sym.make_sym_array("w", count_subset(self.get_eh_subset()))
 
-        if self.fixed_material:
-            flux_w = w
-        else:
-            epsilon = self.epsilon
-            mu = self.mu
-
-            flux_w = join_fields(epsilon, mu, w)
-
-        from grudge.symbolic import BoundaryPair, \
-                InverseMassOperator, get_flux_operator
-
-        flux_op = get_flux_operator(self.flux(self.flux_type))
-        bdry_flux_op = get_flux_operator(self.flux(self.bdry_flux_type))
-
-        from grudge.tools.indexing import count_subset
         elec_components = count_subset(self.get_eh_subset()[0:3])
         mag_components = count_subset(self.get_eh_subset()[3:6])
 
@@ -334,10 +276,6 @@ class MaxwellOperator(HyperbolicOperator):
             # need to check this
             material_divisor = (
                     [self.epsilon]*elec_components+[self.mu]*mag_components)
-        else:
-            material_divisor = join_fields(
-                    [epsilon]*elec_components,
-                    [mu]*mag_components)
 
         tags_and_bcs = [
                 (self.pec_tag, self.pec_bc(w)),
@@ -346,67 +284,20 @@ class MaxwellOperator(HyperbolicOperator):
                 (self.incident_tag, self.incident_bc(w)),
                 ]
 
-        def make_flux_bc_vector(tag, bc):
-            if self.fixed_material:
-                return bc
-            else:
-                from grudge.symbolic import RestrictToBoundary
-                return join_fields(
-                        cse(RestrictToBoundary(tag)(epsilon)),
-                        cse(RestrictToBoundary(tag)(mu)),
-                        bc)
+
+        def flux(pair):
+            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
         return (
                 - self.local_derivatives(w)
-                + InverseMassOperator()(
-                    flux_op(flux_w)
+                - sym.InverseMassOperator()(sym.FaceMassOperator()(
+                    flux(sym.int_tpair(w))
                     + sum(
-                        bdry_flux_op(BoundaryPair(
-                            flux_w, make_flux_bc_vector(tag, bc), tag))
-                        for tag, bc in tags_and_bcs))
-                    ) / material_divisor
+                        flux(sym.bv_tpair(tag, w, bc))
+                            for tag, bc in tags_and_bcs)
+                    ) )) / material_divisor
 
-    def bind(self, discr):
-        "Convert the abstract operator template into compiled code."
-        from grudge.mesh import check_bc_coverage
-        check_bc_coverage(discr.mesh, [
-            self.pec_tag, self.absorb_tag, self.incident_tag])
 
-        compiled_sym_operator = discr.compile(self.op_template())
-
-        def rhs(t, w, **extra_context):
-            kwargs = {}
-            kwargs.update(extra_context)
-
-            return compiled_sym_operator(w=w, t=t, **kwargs)
-
-        return rhs
-
-    def assemble_eh(self, e=None, h=None, discr=None):
-        "Combines separate E and H vectors into a single array."
-        if discr is None:
-            def zero():
-                return 0
-        else:
-            def zero():
-                return discr.volume_zeros()
-
-        from grudge.tools import count_subset
-        e_components = count_subset(self.get_eh_subset()[0:3])
-        h_components = count_subset(self.get_eh_subset()[3:6])
-
-        def default_fld(fld, comp):
-            if fld is None:
-                return [zero() for i in range(comp)]
-            else:
-                return fld
-
-        e = default_fld(e, e_components)
-        h = default_fld(h, h_components)
-
-        return join_fields(e, h)
-
-    assemble_fields = assemble_eh
 
     @memoize_method
     def partial_to_eh_subsets(self):
@@ -445,11 +336,8 @@ class MaxwellOperator(HyperbolicOperator):
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
 
-        from grudge.flux import FluxVectorPlaceholder as FVP
-        if isinstance(w, FVP):
-            return FVP(scalars=e), FVP(scalars=h)
-        else:
-            return make_obj_array(e), make_obj_array(h)
+        return e,h
+        #return make_obj_array(e), make_obj_array(h)
 
     def get_eh_subset(self):
         """Return a 6-tuple of :class:`bool` objects indicating whether field
@@ -475,6 +363,14 @@ class MaxwellOperator(HyperbolicOperator):
         else:
             raise ValueError("max_eigenvalue is no longer supported for "
                     "variable-coefficient problems--use max_eigenvalue_expr")
+
+    def check_bc_coverage(self, mesh):
+        from meshmode.mesh import check_bc_coverage
+        check_bc_coverage(mesh, [
+            self.pec_tag,
+            self.pmc_tag,
+            self.absorb_tag,
+            self.incident_tag])
 
 
 class TMMaxwellOperator(MaxwellOperator):

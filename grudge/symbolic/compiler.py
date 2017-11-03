@@ -852,7 +852,11 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
     def map_call(self, expr):
         if isinstance(expr.function, sym.CFunction):
             from pymbolic import var
-            return var(expr.function.name)(
+            func_name = expr.function.name
+            if func_name == "fabs":
+                func_name = "abs"
+
+            return var(func_name)(
                     *[self.rec(par) for par in expr.parameters])
         else:
             raise NotImplementedError(
