@@ -116,11 +116,11 @@ class Discretization(DiscretizationBase):
             raise NotImplementedError("quadrature")
 
         from meshmode.discretization.connection import (
-                make_face_restriction, FRESTR_INTERIOR_FACES)
+                make_face_restriction, FACE_RESTR_INTERIOR)
         return make_face_restriction(
                         self.volume_discr,
                         PolynomialWarpAndBlendGroupFactory(order=self.order),
-                        FRESTR_INTERIOR_FACES,
+                        FACE_RESTR_INTERIOR,
 
                         # FIXME: This will need to change as soon as we support
                         # pyramids or other elements with non-identical face
@@ -155,11 +155,11 @@ class Discretization(DiscretizationBase):
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
         from meshmode.discretization.connection import (
-                make_face_restriction, FRESTR_ALL_FACES)
+                make_face_restriction, FACE_RESTR_ALL)
         return make_face_restriction(
                         self.volume_discr,
                         PolynomialWarpAndBlendGroupFactory(order=self.order),
-                        FRESTR_ALL_FACES,
+                        FACE_RESTR_ALL,
 
                         # FIXME: This will need to change as soon as we support
                         # pyramids or other elements with non-identical face
