@@ -62,15 +62,13 @@ class Discretization(DiscretizationBase):
         if quad_min_degrees is None:
             quad_min_degrees = {}
 
-        from meshmode.discretization import Discretization
-        from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
-
-        self.volume_discr = Discretization(cl_ctx, mesh,
-                PolynomialWarpAndBlendGroupFactory(order=order))
-
         self.order = order
         self.quad_min_degrees = quad_min_degrees
+
+        from meshmode.discretization import Discretization
+
+        self.volume_discr = Discretization(cl_ctx, mesh,
+                self.get_group_factory_for_quadrature_tag(sym.QTAG_NONE))
 
         # {{{ management of discretization-scoped common subexpressions
 
@@ -82,21 +80,24 @@ class Discretization(DiscretizationBase):
 
         # }}}
 
-    # {{{ boundary
-
-    @memoize_method
-    def boundary_connection(self, boundary_tag, quadrature_tag=None):
-        from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
-
+    def get_group_factory_for_quadrature_tag(self, quadrature_tag):
         if quadrature_tag is not sym.QTAG_NONE:
             # FIXME
             raise NotImplementedError("quadrature")
 
+        from meshmode.discretization.poly_element import \
+                PolynomialWarpAndBlendGroupFactory
+
+        return PolynomialWarpAndBlendGroupFactory(order=self.order)
+
+    # {{{ boundary
+
+    @memoize_method
+    def boundary_connection(self, boundary_tag, quadrature_tag=None):
         from meshmode.discretization.connection import make_face_restriction
         return make_face_restriction(
                         self.volume_discr,
-                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        self.get_group_factory_for_quadrature_tag(quadrature_tag),
                         boundary_tag=boundary_tag)
 
     def boundary_discr(self, boundary_tag, quadrature_tag=None):
@@ -108,18 +109,11 @@ class Discretization(DiscretizationBase):
 
     @memoize_method
     def interior_faces_connection(self, quadrature_tag=None):
-        from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
-
-        if quadrature_tag is not sym.QTAG_NONE:
-            # FIXME
-            raise NotImplementedError("quadrature")
-
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_INTERIOR)
         return make_face_restriction(
                         self.volume_discr,
-                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        self.get_group_factory_for_quadrature_tag(quadrature_tag),
                         FACE_RESTR_INTERIOR,
 
                         # FIXME: This will need to change as soon as we support
@@ -148,17 +142,11 @@ class Discretization(DiscretizationBase):
 
     @memoize_method
     def all_faces_volume_connection(self, quadrature_tag=None):
-        if quadrature_tag is not sym.QTAG_NONE:
-            # FIXME
-            raise NotImplementedError("quadrature")
-
-        from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_ALL)
         return make_face_restriction(
                         self.volume_discr,
-                        PolynomialWarpAndBlendGroupFactory(order=self.order),
+                        self.get_group_factory_for_quadrature_tag(quadrature_tag),
                         FACE_RESTR_ALL,
 
                         # FIXME: This will need to change as soon as we support
