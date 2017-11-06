@@ -384,7 +384,7 @@ class OppositeRankFaceSwap(Operator):
         sym = _sym()
 
         if dd_in is None:
-            # FIXME: Is this correct?
+            # FIXME: Use BTAG_PARTITION instead
             dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES)
         if dd_out is None:
             dd_out = dd_in

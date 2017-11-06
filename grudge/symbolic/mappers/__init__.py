@@ -335,12 +335,11 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
-    # FIXME: Not sure what this is
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            # FIXME: I'm sure this is not right....but it's a start
+            # FIXME: Add the sum of the rank face swaps over each rank
             return (op.OppositeInteriorFaceSwap()(self.rec(expr.field))
                     + op.OppositeRankFaceSwap()(self.rec(expr.field)))
         else:

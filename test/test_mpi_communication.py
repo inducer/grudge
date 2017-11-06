@@ -96,7 +96,7 @@ def mpi_communication_entrypoint():
             [vol_discr.zeros(queue) for i in range(vol_discr.dim)])
 
     # FIXME
-    #dt = op.estimate_rk4_timestep(vol_discr, fields=fields)
+    # dt = op.estimate_rk4_timestep(vol_discr, fields=fields)
 
     # FIXME: Should meshmode consider BTAG_PARTITION to be a boundary?
     #           Fails because: "found faces without boundary conditions"
@@ -147,7 +147,7 @@ def mpi_communication_entrypoint():
 # {{{ MPI test pytest entrypoint
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_partitions", [3])
+@pytest.mark.parametrize("num_partitions", [2])
 def test_mpi_communication(num_partitions):
     pytest.importorskip("mpi4py")
 
