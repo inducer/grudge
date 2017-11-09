@@ -573,16 +573,16 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
                 return repr(s)
 
         from meshmode.discretization.connection import (
-                FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
+                FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
         if dd.domain_tag is None:
             result = "?"
         elif dd.domain_tag is sym.DTAG_VOLUME_ALL:
             result = "vol"
         elif dd.domain_tag is sym.DTAG_SCALAR:
             result = "scalar"
-        elif dd.domain_tag is FRESTR_ALL_FACES:
+        elif dd.domain_tag is FACE_RESTR_ALL:
             result = "all_faces"
-        elif dd.domain_tag is FRESTR_INTERIOR_FACES:
+        elif dd.domain_tag is FACE_RESTR_INTERIOR:
             result = "int_faces"
         else:
             result = fmt(dd.domain_tag)
@@ -854,7 +854,7 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
         if (isinstance(expr.op, sym.InterpolationOperator)
                 and expr.op.dd_out.is_boundary()
                 and expr.op.dd_out.domain_tag not in [
-                    sym.FRESTR_ALL_FACES, sym.FRESTR_INTERIOR_FACES]
+                    sym.FACE_RESTR_ALL, sym.FACE_RESTR_INTERIOR]
                 and is_boundary_tag_empty(self.mesh,
                     expr.op.dd_out.domain_tag)):
             return 0

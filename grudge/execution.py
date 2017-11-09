@@ -59,9 +59,9 @@ class ExecutionMapper(mappers.Evaluator,
                 raise NotImplementedError("quadrature")
             return self.discr.volume_discr
 
-        elif dd.domain_tag is sym.FRESTR_ALL_FACES:
+        elif dd.domain_tag is sym.FACE_RESTR_ALL:
             return self.discr.all_faces_discr(qtag)
-        elif dd.domain_tag is sym.FRESTR_INTERIOR_FACES:
+        elif dd.domain_tag is sym.FACE_RESTR_INTERIOR:
             return self.discr.interior_faces_discr(qtag)
         elif dd.is_boundary():
             return self.discr.boundary_discr(dd.domain_tag, qtag)
@@ -275,17 +275,17 @@ class ExecutionMapper(mappers.Evaluator,
             qtag = sym.QTAG_NONE
 
         if dd_in.is_volume():
-            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
                 conn = self.discr.all_faces_connection(qtag)
-            elif dd_out.domain_tag is sym.FRESTR_INTERIOR_FACES:
+            elif dd_out.domain_tag is sym.FACE_RESTR_INTERIOR:
                 conn = self.discr.interior_faces_connection(qtag)
             elif dd_out.is_boundary():
                 conn = self.discr.boundary_connection(dd_out.domain_tag, qtag)
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(dd_out))
 
-        elif dd_in.domain_tag is sym.FRESTR_INTERIOR_FACES:
-            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+        elif dd_in.domain_tag is sym.FACE_RESTR_INTERIOR:
+            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
                 conn = self.discr.all_faces_connection(None, qtag)
             else:
                 raise ValueError(
@@ -293,7 +293,7 @@ class ExecutionMapper(mappers.Evaluator,
                         + str(dd_out))
 
         elif dd_in.is_boundary():
-            if dd_out.domain_tag is sym.FRESTR_ALL_FACES:
+            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
                 conn = self.discr.all_faces_connection(dd_in.domain_tag, qtag)
             else:
                 raise ValueError(
