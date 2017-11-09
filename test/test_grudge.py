@@ -397,8 +397,6 @@ def test_convergence_maxwell(ctx_factory,  order, visualize=False):
         total_error = sum(vals)
         eoc_rec.add_data_point(1.0/n, total_error)
 
-
-
     print(eoc_rec.pretty_print(abscissa_label="h",
             error_label="L2 Error"))
 
