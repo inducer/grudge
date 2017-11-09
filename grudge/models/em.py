@@ -435,3 +435,61 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
                 +
                 (False, False, True)
                 )
+
+def get_rectangular_cavity_mode(E_0, mode_indices):
+    """A rectangular TM cavity mode for a rectangle / cube
+    with one corner at the origin and the other at (1,1[,1])."""
+    dims = len(mode_indices)
+    if dims != 2 and dims != 3:
+        raise ValueError("Improper mode_indices dimensions")
+    import numpy
+
+    factors = [n*numpy.pi for n in mode_indices]
+
+    kx, ky = factors[0:2]
+    if dims == 3:
+        kz = factors[2]
+
+    omega = numpy.sqrt(sum(f**2 for f in factors))
+
+
+    nodes = sym.nodes(dims)
+    x = nodes[0]
+    y = nodes[1]
+    if dims == 3:
+        z = nodes[2]
+
+    sx = sym.sin(kx*x)
+    cx = sym.cos(kx*x)
+    sy = sym.sin(ky*y)
+    cy = sym.cos(ky*y)
+    if dims == 3:
+        sz = sym.sin(kz*z)
+        cz = sym.cos(kz*z)
+
+    if dims == 2:
+        tfac = sym.ScalarVariable("t") * omega
+
+        result = sym.join_fields(
+                0,
+                0,
+                sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
+                -ky * sym.sin(kx * x) * sym.cos(ky * y) * sym.sin(tfac) / omega,  # hx
+                kx * sym.cos(kx * x) * sym.sin(ky * y) * sym.sin(tfac) / omega,  # hy
+                0,
+                )
+    else:
+        tdep = sym.exp(-1j * omega * sym.ScalarVariable("t"))
+
+        gamma_squared = ky**2 + kx**2
+        result = sym.join_fields(
+            -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
+            -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
+            E_0 * sx*sy*cz*tdep,  # ez
+
+            -1j * omega * ky*E_0*sx*cy*cz*tdep / gamma_squared,  # hx
+            1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,
+            0,
+            )
+
+    return result

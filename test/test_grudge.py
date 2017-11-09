@@ -333,6 +333,78 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
     assert eoc_rec.order_estimate() > order
 
 
+@pytest.mark.parametrize("order", [3, 4, 5])
+# test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
+def test_convergence_maxwell(ctx_factory,  order, visualize=False):
+    """Test whether 3D maxwells actually converges"""
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    dims = 3
+    ns = [4, 6, 8]
+    for n in ns:
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+        mesh = generate_regular_rect_mesh(
+                a=(0.0,)*dims,
+                b=(1.0,)*dims,
+                n=(n,)*dims)
+
+        discr = Discretization(cl_ctx, mesh, order=order)
+
+        epsilon = 1
+        mu = 1
+
+        from grudge.models.em import get_rectangular_cavity_mode
+        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
+
+        analytic_sol = bind(discr, sym_mode)
+        fields = analytic_sol(queue, t=0, epsilon=epsilon, mu=mu)
+
+        from grudge.models.em import MaxwellOperator
+        op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
+        op.check_bc_coverage(mesh)
+        bound_op = bind(discr, op.sym_operator())
+
+        def rhs(t, w):
+            return bound_op(queue, t=t, w=w)
+
+        dt = 0.002
+        final_t = dt * 5
+        nsteps = int(final_t/dt)
+
+        from grudge.shortcuts import set_up_rk4
+        dt_stepper = set_up_rk4("w", dt, fields, rhs)
+
+        print("dt=%g nsteps=%d" % (dt, nsteps))
+
+        norm = bind(discr, sym.norm(2, sym.var("u")))
+
+        step = 0
+        for event in dt_stepper.run(t_end=final_t):
+            if isinstance(event, dt_stepper.StateComputed):
+                assert event.component_id == "w"
+                esc = event.state_component
+
+                step += 1
+                print(step)
+
+        sol = analytic_sol(queue, mu=mu, epsilon=epsilon, t=step * dt)
+        vals = [norm(queue, u=(esc[i] - sol[i])) / norm(queue, u=sol[i]) for i in range(5)] # noqa E501
+        total_error = sum(vals)
+        eoc_rec.add_data_point(1.0/n, total_error)
+
+
+
+    print(eoc_rec.pretty_print(abscissa_label="h",
+            error_label="L2 Error"))
+
+    assert eoc_rec.order_estimate() > order
+
+
 def test_foreign_points(ctx_factory):
     pytest.importorskip("sumpy")
     import sumpy.point_calculus as pc

@@ -30,10 +30,7 @@ import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, Discretization
 
-from analytic_solutions import (
-        get_rectangular_3D_cavity_mode,
-        get_rectangular_2D_cavity_mode,
-        )
+from grudge.models.em import get_rectangular_cavity_mode
 
 
 def main(dims, write_output=True, order=4):
@@ -63,10 +60,10 @@ def main(dims, write_output=True, order=4):
     queue = cl.CommandQueue(discr.cl_context)
 
     if dims == 3:
-        sym_mode = get_rectangular_3D_cavity_mode(1, (1, 2, 2))
+        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
         fields = bind(discr, sym_mode)(queue, t=0, epsilon=epsilon, mu=mu)
     else:
-        sym_mode = get_rectangular_2D_cavity_mode(1, (2, 3))
+        sym_mode = get_rectangular_cavity_mode(1, (2, 3))
         fields = bind(discr, sym_mode)(queue, t=0)
 
     # FIXME

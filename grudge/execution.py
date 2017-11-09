@@ -382,24 +382,6 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     # {{{ code execution functions
-    # DEBUG stuff
-    def get_max(self, arr):
-        from pymbolic.primitives import Variable
-        i = Variable("i")
-
-        def knl2():
-            knl = lp.make_kernel(
-                    "{[i]: 0<=i<n}",
-                    [
-                        lp.Assignment(Variable("out")[i],
-                        Variable("abs")(Variable("a")[i]))
-                    ])
-            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
-
-        evt, (out,) = knl2()(self.queue, a=arr)
-
-        return pyopencl.array.max(out)
-
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
         kdescr = insn.kernel_descriptor
