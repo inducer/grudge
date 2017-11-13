@@ -293,11 +293,15 @@ class ExecutionMapper(mappers.Evaluator,
                                             self.discr.volume_discr,
                                             group_factory)
 
-        raise NotImplementedError("map_opposite_rank_face_swap")
+        # raise NotImplementedError("map_opposite_rank_face_swap")
+
+        if op.remote_rank not in bdry_comm.connected_parts:
+            # Perhaps this should be detected earlier
+            return 0
 
         # FIXME: One rank face swap should swap data between the local rank
         #           and exactly one remote rank
-        return bdry_comm.remote_to_local_bdry_conns[0](
+        return bdry_comm.remote_to_local_bdry_conns[op.remote_rank](
                     self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):

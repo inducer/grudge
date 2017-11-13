@@ -181,7 +181,7 @@ class DOFDesc(object):
             pass
         elif domain_tag is None:
             pass
-        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
+        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION]:
             pass
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass

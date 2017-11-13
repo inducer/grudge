@@ -112,7 +112,7 @@ def mpi_communication_entrypoint():
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    final_t = 10
+    final_t = 1
     nsteps = int(final_t/dt)
     print("dt=%g nsteps=%d" % (dt, nsteps))
 

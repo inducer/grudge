@@ -339,9 +339,14 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            # FIXME: Add the sum of the rank face swaps over each rank
-            return (op.OppositeInteriorFaceSwap()(self.rec(expr.field))
-                    + op.OppositeRankFaceSwap()(self.rec(expr.field)))
+            result = op.OppositeInteriorFaceSwap()(self.rec(expr.field))
+            # FIXME: Maybe narrow this down
+            from mpi4py import MPI
+            num_ranks = MPI.COMM_WORLD.Get_size()
+            connected_ranks = range(num_ranks)
+            for remote_rank in connected_ranks:
+                result += op.OppositeRankFaceSwap(remote_rank)(self.rec(expr.field))
+            return result
         else:
             return IdentityMapper.map_operator_binding(self, expr)
 
