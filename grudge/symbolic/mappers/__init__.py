@@ -337,15 +337,16 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
+    def __init__(self, mesh):
+        from meshmode.distributed import get_connected_partitions
+        self.connected_parts = get_connected_partitions(mesh)
+
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            result = op.OppositeInteriorFaceSwap()(self.rec(expr.field))
-            # FIXME: Maybe narrow this down
-            from mpi4py import MPI
-            num_ranks = MPI.COMM_WORLD.Get_size()
-            connected_ranks = range(num_ranks)
-            for remote_rank in connected_ranks:
-                result += op.OppositeRankFaceSwap(remote_rank)(self.rec(expr.field))
+            field = self.rec(expr.field)
+            result = op.OppositeInteriorFaceSwap()(field)
+            for i_remote_rank in self.connected_parts:
+                result += op.OppositeRankFaceSwap(i_remote_rank)(field)
             return result
         else:
             return IdentityMapper.map_operator_binding(self, expr)

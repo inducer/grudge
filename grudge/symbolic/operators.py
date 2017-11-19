@@ -380,24 +380,21 @@ class RefInverseMassOperator(RefMassOperatorBase):
 # {{{ boundary-related operators
 
 class OppositeRankFaceSwap(Operator):
-    def __init__(self, remote_rank, dd_in=None, dd_out=None):
+    def __init__(self, i_remote_rank, dd_in=None, dd_out=None):
         sym = _sym()
 
         if dd_in is None:
-            # FIXME: Use BTAG_PARTITION instead
-            dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES)
-            # dd_in = sym.DOFDesc(sym.BTAG_PARTITION)
+            dd_in = sym.DOFDesc(sym.BTAG_PARTITION)  # TODO: Throws an error later
         if dd_out is None:
             dd_out = dd_in
 
-        # if dd_in.domain_tag is not sym.BTAG_PARTITION:
-        #     raise ValueError("dd_in must be an interior faces domain")
-        # if dd_out != dd_in:
-        #     raise ValueError("dd_out and dd_in must be identical")
+        if dd_in.domain_tag is not sym.BTAG_PARTITION:
+            raise ValueError("dd_in must be a rank boundary faces domain")
+        if dd_out != dd_in:
+            raise ValueError("dd_out and dd_in must be identical")
 
         super(OppositeRankFaceSwap, self).__init__(dd_in, dd_out)
-
-        self.remote_rank = remote_rank
+        self.i_remote_rank = i_remote_rank
 
     mapper_method = intern("map_opposite_rank_face_swap")
 

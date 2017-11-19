@@ -280,6 +280,7 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_rank_face_swap(self, op, field_expr):
+        # raise NotImplementedError("map_opposite_rank_face_swap")
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
@@ -289,20 +290,15 @@ class ExecutionMapper(mappers.Evaluator,
         group_factory = PolynomialWarpAndBlendGroupFactory(self.discr.order)
 
         from meshmode.distributed import MPIBoundaryCommunicator
-        bdry_comm = MPIBoundaryCommunicator(mpi_comm, self.queue,
-                                            self.discr.volume_discr,
-                                            group_factory)
+        bdry_conn_future = MPIBoundaryCommunicator(mpi_comm, self.queue,
+                                                   self.discr.volume_discr,
+                                                   group_factory,
+                                                   op.i_remote_rank)
+        # TODO: How does this end up in execute_dynamic?
+        bdry_conn, _ = bdry_conn_future()
+        return bdry_conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
-        # raise NotImplementedError("map_opposite_rank_face_swap")
 
-        if op.remote_rank not in bdry_comm.connected_parts:
-            # Perhaps this should be detected earlier
-            return 0
-
-        # FIXME: One rank face swap should swap data between the local rank
-        #           and exactly one remote rank
-        return bdry_comm.remote_to_local_bdry_conns[op.remote_rank](
-                    self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in
@@ -582,7 +578,7 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     sym_operator = mappers.GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
 
     dumper("before-distributed", sym_operator)
-    sym_operator = mappers.DistributedMapper()(sym_operator)
+    sym_operator = mappers.DistributedMapper(mesh)(sym_operator)
 
     # Ordering restriction:
     #
