@@ -298,7 +298,6 @@ class ExecutionMapper(mappers.Evaluator,
         bdry_conn, _ = bdry_conn_future()
         return bdry_conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
-
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in
 
