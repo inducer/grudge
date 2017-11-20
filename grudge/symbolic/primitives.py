@@ -30,7 +30,7 @@ import numpy as np
 import pymbolic.primitives
 from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.discretization.connection import (  # noqa
-        FRESTR_ALL_FACES, FRESTR_INTERIOR_FACES)
+        FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
 
 from pymbolic.primitives import (  # noqa
         cse_scope as cse_scope_base,
@@ -145,10 +145,10 @@ class DOFDesc(object):
             :class:`grudge.sym.DTAG_SCALAR` (or the string ``"scalar"``),
             :class:`grudge.sym.DTAG_VOLUME_ALL` (or the string ``"vol"``)
             for the default volume discretization,
-            :class:`meshmode.discretization.connection.FRESTR_ALL_FACES`
+            :class:`meshmode.discretization.connection.FACE_RESTR_ALL`
             (or the string ``"all_faces"``),
             or
-            :class:`meshmode.discretization.connection.FRESTR_INTERIOR_FACES`
+            :class:`meshmode.discretization.connection.FACE_RESTR_INTERIOR`
             (or the string ``"int_faces"``),
             or one of
             :class:`meshmode.discretization.BTAG_ALL`,
@@ -172,12 +172,12 @@ class DOFDesc(object):
         elif domain_tag is DTAG_VOLUME_ALL:
             pass
         elif domain_tag == "all_faces":
-            domain_tag = FRESTR_ALL_FACES
-        elif domain_tag is FRESTR_ALL_FACES:
+            domain_tag = FACE_RESTR_ALL
+        elif domain_tag is FACE_RESTR_ALL:
             pass
         elif domain_tag == "int_faces":
-            domain_tag = FRESTR_INTERIOR_FACES
-        elif domain_tag is FRESTR_INTERIOR_FACES:
+            domain_tag = FACE_RESTR_INTERIOR
+        elif domain_tag is FACE_RESTR_INTERIOR:
             pass
         elif domain_tag is None:
             pass
@@ -215,8 +215,8 @@ class DOFDesc(object):
     def is_trace(self):
         return (self.is_boundary()
                 or self.domain_tag in [
-                    FRESTR_ALL_FACES,
-                    FRESTR_INTERIOR_FACES])
+                    FACE_RESTR_ALL,
+                    FACE_RESTR_INTERIOR])
 
     def uses_quadrature(self):
         if self.quadrature_tag is None:

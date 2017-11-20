@@ -405,11 +405,11 @@ class OppositeInteriorFaceSwap(Operator):
         sym = _sym()
 
         if dd_in is None:
-            dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES, None)
+            dd_in = sym.DOFDesc(sym.FACE_RESTR_INTERIOR, None)
         if dd_out is None:
             dd_out = dd_in
 
-        if dd_in.domain_tag is not sym.FRESTR_INTERIOR_FACES:
+        if dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if dd_out != dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -424,7 +424,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
         sym = _sym()
 
         if dd_in is None:
-            dd_in = sym.DOFDesc(sym.FRESTR_ALL_FACES, None)
+            dd_in = sym.DOFDesc(sym.FACE_RESTR_ALL, None)
 
         if dd_out is None:
             dd_out = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -434,7 +434,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
-        if dd_in.domain_tag is not sym.FRESTR_ALL_FACES:
+        if dd_in.domain_tag is not sym.FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
         super(FaceMassOperatorBase, self).__init__(dd_in, dd_out)
