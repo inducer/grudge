@@ -294,10 +294,9 @@ class ExecutionMapper(mappers.Evaluator,
                                                    self.discr.volume_discr,
                                                    group_factory,
                                                    op.i_remote_rank)
-        # TODO: How does this end up in execute_dynamic?
+        # TODO: Need to tell the future what boundary data to transfer
         bdry_conn, _ = bdry_conn_future()
         return bdry_conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
-
 
 
     def map_opposite_interior_face_swap(self, op, field_expr):
@@ -307,7 +306,6 @@ class ExecutionMapper(mappers.Evaluator,
         if qtag is None:
             # FIXME: Remove once proper quadrature support arrives
             qtag = sym.QTAG_NONE
-
         return self.discr.opposite_face_connection(qtag)(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
 

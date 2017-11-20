@@ -209,7 +209,7 @@ class DOFDesc(object):
     def is_boundary(self):
         return (
                 self.domain_tag in [
-                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL]
+                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL, BTAG_PARTITION]
                 or isinstance(self.domain_tag, DTAG_BOUNDARY))
 
     def is_trace(self):
