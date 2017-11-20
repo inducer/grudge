@@ -592,6 +592,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             else:
                 return repr(s)
 
+        from meshmode.mesh import BTAG_PARTITION
         from meshmode.discretization.connection import (
                 FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
         if dd.domain_tag is None:
@@ -603,6 +604,8 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         elif dd.domain_tag is FACE_RESTR_ALL:
             result = "all_faces"
         elif dd.domain_tag is FACE_RESTR_INTERIOR:
+            result = "int_faces"
+        elif dd.domain_tag is FRESTR_INTERIOR_FACES:
             result = "int_faces"
         else:
             result = fmt(dd.domain_tag)
