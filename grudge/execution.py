@@ -43,30 +43,9 @@ class ExecutionMapper(mappers.Evaluator,
         mappers.LocalOpReducerMixin):
     def __init__(self, queue, context, bound_op):
         super(ExecutionMapper, self).__init__(context)
-        self.discr = bound_op.discr
+        self.discrwb = bound_op.discrwb
         self.bound_op = bound_op
         self.queue = queue
-
-    def get_discr(self, dd):
-        qtag = dd.quadrature_tag
-        if qtag is None:
-            # FIXME: Remove once proper quadrature support arrives
-            qtag = sym.QTAG_NONE
-
-        if dd.is_volume():
-            if qtag is not sym.QTAG_NONE:
-                # FIXME
-                raise NotImplementedError("quadrature")
-            return self.discr.volume_discr
-
-        elif dd.domain_tag is sym.FACE_RESTR_ALL:
-            return self.discr.all_faces_discr(qtag)
-        elif dd.domain_tag is sym.FACE_RESTR_INTERIOR:
-            return self.discr.interior_faces_discr(qtag)
-        elif dd.is_boundary():
-            return self.discr.boundary_discr(dd.domain_tag, qtag)
-        else:
-            raise ValueError("DOF desc tag not understood: " + str(dd))
 
     # {{{ expression mappings -------------------------------------------------
 
@@ -74,14 +53,14 @@ class ExecutionMapper(mappers.Evaluator,
         if expr.dd.is_scalar():
             return 1
 
-        discr = self.get_discr(expr.dd)
+        discr = self.discrwb.discr_from_dd(expr.dd)
 
         result = discr.empty(self.queue, allocator=self.bound_op.allocator)
         result.fill(1)
         return result
 
     def map_node_coordinate_component(self, expr):
-        discr = self.get_discr(expr.dd)
+        discr = self.discrwb.discr_from_dd(expr.dd)
         return discr.nodes()[expr.axis].with_queue(self.queue)
 
     def map_grudge_variable(self, expr):
@@ -89,7 +68,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         value = self.context[expr.name]
         if not expr.dd.is_scalar() and isinstance(value, Number):
-            discr = self.get_discr(expr.dd)
+            discr = self.discrwb.discr_from_dd(expr.dd)
             ary = discr.empty(self.queue)
             ary.fill(value)
             value = ary
@@ -104,7 +83,7 @@ class ExecutionMapper(mappers.Evaluator,
 
             from numbers import Number
             if not dd.is_scalar() and isinstance(value, Number):
-                discr = self.get_discr(dd)
+                discr = self.discrwb.discr_from_dd(dd)
                 ary = discr.empty(self.queue)
                 ary.fill(value)
                 value = ary
@@ -200,7 +179,7 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
             return lp.tag_inames(knl, dict(k="g.0"))
 
-        discr = self.get_discr(op.dd_in)
+        discr = self.discrwb.discr_from_dd(op.dd_in)
 
         # FIXME: This shouldn't really assume that it's dealing with a volume
         # input. What about quadrature? What about boundaries?
@@ -237,46 +216,7 @@ class ExecutionMapper(mappers.Evaluator,
         return out
 
     def map_interpolation(self, op, field_expr):
-        if op.dd_in.quadrature_tag not in [None, sym.QTAG_NONE]:
-            raise ValueError("cannot interpolate *from* a quadrature grid")
-
-        dd_in = op.dd_in
-        dd_out = op.dd_out
-
-        qtag = dd_out.quadrature_tag
-        if qtag is None:
-            # FIXME: Remove once proper quadrature support arrives
-            qtag = sym.QTAG_NONE
-
-        if dd_in.is_volume():
-            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
-                conn = self.discr.all_faces_connection(qtag)
-            elif dd_out.domain_tag is sym.FACE_RESTR_INTERIOR:
-                conn = self.discr.interior_faces_connection(qtag)
-            elif dd_out.is_boundary():
-                conn = self.discr.boundary_connection(dd_out.domain_tag, qtag)
-            else:
-                raise ValueError("cannot interpolate from volume to: " + str(dd_out))
-
-        elif dd_in.domain_tag is sym.FACE_RESTR_INTERIOR:
-            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
-                conn = self.discr.all_faces_connection(None, qtag)
-            else:
-                raise ValueError(
-                        "cannot interpolate from interior faces to: "
-                        + str(dd_out))
-
-        elif dd_in.is_boundary():
-            if dd_out.domain_tag is sym.FACE_RESTR_ALL:
-                conn = self.discr.all_faces_connection(dd_in.domain_tag, qtag)
-            else:
-                raise ValueError(
-                        "cannot interpolate from interior faces to: "
-                        + str(dd_out))
-
-        else:
-            raise ValueError("cannot interpolate from: " + str(dd_in))
-
+        conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
@@ -287,7 +227,7 @@ class ExecutionMapper(mappers.Evaluator,
             # FIXME: Remove once proper quadrature support arrives
             qtag = sym.QTAG_NONE
 
-        return self.discr.opposite_face_connection(qtag)(
+        return self.discrwb.opposite_face_connection(qtag)(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     # {{{ face mass operator
@@ -313,12 +253,7 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
             return lp.tag_inames(knl, dict(k="g.0"))
 
-        qtag = op.dd_in.quadrature_tag
-        if qtag is None:
-            # FIXME: Remove once proper quadrature support arrives
-            qtag = sym.QTAG_NONE
-
-        all_faces_conn = self.discr.all_faces_volume_connection(qtag)
+        all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
         vol_discr = all_faces_conn.from_discr
 
@@ -363,7 +298,7 @@ class ExecutionMapper(mappers.Evaluator,
         for name, expr in six.iteritems(kdescr.input_mappings):
             kwargs[name] = self.rec(expr)
 
-        discr = self.get_discr(kdescr.governing_dd)
+        discr = self.discrwb.discr_from_dd(kdescr.governing_dd)
         for name in kdescr.scalar_args():
             v = kwargs[name]
             if isinstance(v, (int, float)):
@@ -388,14 +323,14 @@ class ExecutionMapper(mappers.Evaluator,
         assignments = []
         for name, expr in zip(insn.names, insn.exprs):
             value = self.rec(expr)
-            self.discr._discr_scoped_subexpr_name_to_value[name] = value
+            self.discrwb._discr_scoped_subexpr_name_to_value[name] = value
             assignments.append((name, value))
 
         return assignments, []
 
     def map_insn_assign_from_discr_scoped(self, insn):
         return [(insn.name,
-            self.discr._discr_scoped_subexpr_name_to_value[insn.name])], []
+            self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_diff_batch_assign(self, insn):
         field = self.rec(insn.field)
@@ -405,13 +340,13 @@ class ExecutionMapper(mappers.Evaluator,
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
 
-        discr = self.get_discr(repr_op.dd_in)
+        discr = self.discrwb.discr_from_dd(repr_op.dd_in)
 
         # FIXME: Enable
         # assert repr_op.dd_in == repr_op.dd_out
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        @memoize_in(self.discr, "reference_derivative_knl")
+        @memoize_in(self.discrwb, "reference_derivative_knl")
         def knl():
             knl = lp.make_kernel(
                 """{[imatrix,k,i,j]:
@@ -459,8 +394,8 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ bound operator
 
 class BoundOperator(object):
-    def __init__(self, discr, discr_code, eval_code, debug_flags, allocator=None):
-        self.discr = discr
+    def __init__(self, discrwb, discr_code, eval_code, debug_flags, allocator=None):
+        self.discrwb = discrwb
         self.discr_code = discr_code
         self.eval_code = eval_code
         self.operator_data_cache = {}
@@ -490,13 +425,16 @@ class BoundOperator(object):
 
         from pytools.obj_array import with_object_array_or_scalar
 
-        # {{{ discr-scope evaluation
+        # {{{ discrwb-scope evaluation
 
-        if any(result_var.name not in self.discr._discr_scoped_subexpr_name_to_value
+        if any(
+                (result_var.name not in
+                    self.discrwb._discr_scoped_subexpr_name_to_value)
                 for result_var in self.discr_code.result):
-            # need to do discr-scope evaluation
-            discr_eval_context = {}
-            self.discr_code.execute(ExecutionMapper(queue, discr_eval_context, self))
+            # need to do discrwb-scope evaluation
+            discrwb_eval_context = {}
+            self.discr_code.execute(
+                    ExecutionMapper(queue, discrwb_eval_context, self))
 
         # }}}
 
@@ -504,7 +442,8 @@ class BoundOperator(object):
         for name, var in six.iteritems(context):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
-        return self.eval_code.execute(ExecutionMapper(queue, new_context, self))
+        return self.eval_code.execute(
+                ExecutionMapper(queue, new_context, self))
 
 # }}}
 
