@@ -171,7 +171,7 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
                         " in '%s'"
                         % (
                             type(expr).__name__,
-                            op_dd, expr.dd_in,
+                            op_dd, expr.op.dd_in,
                             str(expr)))
 
         return operator.dd_out

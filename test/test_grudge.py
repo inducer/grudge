@@ -37,7 +37,7 @@ from pyopencl.tools import (  # noqa
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -64,7 +64,7 @@ def test_inverse_metric(ctx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    discr = Discretization(cl_ctx, mesh, order=4)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
 
     sym_op = (
             sym.forward_metric_derivative_mat(mesh.dim)
@@ -98,7 +98,7 @@ def test_1d_mass_mat_trig(ctx_factory):
     mesh = generate_regular_rect_mesh(a=(-4*np.pi,), b=(9*np.pi,),
             n=(17,), order=1)
 
-    discr = Discretization(cl_ctx, mesh, order=8)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=8)
 
     x = sym.nodes(1)
     f = bind(discr, sym.cos(x[0])**2)(queue)
@@ -139,7 +139,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
-        discr = Discretization(cl_ctx, mesh, order=4)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
         nabla = sym.nabla(dim)
 
         for axis in range(dim):
@@ -182,7 +182,7 @@ def test_2d_gauss_theorem(ctx_factory):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    discr = Discretization(cl_ctx, mesh, order=2)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
 
     def f(x):
         return sym.join_fields(
@@ -272,7 +272,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         from grudge.models.advection import (
                 StrongAdvectionOperator, WeakAdvectionOperator)
-        discr = Discretization(cl_ctx, mesh, order=order)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
         op_class = {
                 "strong": StrongAdvectionOperator,
                 "weak": WeakAdvectionOperator,

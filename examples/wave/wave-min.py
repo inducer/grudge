@@ -28,7 +28,7 @@ THE SOFTWARE.
 import numpy as np
 import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 
 def main(write_output=True, order=4):
@@ -49,7 +49,7 @@ def main(write_output=True, order=4):
 
     print("%d elements" % mesh.nelements)
 
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05
