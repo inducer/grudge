@@ -475,7 +475,7 @@ class BoundOperator(object):
 
 # {{{ process_sym_operator function
 
-def process_sym_operator(discr, sym_operator, post_bind_mapper=None,
+def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
         dumper=lambda name, sym_operator: None):
 
     import grudge.symbolic.mappers as mappers
@@ -483,14 +483,14 @@ def process_sym_operator(discr, sym_operator, post_bind_mapper=None,
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
-    mappers.ErrorChecker(discr.mesh)(sym_operator)
+    mappers.ErrorChecker(discrwb.mesh)(sym_operator)
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
         sym_operator = post_bind_mapper(sym_operator)
 
     dumper("before-empty-flux-killer", sym_operator)
-    sym_operator = mappers.EmptyFluxKiller(discr.volume_discr.mesh)(sym_operator)
+    sym_operator = mappers.EmptyFluxKiller(discrwb.mesh)(sym_operator)
 
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
@@ -506,8 +506,8 @@ def process_sym_operator(discr, sym_operator, post_bind_mapper=None,
 
     dumper("before-csize", sym_operator)
     sym_operator = mappers.ConstantToNumpyConversionMapper(
-            real_type=discr.volume_discr.real_dtype.type,
-            complex_type=discr.volume_discr.complex_dtype.type,
+            real_type=discrwb.real_dtype.type,
+            complex_type=discrwb.complex_dtype.type,
             )(sym_operator)
 
     # Ordering restriction:
@@ -531,7 +531,7 @@ def process_sym_operator(discr, sym_operator, post_bind_mapper=None,
     # grids) that the operators will apply on.
 
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = mappers.GlobalToReferenceMapper(discr.ambient_dim)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
 
     # Ordering restriction:
     #

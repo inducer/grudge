@@ -294,6 +294,14 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         return self._volume_discr.ambient_dim
 
     @property
+    def real_dtype(self):
+        return self._volume_discr.real_dtype
+
+    @property
+    def complex_dtype(self):
+        return self._volume_discr.complex_dtype
+
+    @property
     def mesh(self):
         return self._volume_discr.mesh
 
