@@ -353,7 +353,7 @@ def test_convergence_maxwell(ctx_factory,  order, visualize=False):
                 b=(1.0,)*dims,
                 n=(n,)*dims)
 
-        discr = Discretization(cl_ctx, mesh, order=order)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
         epsilon = 1
         mu = 1
