@@ -95,14 +95,40 @@ class ExecutionMapper(mappers.Evaluator,
 
         # FIXME: Make a way to register functions
 
-        pars = [self.rec(p) for p in expr.parameters]
-        if any(isinstance(par, cl.array.Array) for par in pars):
-            import pyopencl.clmath as clmath
-            func = getattr(clmath, expr.function.name)
-        else:
+        args = [self.rec(p) for p in expr.parameters]
+        from numbers import Number
+        representative_arg = args[0]
+        if (
+                isinstance(representative_arg,  Number)
+                or (isinstance(representative_arg, np.ndarray)
+                    and representative_arg.shape == ())):
             func = getattr(np, expr.function.name)
+            return func(*args)
 
-        return func(*pars)
+        cached_name = "map_call_knl_"
+
+        i = Variable("i")
+        func = Variable(expr.function.name)
+        if expr.function.name == "fabs":  # FIXME
+            func = Variable("abs")
+            cached_name += "abs"
+        else:
+            cached_name += expr.function.name
+
+        @memoize_in(self.bound_op, cached_name)
+        def knl():
+            knl = lp.make_kernel(
+                "{[i]: 0<=i<n}",
+                [
+                    lp.Assignment(Variable("out")[i],
+                        func(Variable("a")[i]))
+                ], default_offset=lp.auto)
+            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
+
+        assert len(args) == 1
+        evt, (out,) = knl()(self.queue, a=args[0])
+
+        return out
 
     def map_nodal_sum(self, op, field_expr):
         # FIXME: Could allow array scalars
@@ -291,7 +317,6 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     # {{{ code execution functions
-
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
         kdescr = insn.kernel_descriptor
@@ -450,26 +475,40 @@ class BoundOperator(object):
 
 # {{{ process_sym_operator function
 
-def process_sym_operator(sym_operator, post_bind_mapper=None,
-        dumper=lambda name, sym_operator: None, mesh=None):
+def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
+        dumper=lambda name, sym_operator: None):
 
     import grudge.symbolic.mappers as mappers
 
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
-    mappers.ErrorChecker(mesh)(sym_operator)
+    mappers.ErrorChecker(discrwb.mesh)(sym_operator)
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
         sym_operator = post_bind_mapper(sym_operator)
 
-    if mesh is not None:
-        dumper("before-empty-flux-killer", sym_operator)
-        sym_operator = mappers.EmptyFluxKiller(mesh)(sym_operator)
+    dumper("before-empty-flux-killer", sym_operator)
+    sym_operator = mappers.EmptyFluxKiller(discrwb.mesh)(sym_operator)
 
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
+
+    # Work around https://github.com/numpy/numpy/issues/9438
+    #
+    # The idea is that we need 1j as an expression to survive
+    # until code generation time. If it is evaluated and combined
+    # with other constants, we will need to determine its size
+    # (as np.complex64/128) within the expression. But because
+    # of the above numpy bug, sized numbers are not likely to survive
+    # expression building--so that's why we step in here to fix that.
+
+    dumper("before-csize", sym_operator)
+    sym_operator = mappers.ConstantToNumpyConversionMapper(
+            real_type=discrwb.real_dtype.type,
+            complex_type=discrwb.complex_dtype.type,
+            )(sym_operator)
 
     # Ordering restriction:
     #
@@ -491,9 +530,8 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     # because otherwise it won't differentiate the type of grids (node or quadrature
     # grids) that the operators will apply on.
 
-    assert mesh is not None
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = mappers.GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
 
     # Ordering restriction:
     #
@@ -534,10 +572,11 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
                     pretty(sym_operator))
             stage[0] += 1
 
-    sym_operator = process_sym_operator(sym_operator,
+    sym_operator = process_sym_operator(
+            discr,
+            sym_operator,
             post_bind_mapper=post_bind_mapper,
-            dumper=dump_optemplate,
-            mesh=discr.mesh)
+            dumper=dump_optemplate)
 
     from grudge.symbolic.compiler import OperatorCompiler
     discr_code, eval_code = OperatorCompiler(discr)(sym_operator)

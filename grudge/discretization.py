@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 from pytools import memoize_method
 from grudge import sym
+import numpy as np
 
 
 # FIXME Naming not ideal
@@ -293,6 +294,14 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         return self._volume_discr.ambient_dim
 
     @property
+    def real_dtype(self):
+        return self._volume_discr.real_dtype
+
+    @property
+    def complex_dtype(self):
+        return self._volume_discr.complex_dtype
+
+    @property
     def mesh(self):
         return self._volume_discr.mesh
 
@@ -318,6 +327,11 @@ class PointsDiscretization(DiscretizationBase):
 
     def __init__(self, nodes):
         self._nodes = nodes
+        self.real_dtype = np.dtype(np.float64)
+        self.complex_dtype = np.dtype({
+                np.float32: np.complex64,
+                np.float64: np.complex128
+        }[self.real_dtype.type])
 
     def ambient_dim(self):
         return self._nodes.shape[0]
