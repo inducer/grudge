@@ -182,6 +182,7 @@ class DOFDesc(object):
         elif domain_tag is None:
             pass
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
+            # FIXME: Should wrap these in DTAG_BOUNDARY
             pass
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass

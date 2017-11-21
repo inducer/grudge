@@ -27,7 +27,7 @@ from pyopencl.tools import (  # noqa
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 import numpy.linalg as la
 
@@ -48,7 +48,7 @@ def main(write_output=True, order=4):
     dt_factor = 4
     h = 1/20
 
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
     c = np.array([0.1,0.1])
     norm_c = la.norm(c)
@@ -66,7 +66,7 @@ def main(write_output=True, order=4):
     from grudge.models.advection import WeakAdvectionOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
     
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
     op = WeakAdvectionOperator(c,
         inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
         flux_type=flux_type)
