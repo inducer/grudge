@@ -284,10 +284,11 @@ class ExecutionMapper(mappers.Evaluator,
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
-        # TODO: Where can I find the group factory?
         from meshmode.discretization.poly_element\
                         import PolynomialWarpAndBlendGroupFactory
         group_factory = PolynomialWarpAndBlendGroupFactory(self.discr.order)
+        # group_factory = self.discr.volume_discr.\
+        #                     get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
 
         from meshmode.distributed import MPIBoundaryCommunicator
         bdry_conn_future = MPIBoundaryCommunicator(mpi_comm, self.queue,

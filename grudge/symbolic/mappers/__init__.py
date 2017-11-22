@@ -343,11 +343,36 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            field = self.rec(expr.field)
-            result = op.OppositeInteriorFaceSwap()(field)
+            result = op.OppositeInteriorFaceSwap()(self.rec(expr.field))
             for i_remote_rank in self.connected_parts:
+                field = InterpolateToRankBoundariesMapper(i_remote_rank)(expr.field)
+                # FIXME: OppositeRankFaceSwap returns BTAG_PARTITION data
+                #       and we cannot add that to our FACE_RESTR_INTERIOR data
                 result += op.OppositeRankFaceSwap(i_remote_rank)(field)
+                # r = op.OppositeRankFaceSwap(i_remote_rank)(field)
+                # from meshmode.mesh import BTAG_PARTITION
+                # dd_in = BTAG_PARTITION(i_remote_rank)
+                # dd_out = result.op.dd_out
+                # print(dd_in, dd_out)
+                # result += op.InterpolationOperator(dd_in=dd_in, dd_out=dd_out)(r)
             return result
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
+class InterpolateToRankBoundariesMapper(CSECachingMapperMixin, IdentityMapper):
+
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, i_remote_rank):
+        from meshmode.mesh import BTAG_PARTITION
+        self.dd_out = BTAG_PARTITION(i_remote_rank)
+
+    def map_operator_binding(self, expr):
+        if isinstance(expr.op, op.InterpolationOperator):
+            dd_in = expr.op.dd_in
+            dd_out = self.dd_out
+            return op.InterpolationOperator(dd_in=dd_in, dd_out=dd_out)(expr.field)
         else:
             return IdentityMapper.map_operator_binding(self, expr)
 
@@ -605,8 +630,8 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             result = "all_faces"
         elif dd.domain_tag is FACE_RESTR_INTERIOR:
             result = "int_faces"
-        elif dd.domain_tag is FRESTR_INTERIOR_FACES:
-            result = "int_faces"
+        elif isinstance(dd.domain_tag, BTAG_PARTITION):
+            result = "rank%d_faces" % dd.domain_tag.part_nr
         else:
             result = fmt(dd.domain_tag)
 

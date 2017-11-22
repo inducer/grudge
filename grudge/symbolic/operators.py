@@ -384,15 +384,14 @@ class OppositeRankFaceSwap(Operator):
         sym = _sym()
 
         if dd_in is None:
-            # dd_in = sym.DOFDesc(sym.FRESTR_INTERIOR_FACES)
-            dd_in = sym.DOFDesc(sym.BTAG_PARTITION)  # TODO: Throws an error later
+            dd_in = sym.DOFDesc(sym.BTAG_PARTITION(i_remote_rank))
         if dd_out is None:
             dd_out = dd_in
 
-        # if dd_in.domain_tag is not sym.BTAG_PARTITION:
-        #     raise ValueError("dd_in must be a rank boundary faces domain")
-        # if dd_out != dd_in:
-        #     raise ValueError("dd_out and dd_in must be identical")
+        if not isinstance(dd_in.domain_tag, sym.BTAG_PARTITION):
+            raise ValueError("dd_in must be a rank boundary faces domain")
+        if dd_out != dd_in:
+            raise ValueError("dd_out and dd_in must be identical")
 
         super(OppositeRankFaceSwap, self).__init__(dd_in, dd_out)
         self.i_remote_rank = i_remote_rank

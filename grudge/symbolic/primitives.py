@@ -181,7 +181,9 @@ class DOFDesc(object):
             pass
         elif domain_tag is None:
             pass
-        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION]:
+        elif isinstance(domain_tag, BTAG_PARTITION):
+            pass
+        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
             pass
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass
@@ -209,7 +211,8 @@ class DOFDesc(object):
     def is_boundary(self):
         return (
                 self.domain_tag in [
-                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL, BTAG_PARTITION]
+                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL]
+                or isinstance(self.domain_tag, BTAG_PARTITION)
                 or isinstance(self.domain_tag, DTAG_BOUNDARY))
 
     def is_trace(self):
