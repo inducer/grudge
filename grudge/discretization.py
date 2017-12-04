@@ -148,19 +148,11 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             elif to_dd.is_boundary():
                 assert from_dd.quadrature_tag is sym.QTAG_NONE
                 return self._boundary_connection(to_dd.domain_tag)
-
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import make_same_mesh_connection
                 to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(to_discr, from_discr)
-
-            elif to_dd.is_volume():
-                from meshmode.discretization.connection import make_same_mesh_connection
-                to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
-                from_discr = self._volume_discr
-                return make_same_mesh_connection(to_discr, from_discr)
-
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(to_dd))
 
