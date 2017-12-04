@@ -155,30 +155,18 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(to_discr, from_discr)
 
+            elif to_dd.is_volume():
+                from meshmode.discretization.connection import make_same_mesh_connection
+                to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
+                from_discr = self._volume_discr
+                return make_same_mesh_connection(to_discr, from_discr)
+
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(to_dd))
 
         elif from_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
             if to_dd.domain_tag is sym.FACE_RESTR_ALL and to_qtag is sym.QTAG_NONE:
                 return self._all_faces_connection(None)
-            else:
-                raise ValueError(
-                        "cannot interpolate from interior faces to: "
-                        + str(to_dd))
-        elif from_dd.domain_tag is sym.FACE_RESTR_ALL:
-            if to_dd.domain_tag is sym.FACE_RESTR_ALL and qtag is not sym.QTAG_NONE:
-                from meshmode.discretization.connection import make_face_restriction, FACE_RESTR_ALL
-                return make_face_restriction(
-                        self._all_faces_discr(),
-                        self.group_factory_for_quadrature_tag(qtag),
-                        FACE_RESTR_ALL,
-
-                        # FIXME: This will need to change as soon as we support
-                        # pyramids or other elements with non-identical face
-                        # types.
-                        per_face_groups=False)
-
-                #return self._all_faces_connection(None, qtag)
             else:
                 raise ValueError(
                         "cannot interpolate from interior faces to: "
