@@ -37,12 +37,13 @@ def main(write_output=True, order=4):
 
     dim = 2
 
+    n_divs = 15
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(15, 15), order=order)
+            n=(n_divs, n_divs), order=order)
 
-    dt_factor = 4
-    h = 1/20
+    dt_factor = 5
+    h = 1/n_divs
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 

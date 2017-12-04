@@ -97,6 +97,12 @@ class ElementwiseLinearOperator(Operator):
 
 
 class InterpolationOperator(Operator):
+    #def __init__(self, dd_in, dd_out):
+        #print("ayy")
+        #print(dd_in)
+        #print(dd_out)
+
+        #super().__init__(dd_in, dd_out)
     mapper_method = intern("map_interpolation")
 
 
@@ -143,6 +149,8 @@ class DiffOperatorBase(Operator):
             dd_in = _sym().DD_VOLUME
         if dd_out is None:
             dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+        if dd_out == "vol": #FIXME I'm pretty sure doing it this way is wrong
+            dd_out = _sym().DD_VOLUME
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
@@ -215,18 +223,41 @@ class RefDiffOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_diff")
 
     @staticmethod
-    def matrices(element_group):
-        return element_group.diff_matrices()
+    def matrices(out_element_group, in_element_group):
+        assert in_element_group == out_element_group
+        return in_element_group.diff_matrices()
 
 
 class RefStiffnessTOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_stiffness_t")
 
     @staticmethod
-    def matrices(element_group):
-        assert element_group.is_orthogonal_basis()
-        mmat = element_group.mass_matrix()
-        return [dmat.T.dot(mmat.T) for dmat in element_group.diff_matrices()]
+    def matrices(out_element_group, in_element_group):
+        #FIXME: Is this right? Do we expose weird bugs if we delete this?
+        if in_element_group == out_element_group:
+            assert in_element_group.is_orthogonal_basis()
+            mmat = in_element_group.mass_matrix()
+            return [dmat.T.dot(mmat.T) for dmat in in_element_group.diff_matrices()]
+
+        n_quad_nodes = in_element_group.nunit_nodes
+        n_reg_nodes = out_element_group.nunit_nodes
+
+        from modepy import vandermonde
+        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
+        grad_vand = vandermonde(out_element_group.grad_basis(), in_element_group.unit_nodes)
+        vand_inv_T = np.linalg.inv(vand).T
+
+        grad_basis = out_element_group.grad_basis()
+        weights = in_element_group.weights
+        nodes = in_element_group.unit_nodes
+
+        f_res = [np.zeros((n_reg_nodes, n_quad_nodes)) for d in range(out_element_group.dim)]
+        for d in range(out_element_group.dim):
+            for i in range(n_reg_nodes):
+                for j in range(n_quad_nodes):
+                    f_res[d][i,j] = weights[j] * np.dot(vand_inv_T[i,:], grad_vand[d][j,:])
+        return f_res
+
 
 # }}}
 
@@ -338,9 +369,6 @@ class MassOperatorBase(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        if dd_out != dd_in:
-            raise ValueError("dd_out and dd_in must be identical")
-
         super(MassOperatorBase, self).__init__(dd_in, dd_out)
 
 
@@ -358,19 +386,42 @@ class RefMassOperatorBase(ElementwiseLinearOperator):
 
 class RefMassOperator(RefMassOperatorBase):
     @staticmethod
-    def matrix(element_group):
-        return element_group.mass_matrix()
+    def matrix(out_element_group, in_element_group):
+        #FIXME: Is this normal? Will bugs surface if I remove this?
+        if out_element_group == in_element_group:
+            return element_group.mass_matrix()
+
+        n_quad_nodes = in_element_group.nunit_nodes
+        n_reg_nodes = out_element_group.nunit_nodes
+
+        from modepy import vandermonde
+        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
+        o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
+        vand_inv_T = np.linalg.inv(vand).T
+
+        grad_basis = out_element_group.grad_basis()
+        weights = in_element_group.weights
+        nodes = in_element_group.unit_nodes
+
+        f_res = np.zeros((n_reg_nodes, n_quad_nodes))
+        for i in range(n_reg_nodes):
+            for j in range(n_quad_nodes):
+                f_res[i,j] = weights[j] * np.dot(vand_inv_T[i,:], o_vand[j,:])
+
+        return f_res
+
 
     mapper_method = intern("map_ref_mass")
 
 
 class RefInverseMassOperator(RefMassOperatorBase):
     @staticmethod
-    def matrix(element_group):
+    def matrix(in_element_group, out_element_group):
+        assert in_element_group == out_element_group
         import modepy as mp
         return mp.inverse_mass_matrix(
-                element_group.basis(),
-                element_group.unit_nodes)
+                in_element_group.basis(),
+                in_element_group.unit_nodes)
 
     mapper_method = intern("map_ref_inverse_mass")
 
@@ -405,7 +456,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
         if dd_in is None:
             dd_in = sym.DOFDesc(sym.FACE_RESTR_ALL, None)
 
-        if dd_out is None:
+        if dd_out is None or dd_out == "vol":
             dd_out = sym.DOFDesc("vol", sym.QTAG_NONE)
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
@@ -476,10 +527,10 @@ def stiffness(dim):
         [StiffnessOperator(i) for i in range(dim)])
 
 
-def stiffness_t(dim):
+def stiffness_t(dim, dd_in=None, dd_out=None):
     from pytools.obj_array import make_obj_array
     return make_obj_array(
-        [StiffnessTOperator(i) for i in range(dim)])
+        [StiffnessTOperator(i, dd_in, dd_out) for i in range(dim)])
 
 
 def integral(arg, dd=None):

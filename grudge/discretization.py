@@ -82,8 +82,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         if dd.is_volume():
             if qtag is not sym.QTAG_NONE:
-                # FIXME
-                raise NotImplementedError("quadrature")
+                return self._quad_volume_discr(qtag)
             return self._volume_discr
 
         elif dd.domain_tag is sym.FACE_RESTR_ALL:
@@ -120,12 +119,36 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                                 self._boundary_to_quad_connection(
                                     to_dd.domain_tag.tag, to_dd.quadrature_tag)])
 
+            elif to_dd.is_volume():
+                from meshmode.discretization.connection import make_same_mesh_connection
+                to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
+                from_discr = self._volume_discr
+                return make_same_mesh_connection(to_discr, from_discr)
+
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(to_dd))
 
         elif from_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
             if to_dd.domain_tag is sym.FACE_RESTR_ALL and qtag is sym.QTAG_NONE:
                 return self._all_faces_connection(None)
+            else:
+                raise ValueError(
+                        "cannot interpolate from interior faces to: "
+                        + str(to_dd))
+        elif from_dd.domain_tag is sym.FACE_RESTR_ALL:
+            if to_dd.domain_tag is sym.FACE_RESTR_ALL and qtag is not sym.QTAG_NONE:
+                from meshmode.discretization.connection import make_face_restriction, FACE_RESTR_ALL
+                return make_face_restriction(
+                        self._all_faces_discr(),
+                        self.group_factory_for_quadrature_tag(qtag),
+                        FACE_RESTR_ALL,
+
+                        # FIXME: This will need to change as soon as we support
+                        # pyramids or other elements with non-identical face
+                        # types.
+                        per_face_groups=False)
+
+                #return self._all_faces_connection(None, qtag)
             else:
                 raise ValueError(
                         "cannot interpolate from interior faces to: "
@@ -155,7 +178,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 QuadratureSimplexGroupFactory
 
         if quadrature_tag is not sym.QTAG_NONE:
-            return QuadratureSimplexGroupFactory(order=self.order)
+            return QuadratureSimplexGroupFactory(order=self.quad_min_degrees[quadrature_tag])
         else:
             return PolynomialWarpAndBlendGroupFactory(order=self.order)
 
@@ -259,7 +282,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         return self._all_faces_volume_connection(quadrature_tag).to_discr
 
     @memoize_method
-    def _all_faces_connection(self, boundary_tag):
+    def _all_faces_connection(self, boundary_tag, to_qtag=None):
         """Return a
         :class:`meshmode.discretization.connection.DiscretizationConnection`
         that goes from either
@@ -277,7 +300,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         else:
             faces_conn = self._boundary_connection(boundary_tag)
 
-        return make_face_to_all_faces_embedding(faces_conn, self._all_faces_discr())
+        return make_face_to_all_faces_embedding(faces_conn, self._all_faces_discr(to_qtag))
 
     # }}}
 
