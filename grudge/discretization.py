@@ -112,7 +112,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 and from_dd.quadrature_tag != to_dd.quadrature_tag):
 
             from meshmode.connection import ChainedDiscretizationConnection
-            intermediate_dd = sym.DOFDesc(from_dd.domain_tag)
+            intermediate_dd = sym.DOFDesc(to_dd.domain_tag)
             return ChainedDiscretizationConnection(
                     [
                         # first change domain
