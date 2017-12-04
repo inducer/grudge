@@ -198,36 +198,42 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.make_kernel(
                 """{[k,i,j]:
                     0<=k<nelements and
-                    0<=i,j<ndiscr_nodes}""",
+                    0<=i<out_ndiscr_nodes and
+                    0<=j<in_ndiscr_nodes}""",
                 "result[k,i] = sum(j, mat[i, j] * vec[k, j])",
                 default_offset=lp.auto, name="diff")
 
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
             return lp.tag_inames(knl, dict(k="g.0"))
 
-        discr = self.discrwb.discr_from_dd(op.dd_in)
 
-        # FIXME: This shouldn't really assume that it's dealing with a volume
-        # input. What about quadrature? What about boundaries?
-        result = discr.empty(
+        in_discr = self.discrwb.discr_from_dd(op.dd_in)
+        out_discr = self.discrwb.discr_from_dd(op.dd_out)
+
+        result = out_discr.empty(
                 queue=self.queue,
                 dtype=field.dtype, allocator=self.bound_op.allocator)
 
-        for grp in discr.groups:
-            cache_key = "elwise_linear", grp, op, field.dtype
-            try:
-                matrix = self.bound_op.operator_data_cache[cache_key]
-            except KeyError:
-                matrix = (
+        for i in range(len(out_discr.groups)):
+            in_grp = in_discr.groups[i]
+            out_grp = out_discr.groups[i]
+	    # FIXME: This cache thing
+            #cache_key = "elwise_linear", grp, op, field.dtype
+            #try:
+                #matrix = self.bound_op.operator_data_cache[cache_key]
+            #except KeyError:
+            matrix = (
                         cl.array.to_device(
                             self.queue,
-                            np.asarray(op.matrix(grp), dtype=field.dtype))
+                            np.asarray(op.matrix(out_grp, in_grp), dtype=field.dtype))
                         .with_queue(None))
 
-                self.bound_op.operator_data_cache[cache_key] = matrix
+                #self.bound_op.operator_data_cache[cache_key] = matrix
 
-            knl()(self.queue, mat=matrix, result=grp.view(result),
-                    vec=grp.view(field))
+            knl()(self.queue, mat=matrix, result=out_grp.view(result),
+                    vec=in_grp.view(field))
+
+
 
         return result
 
@@ -365,7 +371,6 @@ class ExecutionMapper(mappers.Evaluator,
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
 
-        discr = self.discrwb.discr_from_dd(repr_op.dd_in)
 
         # FIXME: Enable
         # assert repr_op.dd_in == repr_op.dd_out
@@ -377,7 +382,8 @@ class ExecutionMapper(mappers.Evaluator,
                 """{[imatrix,k,i,j]:
                     0<=imatrix<nmatrices and
                     0<=k<nelements and
-                    0<=i,j<nunit_nodes}""",
+                     0<=i<o_nunit_nodes and
+                    0<=j<i_nunit_nodes}""",
                 """
                 result[imatrix, k, i] = sum(
                         j, diff_mat[imatrix, i, j] * vec[k, j])
@@ -388,26 +394,33 @@ class ExecutionMapper(mappers.Evaluator,
             return lp.tag_inames(knl, dict(k="g.0"))
 
         noperators = len(insn.operators)
-        result = discr.empty(
+
+        in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
+        out_discr = self.discrwb.discr_from_dd(repr_op.dd_out)
+
+        result = out_discr.empty(
                 queue=self.queue,
                 dtype=field.dtype, extra_dims=(noperators,),
                 allocator=self.bound_op.allocator)
 
-        for grp in discr.groups:
-            if grp.nelements == 0:
+        for i in range(len(out_discr.groups)):
+            in_grp = in_discr.groups[i]
+            out_grp = out_discr.groups[i]
+
+            if in_grp.nelements == 0:
                 continue
 
-            matrices = repr_op.matrices(grp)
+            matrices = repr_op.matrices(out_grp, in_grp)
 
             # FIXME: Should transfer matrices to device and cache them
             matrices_ary = np.empty((
-                noperators, grp.nunit_nodes, grp.nunit_nodes))
+                noperators, out_grp.nunit_nodes, in_grp.nunit_nodes))
             for i, op in enumerate(insn.operators):
                 matrices_ary[i] = matrices[op.rst_axis]
 
             knl()(self.queue,
                     diff_mat=matrices_ary,
-                    result=grp.view(result), vec=grp.view(field))
+                    result=out_grp.view(result), vec=in_grp.view(field))
 
         return [(name, result[i]) for i, name in enumerate(insn.names)], []
 

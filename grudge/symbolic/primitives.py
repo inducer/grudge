@@ -653,10 +653,15 @@ class TracePair:
         return 0.5*(self.int + self.ext)
 
 
-def int_tpair(expression):
-    i = cse(_sym().interp("vol", "int_faces")(expression))
+def int_tpair(expression, qtag=None):
+    dd = _sym().DOFDesc("int_faces", qtag)
+    i = cse(_sym().interp("vol", dd)(expression))
     e = cse(_sym().OppositeInteriorFaceSwap()(i))
-    return TracePair("int_faces", i, e)
+    return TracePair(dd, i, e)
+
+    #i = cse(_sym().interp("vol", "int_faces")(expression))
+    #e = cse(_sym().OppositeInteriorFaceSwap()(i))
+    #return TracePair("int_faces", i, e)
 
 
 def bdry_tpair(dd, interior, exterior):
