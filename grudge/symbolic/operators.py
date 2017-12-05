@@ -389,7 +389,7 @@ class RefMassOperator(RefMassOperatorBase):
     def matrix(out_element_group, in_element_group):
         #FIXME: Is this normal? Will bugs surface if I remove this?
         if out_element_group == in_element_group:
-            return element_group.mass_matrix()
+            return in_element_group.mass_matrix()
 
         n_quad_nodes = in_element_group.nunit_nodes
         n_reg_nodes = out_element_group.nunit_nodes
