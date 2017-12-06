@@ -85,12 +85,23 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 return self._quad_volume_discr(qtag)
             return self._volume_discr
 
-        elif dd.domain_tag is sym.FACE_RESTR_ALL:
-            return self._all_faces_discr(qtag)
+        if qtag is not sym.QTAG_NONE:
+            no_quad_discr = self.discr_from_dd(sym.DOFDesc(dd.domain_tag))
+
+            from meshmode.discretization import Discretization
+            return Discretization(
+                    self._volume_discr.cl_context,
+                    no_quad_discr.mesh,
+                    self.group_factory_for_quadrature_tag(qtag))
+
+        assert qtag is sym.QTAG_NONE
+
+        if dd.domain_tag is sym.FACE_RESTR_ALL:
+            return self._all_faces_volume_connection().to_discr
         elif dd.domain_tag is sym.FACE_RESTR_INTERIOR:
-            return self._interior_faces_discr(qtag)
+            return self._interior_faces_connection().to_discr
         elif dd.is_boundary():
-            return self._boundary_discr(dd.domain_tag, qtag)
+            return self._boundary_connection(dd.domain_tag).to_discr
         else:
             raise ValueError("DOF desc tag not understood: " + str(dd))
 
@@ -99,19 +110,33 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         from_dd = sym.as_dofdesc(from_dd)
         to_dd = sym.as_dofdesc(to_dd)
 
-        if from_dd.quadrature_tag is not sym.QTAG_NONE:
-            raise ValueError("cannot interpolate *from* a "
-                    "(non-interpolatory) quadrature grid")
-
         to_qtag = to_dd.quadrature_tag
+
+        if (
+                not from_dd.is_volume()
+                and from_dd.quadrature_tag == to_dd.quadrature_tag
+                and to_dd.domain_tag is sym.FACE_RESTR_ALL):
+            faces_conn = self.connection_from_dds(
+                    sym.DOFDesc("vol"),
+                    sym.DOFDesc(from_dd.domain_tag))
+
+            from meshmode.discretization.connection import \
+                    make_face_to_all_faces_embedding
+
+            return make_face_to_all_faces_embedding(
+                    faces_conn, self.discr_from_dd(to_dd),
+                    self.discr_from_dd(from_dd))
 
         # {{{ simplify domain + qtag change into chained
 
-        if (from_dd.domain_tag != to_dd.domain_tag
-                and from_dd.quadrature_tag != to_dd.quadrature_tag):
+        if (
+                from_dd.domain_tag != to_dd.domain_tag
+                and from_dd.quadrature_tag is sym.QTAG_NONE
+                and to_dd.quadrature_tag is not sym.QTAG_NONE):
 
-            from meshmode.connection import ChainedDiscretizationConnection
-            intermediate_dd = sym.DOFDesc(from_dd.domain_tag)
+            from meshmode.discretization.connection import \
+                    ChainedDiscretizationConnection
+            intermediate_dd = sym.DOFDesc(to_dd.domain_tag)
             return ChainedDiscretizationConnection(
                     [
                         # first change domain
@@ -129,8 +154,10 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         # {{{ generic to-quad
 
-        if (from_dd.domain_tag == to_dd.domain_tag
-                and from_dd.quadrature_tag != to_dd.quadrature_tag):
+        if (
+                from_dd.domain_tag == to_dd.domain_tag
+                and from_dd.quadrature_tag is sym.QTAG_NONE
+                and to_dd.quadrature_tag is not sym.QTAG_NONE):
             from meshmode.discretization.connection.same_mesh import \
                     make_same_mesh_connection
 
@@ -140,41 +167,29 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         # }}}
 
+        if from_dd.quadrature_tag is not sym.QTAG_NONE:
+            raise ValueError("cannot interpolate *from* a "
+                    "(non-interpolatory) quadrature grid")
+
+        assert to_qtag is sym.QTAG_NONE
+
         if from_dd.is_volume():
             if to_dd.domain_tag is sym.FACE_RESTR_ALL:
-                return self._all_faces_volume_connection(to_qtag)
+                return self._all_faces_volume_connection()
             if to_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
-                return self._interior_faces_connection(to_qtag)
+                return self._interior_faces_connection()
             elif to_dd.is_boundary():
                 assert from_dd.quadrature_tag is sym.QTAG_NONE
                 return self._boundary_connection(to_dd.domain_tag)
             elif to_dd.is_volume():
-                from meshmode.discretization.connection import make_same_mesh_connection
+                from meshmode.discretization.connection import \
+                        make_same_mesh_connection
                 to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(to_discr, from_discr)
+
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(to_dd))
-
-        elif from_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
-            if to_dd.domain_tag is sym.FACE_RESTR_ALL and to_qtag is sym.QTAG_NONE:
-                return self._all_faces_connection(None)
-            else:
-                raise ValueError(
-                        "cannot interpolate from interior faces to: "
-                        + str(to_dd))
-
-        elif from_dd.domain_tag is sym.FACE_RESTR_ALL:
-            if to_dd.domain_tag is sym.FACE_RESTR_ALL and to_qtag is sym.QTAG_NONE:
-                return self._all_faces_connection(None)
-
-        elif from_dd.is_boundary():
-            if to_dd.domain_tag is sym.FACE_RESTR_ALL and to_qtag is sym.QTAG_NONE:
-                return self._all_faces_connection(from_dd.domain_tag)
-            else:
-                raise ValueError(
-                        "cannot interpolate from interior faces to: "
-                        + str(to_dd))
 
         else:
             raise ValueError("cannot interpolate from: " + str(from_dd))
@@ -192,7 +207,8 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 QuadratureSimplexGroupFactory
 
         if quadrature_tag is not sym.QTAG_NONE:
-            return QuadratureSimplexGroupFactory(order=self.quad_min_degrees[quadrature_tag])
+            return QuadratureSimplexGroupFactory(
+                    order=self.quad_min_degrees[quadrature_tag])
         else:
             return PolynomialWarpAndBlendGroupFactory(order=self.order)
 
@@ -213,33 +229,17 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                         self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
                         boundary_tag=boundary_tag)
 
-    @memoize_method
-    def _boundary_discr(self, boundary_tag, quadrature_tag=None):
-        if quadrature_tag is None:
-            quadrature_tag = sym.QTAG_NONE
-
-        if quadrature_tag is sym.QTAG_NONE:
-            return self._boundary_connection(boundary_tag).to_discr
-        else:
-            no_quad_bdry_discr = self.boundary_discr(boundary_tag, sym.QTAG_NONE)
-
-            from meshmode.discretization import Discretization
-            return Discretization(
-                    self._volume_discr.cl_context,
-                    no_quad_bdry_discr.mesh,
-                    self.group_factory_for_quadrature_tag(quadrature_tag))
-
     # }}}
 
     # {{{ interior faces
 
     @memoize_method
-    def _interior_faces_connection(self, quadrature_tag=None):
+    def _interior_faces_connection(self):
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_INTERIOR)
         return make_face_restriction(
                         self._volume_discr,
-                        self.group_factory_for_quadrature_tag(quadrature_tag),
+                        self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
                         FACE_RESTR_INTERIOR,
 
                         # FIXME: This will need to change as soon as we support
@@ -247,62 +247,30 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                         # types.
                         per_face_groups=False)
 
-    def _interior_faces_discr(self, quadrature_tag=None):
-        return self._interior_faces_connection(quadrature_tag).to_discr
-
     @memoize_method
-    def opposite_face_connection(self, quadrature_tag):
-        if quadrature_tag is not sym.QTAG_NONE:
-            # FIXME
-            raise NotImplementedError("quadrature")
-
+    def opposite_face_connection(self):
         from meshmode.discretization.connection import \
                 make_opposite_face_connection
 
-        return make_opposite_face_connection(
-                self._interior_faces_connection(quadrature_tag))
+        return make_opposite_face_connection(self._interior_faces_connection())
 
     # }}}
 
     # {{{ all-faces
 
     @memoize_method
-    def _all_faces_volume_connection(self, quadrature_tag=None):
+    def _all_faces_volume_connection(self):
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_ALL)
         return make_face_restriction(
                         self._volume_discr,
-                        self.group_factory_for_quadrature_tag(quadrature_tag),
+                        self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
                         FACE_RESTR_ALL,
 
                         # FIXME: This will need to change as soon as we support
                         # pyramids or other elements with non-identical face
                         # types.
                         per_face_groups=False)
-
-    def _all_faces_discr(self, quadrature_tag=None):
-        return self._all_faces_volume_connection(quadrature_tag).to_discr
-
-    @memoize_method
-    def _all_faces_connection(self, boundary_tag, to_qtag=None):
-        """Return a
-        :class:`meshmode.discretization.connection.DiscretizationConnection`
-        that goes from either
-        :meth:`_interior_faces_discr` (if *boundary_tag* is None)
-        or
-        :meth:`_boundary_discr` (if *boundary_tag* is not None)
-        to a discretization containing all the faces of the volume
-        discretization.
-        """
-        from meshmode.discretization.connection import \
-                make_face_to_all_faces_embedding
-
-        if boundary_tag is None:
-            faces_conn = self._interior_faces_connection()
-        else:
-            faces_conn = self._boundary_connection(boundary_tag)
-
-        return make_face_to_all_faces_embedding(faces_conn, self._all_faces_discr(to_qtag))
 
     # }}}
 

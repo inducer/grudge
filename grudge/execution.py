@@ -252,14 +252,10 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        dd = op.dd_in
+        if op.dd_in.quadrature_tag is not sym.QTAG_NONE:
+            raise ValueError("face swap unavailable on quadrature meshes")
 
-        qtag = dd.quadrature_tag
-        if qtag is None:
-            # FIXME: Remove once proper quadrature support arrives
-            qtag = sym.QTAG_NONE
-
-        return self.discrwb.opposite_face_connection(qtag)(
+        return self.discrwb.opposite_face_connection()(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     # {{{ face mass operator
