@@ -252,8 +252,8 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        if op.dd_in.quadrature_tag is not sym.QTAG_NONE:
-            raise ValueError("face swap unavailable on quadrature meshes")
+        #if op.dd_in.quadrature_tag is not sym.QTAG_NONE:
+            #raise ValueError("face swap unavailable on quadrature meshes")
 
         return self.discrwb.opposite_face_connection()(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
@@ -291,8 +291,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
-        for cgrp, afgrp, volgrp in zip(all_faces_conn.groups,
-                all_faces_discr.groups, vol_discr.groups):
+        for afgrp, volgrp in zip(all_faces_discr.groups, vol_discr.groups):
             cache_key = "face_mass", afgrp, op, field.dtype
 
             nfaces = volgrp.mesh_el_group.nfaces

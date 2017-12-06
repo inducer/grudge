@@ -97,12 +97,15 @@ class ElementwiseLinearOperator(Operator):
 
 
 class InterpolationOperator(Operator):
-    #def __init__(self, dd_in, dd_out):
-        #print("ayy")
-        #print(dd_in)
-        #print(dd_out)
+    def __init__(self, dd_in, dd_out):
+        official_dd_in = _sym().as_dofdesc(dd_in)
+        official_dd_out = _sym().as_dofdesc(dd_out)
+        if official_dd_in == official_dd_out:
+            from warnings import warn
+            raise ValueError("Interpolating from {} to {}"
+            " does not do anything.".format(official_dd_in, official_dd_out))
 
-        #super().__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
     mapper_method = intern("map_interpolation")
 
 

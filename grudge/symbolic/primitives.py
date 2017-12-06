@@ -654,10 +654,17 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None):
-    dd = _sym().DOFDesc("int_faces", qtag)
-    i = cse(_sym().interp("vol", dd)(expression))
+    i = _sym().interp("vol", "int_faces")(expression)
     e = cse(_sym().OppositeInteriorFaceSwap()(i))
-    return TracePair(dd, i, e)
+
+    if qtag is not None and qtag != _sym().QTAG_NONE:
+        q_dd = _sym().DOFDesc("int_faces", qtag)
+        i = cse(_sym().interp("int_faces", q_dd)(i))
+        e = cse(_sym().interp("int_faces", q_dd)(e))
+    else:
+        q_dd = "int_faces"
+
+    return TracePair(q_dd, i, e)
 
     #i = cse(_sym().interp("vol", "int_faces")(expression))
     #e = cse(_sym().OppositeInteriorFaceSwap()(i))
