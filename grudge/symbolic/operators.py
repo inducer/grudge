@@ -244,11 +244,11 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
         from modepy import vandermonde
         vand = vandermonde(out_elem_grp.basis(), out_elem_grp.unit_nodes)
         grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
-        vand_inv_T = np.linalg.inv(vand).T
+        vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_elem_grp.weights
 
-        return np.einsum('c,bz,acz->abc', weights, vand_inv_T, grad_vand)
+        return np.einsum('c,bz,acz->abc', weights, vand_inv_t, grad_vand)
 
 
 # }}}
@@ -386,11 +386,11 @@ class RefMassOperator(RefMassOperatorBase):
         from modepy import vandermonde
         vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
         o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
-        vand_inv_T = np.linalg.inv(vand).T
+        vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_element_group.weights
 
-        return np.einsum('c,bz,acz->abc', weights, vand_inv_T, o_vand)
+        return np.einsum('c,bz,acz->abc', weights, vand_inv_t, o_vand)
 
     mapper_method = intern("map_ref_mass")
 
