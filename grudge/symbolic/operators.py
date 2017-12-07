@@ -104,7 +104,7 @@ class InterpolationOperator(Operator):
             raise ValueError("Interpolating from {} to {}"
             " does not do anything.".format(official_dd_in, official_dd_out))
 
-        super().__init__(dd_in, dd_out)
+        super(InterpolationOperator, self).__init__(dd_in, dd_out)
     mapper_method = intern("map_interpolation")
 
 
