@@ -30,8 +30,6 @@ logger = logging.getLogger(__name__)
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from pytools.obj_array import join_fields
 
-import meshmode.discretization.poly_element as poly_element
-
 
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
@@ -45,15 +43,12 @@ def main(write_output=True, order=4):
 
     dt_factor = 5
     h = 1/10
-    final_time = 5
-
-
 
     sym_x = sym.nodes(2)
 
     advec_v = join_fields(-1*sym_x[1], sym_x[0]) / 2
 
-    flux_type = "central"
+    flux_type = "upwind"
 
     source_center = np.array([0.1, 0.1])
     source_width = 0.05
@@ -71,11 +66,12 @@ def main(write_output=True, order=4):
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order, quad_min_degrees={"product": 2*order})
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh,
+            order=order, quad_min_degrees={"product": 2*order})
+
     op = VariableCoefficientAdvectionOperator(2, advec_v,
-        u_analytic(sym.nodes(dim, sym.BTAG_ALL)),quad_tag="product",
+        u_analytic(sym.nodes(dim, sym.BTAG_ALL)), quad_tag="product",
         flux_type=flux_type)
-    #op = sym.interp("vol", sym.DOFDesc("vol", "product"))(sym.var("u"))
 
     bound_op = bind(discr, op.sym_operator())
 
@@ -84,7 +80,7 @@ def main(write_output=True, order=4):
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
-
+    final_time = 5
     dt = dt_factor * h/order**2
     nsteps = (final_time // dt) + 1
     dt = final_time/nsteps + 1e-15
@@ -101,9 +97,9 @@ def main(write_output=True, order=4):
         if isinstance(event, dt_stepper.StateComputed):
 
             step += 1
-            print(step)
+            if step % 10 == 0:
+                print(step)
 
-            #print(step, event.t, norm(queue, u=event.state_component[0]))
             vis.write_vtk_file("fld-%04d.vtu" % step,
                     [("u", event.state_component)])
 

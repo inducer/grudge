@@ -3,7 +3,7 @@
 
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -137,13 +137,14 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         self.v = v
         self.inflow_u = inflow_u
         self.flux_type = flux_type
+
         if quad_tag is None:
             self.quad_tag = sym.QTAG_NONE
         else:
             self.quad_tag = quad_tag
 
     def flux(self, u):
-        
+
         normal = sym.normal(u. dd, self.ambient_dim)
 
         surf_v = sym.interp("vol", u.dd)(self.v)
@@ -173,6 +174,8 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         bc_in = self.inflow_u
 
         all_faces_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
+        boundary_dd = sym.DOFDesc(sym.BTAG_ALL, self.quad_tag)
+
         def flux(pair):
             return sym.interp(pair.dd, all_faces_dd)(
                     self.flux(pair))
@@ -180,17 +183,19 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         quad_dd = sym.DOFDesc("vol", self.quad_tag)
 
         if self.quad_tag == sym.QTAG_NONE:
-            to_quad = lambda x : x
+            def to_quad(expr):
+                return expr
         else:
             to_quad = sym.interp("vol", quad_dd)
 
         from_quad_stiffness_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
+        quad_prod = (to_quad(self.v)*to_quad(u))
 
         return sym.InverseMassOperator()(
-                np.dot(from_quad_stiffness_t, to_quad(self.v)*to_quad(u))
+                np.dot(from_quad_stiffness_t, quad_prod)
                 - sym.FaceMassOperator(all_faces_dd, "vol")(
                     flux(sym.int_tpair(u, self.quad_tag))
-                    + flux(sym.bv_tpair(sym.DOFDesc(sym.BTAG_ALL, self.quad_tag), u, bc_in))
+                    + flux(sym.bv_tpair(boundary_dd, u, bc_in))
 
                     # FIXME: Add back support for inflow/outflow tags
                     #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))

@@ -2,7 +2,7 @@
 
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -665,10 +665,6 @@ def int_tpair(expression, qtag=None):
         q_dd = "int_faces"
 
     return TracePair(q_dd, i, e)
-
-    #i = cse(_sym().interp("vol", "int_faces")(expression))
-    #e = cse(_sym().OppositeInteriorFaceSwap()(i))
-    #return TracePair("int_faces", i, e)
 
 
 def bdry_tpair(dd, interior, exterior):

@@ -2,7 +2,7 @@
 
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -101,7 +101,6 @@ class InterpolationOperator(Operator):
         official_dd_in = _sym().as_dofdesc(dd_in)
         official_dd_out = _sym().as_dofdesc(dd_out)
         if official_dd_in == official_dd_out:
-            from warnings import warn
             raise ValueError("Interpolating from {} to {}"
             " does not do anything.".format(official_dd_in, official_dd_out))
 
@@ -152,7 +151,7 @@ class DiffOperatorBase(Operator):
             dd_in = _sym().DD_VOLUME
         if dd_out is None:
             dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
-        if dd_out == "vol": #FIXME I'm pretty sure doing it this way is wrong
+        if dd_out == "vol":  # FIXME I'm pretty sure doing it this way is wrong
             dd_out = _sym().DD_VOLUME
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -235,31 +234,21 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
     mapper_method = intern("map_ref_stiffness_t")
 
     @staticmethod
-    def matrices(out_element_group, in_element_group):
+    def matrices(out_elem_grp, in_elem_grp):
         #FIXME: Is this right? Do we expose weird bugs if we delete this?
-        if in_element_group == out_element_group:
-            assert in_element_group.is_orthogonal_basis()
-            mmat = in_element_group.mass_matrix()
-            return [dmat.T.dot(mmat.T) for dmat in in_element_group.diff_matrices()]
-
-        n_quad_nodes = in_element_group.nunit_nodes
-        n_reg_nodes = out_element_group.nunit_nodes
+        if in_elem_grp == out_elem_grp:
+            assert in_elem_grp.is_orthogonal_basis()
+            mmat = in_elem_grp.mass_matrix()
+            return [dmat.T.dot(mmat.T) for dmat in in_elem_grp.diff_matrices()]
 
         from modepy import vandermonde
-        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
-        grad_vand = vandermonde(out_element_group.grad_basis(), in_element_group.unit_nodes)
+        vand = vandermonde(out_elem_grp.basis(), out_elem_grp.unit_nodes)
+        grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
         vand_inv_T = np.linalg.inv(vand).T
 
-        grad_basis = out_element_group.grad_basis()
-        weights = in_element_group.weights
-        nodes = in_element_group.unit_nodes
+        weights = in_elem_grp.weights
 
-        f_res = [np.zeros((n_reg_nodes, n_quad_nodes)) for d in range(out_element_group.dim)]
-        for d in range(out_element_group.dim):
-            for i in range(n_reg_nodes):
-                for j in range(n_quad_nodes):
-                    f_res[d][i,j] = weights[j] * np.dot(vand_inv_T[i,:], grad_vand[d][j,:])
-        return f_res
+        return np.einsum('c,bz,acz->abc', weights, vand_inv_T, grad_vand)
 
 
 # }}}
@@ -394,25 +383,14 @@ class RefMassOperator(RefMassOperatorBase):
         if out_element_group == in_element_group:
             return in_element_group.mass_matrix()
 
-        n_quad_nodes = in_element_group.nunit_nodes
-        n_reg_nodes = out_element_group.nunit_nodes
-
         from modepy import vandermonde
         vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
         o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
         vand_inv_T = np.linalg.inv(vand).T
 
-        grad_basis = out_element_group.grad_basis()
         weights = in_element_group.weights
-        nodes = in_element_group.unit_nodes
 
-        f_res = np.zeros((n_reg_nodes, n_quad_nodes))
-        for i in range(n_reg_nodes):
-            for j in range(n_quad_nodes):
-                f_res[i,j] = weights[j] * np.dot(vand_inv_T[i,:], o_vand[j,:])
-
-        return f_res
-
+        return np.einsum('c,bz,acz->abc', weights, vand_inv_T, o_vand)
 
     mapper_method = intern("map_ref_mass")
 

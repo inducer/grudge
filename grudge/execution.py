@@ -1,6 +1,6 @@
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -206,7 +206,6 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
             return lp.tag_inames(knl, dict(k="g.0"))
 
-
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
         out_discr = self.discrwb.discr_from_dd(op.dd_out)
 
@@ -217,23 +216,21 @@ class ExecutionMapper(mappers.Evaluator,
         for i in range(len(out_discr.groups)):
             in_grp = in_discr.groups[i]
             out_grp = out_discr.groups[i]
-	    # FIXME: This cache thing
+            # FIXME: This cache thing
             #cache_key = "elwise_linear", grp, op, field.dtype
             #try:
-                #matrix = self.bound_op.operator_data_cache[cache_key]
+            #matrix = self.bound_op.operator_data_cache[cache_key]
             #except KeyError:
             matrix = (
-                        cl.array.to_device(
-                            self.queue,
-                            np.asarray(op.matrix(out_grp, in_grp), dtype=field.dtype))
-                        .with_queue(None))
+                    cl.array.to_device(
+                        self.queue,
+                        np.asarray(op.matrix(out_grp, in_grp), dtype=field.dtype))
+                    .with_queue(None))
 
-                #self.bound_op.operator_data_cache[cache_key] = matrix
+            #self.bound_op.operator_data_cache[cache_key] = matrix
 
             knl()(self.queue, mat=matrix, result=out_grp.view(result),
                     vec=in_grp.view(field))
-
-
 
         return result
 
@@ -365,7 +362,6 @@ class ExecutionMapper(mappers.Evaluator,
         # execution-wise.
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
-
 
         # FIXME: Enable
         # assert repr_op.dd_in == repr_op.dd_out
