@@ -188,11 +188,12 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         else:
             to_quad = sym.interp("vol", quad_dd)
 
-        from_quad_stiffness_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
-        quad_prod = (to_quad(self.v)*to_quad(u))
+        stiff_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
+        quad_v = to_quad(self.v)
+        quad_u = to_quad(u)
 
         return sym.InverseMassOperator()(
-                np.dot(from_quad_stiffness_t, quad_prod)
+                (stiff_t[0](quad_u * quad_v[0]) + stiff_t[1](quad_u * quad_v[1]))
                 - sym.FaceMassOperator(all_faces_dd, "vol")(
                     flux(sym.int_tpair(u, self.quad_tag))
                     + flux(sym.bv_tpair(boundary_dd, u, bc_in))

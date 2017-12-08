@@ -67,7 +67,7 @@ def main(write_output=True, order=4):
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh,
-            order=order, quad_min_degrees={"product": 2*order})
+            order=order, quad_min_degrees={"product": 4*order})
 
     op = VariableCoefficientAdvectionOperator(2, advec_v,
         u_analytic(sym.nodes(dim, sym.BTAG_ALL)), quad_tag="product",
