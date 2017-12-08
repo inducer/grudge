@@ -149,10 +149,12 @@ class DiffOperatorBase(Operator):
     def __init__(self, xyz_axis, dd_in=None, dd_out=None):
         if dd_in is None:
             dd_in = _sym().DD_VOLUME
+
         if dd_out is None:
             dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
-        if dd_out == "vol":  # FIXME I'm pretty sure doing it this way is wrong
-            dd_out = _sym().DD_VOLUME
+        else:
+            dd_out = _sym().as_dofdesc(dd_out)
+
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")

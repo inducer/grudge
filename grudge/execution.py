@@ -213,21 +213,19 @@ class ExecutionMapper(mappers.Evaluator,
                 queue=self.queue,
                 dtype=field.dtype, allocator=self.bound_op.allocator)
 
-        for i in range(len(out_discr.groups)):
-            in_grp = in_discr.groups[i]
-            out_grp = out_discr.groups[i]
-            # FIXME: This cache thing
-            #cache_key = "elwise_linear", grp, op, field.dtype
-            #try:
-            #matrix = self.bound_op.operator_data_cache[cache_key]
-            #except KeyError:
-            matrix = (
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+
+            cache_key = "elwise_linear", in_grp, out_grp, op, field.dtype
+            try:
+                matrix = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrix = (
                     cl.array.to_device(
                         self.queue,
                         np.asarray(op.matrix(out_grp, in_grp), dtype=field.dtype))
                     .with_queue(None))
 
-            #self.bound_op.operator_data_cache[cache_key] = matrix
+                self.bound_op.operator_data_cache[cache_key] = matrix
 
             knl()(self.queue, mat=matrix, result=out_grp.view(result),
                     vec=in_grp.view(field))
@@ -249,9 +247,6 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        #if op.dd_in.quadrature_tag is not sym.QTAG_NONE:
-            #raise ValueError("face swap unavailable on quadrature meshes")
-
         return self.discrwb.opposite_face_connection()(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
 
@@ -363,8 +358,6 @@ class ExecutionMapper(mappers.Evaluator,
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
 
-        # FIXME: Enable
-        # assert repr_op.dd_in == repr_op.dd_out
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
         @memoize_in(self.discrwb, "reference_derivative_knl")
@@ -394,9 +387,7 @@ class ExecutionMapper(mappers.Evaluator,
                 dtype=field.dtype, extra_dims=(noperators,),
                 allocator=self.bound_op.allocator)
 
-        for i in range(len(out_discr.groups)):
-            in_grp = in_discr.groups[i]
-            out_grp = out_discr.groups[i]
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
 
             if in_grp.nelements == 0:
                 continue
