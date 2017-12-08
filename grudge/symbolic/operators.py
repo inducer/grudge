@@ -237,7 +237,6 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
 
     @staticmethod
     def matrices(out_elem_grp, in_elem_grp):
-        #FIXME: Is this right? Do we expose weird bugs if we delete this?
         if in_elem_grp == out_elem_grp:
             assert in_elem_grp.is_orthogonal_basis()
             mmat = in_elem_grp.mass_matrix()
@@ -381,7 +380,6 @@ class RefMassOperatorBase(ElementwiseLinearOperator):
 class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(out_element_group, in_element_group):
-        #FIXME: Is this normal? Will bugs surface if I remove this?
         if out_element_group == in_element_group:
             return in_element_group.mass_matrix()
 
