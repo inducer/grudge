@@ -366,10 +366,10 @@ class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
                 and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
             distributed_work = 0
             for i_remote_rank in self.connected_parts:
-                f1 = OppSwapToRankSwapMapper(i_remote_rank)(expr.field)
+                mapped_field = OppSwapToRankSwapMapper(i_remote_rank)(expr.field)
                 btag_rank = BTAG_PARTITION(i_remote_rank)
                 distributed_work += op.InterpolationOperator(dd_in=btag_rank,
-                                                             dd_out=expr.op.dd_out)(f1)
+                                             dd_out=expr.op.dd_out)(mapped_field)
             return expr + distributed_work
 
         else:
@@ -384,8 +384,7 @@ class OppSwapToRankSwapMapper(CSECachingMapperMixin, IdentityMapper):
         self.i_remote_rank = i_remote_rank
 
     def map_operator_binding(self, expr):
-        from meshmode.discretization.connection import (FACE_RESTR_ALL,
-                                                        FACE_RESTR_INTERIOR)
+        from meshmode.discretization.connection import FACE_RESTR_INTERIOR
         from meshmode.mesh import BTAG_PARTITION
         from grudge.symbolic.primitives import NodeCoordinateComponent
         btag_rank = BTAG_PARTITION(self.i_remote_rank)
