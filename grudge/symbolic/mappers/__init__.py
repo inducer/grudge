@@ -333,6 +333,8 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 # }}}
 
 
+# {{{ distributed mappers
+
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
@@ -342,39 +344,70 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
         self.connected_parts = get_connected_partitions(mesh)
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            result = op.OppositeInteriorFaceSwap()(self.rec(expr.field))
-            for i_remote_rank in self.connected_parts:
-                field = InterpolateToRankBoundariesMapper(i_remote_rank)(expr.field)
-                # FIXME: OppositeRankFaceSwap returns BTAG_PARTITION data
-                #       and we cannot add that to our FACE_RESTR_INTERIOR data
-                result += op.OppositeRankFaceSwap(i_remote_rank)(field)
-                # r = op.OppositeRankFaceSwap(i_remote_rank)(field)
-                # from meshmode.mesh import BTAG_PARTITION
-                # dd_in = BTAG_PARTITION(i_remote_rank)
-                # dd_out = result.op.dd_out
-                # print(dd_in, dd_out)
-                # result += op.InterpolationOperator(dd_in=dd_in, dd_out=dd_out)(r)
-            return result
+        if isinstance(expr.op, op.RefFaceMassOperator):
+            return expr.op(RankCommunicationMapper(self.connected_parts)(expr.field))
         else:
             return IdentityMapper.map_operator_binding(self, expr)
 
 
-class InterpolateToRankBoundariesMapper(CSECachingMapperMixin, IdentityMapper):
+class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
+
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, connected_parts):
+        self.connected_parts = connected_parts
+
+    def map_operator_binding(self, expr):
+        from meshmode.mesh import BTAG_PARTITION
+        from meshmode.discretization.connection import (FACE_RESTR_ALL,
+                                                        FACE_RESTR_INTERIOR)
+        if (isinstance(expr.op, op.InterpolationOperator)
+                and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
+                and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
+            distributed_work = 0
+            for i_remote_rank in self.connected_parts:
+                f1 = OppSwapToRankSwapMapper(i_remote_rank)(expr.field)
+                btag_rank = BTAG_PARTITION(i_remote_rank)
+                distributed_work += op.InterpolationOperator(dd_in=btag_rank,
+                                                             dd_out=expr.op.dd_out)(f1)
+            return expr + distributed_work
+
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
+class OppSwapToRankSwapMapper(CSECachingMapperMixin, IdentityMapper):
 
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
     def __init__(self, i_remote_rank):
-        from meshmode.mesh import BTAG_PARTITION
-        self.dd_out = BTAG_PARTITION(i_remote_rank)
+        self.i_remote_rank = i_remote_rank
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.InterpolationOperator):
-            dd_in = expr.op.dd_in
-            dd_out = self.dd_out
-            return op.InterpolationOperator(dd_in=dd_in, dd_out=dd_out)(expr.field)
+        from meshmode.discretization.connection import (FACE_RESTR_ALL,
+                                                        FACE_RESTR_INTERIOR)
+        from meshmode.mesh import BTAG_PARTITION
+        from grudge.symbolic.primitives import NodeCoordinateComponent
+        btag_rank = BTAG_PARTITION(self.i_remote_rank)
+        if isinstance(expr.op, op.OppositeInteriorFaceSwap):
+            return op.OppositeRankFaceSwap(self.i_remote_rank)(self.rec(expr.field))
+        elif (isinstance(expr.op, op.InterpolationOperator)
+                    and expr.op.dd_out.domain_tag is FACE_RESTR_INTERIOR):
+            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+                                            dd_out=btag_rank)(self.rec(expr.field))
+        elif (isinstance(expr.op, op.RefDiffOperator)
+                    and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
+                    and expr.op.dd_out.domain_tag is FACE_RESTR_INTERIOR):
+            dd = sym.as_dofdesc(btag_rank)
+            f = NodeCoordinateComponent(expr.field.axis, dd=dd)
+            return op.RefDiffOperator(expr.op.rst_axis,
+                                      dd_in=dd,
+                                      dd_out=dd)(f)
         else:
+            print(type(expr.op))
             return IdentityMapper.map_operator_binding(self, expr)
+
+# }}}
 
 
 # {{{ operator specializer
