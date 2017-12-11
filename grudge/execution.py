@@ -576,7 +576,11 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     sym_operator = mappers.GlobalToReferenceMapper(mesh.ambient_dim)(sym_operator)
 
     dumper("before-distributed", sym_operator)
-    sym_operator = mappers.DistributedMapper(mesh)(sym_operator)
+    from meshmode.distributed import get_connected_partitions
+    connected_parts = get_connected_partitions(mesh)
+    sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
+    # print(sym.pretty(sym_operator))
+    # 1/0
 
     # Ordering restriction:
     #

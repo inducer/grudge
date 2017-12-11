@@ -339,9 +339,8 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
-    def __init__(self, mesh):
-        from meshmode.distributed import get_connected_partitions
-        self.connected_parts = get_connected_partitions(mesh)
+    def __init__(self, connected_parts):
+        self.connected_parts = connected_parts
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.RefFaceMassOperator):
