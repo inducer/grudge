@@ -398,12 +398,11 @@ class OppSwapToRankSwapMapper(CSECachingMapperMixin, IdentityMapper):
                     and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
                     and expr.op.dd_out.domain_tag is FACE_RESTR_INTERIOR):
             dd = sym.as_dofdesc(btag_rank)
-            f = NodeCoordinateComponent(expr.field.axis, dd=dd)
+            rank_faces = NodeCoordinateComponent(expr.field.axis, dd=dd)
             return op.RefDiffOperator(expr.op.rst_axis,
                                       dd_in=dd,
-                                      dd_out=dd)(f)
+                                      dd_out=dd)(rank_faces)
         else:
-            print(type(expr.op))
             return IdentityMapper.map_operator_binding(self, expr)
 
 # }}}

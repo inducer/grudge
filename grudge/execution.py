@@ -280,13 +280,13 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_rank_face_swap(self, op, field_expr):
-        # raise NotImplementedError("map_opposite_rank_face_swap")
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
         from meshmode.discretization.poly_element\
                         import PolynomialWarpAndBlendGroupFactory
         group_factory = PolynomialWarpAndBlendGroupFactory(self.discr.order)
+        # TODO
         # group_factory = self.discr.volume_discr.\
         #                     get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
 
