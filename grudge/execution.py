@@ -285,16 +285,13 @@ class ExecutionMapper(mappers.Evaluator,
 
         from meshmode.discretization.poly_element\
                         import PolynomialWarpAndBlendGroupFactory
-        group_factory = PolynomialWarpAndBlendGroupFactory(self.discr.order)
-        # TODO
-        # group_factory = self.discr.volume_discr.\
-        #                     get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
+        grp_factory = self.discr.get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
 
         from meshmode.distributed import MPIBoundaryCommunicator
         bdry_conn_future = MPIBoundaryCommunicator(mpi_comm, self.queue,
                                                    self.discr.volume_discr,
-                                                   group_factory,
-                                                   op.i_remote_rank)
+                                                   grp_factory,
+                                                   op.i_remote_part)
         # TODO: Need to tell the future what boundary data to transfer
         bdry_conn, _ = bdry_conn_future()
         return bdry_conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
@@ -579,8 +576,6 @@ def process_sym_operator(sym_operator, post_bind_mapper=None,
     from meshmode.distributed import get_connected_partitions
     connected_parts = get_connected_partitions(mesh)
     sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
-    # print(sym.pretty(sym_operator))
-    # 1/0
 
     # Ordering restriction:
     #

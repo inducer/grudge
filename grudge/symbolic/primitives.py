@@ -154,6 +154,7 @@ class DOFDesc(object):
             :class:`meshmode.discretization.BTAG_ALL`,
             :class:`meshmode.discretization.BTAG_NONE`,
             :class:`meshmode.discretization.BTAG_REALLY_ALL`,
+            :class:`meshmode.discretization.PARTITION`,
             or :class
             or *None* to indicate that the geometry is not yet known.
 

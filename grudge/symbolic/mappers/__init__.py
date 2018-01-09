@@ -336,7 +336,6 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 # {{{ distributed mappers
 
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
-
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
     def __init__(self, connected_parts):
@@ -350,7 +349,6 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
 
 
 class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
-
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
     def __init__(self, connected_parts):
@@ -364,10 +362,10 @@ class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
                 and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
                 and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
             distributed_work = 0
-            for i_remote_rank in self.connected_parts:
-                mapped_field = OppSwapToRankSwapMapper(i_remote_rank)(expr.field)
-                btag_rank = BTAG_PARTITION(i_remote_rank)
-                distributed_work += op.InterpolationOperator(dd_in=btag_rank,
+            for i_remote_part in self.connected_parts:
+                mapped_field = RankGeometryChanger(i_remote_part)(expr.field)
+                btag_part = BTAG_PARTITION(i_remote_part)
+                distributed_work += op.InterpolationOperator(dd_in=btag_part,
                                              dd_out=expr.op.dd_out)(mapped_field)
             return expr + distributed_work
 
@@ -375,34 +373,45 @@ class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
             return IdentityMapper.map_operator_binding(self, expr)
 
 
-class OppSwapToRankSwapMapper(CSECachingMapperMixin, IdentityMapper):
-
+class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
-    def __init__(self, i_remote_rank):
-        self.i_remote_rank = i_remote_rank
-
-    def map_operator_binding(self, expr):
+    def __init__(self, i_remote_part):
         from meshmode.discretization.connection import FACE_RESTR_INTERIOR
         from meshmode.mesh import BTAG_PARTITION
-        from grudge.symbolic.primitives import NodeCoordinateComponent
-        btag_rank = BTAG_PARTITION(self.i_remote_rank)
+        self.prev_dd = sym.as_dofdesc(FACE_RESTR_INTERIOR)
+        self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_remote_part))
+
+    def _raise_unable(self, expr):
+        raise ValueError("encountered '%s' in updating subexpression for "
+            "changed geometry (likely for distributed computation); "
+            "unable to adapt from '%s' to '%s'"
+            % (str(expr), self.prev_dd, self.new_dd))
+
+    def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            return op.OppositeRankFaceSwap(self.i_remote_rank)(self.rec(expr.field))
+            return op.OppositeRankFaceSwap(dd_in=self.new_dd)(self.rec(expr.field))
         elif (isinstance(expr.op, op.InterpolationOperator)
-                    and expr.op.dd_out.domain_tag is FACE_RESTR_INTERIOR):
+                    and expr.op.dd_out == self.prev_dd):
             return op.InterpolationOperator(dd_in=expr.op.dd_in,
-                                            dd_out=btag_rank)(self.rec(expr.field))
+                                            dd_out=self.new_dd)(expr.field)
         elif (isinstance(expr.op, op.RefDiffOperator)
-                    and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
-                    and expr.op.dd_out.domain_tag is FACE_RESTR_INTERIOR):
-            dd = sym.as_dofdesc(btag_rank)
-            rank_faces = NodeCoordinateComponent(expr.field.axis, dd=dd)
+                    and expr.op.dd_out == self.prev_dd
+                    and expr.op.dd_in == self.prev_dd):
             return op.RefDiffOperator(expr.op.rst_axis,
-                                      dd_in=dd,
-                                      dd_out=dd)(rank_faces)
+                                      dd_in=self.new_dd,
+                                      dd_out=self.new_dd)(self.rec(expr.field))
         else:
-            return IdentityMapper.map_operator_binding(self, expr)
+            self._raise_unable(expr)
+
+    def map_grudge_variable(self, expr):
+        self._raise_unable(expr)
+
+    def map_node_coordinate_component(self, expr):
+        if expr.dd == self.prev_dd:
+            return type(expr)(expr.axis, self.new_dd)
+        else:
+            self._raise_unable(expr)
 
 # }}}
 
