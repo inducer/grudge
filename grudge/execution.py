@@ -283,8 +283,6 @@ class ExecutionMapper(mappers.Evaluator,
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
-        from meshmode.discretization.poly_element\
-                        import PolynomialWarpAndBlendGroupFactory
         grp_factory = self.discr.get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
 
         from meshmode.distributed import MPIBoundaryCommunicator
