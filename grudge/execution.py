@@ -279,7 +279,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
-    def map_opposite_rank_face_swap(self, op, field_expr):
+    def map_opposite_partition_face_swap(self, op, field_expr):
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
