@@ -551,10 +551,10 @@ def norm(p, arg, dd=None):
         return sym.CFunction("sqrt")(norm_squared)
 
     elif p == np.Inf:
-        result = sym.NodalMax()(sym.CFunction("fabs")(arg))
+        result = sym.NodalMax(dd_in=dd)(sym.CFunction("fabs")(arg))
         from pymbolic.primitives import Max
 
-        if isinstance(norm_squared, np.ndarray):
+        if isinstance(result, np.ndarray):
             from functools import reduce
             result = reduce(Max, result)
 
