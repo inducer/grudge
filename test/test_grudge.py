@@ -334,8 +334,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
 
 @pytest.mark.parametrize("order", [3, 4, 5])
-# test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
-def test_convergence_maxwell(ctx_factory,  order, visualize=False):
+def test_convergence_maxwell(ctx_factory,  order):
     """Test whether 3D maxwells actually converges"""
 
     cl_ctx = cl.create_some_context()
@@ -401,6 +400,68 @@ def test_convergence_maxwell(ctx_factory,  order, visualize=False):
             error_label="L2 Error"))
 
     assert eoc_rec.order_estimate() > order
+
+
+@pytest.mark.parametrize("order", [2, 3, 4])
+def test_improvement_quadrature(ctx_factory, order):
+    """Test whether quadrature improves things and converges"""
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    from grudge.models.advection import VariableCoefficientAdvectionOperator
+    from pytools.convergence import EOCRecorder
+    from pytools.obj_array import join_fields
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    dims = 2
+    sym_nds = sym.nodes(dims)
+    advec_v = join_fields(-1*sym_nds[1], sym_nds[0])
+
+    flux = "upwind"
+    op = VariableCoefficientAdvectionOperator(2, advec_v,
+                0, quad_tag=None,
+                flux_type=flux)
+    q_op = VariableCoefficientAdvectionOperator(2, advec_v,
+                0, quad_tag="product",
+                flux_type=flux)
+
+    def gaussian_mode():
+        source_width = 0.1
+        sym_x = sym.nodes(2)
+        return sym.exp(-np.dot(sym_x, sym_x) / source_width**2)
+
+    def conv_test(cl_ctx, queue, order, p_op):
+
+        eoc_rec = EOCRecorder()
+
+        ns = [20, 25]
+        for n in ns:
+            mesh = generate_regular_rect_mesh(
+                a=(-0.5,)*dims,
+                b=(0.5,)*dims,
+                n=(n,)*dims,
+                order=order)
+
+            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh,
+                order=order, quad_min_degrees={"product": 4*order})
+
+            bound_op = bind(discr, p_op.sym_operator())
+            fields = bind(discr, gaussian_mode())(queue, t=0)
+            norm = bind(discr, sym.norm(2, sym.var("u")))
+
+            esc = bound_op(queue, u=fields)
+            total_error = norm(queue, u=esc)
+            eoc_rec.add_data_point(1.0/n, total_error)
+
+        print(eoc_rec.pretty_print(abscissa_label="h", error_label="LInf Error"))
+
+        return eoc_rec.order_estimate(), np.array([x[1] for x in eoc_rec.history])
+
+    eoc, errs = conv_test(cl_ctx, queue, order, op)
+    q_eoc, q_errs = conv_test(cl_ctx, queue, order, q_op)
+    assert q_eoc > eoc
+    assert (q_errs < errs).all()
+    assert q_eoc > order
 
 
 def test_foreign_points(ctx_factory):
