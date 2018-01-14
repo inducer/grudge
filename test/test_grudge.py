@@ -409,6 +409,7 @@ def test_improvement_quadrature(ctx_factory, order):
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from pytools.obj_array import join_fields
+    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -442,8 +443,10 @@ def test_improvement_quadrature(ctx_factory, order):
                 n=(n,)*dims,
                 order=order)
 
-            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh,
-                order=order, quad_min_degrees={"product": 4*order})
+            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+                    quad_group_factory={
+                        "product": QuadratureSimplexGroupFactory(order=4*order)
+                        })
 
             bound_op = bind(discr, p_op.sym_operator())
             fields = bind(discr, gaussian_mode())(queue, t=0)

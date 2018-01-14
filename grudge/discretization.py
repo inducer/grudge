@@ -47,17 +47,17 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     .. automethod :: zeros
     """
 
-    def __init__(self, cl_ctx, mesh, order, quad_min_degrees=None):
+    def __init__(self, cl_ctx, mesh, order, quad_group_factory=None):
         """
         :param quad_min_degrees: A mapping from quadrature tags to the degrees
             to which the desired quadrature is supposed to be exact.
         """
 
-        if quad_min_degrees is None:
-            quad_min_degrees = {}
+        if quad_group_factory is None:
+            quad_group_factory = {}
 
         self.order = order
-        self.quad_min_degrees = quad_min_degrees
+        self.quad_group_factory = quad_group_factory
 
         from meshmode.discretization import Discretization
 
@@ -203,12 +203,10 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             quadrature_tag = sym.QTAG_NONE
 
         from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory, \
-                QuadratureSimplexGroupFactory
+                PolynomialWarpAndBlendGroupFactory
 
         if quadrature_tag is not sym.QTAG_NONE:
-            return QuadratureSimplexGroupFactory(
-                    order=self.quad_min_degrees[quadrature_tag])
+            return self.quad_group_factory[quadrature_tag]
         else:
             return PolynomialWarpAndBlendGroupFactory(order=self.order)
 
