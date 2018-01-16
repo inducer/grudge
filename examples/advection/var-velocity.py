@@ -68,7 +68,7 @@ def main(write_output=True, order=4):
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
-            quad_group_factory={
+            quad_tag_to_group_factory={
                 "product": QuadratureSimplexGroupFactory(order=4*order)
                 })
 

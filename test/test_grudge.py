@@ -444,7 +444,7 @@ def test_improvement_quadrature(ctx_factory, order):
                 order=order)
 
             discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
-                    quad_group_factory={
+                    quad_tag_to_group_factory={
                         "product": QuadratureSimplexGroupFactory(order=4*order)
                         })
 
