@@ -383,19 +383,19 @@ class OppositePartitionFaceSwap(Operator):
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
-        if dd_in is None and dd_in is None:
+        if dd_in is None and dd_out is None:
             raise ValueError("dd_in or dd_out must be specified")
         elif dd_in is None:
             dd_in = dd_out
         elif dd_out is None:
             dd_out = dd_in
 
-        if not isinstance(dd_in.domain_tag, sym.BTAG_PARTITION):
+        super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
+        if not isinstance(self.dd_in.domain_tag, sym.BTAG_PARTITION):
             raise ValueError("dd_in must be a partition boundary faces domain")
-        if dd_out != dd_in:
+        if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-        super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
         self.i_remote_part = dd_in.domain_tag.part_nr
 
     mapper_method = intern("map_opposite_partition_face_swap")
@@ -410,12 +410,12 @@ class OppositeInteriorFaceSwap(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        if dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
+        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
+        if self.dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
-        if dd_out != dd_in:
+        if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
 
     mapper_method = intern("map_opposite_interior_face_swap")
 

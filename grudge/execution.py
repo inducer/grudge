@@ -250,7 +250,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         if dd_in.is_volume():
             if dd_out.domain_tag is sym.FACE_RESTR_ALL:
-                conn = self.discr.all_faces_connection(qtag)
+                conn = self.discr.all_faces_volume_connection(qtag)
             elif dd_out.domain_tag is sym.FACE_RESTR_INTERIOR:
                 conn = self.discr.interior_faces_connection(qtag)
             elif dd_out.is_boundary():
