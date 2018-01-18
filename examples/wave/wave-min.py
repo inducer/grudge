@@ -84,8 +84,6 @@ def main(write_output=True, order=4):
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
-    print(bound_op)
-    1/0
 
     def rhs(t, w):
         return bound_op(queue, t=t, w=w)
