@@ -396,7 +396,7 @@ class OppositePartitionFaceSwap(Operator):
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-        self.i_remote_part = dd_in.domain_tag.part_nr
+        self.i_remote_part = self.dd_in.domain_tag.part_nr
 
     mapper_method = intern("map_opposite_partition_face_swap")
 

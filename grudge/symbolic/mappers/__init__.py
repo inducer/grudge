@@ -355,35 +355,8 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
                 distributed_work += op.InterpolationOperator(dd_in=btag_part,
                                              dd_out=expr.op.dd_out)(mapped_field)
             return expr + distributed_work
-        # if isinstance(expr.op, op.RefFaceMassOperator):
-        #     return expr.op(RankCommunicationMapper(self.connected_parts)(expr.field))
         else:
             return IdentityMapper.map_operator_binding(self, expr)
-
-
-# class RankCommunicationMapper(CSECachingMapperMixin, IdentityMapper):
-#     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
-#
-#     def __init__(self, connected_parts):
-#         self.connected_parts = connected_parts
-#
-#     def map_operator_binding(self, expr):
-#         from meshmode.mesh import BTAG_PARTITION
-#         from meshmode.discretization.connection import (FACE_RESTR_ALL,
-#                                                         FACE_RESTR_INTERIOR)
-#         if (isinstance(expr.op, op.InterpolationOperator)
-#                 and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
-#                 and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
-#             distributed_work = 0
-#             for i_remote_part in self.connected_parts:
-#                 mapped_field = RankGeometryChanger(i_remote_part)(expr.field)
-#                 btag_part = BTAG_PARTITION(i_remote_part)
-#                 distributed_work += op.InterpolationOperator(dd_in=btag_part,
-#                                              dd_out=expr.op.dd_out)(mapped_field)
-#             return expr + distributed_work
-#
-#         else:
-#             return IdentityMapper.map_operator_binding(self, expr)
 
 
 class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
@@ -402,8 +375,11 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
             % (str(expr), self.prev_dd, self.new_dd))
 
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.OppositeInteriorFaceSwap):
-            return op.OppositePartitionFaceSwap(dd_in=self.new_dd)(
+        if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
+                    and expr.op.dd_in == self.prev_dd
+                    and expr.op.dd_out == self.prev_dd):
+            return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
+                                                dd_out=self.new_dd)(
                                                         self.rec(expr.field))
         elif (isinstance(expr.op, op.InterpolationOperator)
                     and expr.op.dd_out == self.prev_dd):
