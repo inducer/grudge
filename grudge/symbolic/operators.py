@@ -416,7 +416,6 @@ class OppositeInteriorFaceSwap(Operator):
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-
     mapper_method = intern("map_opposite_interior_face_swap")
 
 
