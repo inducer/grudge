@@ -36,7 +36,7 @@ from grudge import sym, bind, Discretization
 from grudge.shortcuts import set_up_rk4
 
 
-def simple_communication_entrypoint():
+def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     from meshmode.distributed import MPIMeshDistributor
@@ -232,7 +232,7 @@ def test_simple_mpi(num_ranks):
     import sys
     newenv = os.environ.copy()
     newenv["RUN_WITHIN_MPI"] = "1"
-    newenv["TEST_SIMPLE_COMMUNICATION"] = "1"
+    newenv["TEST_SIMPLE_MPI_COMMUNICATION"] = "1"
     check_call([
         "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
         sys.executable, __file__],
@@ -245,8 +245,8 @@ if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
         if "TEST_MPI_COMMUNICATION" in os.environ:
             mpi_communication_entrypoint()
-        elif "TEST_SIMPLE_COMMUNICATION" in os.environ:
-            simple_communication_entrypoint()
+        elif "TEST_SIMPLE_MPI_COMMUNICATION" in os.environ:
+            simple_mpi_communication_entrypoint()
     else:
         import sys
         if len(sys.argv) > 1:
