@@ -505,34 +505,8 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
             complex_type=discrwb.complex_dtype.type,
             )(sym_operator)
 
-    # Ordering restriction:
-    #
-    # - Must run constant fold before first type inference pass, because zeros,
-    # while allowed, violate typing constraints (because they can't be assigned
-    # a unique type), and need to be killed before the type inferrer sees them.
-
-    # FIXME: Reenable type inference
-
-    # from grudge.symbolic.mappers.type_inference import TypeInferrer
-    # dumper("before-specializer", sym_operator)
-    # sym_operator = mappers.OperatorSpecializer(
-    #         TypeInferrer()(sym_operator)
-    #         )(sym_operator)
-
-    # Ordering restriction:
-    #
-    # - Must run OperatorSpecializer before performing the GlobalToReferenceMapper,
-    # because otherwise it won't differentiate the type of grids (node or quadrature
-    # grids) that the operators will apply on.
-
     dumper("before-global-to-reference", sym_operator)
     sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
-
-    # Ordering restriction:
-    #
-    # - Must specialize quadrature operators before performing inverse mass
-    # contraction, because there are no inverse-mass-contracted variants of the
-    # quadrature operators.
 
     dumper("before-imass", sym_operator)
     sym_operator = mappers.InverseMassContractor()(sym_operator)
