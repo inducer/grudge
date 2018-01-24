@@ -490,6 +490,10 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
+    dumper("before-qcheck", sym_operator)
+    sym_operator = mappers.QuadratureCheckerAndRemover(
+            discrwb.quad_tag_to_group_factory)(sym_operator)
+
     # Work around https://github.com/numpy/numpy/issues/9438
     #
     # The idea is that we need 1j as an expression to survive
