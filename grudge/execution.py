@@ -198,8 +198,8 @@ class ExecutionMapper(mappers.Evaluator,
             knl = lp.make_kernel(
                 """{[k,i,j]:
                     0<=k<nelements and
-                    0<=i<out_ndiscr_nodes and
-                    0<=j<in_ndiscr_nodes}""",
+                    0<=i<ndiscr_nodes_out and
+                    0<=j<ndiscr_nodes_in}""",
                 "result[k,i] = sum(j, mat[i, j] * vec[k, j])",
                 default_offset=lp.auto, name="diff")
 
@@ -366,8 +366,8 @@ class ExecutionMapper(mappers.Evaluator,
                 """{[imatrix,k,i,j]:
                     0<=imatrix<nmatrices and
                     0<=k<nelements and
-                     0<=i<o_nunit_nodes and
-                    0<=j<i_nunit_nodes}""",
+                    0<=i<nunit_nodes_out and
+                    0<=j<nunit_nodes_in}""",
                 """
                 result[imatrix, k, i] = sum(
                         j, diff_mat[imatrix, i, j] * vec[k, j])
