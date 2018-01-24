@@ -792,7 +792,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
 # }}}
 
 
-# {{{
+# {{{ to-loopy mapper
 
 def set_once(d, k, v):
     try:
