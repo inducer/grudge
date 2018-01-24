@@ -338,7 +338,7 @@ class Code(object):
         self.static_schedule_attempts = 5
 
     def dump_dataflow_graph(self):
-        from grudge.tools import open_unique_debug_file
+        from pytools.debug import open_unique_debug_file
 
         open_unique_debug_file("dataflow", ".dot")\
                 .write(dot_dataflow_graph(self, max_node_label_length=None))
