@@ -346,8 +346,6 @@ class VandermondeOperator(ElementwiseLinearOperator):
 
 # }}}
 
-# }}}
-
 
 # {{{ mass operators
 
