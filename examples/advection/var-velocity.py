@@ -76,7 +76,10 @@ def main(write_output=True, order=4):
         u_analytic(sym.nodes(dim, sym.BTAG_ALL)), quad_tag="product",
         flux_type=flux_type)
 
-    bound_op = bind(discr, op.sym_operator())
+    bound_op = bind(
+            discr, op.sym_operator(),
+            #debug_flags=["dump_sym_operator_stages"]
+            )
 
     u = bind(discr, f(sym.nodes(dim)))(queue, t=0)
 

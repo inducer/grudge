@@ -559,19 +559,20 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
 
     stage = [0]
 
-    def dump_optemplate(name, sym_operator):
-        if "dump_optemplate_stages" in debug_flags:
-            from grudge.tools import open_unique_debug_file
-            from grudge.optemplate import pretty
-            open_unique_debug_file("%02d-%s" % (stage[0], name), ".txt").write(
-                    pretty(sym_operator))
+    def dump_sym_operator(name, sym_operator):
+        if "dump_sym_operator_stages" in debug_flags:
+            from pytools.debug import open_unique_debug_file
+            outf, name = open_unique_debug_file("%02d-%s" % (stage[0], name), ".txt")
+            with outf:
+                outf.write(sym.pretty(sym_operator))
+
             stage[0] += 1
 
     sym_operator = process_sym_operator(
             discr,
             sym_operator,
             post_bind_mapper=post_bind_mapper,
-            dumper=dump_optemplate)
+            dumper=dump_sym_operator)
 
     from grudge.symbolic.compiler import OperatorCompiler
     discr_code, eval_code = OperatorCompiler(discr)(sym_operator)
