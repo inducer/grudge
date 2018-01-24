@@ -138,10 +138,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         self.inflow_u = inflow_u
         self.flux_type = flux_type
 
-        if quad_tag is None:
-            self.quad_tag = sym.QTAG_NONE
-        else:
-            self.quad_tag = quad_tag
+        self.quad_tag = quad_tag
 
     def flux(self, u):
 
@@ -182,11 +179,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
         quad_dd = sym.DOFDesc("vol", self.quad_tag)
 
-        if self.quad_tag == sym.QTAG_NONE:
-            def to_quad(expr):
-                return expr
-        else:
-            to_quad = sym.interp("vol", quad_dd)
+        to_quad = sym.interp("vol", quad_dd)
 
         stiff_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
         quad_v = to_quad(self.v)
