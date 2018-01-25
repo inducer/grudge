@@ -2,7 +2,7 @@
 
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -653,10 +653,18 @@ class TracePair:
         return 0.5*(self.int + self.ext)
 
 
-def int_tpair(expression):
-    i = cse(_sym().interp("vol", "int_faces")(expression))
+def int_tpair(expression, qtag=None):
+    i = _sym().interp("vol", "int_faces")(expression)
     e = cse(_sym().OppositeInteriorFaceSwap()(i))
-    return TracePair("int_faces", i, e)
+
+    if qtag is not None and qtag != _sym().QTAG_NONE:
+        q_dd = _sym().DOFDesc("int_faces", qtag)
+        i = cse(_sym().interp("int_faces", q_dd)(i))
+        e = cse(_sym().interp("int_faces", q_dd)(e))
+    else:
+        q_dd = "int_faces"
+
+    return TracePair(q_dd, i, e)
 
 
 def bdry_tpair(dd, interior, exterior):

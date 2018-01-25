@@ -3,7 +3,7 @@
 
 from __future__ import division, absolute_import
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = "Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -132,13 +132,16 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 # {{{ variable-coefficient advection
 
 class VariableCoefficientAdvectionOperator(HyperbolicOperator):
-    def __init__(self, dim, v, inflow_u, flux_type="central"):
+    def __init__(self, dim, v, inflow_u, flux_type="central", quad_tag="product"):
         self.ambient_dim = dim
         self.v = v
         self.inflow_u = inflow_u
         self.flux_type = flux_type
 
+        self.quad_tag = quad_tag
+
     def flux(self, u):
+
         normal = sym.normal(u. dd, self.ambient_dim)
 
         surf_v = sym.interp("vol", u.dd)(self.v)
@@ -167,15 +170,26 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         # boundary conditions -------------------------------------------------
         bc_in = self.inflow_u
 
+        all_faces_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
+        boundary_dd = sym.DOFDesc(sym.BTAG_ALL, self.quad_tag)
+
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(
+            return sym.interp(pair.dd, all_faces_dd)(
                     self.flux(pair))
 
+        quad_dd = sym.DOFDesc("vol", self.quad_tag)
+
+        to_quad = sym.interp("vol", quad_dd)
+
+        stiff_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
+        quad_v = to_quad(self.v)
+        quad_u = to_quad(u)
+
         return sym.InverseMassOperator()(
-                np.dot(sym.stiffness_t(self.ambient_dim), sym.cse(self.v*u))
-                - sym.FaceMassOperator()(
-                    flux(sym.int_tpair(u))
-                    + flux(sym.bv_tpair(sym.BTAG_ALL, u, bc_in))
+                (stiff_t[0](quad_u * quad_v[0]) + stiff_t[1](quad_u * quad_v[1]))
+                - sym.FaceMassOperator(all_faces_dd, "vol")(
+                    flux(sym.int_tpair(u, self.quad_tag))
+                    + flux(sym.bv_tpair(boundary_dd, u, bc_in))
 
                     # FIXME: Add back support for inflow/outflow tags
                     #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
