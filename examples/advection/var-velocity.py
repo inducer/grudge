@@ -46,12 +46,13 @@ def main(write_output=True, order=4):
 
     dim = 2
 
+    resolution = 10
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(10, 10), order=order)
+            n=(resolution, resolution), order=order)
 
     dt_factor = 5
-    h = 1/10
+    h = 1/resolution
 
     sym_x = sym.nodes(2)
 
@@ -74,10 +75,11 @@ def main(write_output=True, order=4):
         return 0
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
-    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory  # noqa
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
             quad_tag_to_group_factory={
+                #"product": None,
                 "product": QuadratureSimplexGroupFactory(order=4*order)
                 })
 
@@ -95,7 +97,7 @@ def main(write_output=True, order=4):
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
-    final_time = 5
+    final_time = 50
     dt = dt_factor * h/order**2
     nsteps = (final_time // dt) + 1
     dt = final_time/nsteps + 1e-15
@@ -115,8 +117,8 @@ def main(write_output=True, order=4):
             if step % 10 == 0:
                 print(step)
 
-            vis.write_vtk_file("fld-%04d.vtu" % step,
-                    [("u", event.state_component)])
+                vis.write_vtk_file("fld-%04d.vtu" % step,
+                        [("u", event.state_component)])
 
 
 if __name__ == "__main__":
