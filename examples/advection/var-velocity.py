@@ -46,7 +46,7 @@ def main(write_output=True, order=4):
 
     dim = 2
 
-    resolution = 10
+    resolution = 15
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
             n=(resolution, resolution), order=order)
@@ -66,10 +66,18 @@ def main(write_output=True, order=4):
     sym_x = sym.nodes(2)
     sym_source_center_dist = sym_x - source_center
 
-    def f(x):
+    def f_gaussian(x):
         return sym.exp(
                     -np.dot(sym_source_center_dist, sym_source_center_dist)
                     / source_width**2)
+
+    def f_step(x):
+        return sym.If(
+                sym.Comparison(
+                    np.dot(sym_source_center_dist, sym_source_center_dist),
+                    "<",
+                    (4*source_width)**2),
+                1, 0)
 
     def u_analytic(x):
         return 0
@@ -92,7 +100,7 @@ def main(write_output=True, order=4):
             #debug_flags=["dump_sym_operator_stages"]
             )
 
-    u = bind(discr, f(sym.nodes(dim)))(queue, t=0)
+    u = bind(discr, f_gaussian(sym.nodes(dim)))(queue, t=0)
 
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
@@ -106,7 +114,7 @@ def main(write_output=True, order=4):
     dt_stepper = set_up_rk4("u", dt, u, rhs)
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr, vis_order=2*order)
 
     step = 0
 
@@ -114,7 +122,7 @@ def main(write_output=True, order=4):
         if isinstance(event, dt_stepper.StateComputed):
 
             step += 1
-            if step % 10 == 0:
+            if step % 30 == 0:
                 print(step)
 
                 vis.write_vtk_file("fld-%04d.vtu" % step,
