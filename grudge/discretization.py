@@ -49,8 +49,12 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
     def __init__(self, cl_ctx, mesh, order, quad_tag_to_group_factory=None):
         """
-        :param quad_min_degrees: A mapping from quadrature tags to the degrees
-            to which the desired quadrature is supposed to be exact.
+        :param quad_min_degrees: A mapping from quadrature tags (typically
+            strings--but may be any hashable/comparable object) to a
+            :class:`meshmode.discretization.ElementGroupFactory` indicating with
+            which quadrature discretization the operations are to be carried out,
+            or *None* to indicate that operations with this quadrature tag should
+            be carried out with the standard volume discretization.
         """
 
         if quad_tag_to_group_factory is None:
