@@ -419,20 +419,17 @@ def test_improvement_quadrature(ctx_factory, order):
     advec_v = join_fields(-1*sym_nds[1], sym_nds[0])
 
     flux = "upwind"
-    op = VariableCoefficientAdvectionOperator(2, advec_v,
-                0, quad_tag=None,
-                flux_type=flux)
-    q_op = VariableCoefficientAdvectionOperator(2, advec_v,
-                0, quad_tag="product",
-                flux_type=flux)
+    op = VariableCoefficientAdvectionOperator(2, advec_v, 0, flux_type=flux)
 
     def gaussian_mode():
         source_width = 0.1
         sym_x = sym.nodes(2)
         return sym.exp(-np.dot(sym_x, sym_x) / source_width**2)
 
-    def conv_test(cl_ctx, queue, order, p_op):
-
+    def conv_test(descr, use_quad):
+        print("-"*75)
+        print(descr)
+        print("-"*75)
         eoc_rec = EOCRecorder()
 
         ns = [20, 25]
@@ -443,12 +440,17 @@ def test_improvement_quadrature(ctx_factory, order):
                 n=(n,)*dims,
                 order=order)
 
-            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
-                    quad_tag_to_group_factory={
-                        "product": QuadratureSimplexGroupFactory(order=4*order)
-                        })
+            if use_quad:
+                quad_tag_to_group_factory = {
+                    "product": QuadratureSimplexGroupFactory(order=4*order)
+                    }
+            else:
+                quad_tag_to_group_factory = {"product": None}
 
-            bound_op = bind(discr, p_op.sym_operator())
+            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+                    quad_tag_to_group_factory=quad_tag_to_group_factory)
+
+            bound_op = bind(discr, op.sym_operator())
             fields = bind(discr, gaussian_mode())(queue, t=0)
             norm = bind(discr, sym.norm(2, sym.var("u")))
 
@@ -456,12 +458,15 @@ def test_improvement_quadrature(ctx_factory, order):
             total_error = norm(queue, u=esc)
             eoc_rec.add_data_point(1.0/n, total_error)
 
+        print("-"*75)
+        print(descr)
         print(eoc_rec.pretty_print(abscissa_label="h", error_label="LInf Error"))
+        print("-"*75)
 
         return eoc_rec.order_estimate(), np.array([x[1] for x in eoc_rec.history])
 
-    eoc, errs = conv_test(cl_ctx, queue, order, op)
-    q_eoc, q_errs = conv_test(cl_ctx, queue, order, q_op)
+    eoc, errs = conv_test("no quadrature", False)
+    q_eoc, q_errs = conv_test("with quadrature", True)
     assert q_eoc > eoc
     assert (q_errs < errs).all()
     assert q_eoc > order
