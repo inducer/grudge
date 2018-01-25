@@ -458,10 +458,7 @@ def test_improvement_quadrature(ctx_factory, order):
             total_error = norm(queue, u=esc)
             eoc_rec.add_data_point(1.0/n, total_error)
 
-        print("-"*75)
-        print(descr)
         print(eoc_rec.pretty_print(abscissa_label="h", error_label="LInf Error"))
-        print("-"*75)
 
         return eoc_rec.order_estimate(), np.array([x[1] for x in eoc_rec.history])
 
