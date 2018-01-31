@@ -34,6 +34,7 @@ import pymbolic.mapper.evaluator
 import pymbolic.mapper.dependency
 import pymbolic.mapper.substitutor
 import pymbolic.mapper.constant_folder
+import pymbolic.mapper.constant_converter
 import pymbolic.mapper.flop_counter
 from pymbolic.mapper import CSECachingMapperMixin
 
@@ -892,6 +893,12 @@ class QuadratureUpsamplerChanger(CSECachingMapperMixin, IdentityMapper):
 
 
 # {{{ simplification / optimization
+
+class ConstantToNumpyConversionMapper(
+        pymbolic.mapper.constant_converter.ConstantToNumpyConversionMapper,
+        IdentityMapperMixin):
+    pass
+
 
 class CommutativeConstantFoldingMapper(
         pymbolic.mapper.constant_folder.CommutativeConstantFoldingMapper,

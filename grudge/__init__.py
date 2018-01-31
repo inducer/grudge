@@ -24,4 +24,4 @@ THE SOFTWARE.
 
 import grudge.sym  # noqa
 from grudge.execution import bind  # noqa
-from grudge.discretization import Discretization  # noqa
+from grudge.discretization import DGDiscretizationWithBoundaries  # noqa

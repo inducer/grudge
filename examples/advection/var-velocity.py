@@ -27,7 +27,7 @@ from pyopencl.tools import (  # noqa
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 from pytools.obj_array import join_fields
 
 
@@ -44,7 +44,7 @@ def main(write_output=True, order=4):
     dt_factor = 4
     h = 1/20
 
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
     sym_x = sym.nodes(2)
 
@@ -68,7 +68,7 @@ def main(write_output=True, order=4):
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
     op = VariableCoefficientAdvectionOperator(2, advec_v,
         inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
         flux_type=flux_type)

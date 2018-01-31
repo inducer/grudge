@@ -37,7 +37,7 @@ from pyopencl.tools import (  # noqa
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -64,7 +64,7 @@ def test_inverse_metric(ctx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    discr = Discretization(cl_ctx, mesh, order=4)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
 
     sym_op = (
             sym.forward_metric_derivative_mat(mesh.dim)
@@ -98,7 +98,7 @@ def test_1d_mass_mat_trig(ctx_factory):
     mesh = generate_regular_rect_mesh(a=(-4*np.pi,), b=(9*np.pi,),
             n=(17,), order=1)
 
-    discr = Discretization(cl_ctx, mesh, order=8)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=8)
 
     x = sym.nodes(1)
     f = bind(discr, sym.cos(x[0])**2)(queue)
@@ -139,7 +139,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
-        discr = Discretization(cl_ctx, mesh, order=4)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
         nabla = sym.nabla(dim)
 
         for axis in range(dim):
@@ -182,7 +182,7 @@ def test_2d_gauss_theorem(ctx_factory):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    discr = Discretization(cl_ctx, mesh, order=2)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
 
     def f(x):
         return sym.join_fields(
@@ -272,7 +272,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         from grudge.models.advection import (
                 StrongAdvectionOperator, WeakAdvectionOperator)
-        discr = Discretization(cl_ctx, mesh, order=order)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
         op_class = {
                 "strong": StrongAdvectionOperator,
                 "weak": WeakAdvectionOperator,
@@ -326,6 +326,76 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
                 queue, t=last_t, u=last_u)
         print(h, error_l2)
         eoc_rec.add_data_point(h, error_l2)
+
+    print(eoc_rec.pretty_print(abscissa_label="h",
+            error_label="L2 Error"))
+
+    assert eoc_rec.order_estimate() > order
+
+
+@pytest.mark.parametrize("order", [3, 4, 5])
+# test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
+def test_convergence_maxwell(ctx_factory,  order, visualize=False):
+    """Test whether 3D maxwells actually converges"""
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    dims = 3
+    ns = [4, 6, 8]
+    for n in ns:
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+        mesh = generate_regular_rect_mesh(
+                a=(0.0,)*dims,
+                b=(1.0,)*dims,
+                n=(n,)*dims)
+
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+
+        epsilon = 1
+        mu = 1
+
+        from grudge.models.em import get_rectangular_cavity_mode
+        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
+
+        analytic_sol = bind(discr, sym_mode)
+        fields = analytic_sol(queue, t=0, epsilon=epsilon, mu=mu)
+
+        from grudge.models.em import MaxwellOperator
+        op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
+        op.check_bc_coverage(mesh)
+        bound_op = bind(discr, op.sym_operator())
+
+        def rhs(t, w):
+            return bound_op(queue, t=t, w=w)
+
+        dt = 0.002
+        final_t = dt * 5
+        nsteps = int(final_t/dt)
+
+        from grudge.shortcuts import set_up_rk4
+        dt_stepper = set_up_rk4("w", dt, fields, rhs)
+
+        print("dt=%g nsteps=%d" % (dt, nsteps))
+
+        norm = bind(discr, sym.norm(2, sym.var("u")))
+
+        step = 0
+        for event in dt_stepper.run(t_end=final_t):
+            if isinstance(event, dt_stepper.StateComputed):
+                assert event.component_id == "w"
+                esc = event.state_component
+
+                step += 1
+                print(step)
+
+        sol = analytic_sol(queue, mu=mu, epsilon=epsilon, t=step * dt)
+        vals = [norm(queue, u=(esc[i] - sol[i])) / norm(queue, u=sol[i]) for i in range(5)] # noqa E501
+        total_error = sum(vals)
+        eoc_rec.add_data_point(1.0/n, total_error)
 
     print(eoc_rec.pretty_print(abscissa_label="h",
             error_label="L2 Error"))
