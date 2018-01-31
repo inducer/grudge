@@ -249,11 +249,12 @@ class ExecutionMapper(mappers.Evaluator,
         from mpi4py import MPI
         mpi_comm = MPI.COMM_WORLD
 
-        grp_factory = self.discr.get_group_factory_for_quadrature_tag(sym.QTAG_NONE)
+        grp_factory = self.discrwb.group_factory_for_quadrature_tag(sym.QTAG_NONE)
 
+        volume_discr = self.discrwb.discr_from_dd("vol")
         from meshmode.distributed import MPIBoundaryCommunicator
         bdry_conn_future = MPIBoundaryCommunicator(mpi_comm, self.queue,
-                                                   self.discr.volume_discr,
+                                                   volume_discr,
                                                    grp_factory,
                                                    op.i_remote_part)
         # TODO: Need to tell the future what boundary data to transfer
@@ -549,8 +550,10 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
 
     dumper("before-distributed", sym_operator)
+
+    volume_mesh = discrwb.discr_from_dd("vol").mesh
     from meshmode.distributed import get_connected_partitions
-    connected_parts = get_connected_partitions(mesh)
+    connected_parts = get_connected_partitions(volume_mesh)
     sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
 
     # Ordering restriction:

@@ -32,7 +32,7 @@ import pyopencl as cl
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
 
 
@@ -65,7 +65,7 @@ def simple_mpi_communication_entrypoint(order):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = Discretization(cl_ctx, local_mesh, order=order)
+    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order)
 
     sym_x = sym.nodes(local_mesh.dim)
     myfunc_symb = sym.sin(np.dot(sym_x, [2, 3]))
@@ -129,7 +129,7 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = Discretization(cl_ctx, local_mesh, order=order)
+    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
     source_width = 0.05
