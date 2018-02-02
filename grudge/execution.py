@@ -36,6 +36,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+MPI_TAG_GRUDGE_DATA = 0x3700d3e
+
+
 # {{{ exec mapper
 
 class ExecutionMapper(mappers.Evaluator,
@@ -246,20 +249,28 @@ class ExecutionMapper(mappers.Evaluator,
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
     def map_opposite_partition_face_swap(self, op, field_expr):
-        from mpi4py import MPI
-        mpi_comm = MPI.COMM_WORLD
+        assert op.dd_in == op.dd_out
 
-        grp_factory = self.discrwb.group_factory_for_quadrature_tag(sym.QTAG_NONE)
+        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(op.dd_in)
+        loc_bdry_vec = self.rec(field_expr).get(self.queue)
 
-        volume_discr = self.discrwb.discr_from_dd("vol")
-        from meshmode.distributed import MPIBoundaryCommunicator
-        bdry_conn_future = MPIBoundaryCommunicator(mpi_comm, self.queue,
-                                                   volume_discr,
-                                                   grp_factory,
-                                                   op.i_remote_part)
-        # TODO: Need to tell the future what boundary data to transfer
-        bdry_conn, _ = bdry_conn_future()
-        return bdry_conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
+        comm = self.discrwb.mpi_communicator
+
+        remote_rank = op.dd_in.domain_tag.part_nr
+
+        send_req = comm.Isend(loc_bdry_vec, remote_rank,
+                tag=MPI_TAG_GRUDGE_DATA)
+
+        recv_vec_host = np.empty_like(loc_bdry_vec)
+        comm.Recv(recv_vec_host, source=remote_rank, tag=MPI_TAG_GRUDGE_DATA)
+        send_req.wait()
+
+        recv_vec_dev = cl.array.to_device(self.queue, recv_vec_host)
+
+        shuffled_recv_vec = bdry_conn(self.queue, recv_vec_dev) \
+                .with_queue(self.queue)
+
+        return shuffled_recv_vec
 
     def map_opposite_interior_face_swap(self, op, field_expr):
         dd = op.dd_in

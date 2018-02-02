@@ -334,7 +334,7 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 # }}}
 
 
-# {{{ distributed mappers
+# {{{ mappers for distributed computation
 
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
