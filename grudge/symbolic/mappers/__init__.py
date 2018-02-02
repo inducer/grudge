@@ -798,96 +798,67 @@ class NoCSEStringifyMapper(StringifyMapper):
 
 # {{{ quadrature support
 
-class QuadratureUpsamplerRemover(CSECachingMapperMixin, IdentityMapper):
-    def __init__(self, quad_min_degrees, do_warn=True):
+class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
+    """Checks whether all quadratu
+    """
+
+    def __init__(self, quad_tag_to_group_factory):
         IdentityMapper.__init__(self)
         CSECachingMapperMixin.__init__(self)
-        self.quad_min_degrees = quad_min_degrees
-        self.do_warn = do_warn
+        self.quad_tag_to_group_factory = quad_tag_to_group_factory
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
+    def _process_dd(self, dd, location_descr):
+        from grudge.symbolic.primitives import DOFDesc, QTAG_NONE
+        if dd.quadrature_tag is not QTAG_NONE:
+            if dd.quadrature_tag not in self.quad_tag_to_group_factory:
+                raise ValueError("found unknown quadrature tag '%s' in '%s'"
+                        % (dd.quadrature_tag, location_descr))
+
+            grp_factory = self.quad_tag_to_group_factory[dd.quadrature_tag]
+            if grp_factory is None:
+                dd = DOFDesc(dd.domain_tag, QTAG_NONE)
+
+        return dd
+
     def map_operator_binding(self, expr):
-        if isinstance(expr.op, (op.QuadratureGridUpsampler,
-                op.QuadratureInteriorFacesGridUpsampler,
-                op.QuadratureBoundaryGridUpsampler)):
-            try:
-                min_degree = self.quad_min_degrees[expr.op.quadrature_tag]
-            except KeyError:
-                if self.do_warn:
-                    from warnings import warn
-                    warn("No minimum degree for quadrature tag '%s' specified--"
-                            "falling back to nodal evaluation"
-                            % expr.op.quadrature_tag)
-                return self.rec(expr.field)
-            else:
-                if min_degree is None:
-                    return self.rec(expr.field)
-                else:
-                    return expr.op(self.rec(expr.field))
-        else:
+        dd_in_orig = dd_in = expr.op.dd_in
+        dd_out_orig = dd_out = expr.op.dd_out
+
+        dd_in = self._process_dd(dd_in, "dd_in of %s" % type(expr.op).__name__)
+        dd_out = self._process_dd(dd_out, "dd_out of %s" % type(expr.op).__name__)
+
+        if dd_in_orig == dd_in and dd_out_orig == dd_out:
+            # unchanged
             return IdentityMapper.map_operator_binding(self, expr)
 
+        import grudge.symbolic.operators as op
+        # changed
 
-class QuadratureDetector(CSECachingMapperMixin, CombineMapper):
-    """For a given expression, this mapper returns the upsampling
-    operator in effect at the root of the expression, or *None*
-    if there isn't one.
-    """
-    class QuadStatusNotKnown:
-        pass
+        if dd_in == dd_out and isinstance(expr.op, op.InterpolationOperator):
+            # This used to be to-quad interpolation and has become a no-op.
+            # Remove it.
+            return self.rec(expr.field)
 
-    map_common_subexpression_uncached = \
-            CombineMapper.map_common_subexpression
-
-    def combine(self, values):
-        from pytools import single_valued
-        return single_valued([
-            v for v in values if v is not self.QuadStatusNotKnown])
-
-    def map_variable(self, expr):
-        return None
-
-    def map_constant(self, expr):
-        return self.QuadStatusNotKnown
-
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, (
-                op.DiffOperatorBase, op.FluxOperatorBase,
-                op.MassOperatorBase)):
-            return None
-        elif isinstance(expr.op, (op.QuadratureGridUpsampler,
-                op.QuadratureInteriorFacesGridUpsampler)):
-            return expr.op
+        if isinstance(expr.op, op.StiffnessTOperator):
+            new_op = type(expr.op)(expr.op.xyz_axis, dd_in, dd_out)
+        elif isinstance(expr.op, (op.FaceMassOperator, op.InterpolationOperator)):
+            new_op = type(expr.op)(dd_in, dd_out)
         else:
-            return CombineMapper.map_operator_binding(self, expr)
+            raise NotImplementedError("do not know how to modify dd_in and dd_out "
+                    "in %s" % type(expr.op).__name__)
 
+        return new_op(self.rec(expr.field))
 
-class QuadratureUpsamplerChanger(CSECachingMapperMixin, IdentityMapper):
-    """This mapper descends the expression tree, down to each
-    quadrature-consuming operator (diff, mass) along each branch.
-    It then change
-    """
-    def __init__(self, desired_quad_op):
-        IdentityMapper.__init__(self)
-        CSECachingMapperMixin.__init__(self)
+    def map_ones(self, expr):
+        dd = self._process_dd(expr.dd, location_descr=type(expr).__name__)
+        return type(expr)(dd)
 
-        self.desired_quad_op = desired_quad_op
-
-    map_common_subexpression_uncached = \
-            IdentityMapper.map_common_subexpression
-
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, (
-                op.DiffOperatorBase, op.FluxOperatorBase,
-                op.MassOperatorBase)):
-            return expr
-        elif isinstance(expr.op, (op.QuadratureGridUpsampler,
-                op.QuadratureInteriorFacesGridUpsampler)):
-            return self.desired_quad_op(expr.field)
-        else:
-            return IdentityMapper.map_operator_binding(self, expr)
+    def map_node_coordinate_component(self, expr):
+        dd = self._process_dd(expr.dd, location_descr=type(expr).__name__)
+        return type(expr)(expr.axis, dd)
 
 # }}}
 
