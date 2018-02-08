@@ -336,7 +336,8 @@ class ExecutionMapper(mappers.Evaluator,
 
     # }}}
 
-    # {{{ code execution functions
+    # {{{ instruction execution functions
+
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
         kdescr = insn.kernel_descriptor
