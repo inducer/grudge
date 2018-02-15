@@ -427,6 +427,8 @@ class OppositePartitionFaceSwap(Operator):
             raise ValueError("dd_out and dd_in must be identical")
 
         self.i_remote_part = self.dd_in.domain_tag.part_nr
+        # FIXME: We should have a unique offset for each instance on a particular rank
+        self.mpi_tag_offset = 0
 
     mapper_method = intern("map_opposite_partition_face_swap")
 

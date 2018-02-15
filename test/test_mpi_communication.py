@@ -36,7 +36,7 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
 
 
-def simple_mpi_communication_entrypoint(order):
+def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     from meshmode.distributed import MPIMeshDistributor
@@ -53,19 +53,17 @@ def simple_mpi_communication_entrypoint(order):
                                           b=(1,)*2,
                                           n=(3,)*2)
 
-        # This gives [0, 0, 0, 1, 0, 1, 1, 1]
-        # from pymetis import part_graph
-        # _, p = part_graph(num_parts,
-        #                   xadj=mesh.nodal_adjacency.neighbors_starts.tolist(),
-        #                   adjncy=mesh.nodal_adjacency.neighbors.tolist())
-        # part_per_element = np.array(p)
-        part_per_element = np.array([0, 0, 0, 1, 0, 1, 1, 1])
+        from pymetis import part_graph
+        _, p = part_graph(num_parts,
+                          xadj=mesh.nodal_adjacency.neighbors_starts.tolist(),
+                          adjncy=mesh.nodal_adjacency.neighbors.tolist())
+        part_per_element = np.array(p)
 
         local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
+    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=5,
             mpi_communicator=comm)
 
     sym_x = sym.nodes(local_mesh.dim)
@@ -86,6 +84,9 @@ def simple_mpi_communication_entrypoint(order):
                 sym_int_faces_func)
             ) - (sym_all_faces_func - sym_bdry_faces_func)
             )
+
+    print(bound_face_swap)
+    # 1/0
 
     hopefully_zero = bound_face_swap(queue, myfunc=myfunc)
     import numpy.linalg as la
@@ -227,8 +228,7 @@ def test_mpi(num_ranks):
 
 @pytest.mark.mpi
 @pytest.mark.parametrize("num_ranks", [2])
-@pytest.mark.parametrize("order", [2])
-def test_simple_mpi(num_ranks, order):
+def test_simple_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
     from subprocess import check_call
@@ -236,7 +236,6 @@ def test_simple_mpi(num_ranks, order):
     newenv = os.environ.copy()
     newenv["RUN_WITHIN_MPI"] = "1"
     newenv["TEST_SIMPLE_MPI_COMMUNICATION"] = "1"
-    newenv["order"] = str(order)
     check_call([
         "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
         sys.executable, __file__],
@@ -250,8 +249,7 @@ if __name__ == "__main__":
         if "TEST_MPI_COMMUNICATION" in os.environ:
             mpi_communication_entrypoint()
         elif "TEST_SIMPLE_MPI_COMMUNICATION" in os.environ:
-            order = int(os.environ["order"])
-            simple_mpi_communication_entrypoint(order)
+            simple_mpi_communication_entrypoint()
     else:
         import sys
         if len(sys.argv) > 1:

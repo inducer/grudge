@@ -201,6 +201,9 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
                 for name, expr in zip(insn.names, insn.exprs)
                 ]
 
+    def map_insn_rank_data_swap(self, insn):
+        return [(insn.name, insn.dd_out)]
+
     map_insn_assign_to_discr_scoped = map_insn_assign
 
     def map_insn_diff_batch_assign(self, insn):

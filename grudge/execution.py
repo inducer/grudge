@@ -36,7 +36,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-MPI_TAG_GRUDGE_DATA = 0x3700d3e
+# TODO: Maybe we should move this somewhere else.
+# MPI_TAG_GRUDGE_DATA = 0x3700d3e
 
 
 # {{{ exec mapper
@@ -251,27 +252,9 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-
         bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(op.dd_in)
-        loc_bdry_vec = self.rec(field_expr).get(self.queue)
-
-        comm = self.discrwb.mpi_communicator
-
-        remote_rank = op.dd_in.domain_tag.part_nr
-
-        send_req = comm.Isend(loc_bdry_vec, remote_rank,
-                tag=MPI_TAG_GRUDGE_DATA)
-
-        recv_vec_host = np.empty_like(loc_bdry_vec)
-        comm.Recv(recv_vec_host, source=remote_rank, tag=MPI_TAG_GRUDGE_DATA)
-        send_req.wait()
-
-        recv_vec_dev = cl.array.to_device(self.queue, recv_vec_host)
-
-        shuffled_recv_vec = bdry_conn(self.queue, recv_vec_dev) \
-                .with_queue(self.queue)
-
-        return shuffled_recv_vec
+        remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
+        return bdry_conn(self.queue, remote_bdry_vec).with_queue(self.queue)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
         return self.discrwb.opposite_face_connection()(
@@ -337,6 +320,34 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     # {{{ instruction execution functions
+
+    def map_insn_rank_data_swap(self, insn):
+        local_data = self.rec(insn.field).get(self.queue)
+        comm = self.discrwb.mpi_communicator
+
+        send_req = comm.Isend(local_data, insn.i_remote_rank, tag=insn.tag)
+
+        remote_data_host = np.empty_like(local_data)
+        comm.Recv(remote_data_host, source=insn.i_remote_rank, tag=insn.tag)
+        send_req.wait()
+        remote_data = cl.array.to_device(self.queue, remote_data_host)
+
+        return [(insn.name, remote_data)], []
+
+        # class Future:
+        #     def is_ready(self):
+        #         return comm.improbe(source=insn.i_remote_rank, tag=insn.tag)
+        #
+        #     def __call__(self):
+        #         remote_data_host = np.empty_like(local_data)
+        #         comm.Recv(remote_data_host, source=insn.i_remote_rank, tag=insn.tag)
+        #         send_req.wait()
+        #
+        #         remote_data = cl.array.to_device(queue, remote_data_host)
+        #         return [(insn.name, remote_data)], []
+        #
+        # return [], [Future()]
+
 
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}

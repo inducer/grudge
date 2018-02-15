@@ -198,6 +198,50 @@ class Assign(AssignBase):
     mapper_method = intern("map_insn_assign")
 
 
+class RankDataSwapAssign(Instruction):
+    """
+    .. attribute:: name
+    .. attribute:: field
+    .. attribute:: i_remote_rank
+
+        The number of the remote rank that this instruction swaps data with.
+
+    .. attribute:: mpi_tag_offset
+
+        A tag offset for mpi that should be unique for each instance within
+        a particular rank.
+
+    .. attribute:: dd_out
+    .. attribute:: comment
+    """
+    # TODO: Is this number ok? We probably want it to be global.
+    MPI_TAG_GRUDGE_DATA = 0x3700d3e
+
+    def __init__(self, name, field, op):
+        self.name = name
+        self.field = field
+        self.i_remote_rank = op.i_remote_part
+        self.dd_out = op.dd_out
+        self.tag = self.MPI_TAG_GRUDGE_DATA + op.mpi_tag_offset
+        self.comment = "Swap data with rank %02d" % self.i_remote_rank
+
+    @memoize_method
+    def get_assignees(self):
+        return set([self.name])
+
+    @memoize_method
+    def get_dependencies(self):
+        return _make_dep_mapper(include_subscripts=False)(self.field)
+
+    def __str__(self):
+        return ("{\n"
+                "    /* %s */\n"
+                "    %s <- %s\n"
+                "}\n" % (self.comment, self.name, self.field))
+
+    mapper_method = intern("map_insn_rank_data_swap")
+
+
 class ToDiscretizationScopedAssign(Assign):
     scope_indicator = "(to discr)-"
 
@@ -933,6 +977,9 @@ class ToLoopyInstructionMapper(object):
                 governing_dd=governing_dd)
             )
 
+    def map_insn_rank_data_swap(self, insn):
+        return insn
+
     def map_insn_assign_to_discr_scoped(self, insn):
         return insn
 
@@ -1122,6 +1169,8 @@ class OperatorCompiler(mappers.IdentityMapper):
     def map_operator_binding(self, expr, codegen_state, name_hint=None):
         if isinstance(expr.op, sym.RefDiffOperatorBase):
             return self.map_ref_diff_op_binding(expr, codegen_state)
+        elif isinstance(expr.op, sym.OppositePartitionFaceSwap):
+            return self.map_rank_data_swap_binding(expr, codegen_state)
         else:
             # make sure operator assignments stand alone and don't get muddled
             # up in vector math
@@ -1178,6 +1227,22 @@ class OperatorCompiler(mappers.IdentityMapper):
             for n, d in zip(names, all_diffs):
                 self.expr_to_var[d] = var(n)
 
+            return self.expr_to_var[expr]
+
+    def map_rank_data_swap_binding(self, expr, codegen_state):
+        try:
+            return self.expr_to_var[expr]
+        except KeyError:
+            field = self.rec(expr.field, codegen_state)
+            name = self.name_gen("raw_rank%02d_bdry_data" % expr.op.i_remote_part)
+            field_insn = RankDataSwapAssign(name=name, field=field, op=expr.op)
+            codegen_state.get_code_list(self).append(field_insn)
+            field_var = Variable(field_insn.name)
+            # TODO: Do I need this?
+            # self.expr_to_var[field] = field_var
+            self.expr_to_var[expr] = self.assign_to_new_var(codegen_state,
+                                                            expr.op(field_var),
+                                                            prefix="other")
             return self.expr_to_var[expr]
 
     # }}}

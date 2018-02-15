@@ -661,7 +661,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         elif dd.domain_tag is FACE_RESTR_INTERIOR:
             result = "int_faces"
         elif isinstance(dd.domain_tag, BTAG_PARTITION):
-            result = "rank%d_faces" % dd.domain_tag.part_nr
+            result = "part%d_faces" % dd.domain_tag.part_nr
         else:
             result = fmt(dd.domain_tag)
 
