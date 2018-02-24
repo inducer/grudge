@@ -48,11 +48,11 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
         elif dd_b.domain_tag == DTAG_SCALAR:
             return dd_a
         else:
-            raise ValueError("mismatched domain tags" + loc_str)
+            raise ValueError("mismatched domain tags " + loc_str)
 
     # domain tags match
     if dd_a.quadrature_tag != dd_b.quadrature_tag:
-        raise ValueError("mismatched quadrature tags" + loc_str)
+        raise ValueError("mismatched quadrature tags " + loc_str)
 
     return dd_a
 
