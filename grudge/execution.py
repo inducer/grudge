@@ -334,7 +334,8 @@ class ExecutionMapper(mappers.Evaluator,
 
         # Do all instructions complete before futures?
         # FIXME: We CANNOT have any possibility of deadlock
-        # One option is to add an attribute that tells the scheduler that this should not be foreced
+        # One option is to add an attribute that tells the scheduler that this
+        # should not be foreced
 
         class RecvFuture:
             def __init__(self, recv_req, insn_name, remote_data_host, queue):
@@ -352,7 +353,6 @@ class ExecutionMapper(mappers.Evaluator,
                 remote_data = cl.array.to_device(self.queue, self.remote_data_host)
                 return [(self.insn_name, remote_data)], []
 
-
         class SendFuture:
             def __init__(self, send_request):
                 self.send_request = send_request
@@ -364,7 +364,6 @@ class ExecutionMapper(mappers.Evaluator,
                 # assert self.is_ready(), "SendFuture was not ready to be called!"
                 self.send_request.wait()
                 return [], []
-
 
         return [], [RecvFuture(recv_req, insn.name, remote_data_host, self.queue),
                     SendFuture(send_req)]

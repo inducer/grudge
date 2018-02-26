@@ -78,9 +78,6 @@ def simple_mpi_communication_entrypoint():
         sym.interp(sym.BTAG_ALL, "all_faces")(
             sym.interp("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
 
-    # FIXME: Since this is the second call to bind, something wierd happens with MPITagCollector
-    # and MPITagDistributor. I think it has distributed mesh but does not have any
-    # OppositePartitionFaceSwap operators
     bound_face_swap = bind(vol_discr,
         sym.interp("int_faces", "all_faces")(
             sym.OppositeInteriorFaceSwap("int_faces")(
