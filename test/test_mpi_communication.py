@@ -78,6 +78,9 @@ def simple_mpi_communication_entrypoint():
         sym.interp(sym.BTAG_ALL, "all_faces")(
             sym.interp("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
 
+    # FIXME: Since this is the second call to bind, something wierd happens with MPITagCollector
+    # and MPITagDistributor. I think it has distributed mesh but does not have any
+    # OppositePartitionFaceSwap operators
     bound_face_swap = bind(vol_discr,
         sym.interp("int_faces", "all_faces")(
             sym.OppositeInteriorFaceSwap("int_faces")(
@@ -85,7 +88,7 @@ def simple_mpi_communication_entrypoint():
             ) - (sym_all_faces_func - sym_bdry_faces_func)
             )
 
-    print(bound_face_swap)
+    # print(bound_face_swap)
     # 1/0
 
     hopefully_zero = bound_face_swap(queue, myfunc=myfunc)
@@ -102,24 +105,24 @@ def simple_mpi_communication_entrypoint():
 def mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    from meshmode.distributed import MPIMeshDistributor
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
+    i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
 
+    from meshmode.distributed import MPIMeshDistributor
     mesh_dist = MPIMeshDistributor(comm)
 
-    dims = 2
+    dim = 2
     dt = 0.04
     order = 4
 
     if mesh_dist.is_mananger_rank():
         from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(a=(-0.5,)*dims,
-                                          b=(0.5,)*dims,
-                                          n=(16,)*dims)
+        mesh = generate_regular_rect_mesh(a=(-0.5,)*dim,
+                                          b=(0.5,)*dim,
+                                          n=(16,)*dim)
 
         from pymetis import part_graph
         _, p = part_graph(num_parts,
@@ -132,7 +135,7 @@ def mpi_communication_entrypoint():
         local_mesh = mesh_dist.receive_mesh_part()
 
     vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
-            mpi_communicator=comm)
+                                               mpi_communicator=comm)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
     source_width = 0.05
@@ -176,9 +179,9 @@ def mpi_communication_entrypoint():
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    final_t = 10
+    final_t = 4
     nsteps = int(final_t/dt)
-    print("rank=%d dt=%g nsteps=%d" % (rank, dt, nsteps))
+    print("rank=%d dt=%g nsteps=%d" % (i_local_rank, dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(vol_discr, vis_order=order)
@@ -197,21 +200,20 @@ def mpi_communication_entrypoint():
             step += 1
 
             print(step, event.t, norm(queue, u=event.state_component[0]),
-                    time()-t_last_step)
+                  time()-t_last_step)
+
             if step % 10 == 0:
-                vis.write_vtk_file("rank%d-fld-%04d.vtu" % (rank, step),
-                        [
-                            ("u", event.state_component[0]),
-                            ("v", event.state_component[1:]),
-                            ])
+                vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
+                                   [("u", event.state_component[0]),
+                                    ("v", event.state_component[1:])])
             t_last_step = time()
-    logger.debug("Rank %d exiting", rank)
+    logger.debug("Rank %d exiting", i_local_rank)
 
 
 # {{{ MPI test pytest entrypoint
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [2])
+@pytest.mark.parametrize("num_ranks", [3])
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
@@ -227,8 +229,7 @@ def test_mpi(num_ranks):
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [2])
-def test_simple_mpi(num_ranks):
+def test_simple_mpi():
     pytest.importorskip("mpi4py")
 
     from subprocess import check_call
@@ -236,6 +237,7 @@ def test_simple_mpi(num_ranks):
     newenv = os.environ.copy()
     newenv["RUN_WITHIN_MPI"] = "1"
     newenv["TEST_SIMPLE_MPI_COMMUNICATION"] = "1"
+    num_ranks = 2
     check_call([
         "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
         sys.executable, __file__],

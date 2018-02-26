@@ -336,6 +336,50 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 
 # {{{ mappers for distributed computation
 
+class MPITagCollector(CSECachingMapperMixin, IdentityMapper):
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, i_local_rank):
+        self.i_local_rank = i_local_rank
+        self.send_tag_lookups = {}
+
+    def map_operator_binding(self, expr):
+        if isinstance(expr.op, op.OppositePartitionFaceSwap):
+            field = self.rec(expr.field)
+            i_remote_rank = expr.op.i_remote_part
+            # FIXME: Come up with a better key
+            # We MUST be sure that tags are UNIQUE for each pair of neighboring ranks
+            key = (field.field.index, self.i_local_rank, i_remote_rank)
+            tag = expr.op.send_tag_offset
+            if i_remote_rank not in self.send_tag_lookups:
+                self.send_tag_lookups[i_remote_rank] = {key: tag}
+            else:
+                assert key not in self.send_tag_lookups[i_remote_rank],\
+                            "Duplicate keys found in tag lookup"
+                self.send_tag_lookups[i_remote_rank][key] = tag
+            return expr
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
+class MPITagDistributor(CSECachingMapperMixin, IdentityMapper):
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, recv_tag_lookups, i_local_rank):
+        self.recv_tag_lookups = recv_tag_lookups
+        self.i_local_rank = i_local_rank
+
+    def map_operator_binding(self, expr):
+        if isinstance(expr.op, op.OppositePartitionFaceSwap):
+            field = self.rec(expr.field)
+            i_remote_rank = expr.op.i_remote_part
+            key = (field.field.index, i_remote_rank, self.i_local_rank)
+            expr.op.recv_tag_offset = self.recv_tag_lookups[i_remote_rank][key]
+            return expr
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
@@ -379,9 +423,9 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
         if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
                     and expr.op.dd_in == self.prev_dd
                     and expr.op.dd_out == self.prev_dd):
+            field = self.rec(expr.field)
             return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
-                                                dd_out=self.new_dd)(
-                                                        self.rec(expr.field))
+                                                dd_out=self.new_dd)(field)
         elif (isinstance(expr.op, op.InterpolationOperator)
                     and expr.op.dd_out == self.prev_dd):
             return op.InterpolationOperator(dd_in=expr.op.dd_in,
@@ -750,7 +794,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return "RefFaceM" + self._format_op_dd(expr)
 
     def map_opposite_partition_face_swap(self, expr, enclosing_prec):
-        return "RankSwap" + self._format_op_dd(expr)
+        return "PartSwap" + self._format_op_dd(expr)
 
     def map_opposite_interior_face_swap(self, expr, enclosing_prec):
         return "OppSwap" + self._format_op_dd(expr)

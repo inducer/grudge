@@ -222,7 +222,8 @@ class RankDataSwapAssign(Instruction):
         self.field = field
         self.i_remote_rank = op.i_remote_part
         self.dd_out = op.dd_out
-        self.tag = self.MPI_TAG_GRUDGE_DATA + op.mpi_tag_offset
+        self.send_tag = self.MPI_TAG_GRUDGE_DATA + op.send_tag_offset
+        self.recv_tag = self.MPI_TAG_GRUDGE_DATA + op.recv_tag_offset
         self.comment = "Swap data with rank %02d" % self.i_remote_rank
 
     @memoize_method
@@ -235,9 +236,11 @@ class RankDataSwapAssign(Instruction):
 
     def __str__(self):
         return ("{\n"
-                "    /* %s */\n"
-                "    %s <- %s\n"
-                "}\n" % (self.comment, self.name, self.field))
+              + "   /* %s */\n" % self.comment
+              + "   send_tag = %s\n" % self.send_tag
+              + "   recv_tag = %s\n" % self.recv_tag
+              + "   %s <- %s\n" % (self.name, self.field)
+              + "}")
 
     mapper_method = intern("map_insn_rank_data_swap")
 
@@ -520,7 +523,9 @@ class Code(object):
                 except self.NoInstructionAvailable:
                     if futures:
                         # no insn ready: we need a future to complete to continue
+                        # FIXME: May induce deadlock in RankDataSwapAssign
                         force_future = True
+                        # pass
                     else:
                         # no futures, no available instructions: we're done
                         break
@@ -1170,7 +1175,7 @@ class OperatorCompiler(mappers.IdentityMapper):
         if isinstance(expr.op, sym.RefDiffOperatorBase):
             return self.map_ref_diff_op_binding(expr, codegen_state)
         elif isinstance(expr.op, sym.OppositePartitionFaceSwap):
-            return self.map_rank_data_swap_binding(expr, codegen_state)
+            return self.map_rank_data_swap_binding(expr, codegen_state, name_hint)
         else:
             # make sure operator assignments stand alone and don't get muddled
             # up in vector math
@@ -1229,7 +1234,7 @@ class OperatorCompiler(mappers.IdentityMapper):
 
             return self.expr_to_var[expr]
 
-    def map_rank_data_swap_binding(self, expr, codegen_state):
+    def map_rank_data_swap_binding(self, expr, codegen_state, name_hint):
         try:
             return self.expr_to_var[expr]
         except KeyError:
@@ -1242,7 +1247,7 @@ class OperatorCompiler(mappers.IdentityMapper):
             # self.expr_to_var[field] = field_var
             self.expr_to_var[expr] = self.assign_to_new_var(codegen_state,
                                                             expr.op(field_var),
-                                                            prefix="other")
+                                                            prefix=name_hint)
             return self.expr_to_var[expr]
 
     # }}}

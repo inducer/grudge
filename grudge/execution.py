@@ -325,29 +325,49 @@ class ExecutionMapper(mappers.Evaluator,
         local_data = self.rec(insn.field).get(self.queue)
         comm = self.discrwb.mpi_communicator
 
-        send_req = comm.Isend(local_data, insn.i_remote_rank, tag=insn.tag)
+        # print("Sending data to rank %d with tag %d"
+        #             % (insn.i_remote_rank, insn.send_tag))
+        send_req = comm.Isend(local_data, insn.i_remote_rank, tag=insn.send_tag)
 
         remote_data_host = np.empty_like(local_data)
-        comm.Recv(remote_data_host, source=insn.i_remote_rank, tag=insn.tag)
-        send_req.wait()
-        remote_data = cl.array.to_device(self.queue, remote_data_host)
+        recv_req = comm.Irecv(remote_data_host, insn.i_remote_rank, insn.recv_tag)
 
-        return [(insn.name, remote_data)], []
+        # Do all instructions complete before futures?
+        # FIXME: We CANNOT have any possibility of deadlock
+        # One option is to add an attribute that tells the scheduler that this should not be foreced
 
-        # class Future:
-        #     def is_ready(self):
-        #         return comm.improbe(source=insn.i_remote_rank, tag=insn.tag)
-        #
-        #     def __call__(self):
-        #         remote_data_host = np.empty_like(local_data)
-        #         comm.Recv(remote_data_host, source=insn.i_remote_rank, tag=insn.tag)
-        #         send_req.wait()
-        #
-        #         remote_data = cl.array.to_device(queue, remote_data_host)
-        #         return [(insn.name, remote_data)], []
-        #
-        # return [], [Future()]
+        class RecvFuture:
+            def __init__(self, recv_req, insn_name, remote_data_host, queue):
+                self.receive_request = recv_req
+                self.insn_name = insn_name
+                self.remote_data_host = remote_data_host
+                self.queue = queue
 
+            def is_ready(self):
+                return self.receive_request.Test()
+
+            def __call__(self):
+                # assert self.is_ready(), "RecvFuture was not ready to be called!"
+                self.receive_request.Wait()
+                remote_data = cl.array.to_device(self.queue, self.remote_data_host)
+                return [(self.insn_name, remote_data)], []
+
+
+        class SendFuture:
+            def __init__(self, send_request):
+                self.send_request = send_request
+
+            def is_ready(self):
+                return self.send_request.Test()
+
+            def __call__(self):
+                # assert self.is_ready(), "SendFuture was not ready to be called!"
+                self.send_request.wait()
+                return [], []
+
+
+        return [], [RecvFuture(recv_req, insn.name, remote_data_host, self.queue),
+                    SendFuture(send_req)]
 
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
@@ -557,6 +577,37 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     from meshmode.distributed import get_connected_partitions
     connected_parts = get_connected_partitions(volume_mesh)
     sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
+
+    # TODO
+    # This MPI communication my not be necessary. The goal is to define unique and
+    # consistent tags for each OppSwap. This could be achieved by defining some
+    # ordering of these opperators and assigning tags accordingly.
+    comm = discrwb.mpi_communicator
+    i_local_rank = comm.Get_rank()
+
+    # NOTE: MPITagCollector does not modify sym_operator
+    tag_mapper = mappers.MPITagCollector(i_local_rank)
+    sym_operator = tag_mapper(sym_operator)
+
+    if len(tag_mapper.send_tag_lookups) > 0:
+        # TODO: Tag should probably be global
+        MPI_TAG_SEND_TAGS = 1729
+        send_reqs = []
+        for i_remote_rank in connected_parts:
+            send_tags = tag_mapper.send_tag_lookups[i_remote_rank]
+            send_reqs.append(comm.isend(send_tags, source=i_remote_rank,
+                                                   tag=MPI_TAG_SEND_TAGS))
+
+        recv_tag_lookups = {}
+        for i_remote_rank in connected_parts:
+            recv_tags = comm.recv(source=i_remote_rank, tag=MPI_TAG_SEND_TAGS)
+            recv_tag_lookups[i_remote_rank] = recv_tags
+
+        for req in send_reqs:
+            req.wait()
+
+        sym_operator = mappers.MPITagDistributor(recv_tag_lookups,
+                                                 i_local_rank)(sym_operator)
 
     dumper("before-imass", sym_operator)
     sym_operator = mappers.InverseMassContractor()(sym_operator)

@@ -408,8 +408,11 @@ class RefInverseMassOperator(RefMassOperatorBase):
 
 
 # {{{ boundary-related operators
-
 class OppositePartitionFaceSwap(Operator):
+    # FIXME: Static attribute, super hacky
+    from itertools import count
+    _num_instances = count(0)
+
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
@@ -427,8 +430,8 @@ class OppositePartitionFaceSwap(Operator):
             raise ValueError("dd_out and dd_in must be identical")
 
         self.i_remote_part = self.dd_in.domain_tag.part_nr
-        # FIXME: We should have a unique offset for each instance on a particular rank
-        self.mpi_tag_offset = 0
+        self.send_tag_offset = next(self._num_instances)
+        # self.recv_tag_offset = -0x3700d3e # Some magic bad value
 
     mapper_method = intern("map_opposite_partition_face_swap")
 
