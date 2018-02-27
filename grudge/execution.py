@@ -577,25 +577,20 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     connected_parts = get_connected_partitions(volume_mesh)
     sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
 
-    # TODO
-    # This MPI communication my not be necessary. The goal is to define unique and
-    # consistent tags for each OppSwap. This could be achieved by defining some
-    # ordering of these opperators and assigning tags accordingly.
+    # Communicate send and recv tags between ranks
     comm = discrwb.mpi_communicator
     i_local_rank = comm.Get_rank()
 
-    # NOTE: MPITagCollector does not modify sym_operator
     tag_mapper = mappers.MPITagCollector(i_local_rank)
     sym_operator = tag_mapper(sym_operator)
 
     if len(tag_mapper.send_tag_lookups) > 0:
-        # TODO: Tag should probably be global
+        # TODO: Tag should be global
         MPI_TAG_SEND_TAGS = 1729
         send_reqs = []
         for i_remote_rank in connected_parts:
             send_tags = tag_mapper.send_tag_lookups[i_remote_rank]
-            send_reqs.append(comm.isend(send_tags, source=i_remote_rank,
-                                                   tag=MPI_TAG_SEND_TAGS))
+            send_reqs.append(comm.isend(send_tags, i_remote_rank, MPI_TAG_SEND_TAGS))
 
         recv_tag_lookups = {}
         for i_remote_rank in connected_parts:

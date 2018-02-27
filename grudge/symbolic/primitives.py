@@ -307,6 +307,7 @@ class cse_scope(cse_scope_base):  # noqa
 class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
     """A user-supplied input variable with a known :class:`DOFDesc`.
     """
+    init_arg_names = ("name", "dd")
 
     def __init__(self, name, dd=None):
         if dd is None:
@@ -370,6 +371,8 @@ cos = CFunction("cos")
 # {{{ technical helpers
 
 class OperatorBinding(ExpressionBase):
+    init_arg_names = ("op", "field")
+
     def __init__(self, op, field):
         self.op = op
         self.field = field

@@ -97,6 +97,8 @@ class ElementwiseLinearOperator(Operator):
 
 
 class InterpolationOperator(Operator):
+    init_arg_names = ("dd_in", "dd_out")
+
     def __init__(self, dd_in, dd_out):
         official_dd_in = _sym().as_dofdesc(dd_in)
         official_dd_out = _sym().as_dofdesc(dd_out)
@@ -409,10 +411,6 @@ class RefInverseMassOperator(RefMassOperatorBase):
 
 # {{{ boundary-related operators
 class OppositePartitionFaceSwap(Operator):
-    # FIXME: Static attribute, super hacky
-    from itertools import count
-    _num_instances = count(0)
-
     def __init__(self, dd_in=None, dd_out=None):
         sym = _sym()
 
@@ -430,8 +428,6 @@ class OppositePartitionFaceSwap(Operator):
             raise ValueError("dd_out and dd_in must be identical")
 
         self.i_remote_part = self.dd_in.domain_tag.part_nr
-        self.send_tag_offset = next(self._num_instances)
-        # self.recv_tag_offset = -0x3700d3e # Some magic bad value
 
     mapper_method = intern("map_opposite_partition_face_swap")
 

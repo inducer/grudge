@@ -336,6 +336,45 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 
 # {{{ mappers for distributed computation
 
+def make_key_from_expr(expr, i_send_rank, i_recv_rank, clean_btag):
+    from copy import deepcopy
+    expr = deepcopy(expr)
+
+    class BTAGCleaner(IdentityMapper):
+        def __init__(self):
+            from meshmode.mesh import BTAG_PARTITION
+            self.prev_dd = sym.as_dofdesc(BTAG_PARTITION(i_recv_rank))
+            self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_send_rank))
+
+        def map_operator_binding(self, expr):
+            if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
+                        and expr.op.dd_in == self.prev_dd
+                        and expr.op.dd_out == self.prev_dd):
+                field = self.rec(expr.field)
+                return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
+                                                    dd_out=self.new_dd)(field)
+            elif (isinstance(expr.op, op.InterpolationOperator)
+                        and expr.op.dd_out == self.prev_dd):
+                return op.InterpolationOperator(dd_in=expr.op.dd_in,
+                                                dd_out=self.new_dd)(expr.field)
+            elif (isinstance(expr.op, op.RefDiffOperator)
+                        and expr.op.dd_out == self.prev_dd
+                        and expr.op.dd_in == self.prev_dd):
+                return op.RefDiffOperator(expr.op.rst_axis,
+                                          dd_in=self.new_dd,
+                                          dd_out=self.new_dd)(self.rec(expr.field))
+
+        def map_node_coordinate_component(self, expr):
+            if expr.dd == self.prev_dd:
+                return type(expr)(expr.axis, self.new_dd)
+    if clean_btag:
+        # FIXME: Maybe there is a better way to do this
+        # We need to change BTAG_PARTITION so that when expr is sent over to the
+        # other rank, it matches one of its own expressions
+        expr = BTAGCleaner()(expr)
+    return (expr, i_send_rank, i_recv_rank)
+
+
 class MPITagCollector(CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
@@ -345,18 +384,17 @@ class MPITagCollector(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositePartitionFaceSwap):
-            field = self.rec(expr.field)
             i_remote_rank = expr.op.i_remote_part
-            # FIXME: Come up with a better key
-            # We MUST be sure that tags are UNIQUE for each pair of neighboring ranks
-            key = (field.field.index, self.i_local_rank, i_remote_rank)
-            tag = expr.op.send_tag_offset
+            key = make_key_from_expr(self.rec(expr.field),
+                                     i_send_rank=self.i_local_rank,
+                                     i_recv_rank=i_remote_rank,
+                                     clean_btag=True)
             if i_remote_rank not in self.send_tag_lookups:
-                self.send_tag_lookups[i_remote_rank] = {key: tag}
-            else:
-                assert key not in self.send_tag_lookups[i_remote_rank],\
-                            "Duplicate keys found in tag lookup"
-                self.send_tag_lookups[i_remote_rank][key] = tag
+                self.send_tag_lookups[i_remote_rank] = {}
+            assert key not in self.send_tag_lookups[i_remote_rank],\
+                        "Duplicate keys found in tag lookup"
+            tag = expr.op.send_tag_offset = len(self.send_tag_lookups[i_remote_rank])
+            self.send_tag_lookups[i_remote_rank][key] = tag
             return expr
         else:
             return IdentityMapper.map_operator_binding(self, expr)
@@ -371,9 +409,11 @@ class MPITagDistributor(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.OppositePartitionFaceSwap):
-            field = self.rec(expr.field)
             i_remote_rank = expr.op.i_remote_part
-            key = (field.field.index, i_remote_rank, self.i_local_rank)
+            key = make_key_from_expr(self.rec(expr.field),
+                                     i_send_rank=i_remote_rank,
+                                     i_recv_rank=self.i_local_rank,
+                                     clean_btag=False)
             expr.op.recv_tag_offset = self.recv_tag_lookups[i_remote_rank][key]
             return expr
         else:
