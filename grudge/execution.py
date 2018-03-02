@@ -332,11 +332,6 @@ class ExecutionMapper(mappers.Evaluator,
         remote_data_host = np.empty_like(local_data)
         recv_req = comm.Irecv(remote_data_host, insn.i_remote_rank, insn.recv_tag)
 
-        # Do all instructions complete before futures?
-        # FIXME: We CANNOT have any possibility of deadlock
-        # One option is to add an attribute that tells the scheduler that this
-        # should not be foreced
-
         class RecvFuture:
             def __init__(self, recv_req, insn_name, remote_data_host, queue):
                 self.receive_request = recv_req
@@ -587,11 +582,13 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     if len(tag_mapper.send_tag_lookups) > 0:
         # TODO: Tag should be global
         MPI_TAG_SEND_TAGS = 1729
+        # print("Rank %d distributing tags" % i_local_rank)
         send_reqs = []
         for i_remote_rank in connected_parts:
             send_tags = tag_mapper.send_tag_lookups[i_remote_rank]
             send_reqs.append(comm.isend(send_tags, i_remote_rank, MPI_TAG_SEND_TAGS))
 
+        # print("Rank %d receiving tags" % i_local_rank)
         recv_tag_lookups = {}
         for i_remote_rank in connected_parts:
             recv_tags = comm.recv(source=i_remote_rank, tag=MPI_TAG_SEND_TAGS)
