@@ -381,7 +381,7 @@ class Code(object):
     def __init__(self, instructions, result):
         self.instructions = instructions
         self.result = result
-        self.last_schedule = None
+        # self.last_schedule = None
         self.static_schedule_attempts = 5
 
     def dump_dataflow_graph(self):
@@ -477,80 +477,53 @@ class Code(object):
 
         return argmax2(available_insns), discardable_vars
 
-    def execute_dynamic(self, exec_mapper, pre_assign_check=None):
-        """Execute the instruction stream, make all scheduling decisions
-        dynamically. Record the schedule in *self.last_schedule*.
-        """
-        schedule = []
-
+    def execute(self, exec_mapper, pre_assign_check=None):
         context = exec_mapper.context
 
-        next_future_id = 0
         futures = []
         done_insns = set()
 
-        force_future = False
+        def try_evaluate_future():
+            for i in range(len(futures)):
+                if futures[i].is_ready():
+                    future = futures.pop(i)
+                    assignments, new_futures = future()
+
+                    for target, value in assignments:
+                        if pre_assign_check is not None:
+                            pre_assign_check(target, value)
+                        context[target] = value
+
+                    futures.extend(new_futures)
+                    return True
+            return False
 
         while True:
-            insn = None
-            discardable_vars = []
+            try:
+                insn, discardable_vars = self.get_next_step(
+                    frozenset(list(context.keys())),
+                    frozenset(done_insns))
 
-            # check futures for completion
+                done_insns.add(insn)
+                for name in discardable_vars:
+                    del context[name]
 
-            i = 0
-            while i < len(futures):
-                future = futures[i]
-                if force_future or future.is_ready():
-                    futures.pop(i)
+                mapper_method = getattr(exec_mapper, insn.mapper_method)
+                assignments, new_futures = mapper_method(insn)
 
-                    insn = self.EvaluateFuture(future.id)
-
-                    assignments, new_futures = future()
-                    force_future = False
-                    break
-                else:
-                    i += 1
-
-                del future
-
-            # if no future got processed, pick the next insn
-            if insn is None:
-                try:
-                    insn, discardable_vars = self.get_next_step(
-                            frozenset(list(context.keys())),
-                            frozenset(done_insns))
-
-                except self.NoInstructionAvailable:
-                    if futures:
-                        # no insn ready: we need a future to complete to continue
-                        # FIXME: May induce deadlock in RankDataSwapAssign
-                        force_future = True
-                        # pass
-                    else:
-                        # no futures, no available instructions: we're done
-                        break
-                else:
-                    for name in discardable_vars:
-                        del context[name]
-
-                    done_insns.add(insn)
-                    mapper_method = getattr(exec_mapper, insn.mapper_method)
-                    assignments, new_futures = mapper_method(insn)
-
-            if insn is not None:
                 for target, value in assignments:
                     if pre_assign_check is not None:
                         pre_assign_check(target, value)
-
                     context[target] = value
 
                 futures.extend(new_futures)
-
-                schedule.append((discardable_vars, insn, len(new_futures)))
-
-                for future in new_futures:
-                    future.id = next_future_id
-                    next_future_id += 1
+            except self.NoInstructionAvailable:
+                if not futures:
+                    # No more instructions or futures. We are done.
+                    break
+                # Busy wait for a new future
+                while not try_evaluate_future():
+                    pass
 
         if len(done_insns) < len(self.instructions):
             print("Unreachable instructions:")
@@ -560,71 +533,8 @@ class Code(object):
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
-        if self.static_schedule_attempts:
-            self.last_schedule = schedule
-
         from pytools.obj_array import with_object_array_or_scalar
         return with_object_array_or_scalar(exec_mapper, self.result)
-
-    # }}}
-
-    # {{{ static schedule execution
-
-    class EvaluateFuture(object):
-        """A fake 'instruction' that represents evaluation of a future."""
-        def __init__(self, future_id):
-            self.future_id = future_id
-
-    def execute(self, exec_mapper, pre_assign_check=None):
-        """If we have a saved, static schedule for this instruction stream,
-        execute it. Otherwise, punt to the dynamic scheduler below.
-        """
-
-        if self.last_schedule is None:
-            return self.execute_dynamic(exec_mapper, pre_assign_check)
-
-        context = exec_mapper.context
-        id_to_future = {}
-        next_future_id = 0
-
-        schedule_is_delay_free = True
-
-        for discardable_vars, insn, new_future_count in self.last_schedule:
-            for name in discardable_vars:
-                del context[name]
-
-            if isinstance(insn, self.EvaluateFuture):
-                future = id_to_future.pop(insn.future_id)
-                if not future.is_ready():
-                    schedule_is_delay_free = False
-                assignments, new_futures = future()
-                del future
-            else:
-                mapper_method = getattr(exec_mapper, insn.mapper_method)
-                assignments, new_futures = mapper_method(insn)
-
-            for target, value in assignments:
-                if pre_assign_check is not None:
-                    pre_assign_check(target, value)
-
-                context[target] = value
-
-            if len(new_futures) != new_future_count:
-                raise RuntimeError("static schedule got an unexpected number "
-                        "of futures")
-
-            for future in new_futures:
-                id_to_future[next_future_id] = future
-                next_future_id += 1
-
-        if not schedule_is_delay_free:
-            self.last_schedule = None
-            self.static_schedule_attempts -= 1
-
-        from pytools.obj_array import with_object_array_or_scalar
-        return with_object_array_or_scalar(exec_mapper, self.result)
-
-    # }}}
 
 # }}}
 
