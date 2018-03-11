@@ -6,6 +6,7 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
 
 
+
 def simple_wave_entrypoint(dim=2, order=4, n=16):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -81,16 +82,22 @@ def benchmark_mpi():
     import time
     from subprocess import check_call
     import sys
+    environment_vars = [
+        ("RUN_WITHIN_MPI", "1"),
+        ("PYOPENCL_CTX", "0"),
+        ("POCL_AFFINITY", "1")
+    ]
     newenv = os.environ.copy()
-    newenv["RUN_WITHIN_MPI"] = "1"
-    newenv["PYOPENCL_CTX"] = "0"
+    for var, val in environment_vars:
+        newenv[var] = val
     for num_ranks in [1, 2]:
+        sys_call = ["mpiexec", "-np", str(num_ranks),
+                    *sum([["-x", var] for var, _ in environment_vars], []),
+                    sys.executable, __file__]
+        print("Running command:")
+        print(*sys_call)
         start_time = time.time()
-        check_call(["mpiexec", "-np", str(num_ranks),
-                    "-x", "RUN_WITHIN_MPI",
-                    "-x", "PYOPENCL_CTX",
-                    sys.executable, __file__],
-                    env=newenv)
+        check_call(sys_call, env=newenv)
         print("Execution time with %d rank(s): %f"
                     % (num_ranks, time.time() - start_time))
 
