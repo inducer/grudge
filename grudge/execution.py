@@ -343,7 +343,6 @@ class ExecutionMapper(mappers.Evaluator,
                 return self.receive_request.Test()
 
             def __call__(self):
-                # assert self.is_ready(), "RecvFuture was not ready to be called!"
                 self.receive_request.Wait()
                 remote_data = cl.array.to_device(self.queue, self.remote_data_host)
                 return [(self.insn_name, remote_data)], []
@@ -356,7 +355,6 @@ class ExecutionMapper(mappers.Evaluator,
                 return self.send_request.Test()
 
             def __call__(self):
-                # assert self.is_ready(), "SendFuture was not ready to be called!"
                 self.send_request.wait()
                 return [], []
 
