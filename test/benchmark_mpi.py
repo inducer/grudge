@@ -7,7 +7,7 @@ from grudge.shortcuts import set_up_rk4
 
 
 
-def simple_wave_entrypoint(dim=2, order=4, n=16):
+def simple_wave_entrypoint(dim=2, order=4, n=256):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -77,33 +77,12 @@ def simple_wave_entrypoint(dim=2, order=4, n=16):
     for event in dt_stepper.run(t_end=final_t):
         pass
 
-
-def benchmark_mpi():
-    import time
-    from subprocess import check_call
-    import sys
-    environment_vars = [
-        ("RUN_WITHIN_MPI", "1"),
-        ("PYOPENCL_CTX", "0"),
-        ("POCL_AFFINITY", "1")
-    ]
-    newenv = os.environ.copy()
-    for var, val in environment_vars:
-        newenv[var] = val
-    for num_ranks in [1, 2]:
-        sys_call = ["mpiexec", "-np", str(num_ranks),
-                    *sum([["-x", var] for var, _ in environment_vars], []),
-                    sys.executable, __file__]
-        print("Running command:")
-        print(*sys_call)
-        start_time = time.time()
-        check_call(sys_call, env=newenv)
-        print("Execution time with %d rank(s): %f"
-                    % (num_ranks, time.time() - start_time))
-
-
 if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
-        simple_wave_entrypoint()
+        import sys
+        mesh_size = 64
+        if len(sys.argv) == 2:
+            mesh_size = int(sys.argv[1])
+        simple_wave_entrypoint(n=mesh_size)
     else:
-        benchmark_mpi()
+        assert 0, "Must run within mpi"
