@@ -214,16 +214,16 @@ class RankDataSwapAssign(Instruction):
     .. attribute:: dd_out
     .. attribute:: comment
     """
-    # TODO: Is this number ok? We probably want it to be global.
-    MPI_TAG_GRUDGE_DATA = 0x3700d3e
+    # TODO: We need to be sure this does not conflict with some other tag.
+    MPI_TAG_GRUDGE_DATA_BASE = 0x3700d3e
 
     def __init__(self, name, field, op):
         self.name = name
         self.field = field
         self.i_remote_rank = op.i_remote_part
         self.dd_out = op.dd_out
-        self.send_tag = self.MPI_TAG_GRUDGE_DATA + op.send_tag_offset
-        self.recv_tag = self.MPI_TAG_GRUDGE_DATA + op.recv_tag_offset
+        self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.send_tag_offset
+        self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.recv_tag_offset
         self.comment = "Swap data with rank %02d" % self.i_remote_rank
 
     @memoize_method
@@ -1153,8 +1153,6 @@ class OperatorCompiler(mappers.IdentityMapper):
             field_insn = RankDataSwapAssign(name=name, field=field, op=expr.op)
             codegen_state.get_code_list(self).append(field_insn)
             field_var = Variable(field_insn.name)
-            # TODO: Do I need this?
-            # self.expr_to_var[field] = field_var
             self.expr_to_var[expr] = self.assign_to_new_var(codegen_state,
                                                             expr.op(field_var),
                                                             prefix=name_hint)

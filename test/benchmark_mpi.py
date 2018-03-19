@@ -6,14 +6,12 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
 
 
-
 def simple_wave_entrypoint(dim=2, order=4, n=256):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
-    i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
 
     from meshmode.distributed import MPIMeshDistributor
@@ -72,10 +70,10 @@ def simple_wave_entrypoint(dim=2, order=4, n=256):
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 4
-    nsteps = int(final_t/dt)
 
     for event in dt_stepper.run(t_end=final_t):
         pass
+
 
 if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
