@@ -199,10 +199,10 @@ def mpi_communication_entrypoint():
             print(step, event.t, norm(queue, u=event.state_component[0]),
                   time()-t_last_step)
 
-            if step % 10 == 0:
-                vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
-                                   [("u", event.state_component[0]),
-                                    ("v", event.state_component[1:])])
+            # if step % 10 == 0:
+            #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
+            #                        [("u", event.state_component[0]),
+            #                         ("v", event.state_component[1:])])
             t_last_step = time()
     logger.debug("Rank %d exiting", i_local_rank)
 
