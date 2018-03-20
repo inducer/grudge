@@ -180,8 +180,8 @@ def mpi_communication_entrypoint():
     nsteps = int(final_t/dt)
     print("rank=%d dt=%g nsteps=%d" % (i_local_rank, dt, nsteps))
 
-    from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(vol_discr, vis_order=order)
+    # from grudge.shortcuts import make_visualizer
+    # vis = make_visualizer(vol_discr, vis_order=order)
 
     step = 0
 
