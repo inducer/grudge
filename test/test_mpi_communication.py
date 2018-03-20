@@ -36,6 +36,7 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
 
 
+@pytest.mark.skip()
 def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -99,6 +100,7 @@ def simple_mpi_communication_entrypoint():
     assert error < 1e-14
 
 
+@pytest.mark.skip()
 def mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -209,8 +211,9 @@ def mpi_communication_entrypoint():
 
 # {{{ MPI test pytest entrypoint
 
-@pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [3])
+# @pytest.mark.mpi
+# @pytest.mark.parametrize("num_ranks", [3])
+@pytest.mark.skip()
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
