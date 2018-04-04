@@ -11,4 +11,3 @@ git+https://github.com/inducer/modepy.git
 # FIXME: Revert to this when merged
 #git+https://github.com/inducer/meshmode.git
 git+https://gitlab.tiker.net/eshoag2/meshmode.git@partition
-pymetis
