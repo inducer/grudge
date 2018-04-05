@@ -192,14 +192,18 @@ def mpi_communication_entrypoint():
     from time import time
     t_last_step = time()
 
+    profile_data = {}
+
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
 
             step += 1
-
-            print(step, event.t, norm(queue, u=event.state_component[0]),
-                  time()-t_last_step)
+            n, profile_data = norm(queue, profile_data=profile_data, u=event.state_component[0])
+            if i_local_rank == 0:
+                print(step, event.t, n,
+                      time()-t_last_step)
+                print(profile_data)
 
             # if step % 10 == 0:
             #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
@@ -208,13 +212,23 @@ def mpi_communication_entrypoint():
             t_last_step = time()
     logger.debug("Rank %d exiting", i_local_rank)
 
+    print("""execute() for rank %d:
+            \tInstruction Evaluation: %f%%
+            \tFuture Evaluation: %f%%
+            \tBusy Wait: %f%%
+            \tTotal: %f seconds""" % (i_local_rank,
+                                      profile_data['insn_eval_time'] / profile_data['total_time'] * 100,
+                                      profile_data['future_eval_time'] / profile_data['total_time'] * 100,
+                                      profile_data['busy_wait_time'] / profile_data['total_time'] * 100,
+                                      profile_data['total_time']))
+
 
 # {{{ MPI test pytest entrypoint
 
-# @pytest.mark.mpi
-# @pytest.mark.parametrize("num_ranks", [3])
+@pytest.mark.mpi
+@pytest.mark.parametrize("num_ranks", [3])
 # FIXME: gitlab runs forever on this.
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
@@ -229,9 +243,9 @@ def test_mpi(num_ranks):
         env=newenv)
 
 
-# @pytest.mark.mpi
+@pytest.mark.mpi
 # FIXME: gitlab runs forever on this.
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_simple_mpi():
     pytest.importorskip("mpi4py")
 

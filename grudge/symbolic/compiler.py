@@ -477,32 +477,28 @@ class Code(object):
 
         return argmax2(available_insns), discardable_vars
 
-    def execute(self, exec_mapper, pre_assign_check=None):
+    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None):
+        if profile_data is not None:
+            from time import time
+            start_time = time()
+            if profile_data == {}:
+                profile_data['insn_eval_time'] = 0
+                profile_data['future_eval_time'] = 0
+                profile_data['busy_wait_time'] = 0
+                profile_data['total_time'] = 0
         context = exec_mapper.context
 
         futures = []
         done_insns = set()
-
-        def try_evaluate_future():
-            for i in range(len(futures)):
-                if futures[i].is_ready():
-                    future = futures.pop(i)
-                    assignments, new_futures = future()
-
-                    for target, value in assignments:
-                        if pre_assign_check is not None:
-                            pre_assign_check(target, value)
-                        context[target] = value
-
-                    futures.extend(new_futures)
-                    return True
-            return False
 
         while True:
             try:
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
                     frozenset(done_insns))
+
+                if profile_data is not None:
+                    insn_start_time = time()
 
                 done_insns.add(insn)
                 for name in discardable_vars:
@@ -517,13 +513,38 @@ class Code(object):
                     context[target] = value
 
                 futures.extend(new_futures)
+                if profile_data is not None:
+                    profile_data['insn_eval_time'] += time() - insn_start_time
             except self.NoInstructionAvailable:
                 if not futures:
                     # No more instructions or futures. We are done.
                     break
                 # Busy wait for a new future
-                while not try_evaluate_future():
-                    pass
+                if profile_data is not None:
+                    busy_wait_start_time = time()
+
+                did_eval_future = False
+                while not did_eval_future:
+                    for i in range(len(futures)):
+                        if futures[i].is_ready():
+                            if profile_data is not None:
+                                profile_data['busy_wait_time'] += time() - busy_wait_start_time
+                                future_start_time = time()
+
+                            future = futures.pop(i)
+                            assignments, new_futures = future()
+
+                            for target, value in assignments:
+                                if pre_assign_check is not None:
+                                    pre_assign_check(target, value)
+                                context[target] = value
+
+                            futures.extend(new_futures)
+                            did_eval_future = True
+
+                            if profile_data is not None:
+                                profile_data['future_eval_time'] += time() - future_start_time
+                            break
 
         if len(done_insns) < len(self.instructions):
             print("Unreachable instructions:")
@@ -533,7 +554,12 @@ class Code(object):
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
+        if profile_data is not None:
+            profile_data['total_time'] += time() - start_time
+
         from pytools.obj_array import with_object_array_or_scalar
+        if profile_data is not None:
+            return with_object_array_or_scalar(exec_mapper, self.result), profile_data
         return with_object_array_or_scalar(exec_mapper, self.result)
 
 # }}}

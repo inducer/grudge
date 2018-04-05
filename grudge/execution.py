@@ -483,7 +483,7 @@ class BoundOperator(object):
                 + sep
                 + str(self.eval_code))
 
-    def __call__(self, queue, **context):
+    def __call__(self, queue, profile_data=None, **context):
         import pyopencl.array as cl_array
 
         def replace_queue(a):
@@ -512,7 +512,7 @@ class BoundOperator(object):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
         return self.eval_code.execute(
-                ExecutionMapper(queue, new_context, self))
+                ExecutionMapper(queue, new_context, self), profile_data=profile_data)
 
 # }}}
 
