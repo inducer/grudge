@@ -183,8 +183,7 @@ def mpi_communication_entrypoint():
     final_t = 4
     nsteps = int(final_t/dt)
     print("rank=%d dt=%g nsteps=%d" % (i_local_rank, dt, nsteps))
-    # NOTE: Testing function in getlab....
-    return
+
     # from grudge.shortcuts import make_visualizer
     # vis = make_visualizer(vol_discr, vis_order=order)
 
@@ -202,8 +201,6 @@ def mpi_communication_entrypoint():
             step += 1
             print(step, event.t, norm(queue, u=event.state_component[0]),
                   time()-t_last_step)
-            # if mesh_dist.is_mananger_rank():
-            #     print(rhs.profile_data)
 
             # if step % 10 == 0:
             #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
@@ -223,7 +220,6 @@ def mpi_communication_entrypoint():
              data['busy_wait_time'] / data['total_time'] * 100,
              data['total_time']))
 
-    # if mesh_dist.is_mananger_rank():
     print_profile_data(rhs.profile_data)
     logger.debug("Rank %d exiting", i_local_rank)
 
