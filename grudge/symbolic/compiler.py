@@ -495,7 +495,7 @@ class Code(object):
             try:
                 if profile_data is not None:
                     insn_start_time = time()
-                    
+
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
                     frozenset(done_insns))
