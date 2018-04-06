@@ -528,7 +528,8 @@ class Code(object):
                     for i in range(len(futures)):
                         if futures[i].is_ready():
                             if profile_data is not None:
-                                profile_data['busy_wait_time'] += time() - busy_wait_start_time
+                                profile_data['busy_wait_time'] +=\
+                                        time() - busy_wait_start_time
                                 future_start_time = time()
 
                             future = futures.pop(i)
@@ -543,7 +544,8 @@ class Code(object):
                             did_eval_future = True
 
                             if profile_data is not None:
-                                profile_data['future_eval_time'] += time() - future_start_time
+                                profile_data['future_eval_time'] +=\
+                                        time() - future_start_time
                             break
 
         if len(done_insns) < len(self.instructions):
@@ -559,7 +561,8 @@ class Code(object):
 
         from pytools.obj_array import with_object_array_or_scalar
         if profile_data is not None:
-            return with_object_array_or_scalar(exec_mapper, self.result), profile_data
+            return (with_object_array_or_scalar(exec_mapper, self.result),
+                    profile_data)
         return with_object_array_or_scalar(exec_mapper, self.result)
 
 # }}}

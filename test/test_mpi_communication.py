@@ -174,14 +174,17 @@ def mpi_communication_entrypoint():
     # 1/0
 
     def rhs(t, w):
-        return bound_op(queue, t=t, w=w)
+        val, rhs.profile_data = bound_op(queue, profile_data=rhs.profile_data, t=t, w=w)
+        return val
+    rhs.profile_data = {}
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 4
     nsteps = int(final_t/dt)
     print("rank=%d dt=%g nsteps=%d" % (i_local_rank, dt, nsteps))
-
+    # NOTE: Testing function in getlab....
+    return
     # from grudge.shortcuts import make_visualizer
     # vis = make_visualizer(vol_discr, vis_order=order)
 
@@ -192,35 +195,37 @@ def mpi_communication_entrypoint():
     from time import time
     t_last_step = time()
 
-    profile_data = {}
-
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
 
             step += 1
-            n, profile_data = norm(queue, profile_data=profile_data, u=event.state_component[0])
-            if i_local_rank == 0:
-                print(step, event.t, n,
-                      time()-t_last_step)
-                print(profile_data)
+            print(step, event.t, norm(queue, u=event.state_component[0]),
+                  time()-t_last_step)
+            # if mesh_dist.is_mananger_rank():
+            #     print(rhs.profile_data)
 
             # if step % 10 == 0:
             #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
             #                        [("u", event.state_component[0]),
             #                         ("v", event.state_component[1:])])
             t_last_step = time()
-    logger.debug("Rank %d exiting", i_local_rank)
 
-    print("""execute() for rank %d:
+    def print_profile_data(data):
+        print("""execute() for rank %d:
             \tInstruction Evaluation: %f%%
             \tFuture Evaluation: %f%%
             \tBusy Wait: %f%%
-            \tTotal: %f seconds""" % (i_local_rank,
-                                      profile_data['insn_eval_time'] / profile_data['total_time'] * 100,
-                                      profile_data['future_eval_time'] / profile_data['total_time'] * 100,
-                                      profile_data['busy_wait_time'] / profile_data['total_time'] * 100,
-                                      profile_data['total_time']))
+            \tTotal: %f seconds""" %
+            (i_local_rank,
+             data['insn_eval_time'] / data['total_time'] * 100,
+             data['future_eval_time'] / data['total_time'] * 100,
+             data['busy_wait_time'] / data['total_time'] * 100,
+             data['total_time']))
+
+    # if mesh_dist.is_mananger_rank():
+    print_profile_data(rhs.profile_data)
+    logger.debug("Rank %d exiting", i_local_rank)
 
 
 # {{{ MPI test pytest entrypoint
