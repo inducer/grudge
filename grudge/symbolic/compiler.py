@@ -493,12 +493,12 @@ class Code(object):
 
         while True:
             try:
+                if profile_data is not None:
+                    insn_start_time = time()
+                    
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
                     frozenset(done_insns))
-
-                if profile_data is not None:
-                    insn_start_time = time()
 
                 done_insns.add(insn)
                 for name in discardable_vars:
@@ -556,11 +556,9 @@ class Code(object):
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
-        if profile_data is not None:
-            profile_data['total_time'] += time() - start_time
-
         from pytools.obj_array import with_object_array_or_scalar
         if profile_data is not None:
+            profile_data['total_time'] += time() - start_time
             return (with_object_array_or_scalar(exec_mapper, self.result),
                     profile_data)
         return with_object_array_or_scalar(exec_mapper, self.result)
