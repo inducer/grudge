@@ -168,6 +168,14 @@ def mpi_communication_entrypoint():
     #           Fails because: "found faces without boundary conditions"
     # op.check_bc_coverage(local_mesh)
 
+    from pytools.log import LogManager, \
+            add_general_quantities, \
+            add_run_info
+    log_filename = None
+    logmgr = LogManager(log_filename, "w", comm)
+    add_run_info(logmgr)
+    add_general_quantities(logmgr)
+
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(vol_discr, op.sym_operator())
     # print(bound_op)
@@ -196,6 +204,8 @@ def mpi_communication_entrypoint():
     t_last_step = time()
 
     for event in dt_stepper.run(t_end=final_t):
+        logmgr.tick_before()
+        logmgr.tick_after()
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
 
@@ -222,15 +232,16 @@ def mpi_communication_entrypoint():
              data['total_time']))
 
     print_profile_data(rhs.profile_data)
+    logmgr.close()
     logger.debug("Rank %d exiting", i_local_rank)
 
 
 # {{{ MPI test pytest entrypoint
 
-# @pytest.mark.mpi
-# @pytest.mark.parametrize("num_ranks", [3])
+@pytest.mark.mpi
+@pytest.mark.parametrize("num_ranks", [3])
 # FIXME: gitlab runs forever on this.
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
@@ -245,9 +256,9 @@ def test_mpi(num_ranks):
         env=newenv)
 
 
-# @pytest.mark.mpi
+@pytest.mark.mpi
 # FIXME: gitlab runs forever on this.
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_simple_mpi():
     pytest.importorskip("mpi4py")
 
