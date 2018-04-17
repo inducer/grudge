@@ -354,5 +354,9 @@ class PointsDiscretization(DiscretizationBase):
 
         return self
 
+    @property
+    def quad_tag_to_group_factory(self):
+        return {}
+
 
 # vim: foldmethod=marker
