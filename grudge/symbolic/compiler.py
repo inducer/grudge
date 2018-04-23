@@ -477,7 +477,7 @@ class Code(object):
 
         return argmax2(available_insns), discardable_vars
 
-    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None):
+    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None, log_quantities=None):
         if profile_data is not None:
             from time import time
             start_time = time()
@@ -505,6 +505,11 @@ class Code(object):
                     del context[name]
 
                 mapper_method = getattr(exec_mapper, insn.mapper_method)
+                if log_quantities is not None:
+                    from pytools.log import time_and_count_function
+                    mapper_method = time_and_count_function(mapper_method,
+                                                    log_quantities["timer"],
+                                                    log_quantities["counter"])
                 assignments, new_futures = mapper_method(insn)
 
                 for target, value in assignments:

@@ -170,11 +170,19 @@ def mpi_communication_entrypoint():
 
     from pytools.log import LogManager, \
             add_general_quantities, \
-            add_run_info
-    log_filename = None
+            add_run_info, \
+            IntervalTimer, EventCounter
+    # log_filename = None
+    log_filename = 'grudge_log.dat'
     logmgr = LogManager(log_filename, "w", comm)
     add_run_info(logmgr)
     add_general_quantities(logmgr)
+    log_quantities = {"timer": IntervalTimer("insn_timer",
+                                "Time spent evaluating instructions"),
+                      "counter": EventCounter("insn_counter",
+                                "Number of instructions evaluated")}
+    for quantity in log_quantities.values():
+        logmgr.add_quantity(quantity)
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(vol_discr, op.sym_operator())
@@ -183,6 +191,7 @@ def mpi_communication_entrypoint():
 
     def rhs(t, w):
         val, rhs.profile_data = bound_op(queue, profile_data=rhs.profile_data,
+                                         log_quantities=log_quantities,
                                          t=t, w=w)
         return val
     rhs.profile_data = {}
