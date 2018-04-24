@@ -486,6 +486,8 @@ class Code(object):
                 profile_data['future_eval_time'] = 0
                 profile_data['busy_wait_time'] = 0
                 profile_data['total_time'] = 0
+        if log_quantities is not None:
+            exec_sub_timer = log_quantities["exec_timer"].start_sub_timer()
         context = exec_mapper.context
 
         futures = []
@@ -495,6 +497,9 @@ class Code(object):
             try:
                 if profile_data is not None:
                     insn_start_time = time()
+                if log_quantities is not None:
+                    insn_sub_timer =\
+                                log_quantities["insn_eval_timer"].start_sub_timer()
 
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
@@ -506,10 +511,11 @@ class Code(object):
 
                 mapper_method = getattr(exec_mapper, insn.mapper_method)
                 if log_quantities is not None:
-                    from pytools.log import time_and_count_function
-                    mapper_method = time_and_count_function(mapper_method,
-                                                    log_quantities["timer"],
-                                                    log_quantities["counter"])
+                    if isinstance(insn, RankDataSwapAssign):
+                        from pytools.log import time_and_count_function
+                        mapper_method = time_and_count_function(mapper_method,
+                                        log_quantities["rank_data_swap_timer"],
+                                        log_quantities["rank_data_swap_counter"])
                 assignments, new_futures = mapper_method(insn)
 
                 for target, value in assignments:
@@ -520,6 +526,8 @@ class Code(object):
                 futures.extend(new_futures)
                 if profile_data is not None:
                     profile_data['insn_eval_time'] += time() - insn_start_time
+                if log_quantities is not None:
+                    insn_sub_timer.stop().submit()
             except self.NoInstructionAvailable:
                 if not futures:
                     # No more instructions or futures. We are done.
@@ -527,6 +535,9 @@ class Code(object):
                 # Busy wait for a new future
                 if profile_data is not None:
                     busy_wait_start_time = time()
+                if log_quantities is not None:
+                    busy_sub_timer =\
+                            log_quantities["busy_wait_timer"].start_sub_timer()
 
                 did_eval_future = False
                 while not did_eval_future:
@@ -536,6 +547,11 @@ class Code(object):
                                 profile_data['busy_wait_time'] +=\
                                         time() - busy_wait_start_time
                                 future_start_time = time()
+                            if log_quantities is not None:
+                                busy_sub_timer.stop().submit()
+                                future_sub_timer =\
+                                            log_quantities["future_eval_timer"]\
+                                                                .start_sub_timer()
 
                             future = futures.pop(i)
                             assignments, new_futures = future()
@@ -551,6 +567,8 @@ class Code(object):
                             if profile_data is not None:
                                 profile_data['future_eval_time'] +=\
                                         time() - future_start_time
+                            if log_quantities is not None:
+                                future_sub_timer.stop().submit()
                             break
 
         if len(done_insns) < len(self.instructions):
@@ -566,6 +584,8 @@ class Code(object):
             profile_data['total_time'] += time() - start_time
             return (with_object_array_or_scalar(exec_mapper, self.result),
                     profile_data)
+        if log_quantities is not None:
+            exec_sub_timer.stop().submit()
         return with_object_array_or_scalar(exec_mapper, self.result)
 
 # }}}
