@@ -512,8 +512,9 @@ class BoundOperator(object):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
         return self.eval_code.execute(
-                ExecutionMapper(queue, new_context, self), profile_data=profile_data,
-                                log_quantities=log_quantities)
+                ExecutionMapper(queue, new_context, self),
+                profile_data=profile_data,
+                log_quantities=log_quantities)
 
 # }}}
 

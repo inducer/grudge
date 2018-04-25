@@ -477,7 +477,8 @@ class Code(object):
 
         return argmax2(available_insns), discardable_vars
 
-    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None, log_quantities=None):
+    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None,
+                log_quantities=None):
         if profile_data is not None:
             from time import time
             start_time = time()
