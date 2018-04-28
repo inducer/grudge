@@ -221,10 +221,9 @@ def mpi_communication_entrypoint():
     from time import time
     t_last_step = time()
 
+    logmgr.tick_before()
     for event in dt_stepper.run(t_end=final_t):
         # FIXME: I think these ticks need to be put somewhere else
-        logmgr.tick_before()
-        logmgr.tick_after()
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
 
@@ -237,6 +236,10 @@ def mpi_communication_entrypoint():
             #                        [("u", event.state_component[0]),
             #                         ("v", event.state_component[1:])])
             t_last_step = time()
+        logmgr.tick_after()
+        logmgr.tick_before()
+    logmgr.tick_after()
+
 
     def print_profile_data(data):
         print("""execute() for rank %d:
@@ -257,10 +260,10 @@ def mpi_communication_entrypoint():
 
 # {{{ MPI test pytest entrypoint
 
-# @pytest.mark.mpi
-# @pytest.mark.parametrize("num_ranks", [3])
+@pytest.mark.mpi
+@pytest.mark.parametrize("num_ranks", [3])
 # FIXME: gitlab runs forever on this.
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
 
