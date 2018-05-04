@@ -78,6 +78,13 @@ Symbols
 .. autoclass:: make_sym_mv
 .. autoclass:: CFunction
 
+.. function :: sqrt(arg)
+.. function :: exp(arg)
+.. function :: sin(arg)
+.. function :: cos(arg)
+.. function :: besesl_j(n, arg)
+.. function :: besesl_y(n, arg)
+
 Helpers
 ^^^^^^^
 
@@ -345,12 +352,12 @@ class CFunction(pymbolic.primitives.Variable):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
 
-    def __call__(self, expr):
-        from pytools.obj_array import with_object_array_or_scalar
+    def __call__(self, *exprs):
+        from pytools.obj_array import with_object_array_or_scalar_n_args
         from functools import partial
-        return with_object_array_or_scalar(
+        return with_object_array_or_scalar_n_args(
                 partial(pymbolic.primitives.Expression.__call__, self),
-                expr)
+                *exprs)
 
     mapper_method = "map_c_function"
 
@@ -359,6 +366,8 @@ sqrt = CFunction("sqrt")
 exp = CFunction("exp")
 sin = CFunction("sin")
 cos = CFunction("cos")
+bessel_j = CFunction("bessel_j")
+bessel_y = CFunction("bessel_y")
 
 # }}}
 
