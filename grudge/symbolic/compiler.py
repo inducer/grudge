@@ -580,13 +580,13 @@ class Code(object):
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
+        if log_quantities is not None:
+            exec_sub_timer.stop().submit()
         from pytools.obj_array import with_object_array_or_scalar
         if profile_data is not None:
             profile_data['total_time'] += time() - start_time
             return (with_object_array_or_scalar(exec_mapper, self.result),
                     profile_data)
-        if log_quantities is not None:
-            exec_sub_timer.stop().submit()
         return with_object_array_or_scalar(exec_mapper, self.result)
 
 # }}}
