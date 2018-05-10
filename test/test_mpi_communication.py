@@ -236,8 +236,8 @@ def mpi_communication_entrypoint():
             #                        [("u", event.state_component[0]),
             #                         ("v", event.state_component[1:])])
             t_last_step = time()
-        logmgr.tick_after()
-        logmgr.tick_before()
+            logmgr.tick_after()
+            logmgr.tick_before()
     logmgr.tick_after()
 
     def print_profile_data(data):
