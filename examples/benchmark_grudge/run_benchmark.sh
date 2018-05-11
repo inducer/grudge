@@ -89,7 +89,8 @@ for HOSTS in $HOSTS_LIST; do
   fi
 
   BENCHMARK_CMD="$PYTHON $BENCHMARK_MPI $NUM_ELEMS $ORDER $NUM_STEPS $LOGFILE.trial$NUM_HOSTS"
-  MPI_CMD="mpiexec --output-filename $TEMPDIR/output -H $HOSTS $ENVIRONMENT_VARS $BENCHMARK_CMD"
+  # NOTE: mpiexec recently updated so some things might act weird.
+  MPI_CMD="mpiexec --output-filename $TEMPDIR -H $HOSTS $ENVIRONMENT_VARS $BENCHMARK_CMD"
   echo "Executing: $MPI_CMD"
 
   # NOTE: perf does not follow mpi accross different nodes.
@@ -101,9 +102,9 @@ for HOSTS in $HOSTS_LIST; do
   echo "Finished in $DURATION seconds"
 
   echo "===================Output of Python===================" >> $OUTFILE
-  cat $TEMPDIR/* >> $OUTFILE
+  find $TEMPDIR -type f -exec cat {} \; >> $OUTFILE
   echo "======================================================" >> $OUTFILE
-  rm $TEMPDIR/*
+  rm -rf $TEMPDIR/*
 
   if [ $NUM_HOSTS -eq 1 ]; then
     BASE_DURATION=$DURATION
