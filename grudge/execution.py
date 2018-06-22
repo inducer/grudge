@@ -35,6 +35,9 @@ from grudge import sym
 import logging
 logger = logging.getLogger(__name__)
 
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
+
+
 MPI_TAG_SEND_TAGS = 1729
 
 

@@ -24,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import numpy as np
 
 import six  # noqa
 from six.moves import zip, reduce
@@ -32,6 +33,8 @@ from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
 from six.moves import intern
+
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 
 
 # {{{ instructions
@@ -890,6 +893,59 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
                 "compilation process")
 
 
+# {{{ bessel handling
+
+BESSEL_PREAMBLE = """//CL//
+#include <pyopencl-bessel-j.cl>
+#include <pyopencl-bessel-y.cl>
+"""
+
+
+def bessel_preamble_generator(preamble_info):
+    from loopy.target.pyopencl import PyOpenCLTarget
+    if not isinstance(preamble_info.kernel.target, PyOpenCLTarget):
+        raise NotImplementedError("Only the PyOpenCLTarget is supported as of now")
+
+    if any(func.name in ["bessel_j", "bessel_y"]
+            for func in preamble_info.seen_functions):
+        yield ("50-grudge-bessel", BESSEL_PREAMBLE)
+
+
+def bessel_function_mangler(kernel, name, arg_dtypes):
+    from loopy.types import NumpyType
+    if name == "bessel_j" and len(arg_dtypes) == 2:
+        n_dtype, x_dtype, = arg_dtypes
+
+        # *technically* takes a float, but let's not worry about that.
+        if n_dtype.numpy_dtype.kind != "i":
+            raise TypeError("%s expects an integer first argument")
+
+        from loopy.kernel.data import CallMangleInfo
+        return CallMangleInfo(
+                "bessel_jv",
+                (NumpyType(np.float64),),
+                (NumpyType(np.int32), NumpyType(np.float64)),
+                )
+
+    elif name == "bessel_y" and len(arg_dtypes) == 2:
+        n_dtype, x_dtype, = arg_dtypes
+
+        # *technically* takes a float, but let's not worry about that.
+        if n_dtype.numpy_dtype.kind != "i":
+            raise TypeError("%s expects an integer first argument")
+
+        from loopy.kernel.data import CallMangleInfo
+        return CallMangleInfo(
+                "bessel_yn",
+                (NumpyType(np.float64),),
+                (NumpyType(np.int32), NumpyType(np.float64)),
+                )
+
+    return None
+
+# }}}
+
+
 class ToLoopyInstructionMapper(object):
     def __init__(self, dd_inference_mapper):
         self.dd_inference_mapper = dd_inference_mapper
@@ -918,7 +974,11 @@ class ToLoopyInstructionMapper(object):
                     lp.Assignment(
                         expr_mapper(var(name)),
                         expr_mapper(expr),
-                        temp_var_type=lp.auto if dnr else None))
+                        temp_var_type=lp.auto if dnr else None,
+                        no_sync_with=frozenset([
+                            ("*", "any"),
+                            ]),
+                        ))
 
         if not expr_mapper.non_scalar_vars:
             return insn
@@ -926,7 +986,11 @@ class ToLoopyInstructionMapper(object):
         knl = lp.make_kernel(
                 "{[%s]: 0 <= %s < %s}" % (iname, iname, size_name),
                 insns,
-                default_offset=lp.auto)
+                default_offset=lp.auto,
+
+                # Single-insn kernels may have their no_sync_with resolve to an
+                # empty set, that's OK.
+                options=lp.Options(check_dep_resolution=False))
 
         knl = lp.set_options(knl, return_dict=True)
         knl = lp.split_iname(knl, iname, 128, outer_tag="g.0", inner_tag="l.0")
@@ -935,6 +999,11 @@ class ToLoopyInstructionMapper(object):
         governing_dd = single_valued(
                 self.dd_inference_mapper(expr)
                 for expr in insn.exprs)
+
+        knl = lp.register_preamble_generators(knl,
+                [bessel_preamble_generator])
+        knl = lp.register_function_manglers(knl,
+                [bessel_function_mangler])
 
         return LoopyKernelInstruction(
             LoopyKernelDescriptor(

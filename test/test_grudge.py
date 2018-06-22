@@ -485,6 +485,35 @@ def test_foreign_points(ctx_factory):
     bind(pdiscr, sym.nodes(dim)**2)(queue)
 
 
+def test_bessel(ctx_factory):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    dims = 2
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(0.1,)*dims,
+            b=(1.0,)*dims,
+            n=(8,)*dims)
+
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=3)
+
+    nodes = sym.nodes(dims)
+    r = sym.cse(sym.sqrt(nodes[0]**2 + nodes[1]**2))
+
+    # https://dlmf.nist.gov/10.6.1
+    n = 3
+    bessel_zero = (
+            sym.bessel_j(n+1, r)
+            + sym.bessel_j(n-1, r)
+            - 2*n/r * sym.bessel_j(n, r))
+
+    z = bind(discr, sym.norm(2, bessel_zero))(queue)
+
+    assert z < 1e-15
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
@@ -493,7 +522,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        from py.test.cmdline import main
+        from pytest import main
         main([__file__])
 
 # vim: fdm=marker
