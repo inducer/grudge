@@ -209,11 +209,6 @@ class RankDataSwapAssign(Instruction):
 
         The number of the remote rank that this instruction swaps data with.
 
-    .. attribute:: mpi_tag_offset
-
-        A tag offset for mpi that should be unique for each instance within
-        a particular rank.
-
     .. attribute:: dd_out
     .. attribute:: comment
     """
@@ -225,8 +220,8 @@ class RankDataSwapAssign(Instruction):
         self.field = field
         self.i_remote_rank = op.i_remote_part
         self.dd_out = op.dd_out
-        self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.send_tag_offset
-        self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.recv_tag_offset
+        self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
+        self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
         self.comment = "Swap data with rank %02d" % self.i_remote_rank
 
     @memoize_method
@@ -502,8 +497,8 @@ class Code(object):
                 if profile_data is not None:
                     insn_start_time = time()
                 if log_quantities is not None:
-                    insn_sub_timer =\
-                                log_quantities["insn_eval_timer"].start_sub_timer()
+                    insn_sub_timer = \
+                            log_quantities["insn_eval_timer"].start_sub_timer()
 
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
@@ -517,9 +512,11 @@ class Code(object):
                 if log_quantities is not None:
                     if isinstance(insn, RankDataSwapAssign):
                         from pytools.log import time_and_count_function
-                        mapper_method = time_and_count_function(mapper_method,
-                                        log_quantities["rank_data_swap_timer"],
-                                        log_quantities["rank_data_swap_counter"])
+                        mapper_method = time_and_count_function(
+                                mapper_method,
+                                log_quantities["rank_data_swap_timer"],
+                                log_quantities["rank_data_swap_counter"])
+
                 assignments, new_futures = mapper_method(insn)
 
                 for target, value in assignments:
@@ -536,6 +533,7 @@ class Code(object):
                 if not futures:
                     # No more instructions or futures. We are done.
                     break
+
                 # Busy wait for a new future
                 if profile_data is not None:
                     busy_wait_start_time = time()

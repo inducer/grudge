@@ -445,6 +445,8 @@ class NodeCoordinateComponent(DiscretizationProperty):
 
         assert dd.domain_tag is not None
 
+    init_arg_names = ("axis", "dd")
+
     def __getinitargs__(self):
         return (self.axis, self.dd)
 

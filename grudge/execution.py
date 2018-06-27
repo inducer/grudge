@@ -534,12 +534,37 @@ class BoundOperator(object):
 def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
         dumper=lambda name, sym_operator: None):
 
+    orig_sym_operator = sym_operator
     import grudge.symbolic.mappers as mappers
 
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
     mappers.ErrorChecker(discrwb.mesh)(sym_operator)
+
+    sym_operator = \
+            mappers.OppositeInteriorFaceSwapUniqueIDAssigner()(sym_operator)
+
+    # {{{ broadcast root rank's symn_operator
+
+    # also make sure all ranks had same orig_sym_operator
+
+    if discrwb.mpi_communicator is not None:
+        (mgmt_rank_orig_sym_operator, mgmt_rank_sym_operator) = \
+                discrwb.mpi_communicator.bcast(
+                    (orig_sym_operator, sym_operator),
+                    discrwb.get_management_rank_index())
+
+        from pytools.obj_array import is_equal as is_oa_equal
+        if not is_oa_equal(mgmt_rank_orig_sym_operator, orig_sym_operator):
+            raise ValueError("rank %d received a different symbolic "
+                    "operator to bind from rank %d"
+                    % (discrwb.mpi_communicator.Get_rank(),
+                        discrwb.get_management_rank_index()))
+
+        sym_operator = mgmt_rank_sym_operator
+
+    # }}}
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
@@ -578,36 +603,9 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     volume_mesh = discrwb.discr_from_dd("vol").mesh
     from meshmode.distributed import get_connected_partitions
     connected_parts = get_connected_partitions(volume_mesh)
+
     if connected_parts:
         sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
-
-        # Communicate send and recv tags between ranks
-        comm = discrwb.mpi_communicator
-        i_local_rank = comm.Get_rank()
-
-        tag_mapper = mappers.MPITagCollector(i_local_rank)
-        sym_operator = tag_mapper(sym_operator)
-
-        if len(tag_mapper.send_tag_lookups) > 0:
-            # print("Rank %d distributing tags" % i_local_rank)
-            send_reqs = []
-            for i_remote_rank in connected_parts:
-                send_tags = tag_mapper.send_tag_lookups[i_remote_rank]
-                send_reqs.append(comm.isend(send_tags,
-                                            i_remote_rank,
-                                            MPI_TAG_SEND_TAGS))
-
-            # print("Rank %d receiving tags" % i_local_rank)
-            recv_tag_lookups = {}
-            for i_remote_rank in connected_parts:
-                recv_tags = comm.recv(source=i_remote_rank, tag=MPI_TAG_SEND_TAGS)
-                recv_tag_lookups[i_remote_rank] = recv_tags
-
-            for req in send_reqs:
-                req.wait()
-
-            sym_operator = mappers.MPITagDistributor(recv_tag_lookups,
-                                                     i_local_rank)(sym_operator)
 
     dumper("before-imass", sym_operator)
     sym_operator = mappers.InverseMassContractor()(sym_operator)

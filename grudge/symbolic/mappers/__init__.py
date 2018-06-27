@@ -334,90 +334,70 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
 # }}}
 
 
+# {{{ dof desc (dd) replacement
+
+class DOFDescReplacer(IdentityMapper):
+    def __init__(self, prev_dd, new_dd):
+        self.prev_dd = prev_dd
+        self.new_dd = new_dd
+
+    def map_operator_binding(self, expr):
+        if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
+                    and expr.op.dd_in == self.prev_dd
+                    and expr.op.dd_out == self.prev_dd):
+            field = self.rec(expr.field)
+            return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
+                                                dd_out=self.new_dd)(field)
+        elif (isinstance(expr.op, op.InterpolationOperator)
+                    and expr.op.dd_out == self.prev_dd):
+            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+                                            dd_out=self.new_dd)(expr.field)
+        elif (isinstance(expr.op, op.RefDiffOperatorBase)
+                    and expr.op.dd_out == self.prev_dd
+                    and expr.op.dd_in == self.prev_dd):
+            return type(expr.op)(expr.op.rst_axis,
+                                      dd_in=self.new_dd,
+                                      dd_out=self.new_dd)(self.rec(expr.field))
+
+    def map_node_coordinate_component(self, expr):
+        if expr.dd == self.prev_dd:
+            return type(expr)(expr.axis, self.new_dd)
+
+# }}}
+
+
 # {{{ mappers for distributed computation
 
-def make_key_from_expr(expr, i_send_rank, i_recv_rank, clean_btag):
-    from copy import deepcopy
-    expr = deepcopy(expr)
-
-    class BTAGCleaner(IdentityMapper):
-        def __init__(self):
-            from meshmode.mesh import BTAG_PARTITION
-            self.prev_dd = sym.as_dofdesc(BTAG_PARTITION(i_recv_rank))
-            self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_send_rank))
-
-        def map_operator_binding(self, expr):
-            if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
-                        and expr.op.dd_in == self.prev_dd
-                        and expr.op.dd_out == self.prev_dd):
-                field = self.rec(expr.field)
-                return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
-                                                    dd_out=self.new_dd)(field)
-            elif (isinstance(expr.op, op.InterpolationOperator)
-                        and expr.op.dd_out == self.prev_dd):
-                return op.InterpolationOperator(dd_in=expr.op.dd_in,
-                                                dd_out=self.new_dd)(expr.field)
-            elif (isinstance(expr.op, op.RefDiffOperator)
-                        and expr.op.dd_out == self.prev_dd
-                        and expr.op.dd_in == self.prev_dd):
-                return op.RefDiffOperator(expr.op.rst_axis,
-                                          dd_in=self.new_dd,
-                                          dd_out=self.new_dd)(self.rec(expr.field))
-
-        def map_node_coordinate_component(self, expr):
-            if expr.dd == self.prev_dd:
-                return type(expr)(expr.axis, self.new_dd)
-    if clean_btag:
-        # FIXME: Maybe there is a better way to do this
-        # We need to change BTAG_PARTITION so that when expr is sent over to the
-        # other rank, it matches one of its own expressions
-        expr = BTAGCleaner()(expr)
-    return (expr, i_send_rank, i_recv_rank)
-
-
-class MPITagCollector(CSECachingMapperMixin, IdentityMapper):
+class OppositeInteriorFaceSwapUniqueIDAssigner(
+        CSECachingMapperMixin, IdentityMapper):
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
-    def __init__(self, i_local_rank):
-        self.i_local_rank = i_local_rank
-        self.send_tag_lookups = {}
+    def __init__(self):
+        super(OppositeInteriorFaceSwapUniqueIDAssigner, self).__init__()
+        self._next_id = 0
+        self.seen_ids = set()
 
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.OppositePartitionFaceSwap):
-            i_remote_rank = expr.op.i_remote_part
-            key = make_key_from_expr(self.rec(expr.field),
-                                     i_send_rank=self.i_local_rank,
-                                     i_recv_rank=i_remote_rank,
-                                     clean_btag=True)
-            if i_remote_rank not in self.send_tag_lookups:
-                self.send_tag_lookups[i_remote_rank] = {}
-            assert key not in self.send_tag_lookups[i_remote_rank],\
-                        "Duplicate keys found in tag lookup"
-            tag = expr.op.send_tag_offset = len(self.send_tag_lookups[i_remote_rank])
-            self.send_tag_lookups[i_remote_rank][key] = tag
+    def next_id(self):
+        while self._next_id in self.seen_ids:
+            self._next_id += 1
+
+        result = self._next_id
+        self._next_id += 1
+        self.seen_ids.add(result)
+
+        return result
+
+    def map_opposite_interior_face_swap(self, expr):
+        if expr.unique_id is not None:
+            if expr.unique_id in self.seen_ids:
+                raise ValueError("OppositeInteriorFaceSwap unique ID '%d' "
+                        "is not unique" % expr.unique_id)
+
+            self.seen_ids.add(expr.unique_id)
             return expr
+
         else:
-            return IdentityMapper.map_operator_binding(self, expr)
-
-
-class MPITagDistributor(CSECachingMapperMixin, IdentityMapper):
-    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
-
-    def __init__(self, recv_tag_lookups, i_local_rank):
-        self.recv_tag_lookups = recv_tag_lookups
-        self.i_local_rank = i_local_rank
-
-    def map_operator_binding(self, expr):
-        if isinstance(expr.op, op.OppositePartitionFaceSwap):
-            i_remote_rank = expr.op.i_remote_part
-            key = make_key_from_expr(self.rec(expr.field),
-                                     i_send_rank=i_remote_rank,
-                                     i_recv_rank=self.i_local_rank,
-                                     clean_btag=False)
-            expr.op.recv_tag_offset = self.recv_tag_lookups[i_remote_rank][key]
-            return expr
-        else:
-            return IdentityMapper.map_operator_binding(self, expr)
+            return type(expr)(expr.dd_in, expr.dd_out, self.next_id())
 
 
 class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
@@ -464,8 +444,10 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
                     and expr.op.dd_in == self.prev_dd
                     and expr.op.dd_out == self.prev_dd):
             field = self.rec(expr.field)
-            return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
-                                                dd_out=self.new_dd)(field)
+            return op.OppositePartitionFaceSwap(
+                    dd_in=self.new_dd,
+                    dd_out=self.new_dd,
+                    unique_id=expr.op.unique_id)(field)
         elif (isinstance(expr.op, op.InterpolationOperator)
                     and expr.op.dd_out == self.prev_dd):
             return op.InterpolationOperator(dd_in=expr.op.dd_in,
