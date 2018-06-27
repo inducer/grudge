@@ -1,8 +1,8 @@
-Python 2.7 POCL MPI:
+Python 2.7 POCL:
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako mpi4py"
+  - export EXTRA_INSTALL="numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
@@ -12,30 +12,47 @@ Python 2.7 POCL MPI:
   except:
   - tags
 
-Python 3.5 POCL MPI:
+Python 3.6 POCL:
   script:
-  - export PY_EXE=python3.5
-  - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako mpi4py"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  tags:
-  - python3.5
-  - pocl
-  - mpi
-  except:
-  - tags
-
-Python 3.5 POCL:
-  script:
-  - export PY_EXE=python3.5
+  - export PY_EXE=python3.6
   - export PYOPENCL_TEST=portable
   - export EXTRA_INSTALL="numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
-  - python3.5
+  - python3.6
   - pocl
+  - mpi
+  except:
+  - tags
+
+Python 2.7 POCL MPI:
+  script:
+  - export PY_EXE=python2.7
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="numpy mako mpi4py pymetis"
+  - export PYTEST_ADDOPTS="-k mpi"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python2.7
+  - pocl
+  - mpi
+  except:
+  - tags
+
+Python 3.6 POCL MPI:
+  script:
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="numpy mako mpi4py pymetis"
+  - export PYTEST_ADDOPTS="-k mpi"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3.6
+  - pocl
+  - mpi
   except:
   - tags
 
@@ -45,7 +62,7 @@ Documentation:
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
   - ". ./build-docs.sh"
   tags:
-  - python3.5
+  - python3.6
   only:
   - master
 
@@ -54,6 +71,6 @@ Flake8:
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
   - ". ./prepare-and-run-flake8.sh grudge test"
   tags:
-  - python3.5
+  - python3.6
   except:
   - tags
