@@ -333,34 +333,9 @@ class ExecutionMapper(mappers.Evaluator,
         remote_data_host = np.empty_like(local_data)
         recv_req = comm.Irecv(remote_data_host, insn.i_remote_rank, insn.recv_tag)
 
-        class RecvFuture:
-            def __init__(self, recv_req, insn_name, remote_data_host, queue):
-                self.receive_request = recv_req
-                self.insn_name = insn_name
-                self.remote_data_host = remote_data_host
-                self.queue = queue
-
-            def is_ready(self):
-                return self.receive_request.Test()
-
-            def __call__(self):
-                self.receive_request.Wait()
-                remote_data = cl.array.to_device(self.queue, self.remote_data_host)
-                return [(self.insn_name, remote_data)], []
-
-        class SendFuture:
-            def __init__(self, send_request):
-                self.send_request = send_request
-
-            def is_ready(self):
-                return self.send_request.Test()
-
-            def __call__(self):
-                self.send_request.wait()
-                return [], []
-
-        return [], [RecvFuture(recv_req, insn.name, remote_data_host, self.queue),
-                    SendFuture(send_req)]
+        return [], [
+                MPIRecvFuture(recv_req, insn.name, remote_data_host, self.queue),
+                MPISendFuture(send_req)]
 
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
@@ -459,6 +434,38 @@ class ExecutionMapper(mappers.Evaluator,
         return [(name, result[i]) for i, name in enumerate(insn.names)], []
 
     # }}}
+
+# }}}
+
+
+# {{{ futures
+
+class MPIRecvFuture(object):
+    def __init__(self, recv_req, insn_name, remote_data_host, queue):
+        self.receive_request = recv_req
+        self.insn_name = insn_name
+        self.remote_data_host = remote_data_host
+        self.queue = queue
+
+    def is_ready(self):
+        return self.receive_request.Test()
+
+    def __call__(self):
+        self.receive_request.Wait()
+        remote_data = cl.array.to_device(self.queue, self.remote_data_host)
+        return [(self.insn_name, remote_data)], []
+
+
+class MPISendFuture(object):
+    def __init__(self, send_request):
+        self.send_request = send_request
+
+    def is_ready(self):
+        return self.send_request.Test()
+
+    def __call__(self):
+        self.send_request.wait()
+        return [], []
 
 # }}}
 
