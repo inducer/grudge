@@ -32,3 +32,4 @@ run-debug-*
 *.dat
 
 .cache
+.pytest_cache
