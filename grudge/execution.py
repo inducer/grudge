@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 
 
+MPI_TAG_SEND_TAGS = 1729
+
+
 # {{{ exec mapper
 
 class ExecutionMapper(mappers.Evaluator,
@@ -248,6 +251,12 @@ class ExecutionMapper(mappers.Evaluator,
         conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 
+    def map_opposite_partition_face_swap(self, op, field_expr):
+        assert op.dd_in == op.dd_out
+        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(op.dd_in)
+        remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
+        return bdry_conn(self.queue, remote_bdry_vec).with_queue(self.queue)
+
     def map_opposite_interior_face_swap(self, op, field_expr):
         return self.discrwb.opposite_face_connection()(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
@@ -311,7 +320,23 @@ class ExecutionMapper(mappers.Evaluator,
 
     # }}}
 
-    # {{{ code execution functions
+    # {{{ instruction execution functions
+
+    def map_insn_rank_data_swap(self, insn):
+        local_data = self.rec(insn.field).get(self.queue)
+        comm = self.discrwb.mpi_communicator
+
+        # print("Sending data to rank %d with tag %d"
+        #             % (insn.i_remote_rank, insn.send_tag))
+        send_req = comm.Isend(local_data, insn.i_remote_rank, tag=insn.send_tag)
+
+        remote_data_host = np.empty_like(local_data)
+        recv_req = comm.Irecv(remote_data_host, insn.i_remote_rank, insn.recv_tag)
+
+        return [], [
+                MPIRecvFuture(recv_req, insn.name, remote_data_host, self.queue),
+                MPISendFuture(send_req)]
+
     def map_insn_loopy_kernel(self, insn):
         kwargs = {}
         kdescr = insn.kernel_descriptor
@@ -413,6 +438,38 @@ class ExecutionMapper(mappers.Evaluator,
 # }}}
 
 
+# {{{ futures
+
+class MPIRecvFuture(object):
+    def __init__(self, recv_req, insn_name, remote_data_host, queue):
+        self.receive_request = recv_req
+        self.insn_name = insn_name
+        self.remote_data_host = remote_data_host
+        self.queue = queue
+
+    def is_ready(self):
+        return self.receive_request.Test()
+
+    def __call__(self):
+        self.receive_request.Wait()
+        remote_data = cl.array.to_device(self.queue, self.remote_data_host)
+        return [(self.insn_name, remote_data)], []
+
+
+class MPISendFuture(object):
+    def __init__(self, send_request):
+        self.send_request = send_request
+
+    def is_ready(self):
+        return self.send_request.Test()
+
+    def __call__(self):
+        self.send_request.wait()
+        return [], []
+
+# }}}
+
+
 # {{{ bound operator
 
 class BoundOperator(object):
@@ -436,7 +493,7 @@ class BoundOperator(object):
                 + sep
                 + str(self.eval_code))
 
-    def __call__(self, queue, **context):
+    def __call__(self, queue, profile_data=None, log_quantities=None, **context):
         import pyopencl.array as cl_array
 
         def replace_queue(a):
@@ -465,7 +522,9 @@ class BoundOperator(object):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
         return self.eval_code.execute(
-                ExecutionMapper(queue, new_context, self))
+                ExecutionMapper(queue, new_context, self),
+                profile_data=profile_data,
+                log_quantities=log_quantities)
 
 # }}}
 
@@ -475,12 +534,37 @@ class BoundOperator(object):
 def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
         dumper=lambda name, sym_operator: None):
 
+    orig_sym_operator = sym_operator
     import grudge.symbolic.mappers as mappers
 
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
     mappers.ErrorChecker(discrwb.mesh)(sym_operator)
+
+    sym_operator = \
+            mappers.OppositeInteriorFaceSwapUniqueIDAssigner()(sym_operator)
+
+    # {{{ broadcast root rank's symn_operator
+
+    # also make sure all ranks had same orig_sym_operator
+
+    if discrwb.mpi_communicator is not None:
+        (mgmt_rank_orig_sym_operator, mgmt_rank_sym_operator) = \
+                discrwb.mpi_communicator.bcast(
+                    (orig_sym_operator, sym_operator),
+                    discrwb.get_management_rank_index())
+
+        from pytools.obj_array import is_equal as is_oa_equal
+        if not is_oa_equal(mgmt_rank_orig_sym_operator, orig_sym_operator):
+            raise ValueError("rank %d received a different symbolic "
+                    "operator to bind from rank %d"
+                    % (discrwb.mpi_communicator.Get_rank(),
+                        discrwb.get_management_rank_index()))
+
+        sym_operator = mgmt_rank_sym_operator
+
+    # }}}
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
@@ -513,6 +597,15 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 
     dumper("before-global-to-reference", sym_operator)
     sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
+
+    dumper("before-distributed", sym_operator)
+
+    volume_mesh = discrwb.discr_from_dd("vol").mesh
+    from meshmode.distributed import get_connected_partitions
+    connected_parts = get_connected_partitions(volume_mesh)
+
+    if connected_parts:
+        sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
 
     dumper("before-imass", sym_operator)
     sym_operator = mappers.InverseMassContractor()(sym_operator)

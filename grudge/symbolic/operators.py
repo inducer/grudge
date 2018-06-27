@@ -83,6 +83,8 @@ class Operator(pymbolic.primitives.Expression):
                 dd_in=dd_in or self.dd_in,
                 dd_out=dd_out or self.dd_out)
 
+    init_arg_names = ("dd_in", "dd_out")
+
     def __getinitargs__(self):
         return (self.dd_in, self.dd_out,)
 
@@ -105,6 +107,7 @@ class InterpolationOperator(Operator):
             " does not do anything.".format(official_dd_in, official_dd_out))
 
         super(InterpolationOperator, self).__init__(dd_in, dd_out)
+
     mapper_method = intern("map_interpolation")
 
 
@@ -163,6 +166,8 @@ class DiffOperatorBase(Operator):
 
         self.xyz_axis = xyz_axis
 
+    init_arg_names = ("xyz_axis", "dd_in", "dd_out")
+
     def __getinitargs__(self):
         return (self.xyz_axis, self.dd_in, self.dd_out)
 
@@ -213,6 +218,8 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
         super(RefDiffOperatorBase, self).__init__(dd_in, dd_out)
 
         self.rst_axis = rst_axis
+
+    init_arg_names = ("rst_axis", "dd_in", "dd_out")
 
     def __getinitargs__(self):
         return (self.rst_axis, self.dd_in, self.dd_out)
@@ -410,7 +417,18 @@ class RefInverseMassOperator(RefMassOperatorBase):
 # {{{ boundary-related operators
 
 class OppositeInteriorFaceSwap(Operator):
-    def __init__(self, dd_in=None, dd_out=None):
+    """
+    .. attribute:: unique_id
+
+        An integer identifying this specific instances of
+        :class:`OppositePartitionFaceSwap` within an entire bound symbolic
+        operator. Is assigned automatically by :func:`grudge.bind`
+        if not already set by the user. This will become
+        :class:`OppositePartitionFaceSwap.unique_id` in distributed
+        runs.
+    """
+
+    def __init__(self, dd_in=None, dd_out=None, unique_id=None):
         sym = _sym()
 
         if dd_in is None:
@@ -418,14 +436,58 @@ class OppositeInteriorFaceSwap(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        if dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
+        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
+        if self.dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
-        if dd_out != dd_in:
+        if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
+        assert unique_id is None or isinstance(unique_id, int)
+        self.unique_id = unique_id
+
+    init_arg_names = ("dd_in", "dd_out", "unique_id")
+
+    def __getinitargs__(self):
+        return (self.dd_in, self.dd_out, self.unique_id)
 
     mapper_method = intern("map_opposite_interior_face_swap")
+
+
+class OppositePartitionFaceSwap(Operator):
+    """
+    .. attribute:: unique_id
+
+        An integer corresponding to the :attr:`OppositeInteriorFaceSwap.unique_id`
+        which led to the creation of this object. This integer is used as an
+        MPI tag offset to keep different subexpressions apart in MPI traffic.
+    """
+    def __init__(self, dd_in=None, dd_out=None, unique_id=None):
+        sym = _sym()
+
+        if dd_in is None and dd_out is None:
+            raise ValueError("dd_in or dd_out must be specified")
+        elif dd_in is None:
+            dd_in = dd_out
+        elif dd_out is None:
+            dd_out = dd_in
+
+        super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
+        if not isinstance(self.dd_in.domain_tag, sym.BTAG_PARTITION):
+            raise ValueError("dd_in must be a partition boundary faces domain")
+        if self.dd_out != self.dd_in:
+            raise ValueError("dd_out and dd_in must be identical")
+
+        self.i_remote_part = self.dd_in.domain_tag.part_nr
+
+        assert unique_id is None or isinstance(unique_id, int)
+        self.unique_id = unique_id
+
+    init_arg_names = ("dd_in", "dd_out", "unique_id")
+
+    def __getinitargs__(self):
+        return (self.dd_in, self.dd_out, self.unique_id)
+
+    mapper_method = intern("map_opposite_partition_face_swap")
 
 
 class FaceMassOperatorBase(ElementwiseLinearOperator):

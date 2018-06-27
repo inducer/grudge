@@ -201,6 +201,48 @@ class Assign(AssignBase):
     mapper_method = intern("map_insn_assign")
 
 
+class RankDataSwapAssign(Instruction):
+    """
+    .. attribute:: name
+    .. attribute:: field
+    .. attribute:: i_remote_rank
+
+        The number of the remote rank that this instruction swaps data with.
+
+    .. attribute:: dd_out
+    .. attribute:: comment
+    """
+    # TODO: We need to be sure this does not conflict with some other tag.
+    MPI_TAG_GRUDGE_DATA_BASE = 0x3700d3e
+
+    def __init__(self, name, field, op):
+        self.name = name
+        self.field = field
+        self.i_remote_rank = op.i_remote_part
+        self.dd_out = op.dd_out
+        self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
+        self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
+        self.comment = "Swap data with rank %02d" % self.i_remote_rank
+
+    @memoize_method
+    def get_assignees(self):
+        return set([self.name])
+
+    @memoize_method
+    def get_dependencies(self):
+        return _make_dep_mapper(include_subscripts=False)(self.field)
+
+    def __str__(self):
+        return ("{\n"
+              + "   /* %s */\n" % self.comment
+              + "   send_tag = %s\n" % self.send_tag
+              + "   recv_tag = %s\n" % self.recv_tag
+              + "   %s <- %s\n" % (self.name, self.field)
+              + "}")
+
+    mapper_method = intern("map_insn_rank_data_swap")
+
+
 class ToDiscretizationScopedAssign(Assign):
     scope_indicator = "(to discr)-"
 
@@ -337,7 +379,7 @@ class Code(object):
     def __init__(self, instructions, result):
         self.instructions = instructions
         self.result = result
-        self.last_schedule = None
+        # self.last_schedule = None
         self.static_schedule_attempts = 5
 
     def dump_dataflow_graph(self):
@@ -433,78 +475,103 @@ class Code(object):
 
         return argmax2(available_insns), discardable_vars
 
-    def execute_dynamic(self, exec_mapper, pre_assign_check=None):
-        """Execute the instruction stream, make all scheduling decisions
-        dynamically. Record the schedule in *self.last_schedule*.
-        """
-        schedule = []
-
+    def execute(self, exec_mapper, pre_assign_check=None, profile_data=None,
+                log_quantities=None):
+        if profile_data is not None:
+            from time import time
+            start_time = time()
+            if profile_data == {}:
+                profile_data['insn_eval_time'] = 0
+                profile_data['future_eval_time'] = 0
+                profile_data['busy_wait_time'] = 0
+                profile_data['total_time'] = 0
+        if log_quantities is not None:
+            exec_sub_timer = log_quantities["exec_timer"].start_sub_timer()
         context = exec_mapper.context
 
-        next_future_id = 0
         futures = []
         done_insns = set()
 
-        force_future = False
-
         while True:
-            insn = None
-            discardable_vars = []
+            try:
+                if profile_data is not None:
+                    insn_start_time = time()
+                if log_quantities is not None:
+                    insn_sub_timer = \
+                            log_quantities["insn_eval_timer"].start_sub_timer()
 
-            # check futures for completion
+                insn, discardable_vars = self.get_next_step(
+                    frozenset(list(context.keys())),
+                    frozenset(done_insns))
 
-            i = 0
-            while i < len(futures):
-                future = futures[i]
-                if force_future or future.is_ready():
-                    futures.pop(i)
+                done_insns.add(insn)
+                for name in discardable_vars:
+                    del context[name]
 
-                    insn = self.EvaluateFuture(future.id)
+                mapper_method = getattr(exec_mapper, insn.mapper_method)
+                if log_quantities is not None:
+                    if isinstance(insn, RankDataSwapAssign):
+                        from pytools.log import time_and_count_function
+                        mapper_method = time_and_count_function(
+                                mapper_method,
+                                log_quantities["rank_data_swap_timer"],
+                                log_quantities["rank_data_swap_counter"])
 
-                    assignments, new_futures = future()
-                    force_future = False
-                    break
-                else:
-                    i += 1
+                assignments, new_futures = mapper_method(insn)
 
-                del future
-
-            # if no future got processed, pick the next insn
-            if insn is None:
-                try:
-                    insn, discardable_vars = self.get_next_step(
-                            frozenset(list(context.keys())),
-                            frozenset(done_insns))
-
-                except self.NoInstructionAvailable:
-                    if futures:
-                        # no insn ready: we need a future to complete to continue
-                        force_future = True
-                    else:
-                        # no futures, no available instructions: we're done
-                        break
-                else:
-                    for name in discardable_vars:
-                        del context[name]
-
-                    done_insns.add(insn)
-                    mapper_method = getattr(exec_mapper, insn.mapper_method)
-                    assignments, new_futures = mapper_method(insn)
-
-            if insn is not None:
                 for target, value in assignments:
                     if pre_assign_check is not None:
                         pre_assign_check(target, value)
-
                     context[target] = value
 
                 futures.extend(new_futures)
+                if profile_data is not None:
+                    profile_data['insn_eval_time'] += time() - insn_start_time
+                if log_quantities is not None:
+                    insn_sub_timer.stop().submit()
+            except self.NoInstructionAvailable:
+                if not futures:
+                    # No more instructions or futures. We are done.
+                    break
 
-                schedule.append((discardable_vars, insn, len(new_futures)))
+                # Busy wait for a new future
+                if profile_data is not None:
+                    busy_wait_start_time = time()
+                if log_quantities is not None:
+                    busy_sub_timer =\
+                            log_quantities["busy_wait_timer"].start_sub_timer()
 
-                for future in new_futures:
-                    future.id = next_future_id
-                    next_future_id += 1
+                did_eval_future = False
+                while not did_eval_future:
+                    for i in range(len(futures)):
+                        if futures[i].is_ready():
+                            if profile_data is not None:
+                                profile_data['busy_wait_time'] +=\
+                                        time() - busy_wait_start_time
+                                future_start_time = time()
+                            if log_quantities is not None:
+                                busy_sub_timer.stop().submit()
+                                future_sub_timer =\
+                                            log_quantities["future_eval_timer"]\
+                                                                .start_sub_timer()
+
+                            future = futures.pop(i)
+                            assignments, new_futures = future()
+
+                            for target, value in assignments:
+                                if pre_assign_check is not None:
+                                    pre_assign_check(target, value)
+                                context[target] = value
+
+                            futures.extend(new_futures)
+                            did_eval_future = True
+
+                            if profile_data is not None:
+                                profile_data['future_eval_time'] +=\
+                                        time() - future_start_time
+                            if log_quantities is not None:
+                                future_sub_timer.stop().submit()
+                            break
 
         if len(done_insns) < len(self.instructions):
             print("Unreachable instructions:")
@@ -514,71 +581,14 @@ class Code(object):
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
-        if self.static_schedule_attempts:
-            self.last_schedule = schedule
-
+        if log_quantities is not None:
+            exec_sub_timer.stop().submit()
         from pytools.obj_array import with_object_array_or_scalar
+        if profile_data is not None:
+            profile_data['total_time'] += time() - start_time
+            return (with_object_array_or_scalar(exec_mapper, self.result),
+                    profile_data)
         return with_object_array_or_scalar(exec_mapper, self.result)
-
-    # }}}
-
-    # {{{ static schedule execution
-
-    class EvaluateFuture(object):
-        """A fake 'instruction' that represents evaluation of a future."""
-        def __init__(self, future_id):
-            self.future_id = future_id
-
-    def execute(self, exec_mapper, pre_assign_check=None):
-        """If we have a saved, static schedule for this instruction stream,
-        execute it. Otherwise, punt to the dynamic scheduler below.
-        """
-
-        if self.last_schedule is None:
-            return self.execute_dynamic(exec_mapper, pre_assign_check)
-
-        context = exec_mapper.context
-        id_to_future = {}
-        next_future_id = 0
-
-        schedule_is_delay_free = True
-
-        for discardable_vars, insn, new_future_count in self.last_schedule:
-            for name in discardable_vars:
-                del context[name]
-
-            if isinstance(insn, self.EvaluateFuture):
-                future = id_to_future.pop(insn.future_id)
-                if not future.is_ready():
-                    schedule_is_delay_free = False
-                assignments, new_futures = future()
-                del future
-            else:
-                mapper_method = getattr(exec_mapper, insn.mapper_method)
-                assignments, new_futures = mapper_method(insn)
-
-            for target, value in assignments:
-                if pre_assign_check is not None:
-                    pre_assign_check(target, value)
-
-                context[target] = value
-
-            if len(new_futures) != new_future_count:
-                raise RuntimeError("static schedule got an unexpected number "
-                        "of futures")
-
-            for future in new_futures:
-                id_to_future[next_future_id] = future
-                next_future_id += 1
-
-        if not schedule_is_delay_free:
-            self.last_schedule = None
-            self.static_schedule_attempts -= 1
-
-        from pytools.obj_array import with_object_array_or_scalar
-        return with_object_array_or_scalar(exec_mapper, self.result)
-
-    # }}}
 
 # }}}
 
@@ -1002,6 +1012,9 @@ class ToLoopyInstructionMapper(object):
                 governing_dd=governing_dd)
             )
 
+    def map_insn_rank_data_swap(self, insn):
+        return insn
+
     def map_insn_assign_to_discr_scoped(self, insn):
         return insn
 
@@ -1191,6 +1204,8 @@ class OperatorCompiler(mappers.IdentityMapper):
     def map_operator_binding(self, expr, codegen_state, name_hint=None):
         if isinstance(expr.op, sym.RefDiffOperatorBase):
             return self.map_ref_diff_op_binding(expr, codegen_state)
+        elif isinstance(expr.op, sym.OppositePartitionFaceSwap):
+            return self.map_rank_data_swap_binding(expr, codegen_state, name_hint)
         else:
             # make sure operator assignments stand alone and don't get muddled
             # up in vector math
@@ -1247,6 +1262,20 @@ class OperatorCompiler(mappers.IdentityMapper):
             for n, d in zip(names, all_diffs):
                 self.expr_to_var[d] = var(n)
 
+            return self.expr_to_var[expr]
+
+    def map_rank_data_swap_binding(self, expr, codegen_state, name_hint):
+        try:
+            return self.expr_to_var[expr]
+        except KeyError:
+            field = self.rec(expr.field, codegen_state)
+            name = self.name_gen("raw_rank%02d_bdry_data" % expr.op.i_remote_part)
+            field_insn = RankDataSwapAssign(name=name, field=field, op=expr.op)
+            codegen_state.get_code_list(self).append(field_insn)
+            field_var = Variable(field_insn.name)
+            self.expr_to_var[expr] = self.assign_to_new_var(codegen_state,
+                                                            expr.op(field_var),
+                                                            prefix=name_hint)
             return self.expr_to_var[expr]
 
     # }}}

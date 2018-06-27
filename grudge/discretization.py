@@ -23,7 +23,9 @@ THE SOFTWARE.
 """
 
 
+import six
 from pytools import memoize_method
+import pyopencl as cl
 from grudge import sym
 import numpy as np
 
@@ -47,9 +49,10 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     .. automethod :: zeros
     """
 
-    def __init__(self, cl_ctx, mesh, order, quad_tag_to_group_factory=None):
+    def __init__(self, cl_ctx, mesh, order, quad_tag_to_group_factory=None,
+            mpi_communicator=None):
         """
-        :param quad_min_degrees: A mapping from quadrature tags (typically
+        :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
             strings--but may be any hashable/comparable object) to a
             :class:`meshmode.discretization.ElementGroupFactory` indicating with
             which quadrature discretization the operations are to be carried out,
@@ -77,6 +80,60 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         self._discr_scoped_subexpr_name_to_value = {}
 
         # }}}
+
+        with cl.CommandQueue(cl_ctx) as queue:
+            self._dist_boundary_connections = \
+                    self._set_up_distributed_communication(mpi_communicator, queue)
+
+        self.mpi_communicator = mpi_communicator
+
+    def get_management_rank_index(self):
+        return 0
+
+    def is_management_rank(self):
+        if self.mpi_communicator is None:
+            return True
+        else:
+            return self.mpi_communicator.Get_rank() \
+                    == self._get_management_rank_index()
+
+    def _set_up_distributed_communication(self, mpi_communicator, queue):
+        from_dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+
+        from meshmode.distributed import get_connected_partitions
+        connected_parts = get_connected_partitions(self._volume_discr.mesh)
+
+        if mpi_communicator is None and connected_parts:
+            raise RuntimeError("must supply an MPI communicator when using a "
+                    "distributed mesh")
+
+        grp_factory = self.group_factory_for_quadrature_tag(sym.QTAG_NONE)
+
+        setup_helpers = {}
+        boundary_connections = {}
+
+        from meshmode.distributed import MPIBoundaryCommSetupHelper
+        for i_remote_part in connected_parts:
+            conn = self.connection_from_dds(
+                    from_dd,
+                    sym.DOFDesc(sym.BTAG_PARTITION(i_remote_part), sym.QTAG_NONE))
+            setup_helper = setup_helpers[i_remote_part] = MPIBoundaryCommSetupHelper(
+                    mpi_communicator, queue, conn, i_remote_part, grp_factory)
+            setup_helper.post_sends()
+
+        for i_remote_part, setup_helper in six.iteritems(setup_helpers):
+            boundary_connections[i_remote_part] = setup_helper.complete_setup()
+
+        return boundary_connections
+
+    def get_distributed_boundary_swap_connection(self, dd):
+        if dd.quadrature_tag != sym.QTAG_NONE:
+            # FIXME
+            raise NotImplementedError("Distributed communication with quadrature")
+
+        assert isinstance(dd.domain_tag, sym.BTAG_PARTITION)
+
+        return self._dist_boundary_connections[dd.domain_tag.part_nr]
 
     @memoize_method
     def discr_from_dd(self, dd):

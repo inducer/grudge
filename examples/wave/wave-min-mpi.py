@@ -29,33 +29,51 @@ import numpy as np
 import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DGDiscretizationWithBoundaries
+from mpi4py import MPI
 
 
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    dims = 2
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*dims,
-            b=(0.5,)*dims,
-            n=(16,)*dims)
+    comm = MPI.COMM_WORLD
+    num_parts = comm.Get_size()
 
-    if mesh.dim == 2:
+    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    mesh_dist = MPIMeshDistributor(comm)
+
+    if mesh_dist.is_mananger_rank():
+        dims = 2
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+        mesh = generate_regular_rect_mesh(
+                a=(-0.5,)*dims,
+                b=(0.5,)*dims,
+                n=(16,)*dims)
+
+        print("%d elements" % mesh.nelements)
+
+        part_per_element = get_partition_by_pymetis(mesh, num_parts)
+
+        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+
+        del mesh
+
+    else:
+        local_mesh = mesh_dist.receive_mesh_part()
+
+    discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
+            mpi_communicator=comm)
+
+    if local_mesh.dim == 2:
         dt = 0.04
-    elif mesh.dim == 3:
+    elif local_mesh.dim == 3:
         dt = 0.02
 
-    print("%d elements" % mesh.nelements)
-
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
-
-    source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
+    source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
     source_width = 0.05
     source_omega = 3
 
-    sym_x = sym.nodes(mesh.dim)
+    sym_x = sym.nodes(local_mesh.dim)
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
 
@@ -80,7 +98,7 @@ def main(write_output=True, order=4):
     # FIXME
     #dt = op.estimate_rk4_timestep(discr, fields=fields)
 
-    op.check_bc_coverage(mesh)
+    op.check_bc_coverage(local_mesh)
 
     # print(sym.pretty(op.sym_operator()))
     bound_op = bind(discr, op.sym_operator())
@@ -104,6 +122,8 @@ def main(write_output=True, order=4):
     from time import time
     t_last_step = time()
 
+    rank = comm.Get_rank()
+
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
@@ -113,7 +133,11 @@ def main(write_output=True, order=4):
             print(step, event.t, norm(queue, u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file(
+                        "fld-%03d-%04d.vtu" % (
+                            rank,
+                            step,
+                            ),
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),

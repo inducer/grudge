@@ -148,6 +148,7 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ref_mass = _map_op_base
     map_ref_inverse_mass = _map_op_base
 
+    map_opposite_partition_face_swap = _map_op_base
     map_opposite_interior_face_swap = _map_op_base
     map_face_mass_operator = _map_op_base
     map_ref_face_mass_operator = _map_op_base
@@ -196,6 +197,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ref_mass = map_elementwise_linear
     map_ref_inverse_mass = map_elementwise_linear
 
+    map_opposite_partition_face_swap = map_elementwise_linear
     map_opposite_interior_face_swap = map_elementwise_linear
     map_face_mass_operator = map_elementwise_linear
     map_ref_face_mass_operator = map_elementwise_linear
@@ -328,6 +330,145 @@ class OperatorBinder(CSECachingMapperMixin, IdentityMapper):
             return sym.OperatorBinding(first, self.rec(prod))
         else:
             return self.rec(first) * self.rec(flattened_product(expr.children[1:]))
+
+# }}}
+
+
+# {{{ dof desc (dd) replacement
+
+class DOFDescReplacer(IdentityMapper):
+    def __init__(self, prev_dd, new_dd):
+        self.prev_dd = prev_dd
+        self.new_dd = new_dd
+
+    def map_operator_binding(self, expr):
+        if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
+                    and expr.op.dd_in == self.prev_dd
+                    and expr.op.dd_out == self.prev_dd):
+            field = self.rec(expr.field)
+            return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
+                                                dd_out=self.new_dd)(field)
+        elif (isinstance(expr.op, op.InterpolationOperator)
+                    and expr.op.dd_out == self.prev_dd):
+            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+                                            dd_out=self.new_dd)(expr.field)
+        elif (isinstance(expr.op, op.RefDiffOperatorBase)
+                    and expr.op.dd_out == self.prev_dd
+                    and expr.op.dd_in == self.prev_dd):
+            return type(expr.op)(expr.op.rst_axis,
+                                      dd_in=self.new_dd,
+                                      dd_out=self.new_dd)(self.rec(expr.field))
+
+    def map_node_coordinate_component(self, expr):
+        if expr.dd == self.prev_dd:
+            return type(expr)(expr.axis, self.new_dd)
+
+# }}}
+
+
+# {{{ mappers for distributed computation
+
+class OppositeInteriorFaceSwapUniqueIDAssigner(
+        CSECachingMapperMixin, IdentityMapper):
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self):
+        super(OppositeInteriorFaceSwapUniqueIDAssigner, self).__init__()
+        self._next_id = 0
+        self.seen_ids = set()
+
+    def next_id(self):
+        while self._next_id in self.seen_ids:
+            self._next_id += 1
+
+        result = self._next_id
+        self._next_id += 1
+        self.seen_ids.add(result)
+
+        return result
+
+    def map_opposite_interior_face_swap(self, expr):
+        if expr.unique_id is not None:
+            if expr.unique_id in self.seen_ids:
+                raise ValueError("OppositeInteriorFaceSwap unique ID '%d' "
+                        "is not unique" % expr.unique_id)
+
+            self.seen_ids.add(expr.unique_id)
+            return expr
+
+        else:
+            return type(expr)(expr.dd_in, expr.dd_out, self.next_id())
+
+
+class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, connected_parts):
+        self.connected_parts = connected_parts
+
+    def map_operator_binding(self, expr):
+        from meshmode.mesh import BTAG_PARTITION
+        from meshmode.discretization.connection import (FACE_RESTR_ALL,
+                                                        FACE_RESTR_INTERIOR)
+        if (isinstance(expr.op, op.InterpolationOperator)
+                and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
+                and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
+            distributed_work = 0
+            for i_remote_part in self.connected_parts:
+                mapped_field = RankGeometryChanger(i_remote_part)(expr.field)
+                btag_part = BTAG_PARTITION(i_remote_part)
+                distributed_work += op.InterpolationOperator(dd_in=btag_part,
+                                             dd_out=expr.op.dd_out)(mapped_field)
+            return expr + distributed_work
+        else:
+            return IdentityMapper.map_operator_binding(self, expr)
+
+
+class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
+    map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
+
+    def __init__(self, i_remote_part):
+        from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+        from meshmode.mesh import BTAG_PARTITION
+        self.prev_dd = sym.as_dofdesc(FACE_RESTR_INTERIOR)
+        self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_remote_part))
+
+    def _raise_unable(self, expr):
+        raise ValueError("encountered '%s' in updating subexpression for "
+            "changed geometry (likely for distributed computation); "
+            "unable to adapt from '%s' to '%s'"
+            % (str(expr), self.prev_dd, self.new_dd))
+
+    def map_operator_binding(self, expr):
+        if (isinstance(expr.op, op.OppositeInteriorFaceSwap)
+                    and expr.op.dd_in == self.prev_dd
+                    and expr.op.dd_out == self.prev_dd):
+            field = self.rec(expr.field)
+            return op.OppositePartitionFaceSwap(
+                    dd_in=self.new_dd,
+                    dd_out=self.new_dd,
+                    unique_id=expr.op.unique_id)(field)
+        elif (isinstance(expr.op, op.InterpolationOperator)
+                    and expr.op.dd_out == self.prev_dd):
+            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+                                            dd_out=self.new_dd)(expr.field)
+        elif (isinstance(expr.op, op.RefDiffOperator)
+                    and expr.op.dd_out == self.prev_dd
+                    and expr.op.dd_in == self.prev_dd):
+            return op.RefDiffOperator(expr.op.rst_axis,
+                                      dd_in=self.new_dd,
+                                      dd_out=self.new_dd)(self.rec(expr.field))
+        else:
+            self._raise_unable(expr)
+
+    def map_grudge_variable(self, expr):
+        self._raise_unable(expr)
+
+    def map_node_coordinate_component(self, expr):
+        if expr.dd == self.prev_dd:
+            return type(expr)(expr.axis, self.new_dd)
+        else:
+            self._raise_unable(expr)
 
 # }}}
 
@@ -572,6 +713,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             else:
                 return repr(s)
 
+        from meshmode.mesh import BTAG_PARTITION
         from meshmode.discretization.connection import (
                 FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
         if dd.domain_tag is None:
@@ -584,6 +726,8 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
             result = "all_faces"
         elif dd.domain_tag is FACE_RESTR_INTERIOR:
             result = "int_faces"
+        elif isinstance(dd.domain_tag, BTAG_PARTITION):
+            result = "part%d_faces" % dd.domain_tag.part_nr
         else:
             result = fmt(dd.domain_tag)
 
@@ -670,6 +814,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_ref_face_mass_operator(self, expr, enclosing_prec):
         return "RefFaceM" + self._format_op_dd(expr)
+
+    def map_opposite_partition_face_swap(self, expr, enclosing_prec):
+        return "PartSwap" + self._format_op_dd(expr)
 
     def map_opposite_interior_face_swap(self, expr, enclosing_prec):
         return "OppSwap" + self._format_op_dd(expr)

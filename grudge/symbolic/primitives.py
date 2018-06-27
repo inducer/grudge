@@ -28,7 +28,7 @@ from six.moves import range, intern
 
 import numpy as np
 import pymbolic.primitives
-from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE  # noqa
+from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.discretization.connection import (  # noqa
         FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
 
@@ -161,6 +161,7 @@ class DOFDesc(object):
             :class:`meshmode.discretization.BTAG_ALL`,
             :class:`meshmode.discretization.BTAG_NONE`,
             :class:`meshmode.discretization.BTAG_REALLY_ALL`,
+            :class:`meshmode.discretization.PARTITION`,
             or :class
             or *None* to indicate that the geometry is not yet known.
 
@@ -187,6 +188,8 @@ class DOFDesc(object):
         elif domain_tag is FACE_RESTR_INTERIOR:
             pass
         elif domain_tag is None:
+            pass
+        elif isinstance(domain_tag, BTAG_PARTITION):
             pass
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
             # FIXME: Should wrap these in DTAG_BOUNDARY
@@ -218,6 +221,7 @@ class DOFDesc(object):
         return (
                 self.domain_tag in [
                     BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL]
+                or isinstance(self.domain_tag, BTAG_PARTITION)
                 or isinstance(self.domain_tag, DTAG_BOUNDARY))
 
     def is_trace(self):
@@ -310,6 +314,7 @@ class cse_scope(cse_scope_base):  # noqa
 class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
     """A user-supplied input variable with a known :class:`DOFDesc`.
     """
+    init_arg_names = ("name", "dd")
 
     def __init__(self, name, dd=None):
         if dd is None:
@@ -375,6 +380,8 @@ bessel_y = CFunction("bessel_y")
 # {{{ technical helpers
 
 class OperatorBinding(ExpressionBase):
+    init_arg_names = ("op", "field")
+
     def __init__(self, op, field):
         self.op = op
         self.field = field
@@ -437,6 +444,8 @@ class NodeCoordinateComponent(DiscretizationProperty):
         self.axis = axis
 
         assert dd.domain_tag is not None
+
+    init_arg_names = ("axis", "dd")
 
     def __getinitargs__(self):
         return (self.axis, self.dd)
