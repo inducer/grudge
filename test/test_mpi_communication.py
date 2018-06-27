@@ -250,7 +250,7 @@ def mpi_communication_entrypoint():
 # {{{ MPI test pytest entrypoint
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [3])
+@pytest.mark.parametrize("num_ranks", [2])
 def test_mpi(num_ranks):
     pytest.importorskip("mpi4py")
     pytest.importorskip("pymetis")
@@ -267,8 +267,8 @@ def test_mpi(num_ranks):
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [3])
-def test_simple_mpi():
+@pytest.mark.parametrize("num_ranks", [2])
+def test_simple_mpi(num_ranks):
     pytest.importorskip("mpi4py")
     pytest.importorskip("pymetis")
 
@@ -277,7 +277,6 @@ def test_simple_mpi():
     newenv = os.environ.copy()
     newenv["RUN_WITHIN_MPI"] = "1"
     newenv["TEST_SIMPLE_MPI_COMMUNICATION"] = "1"
-    num_ranks = 2
     check_call([
         "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
         sys.executable, __file__],
