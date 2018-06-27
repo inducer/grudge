@@ -122,6 +122,8 @@ def main(write_output=True, order=4):
     from time import time
     t_last_step = time()
 
+    rank = comm.Get_rank()
+
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
@@ -131,7 +133,11 @@ def main(write_output=True, order=4):
             print(step, event.t, norm(queue, u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file(
+                        "fld-%03d-%04d.vtu" % (
+                            rank,
+                            step,
+                            ),
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
