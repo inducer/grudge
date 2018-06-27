@@ -87,6 +87,16 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         self.mpi_communicator = mpi_communicator
 
+    def get_management_rank_index(self):
+        return 0
+
+    def is_management_rank(self):
+        if self.mpi_communicator is None:
+            return True
+        else:
+            return self.mpi_communicator.Get_rank() \
+                    == self._get_management_rank_index()
+
     def _set_up_distributed_communication(self, mpi_communicator, queue):
         from_dd = sym.DOFDesc("vol", sym.QTAG_NONE)
 
