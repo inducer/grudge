@@ -257,13 +257,11 @@ def test_mpi(num_ranks):
 
     from subprocess import check_call
     import sys
-    newenv = os.environ.copy()
-    newenv["RUN_WITHIN_MPI"] = "1"
-    newenv["TEST_MPI_COMMUNICATION"] = "1"
     check_call([
-        "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
-        sys.executable, __file__],
-        env=newenv)
+        "mpiexec", "-np", str(num_ranks),
+        "-x", "RUN_WITHIN_MPI=1",
+        "-x", "TEST_MPI_COMMUNICATION=1",
+        sys.executable, __file__])
 
 
 @pytest.mark.mpi
@@ -274,13 +272,11 @@ def test_simple_mpi(num_ranks):
 
     from subprocess import check_call
     import sys
-    newenv = os.environ.copy()
-    newenv["RUN_WITHIN_MPI"] = "1"
-    newenv["TEST_SIMPLE_MPI_COMMUNICATION"] = "1"
     check_call([
-        "mpiexec", "-np", str(num_ranks), "-x", "RUN_WITHIN_MPI",
-        sys.executable, __file__],
-        env=newenv)
+        "mpiexec", "-np", str(num_ranks),
+        "-x", "RUN_WITHIN_MPI=1",
+        "-x", "TEST_SIMPLE_MPI_COMMUNICATION=1",
+        sys.executable, __file__])
 
 # }}}
 
