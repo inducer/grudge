@@ -508,6 +508,9 @@ def parametrization_derivative(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
+    if dim == 0:
+        return MultiVector(np.array([1.]))
+
     from pytools import product
     return product(
         forward_metric_derivative_mv(ambient_dim, rst_axis, dd)
