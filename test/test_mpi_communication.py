@@ -276,7 +276,8 @@ def test_simple_mpi(num_ranks):
         "mpiexec", "-np", str(num_ranks),
         "-x", "RUN_WITHIN_MPI=1",
         "-x", "TEST_SIMPLE_MPI_COMMUNICATION=1",
-        sys.executable, __file__])
+        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
+        sys.executable, "-m", "mpi4py.run", __file__])
 
 # }}}
 
