@@ -2,7 +2,7 @@ Python 2.7 POCL:
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
@@ -16,7 +16,7 @@ Python 3.6 POCL:
   script:
   - export PY_EXE=python3.6
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
@@ -30,7 +30,7 @@ Python 2.7 POCL MPI:
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako mpi4py pymetis"
+  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pymetis"
   - export PYTEST_ADDOPTS="-k mpi"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
@@ -45,7 +45,7 @@ Python 3.6 POCL MPI:
   script:
   - export PY_EXE=python3.6
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako mpi4py pymetis"
+  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pymetis"
   - export PYTEST_ADDOPTS="-k mpi"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
@@ -58,7 +58,7 @@ Python 3.6 POCL MPI:
 
 Documentation:
   script:
-  - EXTRA_INSTALL="numpy"
+  - EXTRA_INSTALL="pybind11 numpy"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
   - ". ./build-docs.sh"
   tags:
