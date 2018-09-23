@@ -11,6 +11,9 @@ Python 2.7 POCL:
   - mpi
   except:
   - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
 
 Python 3.6 POCL:
   script:
@@ -25,6 +28,9 @@ Python 3.6 POCL:
   - mpi
   except:
   - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
 
 Python 2.7 POCL MPI:
   script:
@@ -40,6 +46,9 @@ Python 2.7 POCL MPI:
   - mpi
   except:
   - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
 
 Python 3.6 POCL MPI:
   script:
@@ -55,6 +64,9 @@ Python 3.6 POCL MPI:
   - mpi
   except:
   - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
 
 Documentation:
   script:
