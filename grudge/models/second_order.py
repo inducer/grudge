@@ -156,8 +156,8 @@ class NeumannBCGenerator(mappers.IdentityMapper):
                         "operator encountered by stab term generator")
 
             from grudge.symbolic import BoundaryNormalComponent
-            return (self.bc * factor *
-                    BoundaryNormalComponent(self.tag, expr.op.xyz_axis))
+            return (self.bc * factor
+                    * BoundaryNormalComponent(self.tag, expr.op.xyz_axis))
 
         elif isinstance(expr.op, sym.FluxOperatorBase):
             return 0

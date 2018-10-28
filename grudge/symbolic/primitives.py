@@ -613,7 +613,7 @@ def mv_normal(dd, ambient_dim, dim=None):
 
     pder = (
             pseudoscalar(ambient_dim, dim, dd=dd)
-            /
+            /  # noqa: W504
             area_element(ambient_dim, dim, dd=dd))
     return cse(
             # Dorst Section 3.7.2
