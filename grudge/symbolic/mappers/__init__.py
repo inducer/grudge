@@ -658,8 +658,8 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
             return sum(
                     sym.inverse_metric_derivative(
                         rst_axis, expr.op.xyz_axis,
-                        ambient_dim=self.ambient_dim, dim=self.dim) *
-                    ref_class(rst_axis, dd_in=dd_in)(rec_field)
+                        ambient_dim=self.ambient_dim, dim=self.dim)
+                    * ref_class(rst_axis, dd_in=dd_in)(rec_field)
                     for rst_axis in range(self.dim))
 
         if isinstance(expr.op, op.MassOperator):
@@ -677,8 +677,9 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                     jac_in_surf * self.rec(expr.field))
 
         elif isinstance(expr.op, op.StiffnessOperator):
-            return op.RefMassOperator()(jac_noquad *
-                    self.rec(
+            return op.RefMassOperator()(
+                    jac_noquad
+                    * self.rec(
                         op.DiffOperator(expr.op.xyz_axis)(expr.field)))
 
         elif isinstance(expr.op, op.DiffOperator):
@@ -1048,7 +1049,7 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
 
 
 class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
-    """Joins derivatives:
+    r"""Joins derivatives:
 
     .. math::
 

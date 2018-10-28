@@ -193,7 +193,7 @@ def test_2d_gauss_theorem(ctx_factory):
             sym.integral((
                 sym.nabla(2) * f(sym.nodes(2))
                 ).sum())
-            -
+            -  # noqa: W504
             sym.integral(
                 sym.interp("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
                 .dot(sym.normal(sym.BTAG_ALL, 2)),

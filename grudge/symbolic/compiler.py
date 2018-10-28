@@ -592,6 +592,8 @@ class Code(object):
 
 # }}}
 
+# }}}
+
 
 # {{{ assignment aggregration pass
 
@@ -721,8 +723,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
                 other_indirect_origins = get_complete_origins_set(
                         other_assign, skip_levels=1)
 
-                if (my_assign not in other_indirect_origins and
-                        other_assign not in my_indirect_origins):
+                if (my_assign not in other_indirect_origins
+                        and other_assign not in my_indirect_origins):
                     did_work = True
 
                     # aggregate the two assignments

@@ -36,8 +36,8 @@ from pytools.obj_array import join_fields
 # {{{ constant-velocity
 
 class StrongWaveOperator(HyperbolicOperator):
-    """This operator discretizes the wave equation
-    :math:`\\partial_t^2 u = c^2 \\Delta u`.
+    r"""This operator discretizes the wave equation
+    :math:`\partial_t^2 u = c^2 \Delta u`.
 
     To be precise, we discretize the hyperbolic system
 
@@ -156,7 +156,7 @@ class StrongWaveOperator(HyperbolicOperator):
                     -self.c*np.dot(nabla, v),
                     -self.c*(nabla*u)
                     )
-                +
+                +  # noqa: W504
                 sym.InverseMassOperator()(
                     sym.FaceMassOperator()(
                         flux(sym.int_tpair(w))
@@ -181,8 +181,8 @@ class StrongWaveOperator(HyperbolicOperator):
 
 
 class WeakWaveOperator(HyperbolicOperator):
-    """This operator discretizes the wave equation
-    :math:`\\partial_t^2 u = c^2 \\Delta u`.
+    r"""This operator discretizes the wave equation
+    :math:`\partial_t^2 u = c^2 \Delta u`.
 
     To be precise, we discretize the hyperbolic system
 
@@ -321,8 +321,8 @@ class WeakWaveOperator(HyperbolicOperator):
 # {{{ variable-velocity
 
 class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
-    """This operator discretizes the wave equation
-    :math:`\\partial_t^2 u = c^2 \\Delta u`.
+    r"""This operator discretizes the wave equation
+    :math:`\partial_t^2 u = c^2 \Delta u`.
 
     To be precise, we discretize the hyperbolic system
 
