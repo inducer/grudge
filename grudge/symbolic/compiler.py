@@ -405,7 +405,12 @@ class Code(object):
 
             for dep in insn.get_dependencies():
                 try:
-                    writer = var_to_writer[dep.name]
+                    if isinstance(dep, Subscript):
+                        dep_name = dep.aggregate.name
+                    else:
+                        dep_name = dep.name
+
+                    writer = var_to_writer[dep_name]
                 except KeyError:
                     # input variables won't be found
                     pass
