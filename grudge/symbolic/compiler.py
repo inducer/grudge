@@ -609,6 +609,11 @@ def aggregate_assignments(inf_mapper, instructions, result,
     # {{{ aggregation helpers
 
     def get_complete_origins_set(insn, skip_levels=0):
+        try:
+            return insn_to_origins_cache[insn]
+        except KeyError:
+            pass
+
         if skip_levels < 0:
             skip_levels = 0
 
@@ -621,6 +626,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
                         result.add(dep_origin)
                     result |= get_complete_origins_set(
                             dep_origin, skip_levels-1)
+
+        insn_to_origins_cache[insn] = result
 
         return result
 
@@ -650,6 +657,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
     # }}}
 
     # {{{ main aggregation pass
+
+    insn_to_origins_cache = {}
 
     origins_map = dict(
                 (assignee, insn)
