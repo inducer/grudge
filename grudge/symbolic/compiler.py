@@ -405,7 +405,12 @@ class Code(object):
 
             for dep in insn.get_dependencies():
                 try:
-                    writer = var_to_writer[dep.name]
+                    if isinstance(dep, Subscript):
+                        dep_name = dep.aggregate.name
+                    else:
+                        dep_name = dep.name
+
+                    writer = var_to_writer[dep_name]
                 except KeyError:
                     # input variables won't be found
                     pass
@@ -604,6 +609,11 @@ def aggregate_assignments(inf_mapper, instructions, result,
     # {{{ aggregation helpers
 
     def get_complete_origins_set(insn, skip_levels=0):
+        try:
+            return insn_to_origins_cache[insn]
+        except KeyError:
+            pass
+
         if skip_levels < 0:
             skip_levels = 0
 
@@ -616,6 +626,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
                         result.add(dep_origin)
                     result |= get_complete_origins_set(
                             dep_origin, skip_levels-1)
+
+        insn_to_origins_cache[insn] = result
 
         return result
 
@@ -645,6 +657,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
     # }}}
 
     # {{{ main aggregation pass
+
+    insn_to_origins_cache = {}
 
     origins_map = dict(
                 (assignee, insn)

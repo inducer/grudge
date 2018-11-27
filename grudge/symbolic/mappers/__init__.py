@@ -933,9 +933,13 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
 # {{{ simplification / optimization
 
 class ConstantToNumpyConversionMapper(
+        CSECachingMapperMixin,
         pymbolic.mapper.constant_converter.ConstantToNumpyConversionMapper,
         IdentityMapperMixin):
-    pass
+    map_common_subexpression_uncached = (
+            pymbolic.mapper.constant_converter
+            .ConstantToNumpyConversionMapper
+            .map_common_subexpression)
 
 
 class CommutativeConstantFoldingMapper(
