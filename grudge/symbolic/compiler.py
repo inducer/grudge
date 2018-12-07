@@ -846,16 +846,19 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
         from pymbolic import var
         dd = self.dd_inference_mapper(expr)
 
-        name_prefix = self.map_name(name_prefix)
-        name = name_prefix
+        try:
+            name = self.expr_to_name[expr]
+        except KeyError:
+            name_prefix = self.map_name(name_prefix)
+            name = name_prefix
 
-        suffix_nr = 0
-        while name in self.used_names:
-            name = "%s_%s" % (name_prefix, suffix_nr)
-            suffix_nr += 1
-        self.used_names.add(name)
+            suffix_nr = 0
+            while name in self.used_names:
+                name = "%s_%s" % (name_prefix, suffix_nr)
+                suffix_nr += 1
+            self.used_names.add(name)
 
-        self.expr_to_name[expr] = name
+            self.expr_to_name[expr] = name
 
         from grudge.symbolic.primitives import DTAG_SCALAR
         if dd.domain_tag == DTAG_SCALAR or name in self.temp_names:
