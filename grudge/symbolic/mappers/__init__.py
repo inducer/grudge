@@ -550,11 +550,11 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
         elif (isinstance(expr.op, op.QuadratureGridUpsampler)
                 and isinstance(field_type, type_info.BoundaryVectorBase)):
             # potential shortcut:
-            #if (isinstance(expr.field, OperatorBinding)
-                    #and isinstance(expr.field.op, RestrictToBoundary)):
-                #return QuadratureRestrictToBoundary(
-                        #expr.field.op.tag, expr.op.quadrature_tag)(
-                                #self.rec(expr.field.field))
+            # if (isinstance(expr.field, OperatorBinding)
+            #        and isinstance(expr.field.op, RestrictToBoundary)):
+            #    return QuadratureRestrictToBoundary(
+            #            expr.field.op.tag, expr.op.quadrature_tag)(
+            #                    self.rec(expr.field.field))
 
             return op.QuadratureBoundaryGridUpsampler(
                     expr.op.quadrature_tag, field_type.boundary_tag)(expr.field)
