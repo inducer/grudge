@@ -655,8 +655,9 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
 
     if "dump_op_code" in debug_flags:
         from grudge.tools import open_unique_debug_file
-        open_unique_debug_file("op-code", ".txt").write(
-                str(bound_op))
+        outf, _ = open_unique_debug_file("op-code", ".txt")
+        with outf:
+            outf.write(str(bound_op))
 
     if "dump_dataflow_graph" in debug_flags:
         bound_op.code.dump_dataflow_graph()

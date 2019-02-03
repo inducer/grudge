@@ -385,8 +385,9 @@ class Code(object):
     def dump_dataflow_graph(self):
         from pytools.debug import open_unique_debug_file
 
-        open_unique_debug_file("dataflow", ".dot")\
-                .write(dot_dataflow_graph(self, max_node_label_length=None))
+        outf, _ = open_unique_debug_file("dataflow", ".dot")
+        with outf:
+            outf.write(dot_dataflow_graph(self, max_node_label_length=None))
 
     def __str__(self):
         var_to_writer = dict(
