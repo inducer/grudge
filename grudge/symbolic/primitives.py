@@ -425,6 +425,9 @@ class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
 
 
 class Ones(ExpressionBase, HasDOFDesc):
+    def __getinitargs__(self):
+        return ()
+
     mapper_method = intern("map_ones")
 
 
