@@ -90,8 +90,7 @@ class GrudgeArgSubstitutor(gmap.SymbolicEvaluator):
     def map_grudge_variable(self, expr):
         if expr.name in self.args:
             return self.args[expr.name]
-        else:
-            return super().map_variable(expr)
+        return super().map_variable(expr)
 
 
 def transcribe_phase(dag, field_var_name, field_components, phase_name,
@@ -326,66 +325,6 @@ class FusedRK4TimeStepper(RK4TimeStepperBase):
         context = self.get_initial_context(fields, t_start, dt)
 
         t = t_start
-
-        while t <= t_end:
-            results = self.bound_op(self.queue, **context)
-            t = results[0]
-            context["input_t"] = t
-            context["input_dt"] = results[1]
-            output_states = results[2:]
-            context[self.state_name] = output_states
-            yield (t, self.component_getter(output_states))
-
-
-class FusedGrudgeRK4TimeStepper(object):
-
-    def __init__(self, queue, field_var_name, dt, fields, sym_rhs, discr,
-                 component_getter, t_start=0):
-        self.t_start = t_start
-        self.dt = dt
-        dt_method = LSRK4Method(component_id=field_var_name)
-        dt_code = dt_method.generate()
-
-        from pytools.obj_array import join_fields
-
-        # Flatten fields.
-        flattened_fields = []
-        for field in fields:
-            if isinstance(field, list):
-                flattened_fields.extend(field)
-            else:
-                flattened_fields.append(field)
-        flattened_fields = join_fields(*flattened_fields)
-        del fields
-
-        output_vars, results, yielded_states = transcribe_phase(
-                dt_code, field_var_name, len(flattened_fields),
-                "primary", sym_rhs)
-
-        output_t = results[0]
-        output_dt = results[1]
-        output_states = results[2]
-        output_residuals = results[3]
-
-        assert len(output_states) == len(flattened_fields)
-        assert len(output_states) == len(output_residuals)
-
-        flattened_results = join_fields(output_t, output_dt, *output_states)
-        self.bound_op = bind(discr, flattened_results)
-        self.queue = queue
-
-        self.initial_context = {
-                "input_t": t_start,
-                "input_dt": dt,
-                self.state_name: flattened_fields,
-                "input_residual": flattened_fields,
-        }
-
-        self.component_getter = component_getter
-
-    def run(self, t_end):
-        t = self.t_start
-        context = self.initial_context.copy()
 
         while t <= t_end:
             results = self.bound_op(self.queue, **context)
