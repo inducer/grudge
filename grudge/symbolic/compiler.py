@@ -106,10 +106,13 @@ class LoopyKernelInstruction(Instruction):
     @memoize_method
     def get_dependencies(self):
         from pymbolic.primitives import Variable, Subscript
-        return set(
-                v
-                for v in self.kernel_descriptor.input_mappings.values()
-                if isinstance(v, (Variable, Subscript)))
+        result = set()
+        for v in self.kernel_descriptor.input_mappings.values():
+            if isinstance(v, Variable):
+                result.add(v)
+            elif isinstance(v, Subscript):
+                result.add(v.aggregate)
+        return result
 
     def __str__(self):
         knl_str = "\n".join(
@@ -580,10 +583,6 @@ class Code(object):
                             break
 
         if len(done_insns) < len(self.instructions):
-            print("Unreachable instructions:")
-            for insn in set(self.instructions) - done_insns:
-                print("    ", insn)
-
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
@@ -1152,11 +1151,14 @@ class OperatorCompiler(mappers.IdentityMapper):
         from grudge.symbolic.dofdesc_inference import DOFDescInferenceMapper
         inf_mapper = DOFDescInferenceMapper(discr_code + eval_code)
 
-        eval_code = aggregate_assignments(
+        if 1:
+            eval_code = aggregate_assignments(
                 inf_mapper, eval_code, result, self.max_vectors_in_batch_expr)
 
-        discr_code = rewrite_insn_to_loopy_insns(inf_mapper, discr_code)
-        eval_code = rewrite_insn_to_loopy_insns(inf_mapper, eval_code)
+            discr_code = rewrite_insn_to_loopy_insns(inf_mapper, discr_code)
+            eval_code = rewrite_insn_to_loopy_insns(inf_mapper, eval_code)
+
+        code = Code(eval_code, result)
 
         from pytools.obj_array import make_obj_array
         return (
