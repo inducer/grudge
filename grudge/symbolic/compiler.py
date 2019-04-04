@@ -526,7 +526,7 @@ class Code(object):
                                 log_quantities["rank_data_swap_timer"],
                                 log_quantities["rank_data_swap_counter"])
 
-                assignments, new_futures = mapper_method(insn)
+                assignments, new_futures = mapper_method(insn, profile_data)
 
                 for target, value in assignments:
                     if pre_assign_check is not None:

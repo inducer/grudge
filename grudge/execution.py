@@ -332,7 +332,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     # {{{ instruction execution functions
 
-    def map_insn_rank_data_swap(self, insn):
+    def map_insn_rank_data_swap(self, insn, profile_data=None):
         local_data = self.rec(insn.field).get(self.queue)
         comm = self.discrwb.mpi_communicator
 
@@ -347,7 +347,7 @@ class ExecutionMapper(mappers.Evaluator,
                 MPIRecvFuture(recv_req, insn.name, remote_data_host, self.queue),
                 MPISendFuture(send_req)]
 
-    def map_insn_loopy_kernel(self, insn):
+    def map_insn_loopy_kernel(self, insn, profile_data=None):
         kwargs = {}
         kdescr = insn.kernel_descriptor
         for name, expr in six.iteritems(kdescr.input_mappings):
@@ -370,11 +370,11 @@ class ExecutionMapper(mappers.Evaluator,
         evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
         return list(result_dict.items()), []
 
-    def map_insn_assign(self, insn):
+    def map_insn_assign(self, insn, profile_data=None):
         return [(name, self.rec(expr))
                 for name, expr in zip(insn.names, insn.exprs)], []
 
-    def map_insn_assign_to_discr_scoped(self, insn):
+    def map_insn_assign_to_discr_scoped(self, insn, profile_data=None):
         assignments = []
         for name, expr in zip(insn.names, insn.exprs):
             value = self.rec(expr)
@@ -383,11 +383,11 @@ class ExecutionMapper(mappers.Evaluator,
 
         return assignments, []
 
-    def map_insn_assign_from_discr_scoped(self, insn):
+    def map_insn_assign_from_discr_scoped(self, insn, profile_data=None):
         return [(insn.name,
             self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
 
-    def map_insn_diff_batch_assign(self, insn):
+    def map_insn_diff_batch_assign(self, insn, profile_data=None):
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
         # FIXME: There's no real reason why differentiation is special,
@@ -483,13 +483,15 @@ class MPISendFuture(object):
 # {{{ bound operator
 
 class BoundOperator(object):
-    def __init__(self, discrwb, discr_code, eval_code, debug_flags, allocator=None):
+    def __init__(self, discrwb, discr_code, eval_code, debug_flags,
+                 allocator=None, exec_mapper_factory=ExecutionMapper):
         self.discrwb = discrwb
         self.discr_code = discr_code
         self.eval_code = eval_code
         self.operator_data_cache = {}
         self.debug_flags = debug_flags
         self.allocator = allocator
+        self.exec_mapper_factory = exec_mapper_factory
 
     def __str__(self):
         sep = 75 * "=" + "\n"
@@ -523,7 +525,7 @@ class BoundOperator(object):
             # need to do discrwb-scope evaluation
             discrwb_eval_context = {}
             self.discr_code.execute(
-                    ExecutionMapper(queue, discrwb_eval_context, self))
+                    self.exec_mapper_factory(queue, discrwb_eval_context, self))
 
         # }}}
 
@@ -532,7 +534,7 @@ class BoundOperator(object):
             new_context[name] = with_object_array_or_scalar(replace_queue, var)
 
         return self.eval_code.execute(
-                ExecutionMapper(queue, new_context, self),
+                self.exec_mapper_factory(queue, new_context, self),
                 profile_data=profile_data,
                 log_quantities=log_quantities)
 
@@ -634,8 +636,8 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 # }}}
 
 
-def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
-        debug_flags=set(), allocator=None):
+def bind(discr, sym_operator, post_bind_mapper=lambda x: x, debug_flags=set(),
+         allocator=None, exec_mapper_factory=ExecutionMapper):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -661,7 +663,8 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
     discr_code, eval_code = OperatorCompiler(discr)(sym_operator)
 
     bound_op = BoundOperator(discr, discr_code, eval_code,
-            debug_flags=debug_flags, allocator=allocator)
+            debug_flags=debug_flags, allocator=allocator,
+            exec_mapper_factory=exec_mapper_factory)
 
     if "dump_op_code" in debug_flags:
         from grudge.tools import open_unique_debug_file
