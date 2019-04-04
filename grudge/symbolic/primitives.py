@@ -352,20 +352,6 @@ class ExternalCall(HasDOFDesc, GrudgeStringifiable, pymbolic.primitives.Call):
     def __getinitargs__(self):
         return (self.function, self.parameters, self.dd)
 
-    def get_hash(self):
-        # Object arrays are permitted as parameters, but are not hashable.
-        params = []
-        for param in self.parameters:
-            if isinstance(param, np.ndarray):
-                assert param.dtype == np.object
-                param = tuple(param)
-            params.append(param)
-
-        return hash(
-                (type(self).__name__, self.function)
-                + tuple(params)
-                + (self.dd,))
-
     mapper_method = "map_external_call"
 
 
