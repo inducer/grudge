@@ -34,12 +34,12 @@ from meshmode.discretization.connection import (  # noqa
 
 from pymbolic.primitives import (  # noqa
         cse_scope as cse_scope_base,
-        make_common_subexpression as cse, If, Comparison, Expression)
+        make_common_subexpression as cse, If, Comparison)
 from pymbolic.geometric_algebra import MultiVector
 from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
-class GrudgeStringifiable(object):
+class ExpressionBase(pymbolic.primitives.Expression):
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -320,7 +320,7 @@ class cse_scope(cse_scope_base):  # noqa
     DISCRETIZATION = "grudge_discretization"
 
 
-class Variable(HasDOFDesc, GrudgeStringifiable, pymbolic.primitives.Variable):
+class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
     """A user-supplied input variable with a known :class:`DOFDesc`.
     """
     init_arg_names = ("name", "dd")
@@ -345,7 +345,7 @@ class ScalarVariable(Variable):
         super(ScalarVariable, self).__init__(name, DD_SCALAR)
 
 
-class ExternalCall(HasDOFDesc, GrudgeStringifiable, pymbolic.primitives.Call):
+class ExternalCall(HasDOFDesc, ExpressionBase, pymbolic.primitives.Call):
     """A call to a user-supplied function with a :class:`DOFDesc`.
     """
 
@@ -369,7 +369,7 @@ def make_sym_mv(name, dim, var_factory=None):
             make_sym_array(name, dim, var_factory))
 
 
-class CFunction(GrudgeStringifiable, pymbolic.primitives.Variable):
+class CFunction(ExpressionBase, pymbolic.primitives.Variable):
     """A symbol representing a C-level function, to be used as the function
     argument of :class:`pymbolic.primitives.Call`.
     """
@@ -396,7 +396,7 @@ bessel_y = CFunction("bessel_y")
 
 # {{{ technical helpers
 
-class OperatorBinding(GrudgeStringifiable, pymbolic.primitives.Expression):
+class OperatorBinding(ExpressionBase):
     init_arg_names = ("op", "field")
 
     def __init__(self, op, field):
@@ -441,16 +441,13 @@ class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
 # }}}
 
 
-class Ones(GrudgeStringifiable, HasDOFDesc, Expression):
-    def __getinitargs__(self):
-        return (self.dd,)
-
+class Ones(HasDOFDesc, ExpressionBase):
     mapper_method = intern("map_ones")
 
 
 # {{{ geometry data
 
-class DiscretizationProperty(GrudgeStringifiable, HasDOFDesc, Expression):
+class DiscretizationProperty(HasDOFDesc, ExpressionBase):
     pass
 
 
