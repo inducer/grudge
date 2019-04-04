@@ -346,6 +346,8 @@ class ScalarVariable(Variable):
 
 
 class ExternalCall(HasDOFDesc, GrudgeStringifiable, pymbolic.primitives.Call):
+    """A call to a user-supplied function with a :class:`DOFDesc`.
+    """
 
     init_arg_names = ("function", "parameters", "dd")
 
