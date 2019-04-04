@@ -514,6 +514,35 @@ def test_bessel(ctx_factory):
     assert z < 1e-15
 
 
+def test_ExternalCall(ctx_factory):
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+
+    def double(x):
+        return 2 * x
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+
+    dims = 2
+
+    mesh = generate_regular_rect_mesh(a=(0,) * dims, b=(1,) * dims, n=(4,) * dims)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=1)
+
+    ones = sym.Ones(sym.DD_VOLUME)
+    from pymbolic.primitives import Variable
+    op = (
+            ones * 3
+            + sym.ExternalCall(
+                Variable("double"),
+                (ones,),
+                sym.DD_VOLUME))
+
+    bound_op = bind(discr, op)
+
+    result = bound_op(queue, double=double)
+    assert (result == 5).get().all()
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 

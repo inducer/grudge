@@ -94,13 +94,23 @@ class ExecutionMapper(mappers.Evaluator,
                 value = ary
         return value
 
+    def map_external_call(self, expr):
+        from pymbolic.primitives import Variable
+        assert isinstance(expr.function, Variable)
+        args = [self.rec(p) for p in expr.parameters]
+
+        return self.context[expr.function.name](*args)
+
     def map_call(self, expr):
         from pymbolic.primitives import Variable
         assert isinstance(expr.function, Variable)
 
-        # FIXME: Make a way to register functions
-
         args = [self.rec(p) for p in expr.parameters]
+
+        # Function lookup precedence:
+        # * Numpy functions
+        # * OpenCL functions
+
         from numbers import Number
         representative_arg = args[0]
         if (

@@ -191,6 +191,9 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
         # FIXME
         return arg_dds[0]
 
+    def map_external_call(self, expr):
+        return expr.dd
+
     # }}}
 
     # {{{ instruction mappings

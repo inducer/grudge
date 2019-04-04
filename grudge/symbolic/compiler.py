@@ -667,13 +667,14 @@ def aggregate_assignments(inf_mapper, instructions, result,
                 for assignee in insn.get_assignees())
 
     from pytools import partition
-    from grudge.symbolic.primitives import DTAG_SCALAR
+    from grudge.symbolic.primitives import DTAG_SCALAR, ExternalCall
 
     unprocessed_assigns, other_insns = partition(
             lambda insn: (
                 isinstance(insn, Assign)
                 and not isinstance(insn, ToDiscretizationScopedAssign)
                 and not isinstance(insn, FromDiscretizationScopedAssign)
+                and not isinstance(insn.exprs[0], ExternalCall)
                 and not any(
                     inf_mapper.infer_for_name(n).domain_tag == DTAG_SCALAR
                     for n in insn.names)),
@@ -886,6 +887,10 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
                 expr,
                 "%s_%d" % (expr.aggregate.name, subscript))
 
+    def map_external_call(self, expr):
+        raise ValueError(
+                "Cannot map external call '%s' into loopy" % expr.function)
+
     def map_call(self, expr):
         if isinstance(expr.function, sym.CFunction):
             from pymbolic import var
@@ -970,8 +975,11 @@ class ToLoopyInstructionMapper(object):
         self.dd_inference_mapper = dd_inference_mapper
 
     def map_insn_assign(self, insn):
-        from grudge.symbolic.primitives import OperatorBinding
-        if len(insn.exprs) == 1 and isinstance(insn.exprs[0], OperatorBinding):
+        from grudge.symbolic.primitives import OperatorBinding, ExternalCall
+
+        if (
+                len(insn.exprs) == 1
+                and isinstance(insn.exprs[0], (OperatorBinding, ExternalCall))):
             return insn
 
         iname = "grdg_i"
@@ -1261,6 +1269,17 @@ class OperatorCompiler(mappers.IdentityMapper):
                     prefix=name_hint)
             return result_var
 
+    def map_external_call(self, expr, codegen_state):
+        return self.assign_to_new_var(
+                    codegen_state,
+                    type(expr)(
+                        expr.function,
+                        [self.assign_to_new_var(
+                            codegen_state,
+                            self.rec(par, codegen_state))
+                            for par in expr.parameters],
+                        expr.dd))
+
     def map_call(self, expr, codegen_state):
         from grudge.symbolic.primitives import CFunction
         if isinstance(expr.function, CFunction):
@@ -1268,15 +1287,14 @@ class OperatorCompiler(mappers.IdentityMapper):
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
-
             return self.assign_to_new_var(
-                    codegen_state,
-                    type(expr)(
-                        expr.function,
-                        [self.assign_to_new_var(
-                            codegen_state,
-                            self.rec(par, codegen_state))
-                            for par in expr.parameters]))
+                        codegen_state,
+                        type(expr)(
+                            expr.function,
+                            [self.assign_to_new_var(
+                                codegen_state,
+                                self.rec(par, codegen_state))
+                                for par in expr.parameters]))
 
     def map_ref_diff_op_binding(self, expr, codegen_state):
         try:

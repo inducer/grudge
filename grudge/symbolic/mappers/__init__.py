@@ -215,6 +215,12 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ones = map_grudge_variable
     map_node_coordinate_component = map_grudge_variable
 
+    def map_external_call(self, expr, *args, **kwargs):
+        return type(expr)(
+                self.rec(expr.function, *args, **kwargs),
+                self.rec(expr.parameters, *args, **kwargs),
+                dd=expr.dd)
+
     # }}}
 
 
@@ -268,6 +274,15 @@ class DependencyMapper(
     map_ones = _map_leaf
     map_node_coordinate_component = _map_leaf
 
+    def map_external_call(self, expr):
+        result = self.map_call(expr)
+        if self.include_calls == "descend_args":
+            # Unlike regular calls, we regard the function as an argument,
+            # because it's user-supplied (and thus we need to pick it up as a
+            # dependency).
+            result = self.combine((result, self.rec(expr.function)))
+        return result
+
 
 class FlopCounter(
         CombineMapperMixin,
@@ -279,6 +294,9 @@ class FlopCounter(
         return 0
 
     def map_c_function(self, expr):
+        return 1
+
+    def map_external_call(self, expr):
         return 1
 
     def map_ones(self, expr):
@@ -849,6 +867,15 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     def map_interpolation(self, expr, enclosing_prec):
         return "Interp" + self._format_op_dd(expr)
 
+    def map_external_call(self, expr, enclosing_prec):
+        from pymbolic.mapper.stringifier import PREC_CALL, PREC_NONE
+        return (
+                self.parenthesize_if_needed(
+                    "External:%s:%s" % (
+                        self.map_call(expr, PREC_NONE), self._format_dd(expr.dd)),
+                    enclosing_prec,
+                    PREC_CALL))
+
 
 class PrettyStringifyMapper(
         pymbolic.mapper.stringifier.CSESplittingStringifyMapperMixin,
@@ -1224,6 +1251,7 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
     def map_constant(self, expr, *args, **kwargs):
         return set()
 
+    map_variable = map_constant
     map_grudge_variable = map_constant
     map_c_function = map_grudge_variable
 
@@ -1241,6 +1269,9 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
 class BoundOperatorCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper):
     def __init__(self, op_class):
         self.op_class = op_class
+
+    def map_external_call(self, expr):
+        return self.map_call(expr)
 
     map_common_subexpression_uncached = \
             CombineMapper.map_common_subexpression
