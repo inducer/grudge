@@ -1271,14 +1271,14 @@ class OperatorCompiler(mappers.IdentityMapper):
 
     def map_external_call(self, expr, codegen_state):
         return self.assign_to_new_var(
-                    codegen_state,
-                    type(expr)(
-                        expr.function,
-                        [self.assign_to_new_var(
-                            codegen_state,
-                            self.rec(par, codegen_state))
-                            for par in expr.parameters],
-                        expr.dd))
+                codegen_state,
+                type(expr)(
+                    expr.function,
+                    [self.assign_to_new_var(
+                        codegen_state,
+                        self.rec(par, codegen_state))
+                        for par in expr.parameters],
+                    expr.dd))
 
     def map_call(self, expr, codegen_state):
         from grudge.symbolic.primitives import CFunction
@@ -1288,13 +1288,13 @@ class OperatorCompiler(mappers.IdentityMapper):
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
             return self.assign_to_new_var(
-                        codegen_state,
-                        type(expr)(
-                            expr.function,
-                            [self.assign_to_new_var(
-                                codegen_state,
-                                self.rec(par, codegen_state))
-                                for par in expr.parameters]))
+                    codegen_state,
+                    type(expr)(
+                        expr.function,
+                        [self.assign_to_new_var(
+                            codegen_state,
+                            self.rec(par, codegen_state))
+                            for par in expr.parameters]))
 
     def map_ref_diff_op_binding(self, expr, codegen_state):
         try:
