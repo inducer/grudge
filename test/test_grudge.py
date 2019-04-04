@@ -514,7 +514,7 @@ def test_bessel(ctx_factory):
     assert z < 1e-15
 
 
-def test_ExternalCall(ctx_factory):
+def test_ExternalCall(ctx_factory):  # noqa
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
