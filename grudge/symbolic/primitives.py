@@ -396,7 +396,7 @@ bessel_y = CFunction("bessel_y")
 
 # {{{ technical helpers
 
-class OperatorBinding(GrudgeStringifiable, pymbolic.primitives.Expression):
+class OperatorBinding(GrudgeStringifiable, Expression):
     init_arg_names = ("op", "field")
 
     def __init__(self, op, field):
