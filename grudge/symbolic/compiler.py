@@ -1287,6 +1287,7 @@ class OperatorCompiler(mappers.IdentityMapper):
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
+
             return self.assign_to_new_var(
                     codegen_state,
                     type(expr)(

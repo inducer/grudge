@@ -40,7 +40,6 @@ from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
 class ExpressionBase(pymbolic.primitives.Expression):
-
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper
