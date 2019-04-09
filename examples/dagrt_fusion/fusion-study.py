@@ -373,7 +373,7 @@ def get_strong_wave_op_with_discr(cl_ctx, dims=2, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(16,)*dims)
+            n=(256,)*dims)
 
     logger.debug("%d elements" % mesh.nelements)
 
@@ -462,7 +462,7 @@ def test_stepper_equivalence(ctx_factory, order=4):
 
 # {{{ mem op counter implementation
 
-class MemOpCountingExecutionMapper(ExecutionMapper):
+class ExecutionMapperWithMemOpCounting(ExecutionMapper):
     # This is a skeleton implementation that only has just enough functionality
     # for the wave-min example to work.
 
@@ -638,18 +638,18 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     if not use_fusion:
         bound_op = bind(
                 discr, op.sym_operator(),
-                exec_mapper_factory=MemOpCountingExecutionMapper)
+                exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
         stepper = RK4TimeStepper(
                 queue, discr, "w", bound_op, 1 + discr.dim,
                 get_strong_wave_component,
-                exec_mapper_factory=MemOpCountingExecutionMapper)
+                exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     else:
         stepper = FusedRK4TimeStepper(
                 queue, discr, "w", op.sym_operator(), 1 + discr.dim,
                 get_strong_wave_component,
-                exec_mapper_factory=MemOpCountingExecutionMapper)
+                exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     step = 0
 
@@ -657,13 +657,148 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     for (_, _, profile_data) in stepper.run(
             ic, t_start, dt, t_end, return_profile_data=True):
         step += 1
-        logger.info("step %d/%d: %f", step, nsteps)
+        logger.info("step %d/%d", step, nsteps)
 
     logger.info("fusion? %s", use_fusion)
     logger.info("bytes read: %d", profile_data["bytes_read"])
     logger.info("bytes written: %d", profile_data["bytes_written"])
     logger.info("bytes total: %d",
             profile_data["bytes_read"] + profile_data["bytes_written"])
+
+# }}}
+
+
+# {{{ execution mapper with timing
+
+def time_insn(f):
+    from pytools import ProcessTimer
+    time_field_name = "time_%s" % f.__name__
+
+    def wrapper(self, insn, profile_data):
+        timer = ProcessTimer()
+        retval = f(self, insn, profile_data)
+        timer.done()
+
+        if profile_data is not None:
+            profile_data[time_field_name] = (
+                    profile_data.get(time_field_name, 0)
+                    + timer.wall_elapsed)
+
+        return retval
+
+    return wrapper
+
+
+class ExecutionMapperWithTiming(ExecutionMapper):
+
+    def map_external_call(self, expr):
+        # Should have been caught by our implementation.
+        assert False, ("map_external_call called: %s" % (expr))
+        
+    def map_operator_binding(self, expr):
+        # Should have been caught by our implementation.
+        assert False, ("map_operator_binding called: %s" % expr)
+
+    def map_profiled_external_call(self, expr, profile_data):
+        from pymbolic.primitives import Variable
+        assert isinstance(expr.function, Variable)
+        args = [self.rec(p) for p in expr.parameters]
+        return self.context[expr.function.name](*args, profile_data=profile_data)
+
+    def map_profiled_operator_binding(self, expr, profile_data):
+        from pytools import ProcessTimer
+        timer = ProcessTimer()
+        retval = super().map_operator_binding(expr)
+        timer.done()
+        if profile_data is not None:
+            time_field_name = "time_op_%s" % expr.op.mapper_method
+            profile_data[time_field_name] = (
+                    profile_data.get(time_field_name, 0)
+                    + timer.wall_elapsed)
+        return retval
+
+    @time_insn
+    def map_insn_loopy_kernel(self, *args, **kwargs):
+        return super().map_insn_loopy_kernel(*args, **kwargs)
+
+    @time_insn
+    def map_insn_assign(self, insn, profile_data):
+        if len(insn.exprs) == 1:
+            if isinstance(insn.exprs[0], sym.ExternalCall):
+                assert insn.exprs[0].mapper_method == "map_external_call"
+                val = self.map_profiled_external_call(insn.exprs[0], profile_data)
+                return [(insn.names[0], val)], []
+            elif isinstance(insn.exprs[0], sym.OperatorBinding):
+                assert insn.exprs[0].mapper_method == "map_operator_binding"
+                val = self.map_profiled_operator_binding(insn.exprs[0], profile_data)
+                return [(insn.names[0], val)], []
+                                                  
+        return super().map_insn_assign(insn, profile_data)
+
+    @time_insn
+    def map_insn_assign_to_discr_scoped(self, insn, profile_data):
+        return super().map_insn_assign_to_discr_scoped(insn, profile_data)
+
+    @time_insn
+    def map_insn_assign_from_discr_scoped(self, insn, profile_data):
+        return super().map_insn_assign_from_discr_scoped(insn, profile_data)
+
+    @time_insn
+    def map_insn_diff_batch_assign(self, insn, profile_data):
+        return super().map_insn_diff_batch_assign(insn, profile_data)
+
+# }}}
+
+
+# {{{ timing check
+
+@pytest.mark.parametrize("use_fusion", (True, False))
+def test_stepper_timing(ctx_factory, use_fusion):
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+
+    dims = 2
+
+    op, discr = get_strong_wave_op_with_discr(cl_ctx, dims=dims, order=3)
+
+    t_start = 0
+    dt = 0.04
+    t_end = 0.1
+
+    from pytools.obj_array import join_fields
+    ic = join_fields(discr.zeros(queue),
+            [discr.zeros(queue) for i in range(discr.dim)])
+
+    if not use_fusion:
+        bound_op = bind(
+                discr, op.sym_operator(),
+                exec_mapper_factory=ExecutionMapperWithTiming)
+
+        stepper = RK4TimeStepper(
+                queue, discr, "w", bound_op, 1 + discr.dim,
+                get_strong_wave_component,
+                exec_mapper_factory=ExecutionMapperWithTiming)
+
+    else:
+        stepper = FusedRK4TimeStepper(
+                queue, discr, "w", op.sym_operator(), 1 + discr.dim,
+                get_strong_wave_component,
+                exec_mapper_factory=ExecutionMapperWithTiming)
+
+    step = 0
+
+    import time
+    t = time.time()
+    nsteps = int(np.ceil((t_end + 1e-9) / dt))
+    for (_, _, profile_data) in stepper.run(
+            ic, t_start, dt, t_end, return_profile_data=True):
+        step += 1
+        tn = time.time()
+        logger.info("step %d/%d: %f", step, nsteps, tn - t)
+        t = tn
+
+    logger.info("fusion? %s", use_fusion)
+    logger.info(profile_data)
 
 # }}}
 
@@ -743,12 +878,68 @@ def mem_ops_table():
     fused_stepper = get_example_stepper(
             queue,
             use_fusion=True,
-            exec_mapper_factory=MemOpCountingExecutionMapper)
+            exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     stepper, ic = get_example_stepper(
             queue,
             use_fusion=False,
-            exec_mapper_factory=MemOpCountingExecutionMapper,
+            exec_mapper_factory=ExecutionMapperWithMemOpCounting,
+            return_ic=True)
+
+    t_start = 0
+    dt = 0.02
+    t_end = 0.02
+
+    for (_, _, profile_data) in stepper.run(
+            ic, t_start, dt, t_end, return_profile_data=True):
+        pass
+
+    nonfused_bytes_read = profile_data["bytes_read"]
+    nonfused_bytes_written = profile_data["bytes_written"]
+    nonfused_bytes_total = nonfused_bytes_read + nonfused_bytes_written
+
+    for (_, _, profile_data) in fused_stepper.run(
+            ic, t_start, dt, t_end, return_profile_data=True):
+        pass
+
+    fused_bytes_read = profile_data["bytes_read"]
+    fused_bytes_written = profile_data["bytes_written"]
+    fused_bytes_total = fused_bytes_read + fused_bytes_written
+
+    print(r"\begin{tabular}{lrrr}")
+    print(r"\toprule")
+    print(r"Operator & Bytes Read & Bytes Written & Total (\% of Baseline) \\")
+    print(r"\midrule")
+    print(
+            r"Baseline & \num{%d} & \num{%d} & \num{%d} (100) \\"
+            % (
+                nonfused_bytes_read,
+                nonfused_bytes_written,
+                nonfused_bytes_total))
+    print(
+            r"Fused & \num{%d} & \num{%d} & \num{%d} (%.1f) \\"
+            % (
+                fused_bytes_read,
+                fused_bytes_written,
+                fused_bytes_total,
+                100 * fused_bytes_total / nonfused_bytes_total))
+    print(r"\bottomrule")
+    print(r"\end{tabular}")
+
+
+def mem_ops_table():
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    fused_stepper = get_example_stepper(
+            queue,
+            use_fusion=True,
+            exec_mapper_factory=ExecutionMapperWithMemOpCounting)
+
+    stepper, ic = get_example_stepper(
+            queue,
+            use_fusion=False,
+            exec_mapper_factory=ExecutionMapperWithMemOpCounting,
             return_ic=True)
 
     t_start = 0
@@ -799,5 +990,6 @@ if __name__ == "__main__":
     #test_stepper_mem_ops(True)
     #test_stepper_mem_ops(False)
     #statement_counts_table()
-    #mem_ops_table()
-    pass
+    mem_ops_table()
+    #pass
+    #test_stepper_timing(cl._csc, False)
