@@ -972,6 +972,7 @@ def bessel_function_mangler(kernel, name, arg_dtypes):
 class ToLoopyInstructionMapper(object):
     def __init__(self, dd_inference_mapper):
         self.dd_inference_mapper = dd_inference_mapper
+        self.insn_count = 0
 
     def map_insn_assign(self, insn):
         from grudge.symbolic.primitives import OperatorBinding, ExternalCall
@@ -1014,12 +1015,15 @@ class ToLoopyInstructionMapper(object):
                 insns,
                 default_offset=lp.auto,
 
+                name="grudge_assign_%d" % self.insn_count,
                 # Single-insn kernels may have their no_sync_with resolve to an
                 # empty set, that's OK.
                 options=lp.Options(check_dep_resolution=False))
 
         knl = lp.set_options(knl, return_dict=True)
         knl = lp.split_iname(knl, iname, 128, outer_tag="g.0", inner_tag="l.0")
+
+        self.insn_count += 1
 
         from pytools import single_valued
         governing_dd = single_valued(

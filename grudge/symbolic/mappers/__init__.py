@@ -40,6 +40,7 @@ from pymbolic.mapper import CSECachingMapperMixin
 
 from grudge import sym
 import grudge.symbolic.operators as op
+from grudge.tools import OrderedSet
 
 
 # {{{ mixins
@@ -1243,13 +1244,17 @@ class ErrorChecker(CSECachingMapperMixin, IdentityMapper):
 
 # {{{ collectors for various symbolic operator components
 
+# To maintain deterministic output in code generation, these collectors return
+# OrderedSets. (The order of collected values determines the names of variables,
+# which are significant to loopy.)
+
 class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMixin):
     def combine(self, values):
         from pytools import flatten
-        return set(flatten(values))
+        return OrderedSet(flatten(values))
 
     def map_constant(self, expr, *args, **kwargs):
-        return set()
+        return OrderedSet()
 
     map_variable = map_constant
     map_grudge_variable = map_constant
@@ -1278,9 +1283,9 @@ class BoundOperatorCollector(CSECachingMapperMixin, CollectorMixin, CombineMappe
 
     def map_operator_binding(self, expr):
         if isinstance(expr.op, self.op_class):
-            result = set([expr])
+            result = OrderedSet([expr])
         else:
-            result = set()
+            result = OrderedSet()
 
         return result | CombineMapper.map_operator_binding(self, expr)
 
@@ -1290,7 +1295,7 @@ class FluxExchangeCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper
             CombineMapper.map_common_subexpression
 
     def map_flux_exchange(self, expr):
-        return set([expr])
+        return OrderedSet([expr])
 
 # }}}
 
