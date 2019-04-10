@@ -1245,8 +1245,10 @@ class ErrorChecker(CSECachingMapperMixin, IdentityMapper):
 # {{{ collectors for various symbolic operator components
 
 # To maintain deterministic output in code generation, these collectors return
-# OrderedSets. (The order of collected values determines the names of variables,
-# which are significant to loopy.)
+# OrderedSets. (As an example for why this is useful, the order of collected
+# values determines the names of intermediate variables. If variable names
+# aren't deterministic, loopy's kernel caching doesn't help us much across
+# runs.)
 
 class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMixin):
     def combine(self, values):

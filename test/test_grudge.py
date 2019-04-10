@@ -485,6 +485,31 @@ def test_foreign_points(ctx_factory):
     bind(pdiscr, sym.nodes(dim)**2)(queue)
 
 
+def test_op_collector_order_determinism():
+    class TestOperator(sym.Operator):
+
+        def __init__(self):
+            sym.Operator.__init__(self, sym.DD_VOLUME, sym.DD_VOLUME)
+
+        mapper_method = "map_test_operator"
+
+    from grudge.symbolic.mappers import BoundOperatorCollector
+
+    class TestBoundOperatorCollector(BoundOperatorCollector):
+
+        def map_test_operator(self, expr):
+            return self.map_operator(expr)
+
+    v0 = sym.var("v0")
+    ob0 = sym.OperatorBinding(TestOperator(), v0)
+
+    v1 = sym.var("v1")
+    ob1 = sym.OperatorBinding(TestOperator(), v1)
+
+    # The output order isn't significant, but it should always be the same.
+    assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
+
+
 def test_bessel(ctx_factory):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
