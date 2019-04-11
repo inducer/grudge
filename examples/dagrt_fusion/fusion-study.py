@@ -373,7 +373,7 @@ def get_strong_wave_op_with_discr(cl_ctx, dims=2, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(256,)*dims)
+            n=(16,)*dims)
 
     logger.debug("%d elements" % mesh.nelements)
 
@@ -495,6 +495,12 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
                     profile_data.get("bytes_read", 0) + field.nbytes)
             profile_data["bytes_written"] = (
                     profile_data.get("bytes_written", 0) + result.nbytes)
+
+            if op.mapper_method == "map_interpolation":
+                profile_data["interp_bytes_read"] = (
+                        profile_data.get("interp_bytes_read", 0) + field.nbytes)
+                profile_data["interp_bytes_written"] = (
+                        profile_data.get("interp_bytes_written", 0) + result.nbytes)
 
         return result
 
@@ -670,19 +676,63 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
 
 # {{{ execution mapper with timing
 
+
+SECONDS_PER_NANOSECOND = 10**9
+
+
+class TimingFuture(object):
+
+    def __init__(self, start_event, stop_event):
+        self.start_event = start_event
+        self.stop_event = stop_event
+
+    def elapsed(self):
+        cl.wait_for_events([self.start_event, self.stop_event])
+        return (
+                self.stop_event.profile.end
+                - self.start_event.profile.end) / SECONDS_PER_NANOSECOND
+
+
+from collections.abc import MutableSequence
+
+
+class TimingFutureList(MutableSequence):
+
+    def __init__(self, *args, **kwargs):
+        self._list = list(*args, **kwargs)
+
+    def __len__(self):
+        return len(self._list)
+
+    def __getitem__(self, idx):
+        return self._list[idx]
+
+    def __setitem__(self, idx, val):
+        self._list[idx] = val
+
+    def __delitem__(self, idx):
+        del self._list[idx]
+
+    def insert(self, idx, val):
+        self._list.insert(idx, val)
+
+    def elapsed(self):
+        return sum(future.elapsed() for future in self._list)
+
+
 def time_insn(f):
-    from pytools import ProcessTimer
     time_field_name = "time_%s" % f.__name__
 
     def wrapper(self, insn, profile_data):
-        timer = ProcessTimer()
-        retval = f(self, insn, profile_data)
-        timer.done()
+        if profile_data is None:
+            return f(self, insn, profile_data)
 
-        if profile_data is not None:
-            profile_data[time_field_name] = (
-                    profile_data.get(time_field_name, 0)
-                    + timer.wall_elapsed)
+        start = cl.enqueue_marker(self.queue)
+        retval = f(self, insn, profile_data)
+        end = cl.enqueue_marker(self.queue)
+        profile_data\
+                .setdefault(time_field_name, TimingFutureList())\
+                .append(TimingFuture(start, end))
 
         return retval
 
@@ -694,7 +744,7 @@ class ExecutionMapperWithTiming(ExecutionMapper):
     def map_external_call(self, expr):
         # Should have been caught by our implementation.
         assert False, ("map_external_call called: %s" % (expr))
-        
+
     def map_operator_binding(self, expr):
         # Should have been caught by our implementation.
         assert False, ("map_operator_binding called: %s" % expr)
@@ -706,22 +756,23 @@ class ExecutionMapperWithTiming(ExecutionMapper):
         return self.context[expr.function.name](*args, profile_data=profile_data)
 
     def map_profiled_operator_binding(self, expr, profile_data):
-        from pytools import ProcessTimer
-        timer = ProcessTimer()
+        if profile_data is None:
+            return super().map_operator_binding(expr)
+
+        start = cl.enqueue_marker(self.queue)
         retval = super().map_operator_binding(expr)
-        timer.done()
-        if profile_data is not None:
-            time_field_name = "time_op_%s" % expr.op.mapper_method
-            profile_data[time_field_name] = (
-                    profile_data.get(time_field_name, 0)
-                    + timer.wall_elapsed)
+        end = cl.enqueue_marker(self.queue)
+        time_field_name = "time_op_%s" % expr.op.mapper_method
+        profile_data\
+                .setdefault(time_field_name, TimingFutureList())\
+                .append(TimingFuture(start, end))
+
         return retval
 
     @time_insn
     def map_insn_loopy_kernel(self, *args, **kwargs):
         return super().map_insn_loopy_kernel(*args, **kwargs)
 
-    @time_insn
     def map_insn_assign(self, insn, profile_data):
         if len(insn.exprs) == 1:
             if isinstance(insn.exprs[0], sym.ExternalCall):
@@ -732,16 +783,8 @@ class ExecutionMapperWithTiming(ExecutionMapper):
                 assert insn.exprs[0].mapper_method == "map_operator_binding"
                 val = self.map_profiled_operator_binding(insn.exprs[0], profile_data)
                 return [(insn.names[0], val)], []
-                                                  
+
         return super().map_insn_assign(insn, profile_data)
-
-    @time_insn
-    def map_insn_assign_to_discr_scoped(self, insn, profile_data):
-        return super().map_insn_assign_to_discr_scoped(insn, profile_data)
-
-    @time_insn
-    def map_insn_assign_from_discr_scoped(self, insn, profile_data):
-        return super().map_insn_assign_from_discr_scoped(insn, profile_data)
 
     @time_insn
     def map_insn_diff_batch_assign(self, insn, profile_data):
@@ -755,9 +798,11 @@ class ExecutionMapperWithTiming(ExecutionMapper):
 @pytest.mark.parametrize("use_fusion", (True, False))
 def test_stepper_timing(ctx_factory, use_fusion):
     cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
+    queue = cl.CommandQueue(
+            cl_ctx,
+            properties=cl.command_queue_properties.PROFILING_ENABLE)
 
-    dims = 2
+    dims = 3
 
     op, discr = get_strong_wave_op_with_discr(cl_ctx, dims=dims, order=3)
 
@@ -798,7 +843,9 @@ def test_stepper_timing(ctx_factory, use_fusion):
         t = tn
 
     logger.info("fusion? %s", use_fusion)
-    logger.info(profile_data)
+    for key, value in profile_data.items():
+        if isinstance(value, TimingFutureList):
+            print(key, value.elapsed())
 
 # }}}
 
@@ -808,6 +855,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
 def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
                         exec_mapper_factory=ExecutionMapper,
                         return_ic=False):
+    print("DIMS", dims)
     op, discr = get_strong_wave_op_with_discr(queue.context, dims=dims, order=3)
 
     if not use_fusion:
@@ -877,11 +925,13 @@ def mem_ops_table():
 
     fused_stepper = get_example_stepper(
             queue,
+            dims=3,
             use_fusion=True,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     stepper, ic = get_example_stepper(
             queue,
+            dims=3,
             use_fusion=False,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting,
             return_ic=True)
@@ -898,61 +948,7 @@ def mem_ops_table():
     nonfused_bytes_written = profile_data["bytes_written"]
     nonfused_bytes_total = nonfused_bytes_read + nonfused_bytes_written
 
-    for (_, _, profile_data) in fused_stepper.run(
-            ic, t_start, dt, t_end, return_profile_data=True):
-        pass
-
-    fused_bytes_read = profile_data["bytes_read"]
-    fused_bytes_written = profile_data["bytes_written"]
-    fused_bytes_total = fused_bytes_read + fused_bytes_written
-
-    print(r"\begin{tabular}{lrrr}")
-    print(r"\toprule")
-    print(r"Operator & Bytes Read & Bytes Written & Total (\% of Baseline) \\")
-    print(r"\midrule")
-    print(
-            r"Baseline & \num{%d} & \num{%d} & \num{%d} (100) \\"
-            % (
-                nonfused_bytes_read,
-                nonfused_bytes_written,
-                nonfused_bytes_total))
-    print(
-            r"Fused & \num{%d} & \num{%d} & \num{%d} (%.1f) \\"
-            % (
-                fused_bytes_read,
-                fused_bytes_written,
-                fused_bytes_total,
-                100 * fused_bytes_total / nonfused_bytes_total))
-    print(r"\bottomrule")
-    print(r"\end{tabular}")
-
-
-def mem_ops_table():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-
-    fused_stepper = get_example_stepper(
-            queue,
-            use_fusion=True,
-            exec_mapper_factory=ExecutionMapperWithMemOpCounting)
-
-    stepper, ic = get_example_stepper(
-            queue,
-            use_fusion=False,
-            exec_mapper_factory=ExecutionMapperWithMemOpCounting,
-            return_ic=True)
-
-    t_start = 0
-    dt = 0.02
-    t_end = 0.02
-
-    for (_, _, profile_data) in stepper.run(
-            ic, t_start, dt, t_end, return_profile_data=True):
-        pass
-
-    nonfused_bytes_read = profile_data["bytes_read"]
-    nonfused_bytes_written = profile_data["bytes_written"]
-    nonfused_bytes_total = nonfused_bytes_read + nonfused_bytes_written
+    print("profile data, non fused", profile_data)
 
     for (_, _, profile_data) in fused_stepper.run(
             ic, t_start, dt, t_end, return_profile_data=True):
@@ -962,18 +958,20 @@ def mem_ops_table():
     fused_bytes_written = profile_data["bytes_written"]
     fused_bytes_total = fused_bytes_read + fused_bytes_written
 
-    print(r"\begin{tabular}{lrrr}")
+    print("profile data, fused", profile_data)
+
+    print(r"\begin{tabular}{lrrrr}")
     print(r"\toprule")
-    print(r"Operator & Bytes Read & Bytes Written & Total (\% of Baseline) \\")
+    print(r"Operator & Bytes Read & Bytes Written & Total & \% of Baseline \\")
     print(r"\midrule")
     print(
-            r"Baseline & \num{%d} & \num{%d} & \num{%d} (100) \\"
+            r"Baseline & \num{%d} & \num{%d} & \num{%d} & 100 \\"
             % (
                 nonfused_bytes_read,
                 nonfused_bytes_written,
                 nonfused_bytes_total))
     print(
-            r"Fused & \num{%d} & \num{%d} & \num{%d} (%.1f) \\"
+            r"Fused & \num{%d} & \num{%d} & \num{%d} & \num{%.1f} \\"
             % (
                 fused_bytes_read,
                 fused_bytes_written,
@@ -990,6 +988,6 @@ if __name__ == "__main__":
     #test_stepper_mem_ops(True)
     #test_stepper_mem_ops(False)
     #statement_counts_table()
-    mem_ops_table()
+    #mem_ops_table()
     #pass
-    #test_stepper_timing(cl._csc, False)
+    test_stepper_timing(cl._csc, False)
