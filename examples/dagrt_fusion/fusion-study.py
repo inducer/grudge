@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A study of operator fusion for time integration operators in Grudge.
+"""Study of operator fusion (inlining) for time integration operators in Grudge.
 """
 
 from __future__ import division, print_function
@@ -114,15 +114,17 @@ class GrudgeArgSubstitutor(gmap.SymbolicEvaluator):
 
 def transcribe_phase(dag, field_var_name, field_components, phase_name,
                      sym_operator):
-    """Arguments:
+    """Generate a Grudge operator for a Dagrt time integrator phase.
 
-        dag: The Dagrt code for the time integrator
+    Arguments:
+
+        dag: The Dagrt code object for the time integrator
 
         field_var_name: The name of the simulation variable
 
         field_components: The number of components (fields) in the variable
 
-        phase_name: The name of the phase to transcribe in the Dagrt code
+        phase_name: The name of the phase to transcribe
 
         sym_operator: The Grudge symbolic expression to substitue for the
             right-hand side evaluation in the Dagrt code
@@ -160,7 +162,7 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
         if isinstance(stmt, lang.Nop):
             pass
 
-        elif isinstance(stmt, lang.AssignExpression):
+        elif isinstance(stmt, lang.Assign):
             if not isinstance(stmt.lhs, p.Variable):
                 raise NotImplementedError("lhs of statement %s is not a variable: %s"
                         % (stmt.id, stmt.lhs))
@@ -665,7 +667,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
         step += 1
         logger.info("step %d/%d", step, nsteps)
 
-    logger.info("fusion? %s", use_fusion)
+    logger.info("using fusion? %s", use_fusion)
     logger.info("bytes read: %d", profile_data["bytes_read"])
     logger.info("bytes written: %d", profile_data["bytes_written"])
     logger.info("bytes total: %d",
@@ -675,7 +677,6 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
 
 
 # {{{ execution mapper with timing
-
 
 SECONDS_PER_NANOSECOND = 10**9
 
@@ -855,7 +856,6 @@ def test_stepper_timing(ctx_factory, use_fusion):
 def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
                         exec_mapper_factory=ExecutionMapper,
                         return_ic=False):
-    print("DIMS", dims)
     op, discr = get_strong_wave_op_with_discr(queue.context, dims=dims, order=3)
 
     if not use_fusion:
@@ -907,18 +907,6 @@ def statement_counts_table():
     print(r"\end{tabular}")
 
 
-"""
-def graphs():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-
-    fused_stepper = get_example_stepper(queue, use_fusion=True)
-    stepper = get_example_stepper(queue, use_fusion=False)
-
-    from grudge.symbolic.compiler import dot_dataflow_graph
-"""
-
-
 def mem_ops_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -948,8 +936,6 @@ def mem_ops_table():
     nonfused_bytes_written = profile_data["bytes_written"]
     nonfused_bytes_total = nonfused_bytes_read + nonfused_bytes_written
 
-    print("profile data, non fused", profile_data)
-
     for (_, _, profile_data) in fused_stepper.run(
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
@@ -957,8 +943,6 @@ def mem_ops_table():
     fused_bytes_read = profile_data["bytes_read"]
     fused_bytes_written = profile_data["bytes_written"]
     fused_bytes_total = fused_bytes_read + fused_bytes_written
-
-    print("profile data, fused", profile_data)
 
     print(r"\begin{tabular}{lrrrr}")
     print(r"\toprule")
@@ -984,10 +968,5 @@ def mem_ops_table():
 
 
 if __name__ == "__main__":
-    #test_stepper_equivalence()
-    #test_stepper_mem_ops(True)
-    #test_stepper_mem_ops(False)
-    #statement_counts_table()
-    #mem_ops_table()
-    #pass
-    test_stepper_timing(cl._csc, False)
+    statement_counts_table()
+    mem_ops_table()

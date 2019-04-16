@@ -53,8 +53,8 @@ def main():
               "pymbolic>=2013.2",
               "loo.py>=2013.1beta",
               "cgen>=2013.1.2",
-              "leap>=2015.1",
-              "dagrt>=2015.1",
+              "leap>=2019.1",
+              "dagrt>=2019.1",
 
               "six>=1.8",
               ])
