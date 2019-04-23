@@ -44,6 +44,7 @@ import grudge.symbolic.operators as op
 from grudge.execution import ExecutionMapper
 from pymbolic.mapper.evaluator import EvaluationMapper \
         as PymbolicEvaluationMapper
+from pytools import memoize
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from leap.rk import LSRK4Method
@@ -552,8 +553,8 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
             if profile_data is not None and isinstance(val, pyopencl.array.Array):
                 profile_data["bytes_read"] = (
                         profile_data.get("bytes_read", 0) + val.nbytes)
-                profile_data["bytes_read_within_assignments"] = (
-                        profile_data.get("bytes_read_within_assignments", 0)
+                profile_data["bytes_read_by_scalar_assignments"] = (
+                        profile_data.get("bytes_read_by_scalar_assignments", 0)
                         + val.nbytes)
 
         discr = self.discrwb.discr_from_dd(kdescr.governing_dd)
@@ -577,8 +578,8 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
             if profile_data is not None and isinstance(val, pyopencl.array.Array):
                 profile_data["bytes_written"] = (
                         profile_data.get("bytes_written", 0) + val.nbytes)
-                profile_data["bytes_written_within_assignments"] = (
-                        profile_data.get("bytes_written_within_assignments", 0)
+                profile_data["bytes_written_by_scalar_assignments"] = (
+                        profile_data.get("bytes_written_by_scalar_assignments", 0)
                         + val.nbytes)
 
         return list(result_dict.items()), []
@@ -883,6 +884,20 @@ def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
     return stepper
 
 
+def latex_table(table_format, header, rows):
+    result = []
+    _ = result.append
+    _(rf"\begin{{tabular}}{{{table_format}}}")
+    _(r"\toprule")
+    _(" & ".join(rf"\multicolumn{{1}}{{c}}{{{item}}}" for item in header) + r" \\")
+    _(r"\midrule")
+    for row in rows:
+        _(" & ".join(row) + r" \\")
+    _(r"\bottomrule")
+    _(r"\end{tabular}")
+    return "\n".join(result)
+
+
 def statement_counts_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -890,36 +905,35 @@ def statement_counts_table():
     fused_stepper = get_example_stepper(queue, use_fusion=True)
     stepper = get_example_stepper(queue, use_fusion=False)
 
-    print(r"\begin{tabular}{lr}")
-    print(r"\toprule")
-    print(r"Operator & Grudge Node Count \\")
-    print(r"\midrule")
+    out_path = "statement-counts.tex"
+    outf = open(out_path, "w")
+
     print(
-            r"Time integration (not fused) & %d \\"
-            % len(stepper.bound_op.eval_code.instructions))
-    print(
-            r"Right-hand side (not fused) & %d \\"
-            % len(stepper.grudge_bound_op.eval_code.instructions))
-    print(
-            r"Fused operator & %d \\"
-            % len(fused_stepper.bound_op.eval_code.instructions))
-    print(r"\bottomrule")
-    print(r"\end{tabular}")
+        latex_table(
+            "lr",
+            ("Operator", "Grudge Node Count"),
+            (
+                ("Time integration: baseline",
+                 r"\num{%d}" % len(stepper.bound_op.eval_code.instructions)),
+                ("Right-hand side: baseline",
+                 r"\num{%d}" % len(stepper.grudge_bound_op.eval_code.instructions)),
+                ("Inlined operator",
+                 r"\num{%d}" % len(fused_stepper.bound_op.eval_code.instructions))
+            )),
+        file=outf)
 
 
-def mem_ops_table():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-
+@memoize(key=lambda queue, dims: dims)
+def mem_ops_results(queue, dims):
     fused_stepper = get_example_stepper(
             queue,
-            dims=3,
+            dims=dims,
             use_fusion=True,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     stepper, ic = get_example_stepper(
             queue,
-            dims=3,
+            dims=dims,
             use_fusion=False,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting,
             return_ic=True)
@@ -928,45 +942,149 @@ def mem_ops_table():
     dt = 0.02
     t_end = 0.02
 
+    result = {}
+
     for (_, _, profile_data) in stepper.run(
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 
-    nonfused_bytes_read = profile_data["bytes_read"]
-    nonfused_bytes_written = profile_data["bytes_written"]
-    nonfused_bytes_total = nonfused_bytes_read + nonfused_bytes_written
+    result["nonfused_bytes_read"] = profile_data["bytes_read"]
+    result["nonfused_bytes_written"] = profile_data["bytes_written"]
+    result["nonfused_bytes_total"] = \
+            result["nonfused_bytes_read"] \
+            + result["nonfused_bytes_written"]
+
+    result["nonfused_bytes_read_by_scalar_assignments"] = \
+            profile_data["bytes_read_by_scalar_assignments"]
+    result["nonfused_bytes_written_by_scalar_assignments"] = \
+            profile_data["bytes_written_by_scalar_assignments"]
+    result["nonfused_bytes_total_by_scalar_assignments"] = \
+            result["nonfused_bytes_read_by_scalar_assignments"] \
+            + result["nonfused_bytes_written_by_scalar_assignments"]
 
     for (_, _, profile_data) in fused_stepper.run(
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 
-    fused_bytes_read = profile_data["bytes_read"]
-    fused_bytes_written = profile_data["bytes_written"]
-    fused_bytes_total = fused_bytes_read + fused_bytes_written
+    result["fused_bytes_read"] = profile_data["bytes_read"]
+    result["fused_bytes_written"] = profile_data["bytes_written"]
+    result["fused_bytes_total"] = \
+            result["fused_bytes_read"] \
+            + result["fused_bytes_written"]
 
-    print(r"\begin{tabular}{lrrrr}")
-    print(r"\toprule")
-    print(r"Operator & Bytes Read & Bytes Written & Total & \% of Baseline \\")
-    print(r"\midrule")
+    result["fused_bytes_read_by_scalar_assignments"] = \
+            profile_data["bytes_read_by_scalar_assignments"]
+    result["fused_bytes_written_by_scalar_assignments"] = \
+            profile_data["bytes_written_by_scalar_assignments"]
+    result["fused_bytes_total_by_scalar_assignments"] = \
+            result["fused_bytes_read_by_scalar_assignments"] \
+            + result["fused_bytes_written_by_scalar_assignments"]
+
+    return result
+
+
+def scalar_assignment_percent_of_total_mem_ops_table():
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    result2d = mem_ops_results(queue, 2)
+    result3d = mem_ops_results(queue, 3)
+
+    out_path = "scalar-assignments-mem-op-percentage.tex"
+    outf = open(out_path, "w")
+
     print(
-            r"Baseline & \num{%d} & \num{%d} & \num{%d} & 100 \\"
-            % (
-                nonfused_bytes_read,
-                nonfused_bytes_written,
-                nonfused_bytes_total))
+        latex_table(
+            "lr",
+            ("Operator",
+             r"\parbox{1in}{\centering \% Memory Ops. Due to Scalar Assignments}"),
+            (
+                ("2D: Baseline",
+                 "%.1f" % (
+                        100 * result2d["nonfused_bytes_total_by_scalar_assignments"]
+                        / result2d["nonfused_bytes_total"])),
+                ("2D: Inlined",
+                 "%.1f" % (
+                        100 * result2d["fused_bytes_total_by_scalar_assignments"]
+                        / result2d["fused_bytes_total"])),
+                ("3D: Baseline",
+                 "%.1f" % (
+                        100 * result3d["nonfused_bytes_total_by_scalar_assignments"]
+                        / result3d["nonfused_bytes_total"])),
+                ("3D: Inlined",
+                  "%.1f" % (
+                        100 * result3d["fused_bytes_total_by_scalar_assignments"]
+                        / result3d["fused_bytes_total"])),
+            )),
+        file=outf)
+
+    logger.info(f"wrote to {out_path}")
+
+
+def scalar_assignment_effect_of_fusion_mem_ops_table():
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    result2d = mem_ops_results(queue, 2)
+    result3d = mem_ops_results(queue, 3)
+
+    out_path = "scalar-assignments-mem-op-counts.tex"
+    outf = open(out_path, "w")
+
     print(
-            r"Fused & \num{%d} & \num{%d} & \num{%d} & \num{%.1f} \\"
-            % (
-                fused_bytes_read,
-                fused_bytes_written,
-                fused_bytes_total,
-                100 * fused_bytes_total / nonfused_bytes_total))
-    print(r"\bottomrule")
-    print(r"\end{tabular}")
+        latex_table(
+            "lrrrr",
+            ("Operator",
+             r"Bytes Read",
+             r"Bytes Written",
+             r"Total",
+             r"\% of Baseline"),
+            (
+                ("2D: Baseline",
+                 r"\num{%d}" % (
+                     result2d["nonfused_bytes_read_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result2d["nonfused_bytes_written_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result2d["nonfused_bytes_total_by_scalar_assignments"]),
+                 "100"),
+                ("2D: Inlined",
+                 r"\num{%d}" % (
+                     result2d["fused_bytes_read_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result2d["fused_bytes_written_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result2d["fused_bytes_total_by_scalar_assignments"]),
+                 r"%.1f" % (
+                     100 * result2d["fused_bytes_total_by_scalar_assignments"]
+                     / result2d["nonfused_bytes_total_by_scalar_assignments"])),
+                ("3D: Baseline",
+                 r"\num{%d}" % (
+                     result3d["nonfused_bytes_read_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result3d["nonfused_bytes_written_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result3d["nonfused_bytes_total_by_scalar_assignments"]),
+                 "100"),
+                ("3D: Inlined",
+                 r"\num{%d}" % (
+                     result3d["fused_bytes_read_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result3d["fused_bytes_written_by_scalar_assignments"]),
+                 r"\num{%d}" % (
+                     result3d["fused_bytes_total_by_scalar_assignments"]),
+                 r"%.1f" % (
+                     100 * result3d["fused_bytes_total_by_scalar_assignments"]
+                     / result3d["nonfused_bytes_total_by_scalar_assignments"])),
+            )),
+        file=outf)
+
+    logger.info(f"wrote to {out_path}")
 
 # }}}
 
 
 if __name__ == "__main__":
     statement_counts_table()
-    mem_ops_table()
+    scalar_assignment_percent_of_total_mem_ops_table()
+    scalar_assignment_effect_of_fusion_mem_ops_table()
