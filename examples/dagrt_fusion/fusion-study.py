@@ -33,6 +33,7 @@ THE SOFTWARE.
 import logging
 import numpy as np
 import six
+import sys
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pytest
@@ -57,7 +58,8 @@ logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-logger.setLevel(logging.DEBUG)
+
+PRINT_RESULTS_TO_STDOUT = True
 
 
 # {{{ topological sort
@@ -381,7 +383,7 @@ def get_strong_wave_op_with_discr(cl_ctx, dims=2, order=4):
             b=(0.5,)*dims,
             n=(16,)*dims)
 
-    logger.debug("%d elements" % mesh.nelements)
+    logger.debug("%d elements", mesh.nelements)
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
@@ -952,8 +954,11 @@ def statement_counts_table():
     fused_stepper = get_example_stepper(queue, use_fusion=True)
     stepper = get_example_stepper(queue, use_fusion=False)
 
-    out_path = "statement-counts.tex"
-    outf = open(out_path, "w")
+    if PRINT_RESULTS_TO_STDOUT:
+        outf = sys.stdout
+    else:
+        out_path = "statement-counts.tex"
+        outf = open(out_path, "w")
 
     print(
         latex_table(
@@ -1037,8 +1042,11 @@ def scalar_assignment_percent_of_total_mem_ops_table():
     result2d = mem_ops_results(queue, 2)
     result3d = mem_ops_results(queue, 3)
 
-    out_path = "scalar-assignments-mem-op-percentage.tex"
-    outf = open(out_path, "w")
+    if PRINT_RESULTS_TO_STDOUT:
+        outf = sys.stdout
+    else:
+        out_path = "scalar-assignments-mem-op-percentage.tex"
+        outf = open(out_path, "w")
 
     print(
         latex_table(
@@ -1065,8 +1073,6 @@ def scalar_assignment_percent_of_total_mem_ops_table():
             )),
         file=outf)
 
-    logger.info(f"wrote to {out_path}")
-
 
 def scalar_assignment_effect_of_fusion_mem_ops_table():
     cl_ctx = cl.create_some_context()
@@ -1075,8 +1081,11 @@ def scalar_assignment_effect_of_fusion_mem_ops_table():
     result2d = mem_ops_results(queue, 2)
     result3d = mem_ops_results(queue, 3)
 
-    out_path = "scalar-assignments-mem-op-counts.tex"
-    outf = open(out_path, "w")
+    if PRINT_RESULTS_TO_STDOUT:
+        outf = sys.stdout
+    else:
+        out_path = "scalar-assignments-mem-op-percentage.tex"
+        outf = open(out_path, "w")
 
     print(
         latex_table(
@@ -1126,13 +1135,22 @@ def scalar_assignment_effect_of_fusion_mem_ops_table():
             )),
         file=outf)
 
-    logger.info(f"wrote to {out_path}")
-
 # }}}
 
 
-if __name__ == "__main__":
+def main():
+    if 1:
+        # Run tests.
+        from py.test import main
+        result = main([__file__])
+        assert result == 0
+
+    # Run examples.
     problem_stats()
     statement_counts_table()
     scalar_assignment_percent_of_total_mem_ops_table()
     scalar_assignment_effect_of_fusion_mem_ops_table()
+
+
+if __name__ == "__main__":
+    main()
