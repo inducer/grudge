@@ -955,6 +955,7 @@ def statement_counts_table():
     stepper = get_example_stepper(queue, use_fusion=False)
 
     if PRINT_RESULTS_TO_STDOUT:
+        print("==== Statement Counts ====")
         outf = sys.stdout
     else:
         out_path = "statement-counts.tex"
@@ -1043,6 +1044,7 @@ def scalar_assignment_percent_of_total_mem_ops_table():
     result3d = mem_ops_results(queue, 3)
 
     if PRINT_RESULTS_TO_STDOUT:
+        print("==== Scalar Assigment % of Total Mem Ops ====")
         outf = sys.stdout
     else:
         out_path = "scalar-assignments-mem-op-percentage.tex"
@@ -1082,6 +1084,7 @@ def scalar_assignment_effect_of_fusion_mem_ops_table():
     result3d = mem_ops_results(queue, 3)
 
     if PRINT_RESULTS_TO_STDOUT:
+        print("==== Scalar Assigment Inlining Impact ====")
         outf = sys.stdout
     else:
         out_path = "scalar-assignments-mem-op-percentage.tex"
