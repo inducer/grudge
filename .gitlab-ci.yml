@@ -72,7 +72,7 @@ Python 3 POCL Examples:
   script:
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile"
+  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile pymetis"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"
   tags:

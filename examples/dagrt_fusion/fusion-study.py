@@ -929,6 +929,30 @@ def latex_table(table_format, header, rows):
     return "\n".join(result)
 
 
+def ascii_table(table_format, header, rows):
+    from pytools import Table
+    table = Table()
+    table.add_row(header)
+
+    for input_row in rows:
+        row = []
+        for item in input_row:
+            if item.startswith(r"\num{"):
+                # Strip \num{...} formatting
+                row.append(item[5:-1])
+            else:
+                row.append(item)
+        table.add_row(row)
+
+    return str(table)
+
+
+if PRINT_RESULTS_TO_STDOUT:
+    table = ascii_table
+else:
+    table = latex_table
+
+
 def problem_stats(order=3):
     cl_ctx = cl.create_some_context()
 
@@ -962,7 +986,7 @@ def statement_counts_table():
         outf = open(out_path, "w")
 
     print(
-        latex_table(
+        table(
             "lr",
             ("Operator", "Grudge Node Count"),
             (
@@ -1051,7 +1075,7 @@ def scalar_assignment_percent_of_total_mem_ops_table():
         outf = open(out_path, "w")
 
     print(
-        latex_table(
+        table(
             "lr",
             ("Operator",
              r"\parbox{1in}{\centering \% Memory Ops. Due to Scalar Assignments}"),
@@ -1091,7 +1115,7 @@ def scalar_assignment_effect_of_fusion_mem_ops_table():
         outf = open(out_path, "w")
 
     print(
-        latex_table(
+        table(
             "lrrrr",
             ("Operator",
              r"Bytes Read",
