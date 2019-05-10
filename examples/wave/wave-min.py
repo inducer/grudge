@@ -113,7 +113,7 @@ def main(write_output=True, order=4):
             print(step, event.t, norm(queue, u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file("fld-wave-min-%04d.vtu" % step,
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),

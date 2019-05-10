@@ -35,7 +35,7 @@ def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
-    dims = 3
+    dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -90,7 +90,7 @@ def main(write_output=True, order=4):
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    final_t = 10
+    final_t = 1
     nsteps = int(final_t/dt)
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
@@ -113,7 +113,7 @@ def main(write_output=True, order=4):
             print(step, event.t, norm(queue, u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file("fld-var-propogation-speed-%04d.vtu" % step,
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
