@@ -193,9 +193,6 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
                 self.function_registry[expr.function.name]
                 .get_result_dofdesc(arg_dds))
 
-        # FIXME
-        return arg_dds[0]
-
     # }}}
 
     # {{{ instruction mappings
