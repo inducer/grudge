@@ -76,7 +76,6 @@ Symbols
 .. autoclass:: ScalarVariable
 .. autoclass:: make_sym_array
 .. autoclass:: make_sym_mv
-.. autoclass:: CFunction
 
 .. function :: sqrt(arg)
 .. function :: exp(arg)
@@ -289,7 +288,16 @@ class HasDOFDesc(object):
         discretization on which this property is given.
     """
 
-    def __init__(self, dd):
+    def __init__(self, *args, **kwargs):
+        # The remaining arguments are passed to the chained superclass.
+
+        if "dd" in kwargs:
+            dd = kwargs.pop("dd")
+        else:
+            dd = args[-1]
+            args = args[:-1]
+
+        super(HasDOFDesc, self).__init__(*args, **kwargs)
         self.dd = dd
 
     def __getinitargs__(self):
@@ -298,9 +306,7 @@ class HasDOFDesc(object):
     def with_dd(self, dd):
         """Return a copy of *self*, modified to the given DOF descriptor.
         """
-        return type(self)(
-                *self.__getinitargs__()[:-1],
-                dd=dd or self.dd)
+        return type(self)(*self.__getinitargs__())
 
 # }}}
 
@@ -320,8 +326,7 @@ class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
         if dd is None:
             dd = DD_VOLUME
 
-        HasDOFDesc.__init__(self, dd)
-        pymbolic.primitives.Variable.__init__(self, name)
+        super(Variable, self).__init__(name, dd)
 
     def __getinitargs__(self):
         return (self.name, self.dd,)
@@ -349,30 +354,14 @@ def make_sym_mv(name, dim, var_factory=None):
             make_sym_array(name, dim, var_factory))
 
 
-class CFunction(pymbolic.primitives.Variable):
-    """A symbol representing a C-level function, to be used as the function
-    argument of :class:`pymbolic.primitives.Call`.
-    """
-    def stringifier(self):
-        from grudge.symbolic.mappers import StringifyMapper
-        return StringifyMapper
-
-    def __call__(self, *exprs):
-        from pytools.obj_array import with_object_array_or_scalar_n_args
-        from functools import partial
-        return with_object_array_or_scalar_n_args(
-                partial(pymbolic.primitives.Expression.__call__, self),
-                *exprs)
-
-    mapper_method = "map_c_function"
-
-
-sqrt = CFunction("sqrt")
-exp = CFunction("exp")
-sin = CFunction("sin")
-cos = CFunction("cos")
-bessel_j = CFunction("bessel_j")
-bessel_y = CFunction("bessel_y")
+# function symbols
+CFunction = Variable
+sqrt = Variable("sqrt")
+exp = Variable("exp")
+sin = Variable("sin")
+cos = Variable("cos")
+bessel_j = Variable("bessel_j")
+bessel_y = Variable("bessel_y")
 
 # }}}
 
@@ -424,16 +413,13 @@ class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
 # }}}
 
 
-class Ones(ExpressionBase, HasDOFDesc):
-    def __getinitargs__(self):
-        return ()
-
+class Ones(HasDOFDesc, ExpressionBase):
     mapper_method = intern("map_ones")
 
 
 # {{{ geometry data
 
-class DiscretizationProperty(ExpressionBase, HasDOFDesc):
+class DiscretizationProperty(HasDOFDesc, ExpressionBase):
     pass
 
 
