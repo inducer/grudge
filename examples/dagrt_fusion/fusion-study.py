@@ -327,19 +327,15 @@ class RK4TimeStepper(RK4TimeStepperBase):
         """
         super().__init__(queue, component_getter)
 
-        from pymbolic import var
-
         # Construct sym_rhs to have the effect of replacing the RHS calls in the
         # dagrt code with calls of the grudge operator.
         from grudge.symbolic.primitives import FunctionSymbol, Variable
-        call = sym.cse(ExternalCall(
-                FunctionSymbol("grudge_op"),
-                (
+        call = sym.cse(
+                FunctionSymbol("grudge_op")(*(
                     (Variable("t", dd=sym.DD_SCALAR),)
                     + tuple(
                         Variable(field_var_name, dd=sym.DD_VOLUME)[i]
-                        for i in range(num_fields))),
-                dd=sym.DD_VOLUME))
+                        for i in range(num_fields)))))
 
         from pytools.obj_array import join_fields
         sym_rhs = join_fields(*(call[i] for i in range(num_fields)))
@@ -347,7 +343,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
         self.queue = queue
         self.grudge_bound_op = grudge_bound_op
 
-        from dagrt.function_registry import register_external_function
+        from grudge.function_registry import register_external_function
 
         freg = register_external_function(
                 base_function_registry,
@@ -494,10 +490,6 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
 
     def __init__(self, queue, context, bound_op):
         super().__init__(queue, context, bound_op)
-
-    def map_call(self, expr):
-        # Should have been caught by our op counter
-        assert False, ("map_call called: %s" % expr)
 
     # {{{ expressions
 
@@ -790,14 +782,6 @@ def time_insn(f):
 
 
 class ExecutionMapperWithTiming(ExecutionMapper):
-
-    def map_call(self, expr):
-        # Should have been caught by our implementation.
-        assert False, ("map_call called: %s" % (expr))
-
-    def map_operator_binding(self, expr):
-        # Should have been caught by our implementation.
-        assert False, ("map_operator_binding called: %s" % expr)
 
     def map_profiled_call(self, expr, profile_data):
         args = [self.rec(p) for p in expr.parameters]
