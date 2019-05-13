@@ -354,14 +354,21 @@ def make_sym_mv(name, dim, var_factory=None):
             make_sym_array(name, dim, var_factory))
 
 
-# function symbols
-CFunction = Variable
-sqrt = Variable("sqrt")
-exp = Variable("exp")
-sin = Variable("sin")
-cos = Variable("cos")
-bessel_j = Variable("bessel_j")
-bessel_y = Variable("bessel_y")
+class FunctionSymbol(ExpressionBase, pymbolic.primitives.Variable):
+    """A symbol to be used as the function argument of
+    :class:`pymbolic.primitives.Call`.
+
+    """
+
+    mapper_method = "map_function_symbol"
+
+
+sqrt = FunctionSymbol("sqrt")
+exp = FunctionSymbol("exp")
+sin = FunctionSymbol("sin")
+cos = FunctionSymbol("cos")
+bessel_j = FunctionSymbol("bessel_j")
+bessel_y = FunctionSymbol("bessel_y")
 
 # }}}
 

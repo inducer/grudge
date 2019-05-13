@@ -31,7 +31,7 @@ from six.moves import zip, reduce
 from pytools import Record, memoize_method, memoize
 from grudge import sym
 import grudge.symbolic.mappers as mappers
-from pymbolic.primitives import Variable, Subscript, Call
+from pymbolic.primitives import Variable, Subscript
 from six.moves import intern
 
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
@@ -447,8 +447,7 @@ class Code(object):
         available_insns = [
                 (insn, insn.priority) for insn in self.instructions
                 if insn not in done_insns
-                and all((dep.aggregate.name if isinstance(dep, Subscript)
-                    else dep.name) in available_names
+                and all(dep.name in available_names
                     for dep in insn.get_dependencies())]
 
         if not available_insns:
@@ -456,8 +455,7 @@ class Code(object):
 
         from pytools import flatten
         discardable_vars = set(available_names) - set(flatten(
-            [dep.aggregate.name if isinstance(dep, Subscript) else dep.name
-            for dep in insn.get_dependencies()]
+            [dep.name for dep in insn.get_dependencies()]
             for insn in self.instructions
             if insn not in done_insns))
 
@@ -830,13 +828,15 @@ def aggregate_assignments(inf_mapper, instructions, result,
 # {{{ to-loopy mapper
 
 def is_external_call(expr, function_registry):
+    from pymbolic.primitives import Call
     if not isinstance(expr, Call):
         return False
     return not is_function_loopyable(expr.function, function_registry)
 
 
 def is_function_loopyable(function, function_registry):
-    assert isinstance(function, Variable)
+    from grudge.primitives import FunctionSymbol
+    assert isinstance(function, FunctionSymbol)
     return function_registry[function.name].supports_codegen
 
 
@@ -1299,14 +1299,15 @@ class OperatorCompiler(mappers.IdentityMapper):
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.
+
             return self.assign_to_new_var(
-                        codegen_state,
-                        type(expr)(
-                            expr.function,
-                            [self.assign_to_new_var(
-                                codegen_state,
-                                self.rec(par, codegen_state))
-                                for par in expr.parameters]))
+                    codegen_state,
+                    type(expr)(
+                        expr.function,
+                        [self.assign_to_new_var(
+                            codegen_state,
+                            self.rec(par, codegen_state))
+                            for par in expr.parameters]))
 
     def map_ref_diff_op_binding(self, expr, codegen_state):
         try:

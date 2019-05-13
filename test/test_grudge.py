@@ -554,10 +554,9 @@ def test_external_call(ctx_factory):
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=1)
 
     ones = sym.Ones(sym.DD_VOLUME)
-    from pymbolic.primitives import Variable
     op = (
             ones * 3
-            + Variable("double")(ones))
+            + sym.FunctionSymbol("double")(ones))
 
     from grudge.function_registry import (
             base_function_registry, register_external_function)
