@@ -602,16 +602,16 @@ def norm(p, arg, dd=None):
 
     if p == 2:
         norm_squared = sym.NodalSum(dd_in=dd)(
-                sym.CFunction("fabs")(
+                sym.FunctionSymbol("fabs")(
                     arg * sym.MassOperator()(arg)))
 
         if isinstance(norm_squared, np.ndarray):
             norm_squared = norm_squared.sum()
 
-        return sym.CFunction("sqrt")(norm_squared)
+        return sym.FunctionSymbol("sqrt")(norm_squared)
 
     elif p == np.Inf:
-        result = sym.NodalMax(dd_in=dd)(sym.CFunction("fabs")(arg))
+        result = sym.NodalMax(dd_in=dd)(sym.FunctionSymbol("fabs")(arg))
         from pymbolic.primitives import Max
 
         if isinstance(result, np.ndarray):

@@ -63,12 +63,12 @@ def main(write_output=True, dtype=np.float32):
 
     from grudge.data import CompiledExpressionData
     def ic_expr(t, x, fields):
-        from grudge.symbolic import CFunction
+        from grudge.symbolic import FunctionSymbol
         from pymbolic.primitives import IfPositive
         from pytools.obj_array import make_obj_array
 
-        tanh = CFunction("tanh")
-        sin = CFunction("sin")
+        tanh = FunctionSymbol("tanh")
+        sin = FunctionSymbol("sin")
 
         rho = 1
         u0 = 0.05
