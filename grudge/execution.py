@@ -596,7 +596,7 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
         function_registry=base_function_registry,
         exec_mapper_factory=ExecutionMapper,
-        debug_flags=frozenset(), allocator=None):   
+        debug_flags=frozenset(), allocator=None):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -624,9 +624,9 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
     bound_op = BoundOperator(discr, discr_code, eval_code,
             function_registry=function_registry,
             exec_mapper_factory=exec_mapper_factory,
-            debug_flags=debug_flags,                             
+            debug_flags=debug_flags,
             allocator=allocator)
-    
+
     if "dump_op_code" in debug_flags:
         from grudge.tools import open_unique_debug_file
         outf, _ = open_unique_debug_file("op-code", ".txt")
