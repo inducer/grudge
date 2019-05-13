@@ -31,7 +31,7 @@ from six.moves import zip, reduce
 from pytools import Record, memoize_method, memoize
 from grudge import sym
 import grudge.symbolic.mappers as mappers
-from pymbolic.primitives import Variable, Subscript, Call
+from pymbolic.primitives import Variable, Subscript
 from six.moves import intern
 
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
@@ -828,13 +828,15 @@ def aggregate_assignments(inf_mapper, instructions, result,
 # {{{ to-loopy mapper
 
 def is_external_call(expr, function_registry):
+    from pymbolic.primitives import Call
     if not isinstance(expr, Call):
         return False
     return not is_function_loopyable(expr.function, function_registry)
 
 
 def is_function_loopyable(function, function_registry):
-    assert isinstance(function, Variable)
+    from grudge.primitives import FunctionSymbol
+    assert isinstance(function, FunctionSymbol)
     return function_registry[function.name].supports_codegen
 
 
