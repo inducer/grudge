@@ -71,12 +71,9 @@ class CElementwiseUnaryFunction(Function):
         assert len(arg_dds) == 1
         return arg_dds[0]
 
-    def __call__(self, queue, *args):
-        assert len(args) == 1
-
+    def __call__(self, queue, arg):
         func_name = self.identifier
 
-        arg, = args
         from numbers import Number
         if (
                 isinstance(arg, Number)
