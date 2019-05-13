@@ -26,7 +26,7 @@ THE SOFTWARE.
 
 import numpy as np  # noqa
 import pyopencl as cl
-from grudge import sym, bind, Discretization, shortcuts
+from grudge import sym, bind, DGDiscretizationWithBoundaries, shortcuts
 
 
 def main(write_output=True):
@@ -36,14 +36,14 @@ def main(write_output=True):
     from meshmode.mesh.generation import generate_warped_rect_mesh
     mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
 
-    discr = Discretization(cl_ctx, mesh, order=4)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
 
     sym_op = sym.normal(sym.BTAG_ALL, mesh.dim)
     #sym_op = sym.nodes(mesh.dim, where=sym.BTAG_ALL)
     print(sym.pretty(sym_op))
     op = bind(discr, sym_op)
     print()
-    print(op.code)
+    print(op.eval_code)
 
     vec = op(queue)
 

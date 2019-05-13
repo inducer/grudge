@@ -40,6 +40,9 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 from pytools.obj_array import join_fields
 
 
+FINAL_TIME = 5
+
+
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -105,10 +108,9 @@ def main(write_output=True, order=4):
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
-    final_time = 50
     dt = dt_factor * h/order**2
-    nsteps = (final_time // dt) + 1
-    dt = final_time/nsteps + 1e-15
+    nsteps = (FINAL_TIME // dt) + 1
+    dt = FINAL_TIME/nsteps + 1e-15
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
@@ -118,14 +120,14 @@ def main(write_output=True, order=4):
 
     step = 0
 
-    for event in dt_stepper.run(t_end=final_time):
+    for event in dt_stepper.run(t_end=FINAL_TIME):
         if isinstance(event, dt_stepper.StateComputed):
 
             step += 1
             if step % 30 == 0:
                 print(step)
 
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file("fld-var-velocity-%04d.vtu" % step,
                         [("u", event.state_component)])
 
 
