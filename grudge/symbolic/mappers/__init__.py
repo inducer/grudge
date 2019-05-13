@@ -844,7 +844,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return "%s:%s" % (expr.name, self._format_dd(expr.dd))
 
     def map_function_symbol(self, expr, enclosing_prec):
-        return expr
+        return expr.name
 
     def map_interpolation(self, expr, enclosing_prec):
         return "Interp" + self._format_op_dd(expr)
