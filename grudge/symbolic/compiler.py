@@ -835,7 +835,7 @@ def is_external_call(expr, function_registry):
 
 
 def is_function_loopyable(function, function_registry):
-    from grudge.primitives import FunctionSymbol
+    from grudge.symbolic.primitives import FunctionSymbol
     assert isinstance(function, FunctionSymbol)
     return function_registry[function.name].supports_codegen
 
