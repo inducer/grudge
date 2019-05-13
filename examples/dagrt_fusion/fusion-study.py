@@ -43,6 +43,7 @@ import pymbolic.primitives as p
 import grudge.symbolic.mappers as gmap
 import grudge.symbolic.operators as op
 from grudge.execution import ExecutionMapper
+from grudge.function_registry import base_function_registry
 from pymbolic.mapper.evaluator import EvaluationMapper \
         as PymbolicEvaluationMapper
 from pytools import memoize
@@ -246,6 +247,7 @@ class RK4TimeStepperBase(object):
         }
 
     def set_up_stepper(self, discr, field_var_name, sym_rhs, num_fields,
+                       function_registry=base_function_registry,
                        exec_mapper_factory=ExecutionMapper):
         dt_method = LSRK4Method(component_id=field_var_name)
         dt_code = dt_method.generate()
@@ -270,7 +272,9 @@ class RK4TimeStepperBase(object):
         flattened_results = join_fields(output_t, output_dt, *output_states)
 
         self.bound_op = bind(
-                discr, flattened_results, exec_mapper_factory=exec_mapper_factory)
+                discr, flattened_results,
+                function_registry=function_registry,
+                exec_mapper_factory=exec_mapper_factory)
 
     def run(self, fields, t_start, dt, t_end, return_profile_data=False):
         context = self.get_initial_context(fields, t_start, dt)
@@ -327,9 +331,9 @@ class RK4TimeStepper(RK4TimeStepperBase):
 
         # Construct sym_rhs to have the effect of replacing the RHS calls in the
         # dagrt code with calls of the grudge operator.
-        from grudge.symbolic.primitives import ExternalCall, Variable
+        from grudge.symbolic.primitives import FunctionSymbol, Variable
         call = sym.cse(ExternalCall(
-                var("grudge_op"),
+                FunctionSymbol("grudge_op"),
                 (
                     (Variable("t", dd=sym.DD_SCALAR),)
                     + tuple(
@@ -342,17 +346,29 @@ class RK4TimeStepper(RK4TimeStepperBase):
 
         self.queue = queue
         self.grudge_bound_op = grudge_bound_op
+
+        from dagrt.function_registry import register_external_function
+
+        freg = register_external_function(
+                base_function_registry,
+                "grudge_op",
+                implementation=self._bound_op,
+                dd=sym.DD_VOLUME)
+
         self.set_up_stepper(
-                discr, field_var_name, sym_rhs, num_fields, exec_mapper_factory)
+                discr, field_var_name, sym_rhs, num_fields,
+                freg,
+                exec_mapper_factory)
+
         self.component_getter = component_getter
 
-    def _bound_op(self, t, *args, profile_data=None):
+    def _bound_op(self, queue, t, *args, profile_data=None):
         from pytools.obj_array import join_fields
         context = {
                 "t": t,
                 self.field_var_name: join_fields(*args)}
         result = self.grudge_bound_op(
-                self.queue, profile_data=profile_data, **context)
+                queue, profile_data=profile_data, **context)
         if profile_data is not None:
             result = result[0]
         return result
@@ -369,7 +385,9 @@ class FusedRK4TimeStepper(RK4TimeStepperBase):
                  component_getter, exec_mapper_factory=ExecutionMapper):
         super().__init__(queue, component_getter)
         self.set_up_stepper(
-                discr, field_var_name, sym_rhs, num_fields, exec_mapper_factory)
+                discr, field_var_name, sym_rhs, num_fields,
+                base_function_registry,
+                exec_mapper_factory)
 
 # }}}
 
@@ -477,17 +495,16 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
     def __init__(self, queue, context, bound_op):
         super().__init__(queue, context, bound_op)
 
-    def map_external_call(self, expr):
+    def map_call(self, expr):
         # Should have been caught by our op counter
-        assert False, ("map_external_call called: %s" % expr)
+        assert False, ("map_call called: %s" % expr)
 
     # {{{ expressions
 
-    def map_profiled_external_call(self, expr, profile_data):
-        from pymbolic.primitives import Variable
-        assert isinstance(expr.function, Variable)
+    def map_profiled_call(self, expr, profile_data):
         args = [self.rec(p) for p in expr.parameters]
-        return self.context[expr.function.name](*args, profile_data=profile_data)
+        return self.function_registry[expr.function.name](
+                self.queue, *args, profile_data=profile_data)
 
     def map_profiled_essentially_elementwise_linear(self, op, field_expr,
                                                     profile_data):
@@ -517,9 +534,9 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
     # {{{ instruction mappings
 
     def process_assignment_expr(self, expr, profile_data):
-        if isinstance(expr, sym.ExternalCall):
-            assert expr.mapper_method == "map_external_call"
-            val = self.map_profiled_external_call(expr, profile_data)
+        if isinstance(expr, p.Call):
+            assert expr.mapper_method == "map_call"
+            val = self.map_profiled_call(expr, profile_data)
 
         elif isinstance(expr, sym.OperatorBinding):
             if isinstance(
@@ -774,19 +791,18 @@ def time_insn(f):
 
 class ExecutionMapperWithTiming(ExecutionMapper):
 
-    def map_external_call(self, expr):
+    def map_call(self, expr):
         # Should have been caught by our implementation.
-        assert False, ("map_external_call called: %s" % (expr))
+        assert False, ("map_call called: %s" % (expr))
 
     def map_operator_binding(self, expr):
         # Should have been caught by our implementation.
         assert False, ("map_operator_binding called: %s" % expr)
 
-    def map_profiled_external_call(self, expr, profile_data):
-        from pymbolic.primitives import Variable
-        assert isinstance(expr.function, Variable)
+    def map_profiled_call(self, expr, profile_data):
         args = [self.rec(p) for p in expr.parameters]
-        return self.context[expr.function.name](*args, profile_data=profile_data)
+        return self.function_registry[expr.function.name](
+                self.queue, *args, profile_data=profile_data)
 
     def map_profiled_operator_binding(self, expr, profile_data):
         if profile_data is None:
@@ -808,9 +824,9 @@ class ExecutionMapperWithTiming(ExecutionMapper):
 
     def map_insn_assign(self, insn, profile_data):
         if len(insn.exprs) == 1:
-            if isinstance(insn.exprs[0], sym.ExternalCall):
-                assert insn.exprs[0].mapper_method == "map_external_call"
-                val = self.map_profiled_external_call(insn.exprs[0], profile_data)
+            if isinstance(insn.exprs[0], p.Call):
+                assert insn.exprs[0].mapper_method == "map_call"
+                val = self.map_profiled_call(insn.exprs[0], profile_data)
                 return [(insn.names[0], val)], []
             elif isinstance(insn.exprs[0], sym.OperatorBinding):
                 assert insn.exprs[0].mapper_method == "map_operator_binding"

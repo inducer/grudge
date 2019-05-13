@@ -539,11 +539,11 @@ def test_bessel(ctx_factory):
     assert z < 1e-15
 
 
-def test_ExternalCall(ctx_factory):  # noqa
+def test_external_call(ctx_factory):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
-    def double(x):
+    def double(queue, x):
         return 2 * x
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -554,15 +554,20 @@ def test_ExternalCall(ctx_factory):  # noqa
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=1)
 
     ones = sym.Ones(sym.DD_VOLUME)
-    from pymbolic.primitives import Variable
     op = (
             ones * 3
-            + sym.ExternalCall(
-                Variable("double"),
-                (ones,),
-                sym.DD_VOLUME))
+            + sym.FunctionSymbol("double")(ones))
 
-    bound_op = bind(discr, op)
+    from grudge.function_registry import (
+            base_function_registry, register_external_function)
+
+    freg = register_external_function(
+            base_function_registry,
+            "double",
+            implementation=double,
+            dd=sym.DD_VOLUME)
+
+    bound_op = bind(discr, op, function_registry=freg)
 
     result = bound_op(queue, double=double)
     assert (result == 5).get().all()

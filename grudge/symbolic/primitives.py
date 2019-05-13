@@ -74,10 +74,8 @@ Symbols
 
 .. autoclass:: Variable
 .. autoclass:: ScalarVariable
-.. autoclass:: ExternalCall
 .. autoclass:: make_sym_array
 .. autoclass:: make_sym_mv
-.. autoclass:: CFunction
 
 .. function :: sqrt(arg)
 .. function :: exp(arg)
@@ -344,18 +342,6 @@ class ScalarVariable(Variable):
         super(ScalarVariable, self).__init__(name, DD_SCALAR)
 
 
-class ExternalCall(HasDOFDesc, ExpressionBase, pymbolic.primitives.Call):
-    """A call to a user-supplied function with a :class:`DOFDesc`.
-    """
-
-    init_arg_names = ("function", "parameters", "dd")
-
-    def __getinitargs__(self):
-        return (self.function, self.parameters, self.dd)
-
-    mapper_method = "map_external_call"
-
-
 def make_sym_array(name, shape, dd=None):
     def var_factory(name):
         return Variable(name, dd)
@@ -368,27 +354,21 @@ def make_sym_mv(name, dim, var_factory=None):
             make_sym_array(name, dim, var_factory))
 
 
-class CFunction(ExpressionBase, pymbolic.primitives.Variable):
-    """A symbol representing a C-level function, to be used as the function
-    argument of :class:`pymbolic.primitives.Call`.
+class FunctionSymbol(ExpressionBase, pymbolic.primitives.Variable):
+    """A symbol to be used as the function argument of
+    :class:`pymbolic.primitives.Call`.
+
     """
 
-    def __call__(self, *exprs):
-        from pytools.obj_array import with_object_array_or_scalar_n_args
-        from functools import partial
-        return with_object_array_or_scalar_n_args(
-                partial(pymbolic.primitives.Expression.__call__, self),
-                *exprs)
-
-    mapper_method = "map_c_function"
+    mapper_method = "map_function_symbol"
 
 
-sqrt = CFunction("sqrt")
-exp = CFunction("exp")
-sin = CFunction("sin")
-cos = CFunction("cos")
-bessel_j = CFunction("bessel_j")
-bessel_y = CFunction("bessel_y")
+sqrt = FunctionSymbol("sqrt")
+exp = FunctionSymbol("exp")
+sin = FunctionSymbol("sin")
+cos = FunctionSymbol("cos")
+bessel_j = FunctionSymbol("bessel_j")
+bessel_y = FunctionSymbol("bessel_y")
 
 # }}}
 

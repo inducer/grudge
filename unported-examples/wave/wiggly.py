@@ -70,8 +70,8 @@ def main(write_output=True,
     from grudge.models.wave import StrongWaveOperator
     op = StrongWaveOperator(-1, discr.dimensions,
             source_f=
-            sym.CFunction("sin")(source_omega*sym.ScalarParameter("t"))
-            * sym.CFunction("exp")(
+            sym.FunctionSymbol("sin")(source_omega*sym.ScalarParameter("t"))
+            * sym.FunctionSymbol("exp")(
                 -np.dot(sym_source_center_dist, sym_source_center_dist)
                 / source_width**2),
             dirichlet_tag="boundary",
