@@ -459,7 +459,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_eigenvalue(self, t, fields=None, discr=None):
-        return sym.NodalMax()(sym.CFunction("fabs")(self.c))
+        return sym.NodalMax()(sym.FunctionSymbol("fabs")(self.c))
 
 # }}}
 

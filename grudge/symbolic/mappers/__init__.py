@@ -211,8 +211,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
         # it's a leaf--no changing children
         return expr
 
-    map_c_function = map_grudge_variable
-
+    map_function_symbol = map_grudge_variable
     map_ones = map_grudge_variable
     map_node_coordinate_component = map_grudge_variable
 
@@ -279,7 +278,7 @@ class FlopCounter(
     def map_grudge_variable(self, expr):
         return 0
 
-    def map_c_function(self, expr):
+    def map_function_symbol(self, expr):
         return 1
 
     def map_ones(self, expr):
@@ -841,11 +840,11 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
                 self.rec(expr.op, PREC_NONE),
                 self.rec(expr.field, PREC_NONE))
 
-    def map_c_function(self, expr, enclosing_prec):
-        return expr.name
-
     def map_grudge_variable(self, expr, enclosing_prec):
         return "%s:%s" % (expr.name, self._format_dd(expr.dd))
+
+    def map_function_symbol(self, expr, enclosing_prec):
+        return expr.name
 
     def map_interpolation(self, expr, enclosing_prec):
         return "Interp" + self._format_op_dd(expr)
@@ -1232,7 +1231,7 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
         return OrderedSet()
 
     map_grudge_variable = map_constant
-    map_c_function = map_grudge_variable
+    map_function_symbol = map_constant
 
     map_ones = map_grudge_variable
     map_node_coordinate_component = map_grudge_variable

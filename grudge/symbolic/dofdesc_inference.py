@@ -76,7 +76,8 @@ class InferrableMultiAssignment(object):
 
 
 class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
-    def __init__(self, assignments, name_to_dofdesc=None, check=True):
+    def __init__(self, assignments, function_registry,
+                name_to_dofdesc=None, check=True):
         """
         :arg assignments: a list of objects adhering to
             :class:`InferrableMultiAssignment`.
@@ -97,6 +98,8 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
             name_to_dofdesc = name_to_dofdesc.copy()
 
         self.name_to_dofdesc = name_to_dofdesc
+
+        self.function_registry = function_registry
 
     def infer_for_name(self, name):
         try:
@@ -186,10 +189,9 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
                 self.rec(par)
                 for par in expr.parameters]
 
-        assert arg_dds
-
-        # FIXME
-        return arg_dds[0]
+        return (
+                self.function_registry[expr.function.name]
+                .get_result_dofdesc(arg_dds))
 
     # }}}
 

@@ -607,6 +607,8 @@ def aggregate_assignments(inf_mapper, instructions, result,
         max_vectors_in_batch_expr):
     from pymbolic.primitives import Variable
 
+    function_registry = inf_mapper.function_registry
+
     # {{{ aggregation helpers
 
     def get_complete_origins_set(insn, skip_levels=0):
@@ -674,6 +676,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
                 isinstance(insn, Assign)
                 and not isinstance(insn, ToDiscretizationScopedAssign)
                 and not isinstance(insn, FromDiscretizationScopedAssign)
+                and not is_external_call(insn.exprs[0], function_registry)
                 and not any(
                     inf_mapper.infer_for_name(n).domain_tag == DTAG_SCALAR
                     for n in insn.names)),
@@ -824,9 +827,23 @@ def aggregate_assignments(inf_mapper, instructions, result,
 
 # {{{ to-loopy mapper
 
+def is_external_call(expr, function_registry):
+    from pymbolic.primitives import Call
+    if not isinstance(expr, Call):
+        return False
+    return not is_function_loopyable(expr.function, function_registry)
+
+
+def is_function_loopyable(function, function_registry):
+    from grudge.symbolic.primitives import FunctionSymbol
+    assert isinstance(function, FunctionSymbol)
+    return function_registry[function.name].supports_codegen
+
+
 class ToLoopyExpressionMapper(mappers.IdentityMapper):
     def __init__(self, dd_inference_mapper, temp_names, iname):
         self.dd_inference_mapper = dd_inference_mapper
+        self.function_registry = dd_inference_mapper.function_registry
         self.temp_names = temp_names
         self.iname = iname
         from pymbolic import var
@@ -887,8 +904,9 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
                 "%s_%d" % (expr.aggregate.name, subscript))
 
     def map_call(self, expr):
-        if isinstance(expr.function, sym.CFunction):
+        if is_function_loopyable(expr.function, self.function_registry):
             from pymbolic import var
+
             func_name = expr.function.name
             if func_name == "fabs":
                 func_name = "abs"
@@ -968,11 +986,18 @@ def bessel_function_mangler(kernel, name, arg_dtypes):
 class ToLoopyInstructionMapper(object):
     def __init__(self, dd_inference_mapper):
         self.dd_inference_mapper = dd_inference_mapper
+        self.function_registry = dd_inference_mapper.function_registry
         self.insn_count = 0
 
     def map_insn_assign(self, insn):
         from grudge.symbolic.primitives import OperatorBinding
-        if len(insn.exprs) == 1 and isinstance(insn.exprs[0], OperatorBinding):
+
+        if (
+                len(insn.exprs) == 1
+                and (
+                    isinstance(insn.exprs[0], OperatorBinding)
+                    or is_external_call(
+                        insn.exprs[0], self.function_registry))):
             return insn
 
         iname = "grdg_i"
@@ -1097,7 +1122,8 @@ class CodeGenerationState(Record):
 
 
 class OperatorCompiler(mappers.IdentityMapper):
-    def __init__(self, discr, prefix="_expr", max_vectors_in_batch_expr=None):
+    def __init__(self, discr, function_registry,
+            prefix="_expr", max_vectors_in_batch_expr=None):
         super(OperatorCompiler, self).__init__()
         self.prefix = prefix
 
@@ -1113,6 +1139,7 @@ class OperatorCompiler(mappers.IdentityMapper):
         self.assigned_names = set()
 
         self.discr = discr
+        self.function_registry = function_registry
 
         from pytools import UniqueNameGenerator
         self.name_gen = UniqueNameGenerator()
@@ -1146,7 +1173,8 @@ class OperatorCompiler(mappers.IdentityMapper):
         del self.discr_code
 
         from grudge.symbolic.dofdesc_inference import DOFDescInferenceMapper
-        inf_mapper = DOFDescInferenceMapper(discr_code + eval_code)
+        inf_mapper = DOFDescInferenceMapper(
+                discr_code + eval_code, self.function_registry)
 
         eval_code = aggregate_assignments(
                 inf_mapper, eval_code, result, self.max_vectors_in_batch_expr)
@@ -1266,8 +1294,7 @@ class OperatorCompiler(mappers.IdentityMapper):
             return result_var
 
     def map_call(self, expr, codegen_state):
-        from grudge.symbolic.primitives import CFunction
-        if isinstance(expr.function, CFunction):
+        if is_function_loopyable(expr.function, self.function_registry):
             return super(OperatorCompiler, self).map_call(expr, codegen_state)
         else:
             # If it's not a C-level function, it shouldn't get muddled up into

@@ -31,6 +31,7 @@ from pytools import memoize_in
 
 import grudge.symbolic.mappers as mappers
 from grudge import sym
+from grudge.function_registry import base_function_registry
 
 import logging
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class ExecutionMapper(mappers.Evaluator,
         super(ExecutionMapper, self).__init__(context)
         self.discrwb = bound_op.discrwb
         self.bound_op = bound_op
+        self.function_registry = bound_op.function_registry
         self.queue = queue
 
     # {{{ expression mappings -------------------------------------------------
@@ -95,45 +97,8 @@ class ExecutionMapper(mappers.Evaluator,
         return value
 
     def map_call(self, expr):
-        from pymbolic.primitives import Variable
-        assert isinstance(expr.function, Variable)
-
-        # FIXME: Make a way to register functions
-
         args = [self.rec(p) for p in expr.parameters]
-        from numbers import Number
-        representative_arg = args[0]
-        if (
-                isinstance(representative_arg,  Number)
-                or (isinstance(representative_arg, np.ndarray)
-                    and representative_arg.shape == ())):
-            func = getattr(np, expr.function.name)
-            return func(*args)
-
-        cached_name = "map_call_knl_"
-
-        i = Variable("i")
-        func = Variable(expr.function.name)
-        if expr.function.name == "fabs":  # FIXME
-            func = Variable("abs")
-            cached_name += "abs"
-        else:
-            cached_name += expr.function.name
-
-        @memoize_in(self.bound_op, cached_name)
-        def knl():
-            knl = lp.make_kernel(
-                "{[i]: 0<=i<n}",
-                [
-                    lp.Assignment(Variable("out")[i],
-                        func(Variable("a")[i]))
-                ], default_offset=lp.auto)
-            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
-
-        assert len(args) == 1
-        evt, (out,) = knl()(self.queue, a=args[0])
-
-        return out
+        return self.function_registry[expr.function.name](self.queue, *args)
 
     def map_nodal_sum(self, op, field_expr):
         # FIXME: Could allow array scalars
@@ -473,12 +438,15 @@ class MPISendFuture(object):
 # {{{ bound operator
 
 class BoundOperator(object):
-    def __init__(self, discrwb, discr_code, eval_code, debug_flags, allocator=None):
+
+    def __init__(self, discrwb, discr_code, eval_code, debug_flags,
+            function_registry, allocator=None):
         self.discrwb = discrwb
         self.discr_code = discr_code
         self.eval_code = eval_code
         self.operator_data_cache = {}
         self.debug_flags = debug_flags
+        self.function_registry = function_registry
         self.allocator = allocator
 
     def __str__(self):
@@ -625,7 +593,8 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 
 
 def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
-        debug_flags=set(), allocator=None):
+        debug_flags=set(), allocator=None,
+        function_registry=base_function_registry):
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -648,9 +617,10 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
             dumper=dump_sym_operator)
 
     from grudge.symbolic.compiler import OperatorCompiler
-    discr_code, eval_code = OperatorCompiler(discr)(sym_operator)
+    discr_code, eval_code = OperatorCompiler(discr, function_registry)(sym_operator)
 
     bound_op = BoundOperator(discr, discr_code, eval_code,
+            function_registry=function_registry,
             debug_flags=debug_flags, allocator=allocator)
 
     if "dump_op_code" in debug_flags:

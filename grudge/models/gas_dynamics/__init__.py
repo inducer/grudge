@@ -326,8 +326,8 @@ class GasDynamicsOperator(TimeDependentOperator):
     def characteristic_velocity_optemplate(self, state):
         from grudge.symbolic.operators import ElementwiseMaxOperator
 
-        from grudge.symbolic.primitives import CFunction
-        sqrt = CFunction("sqrt")
+        from grudge.symbolic.primitives import FunctionSymbol
+        sqrt = FunctionSymbol("sqrt")
 
         sound_speed = cse(sqrt(
             self.equation_of_state.gamma*self.cse_p(state)/self.cse_rho(state)),
@@ -743,8 +743,8 @@ class GasDynamicsOperator(TimeDependentOperator):
         volq_flux = self.flux(self.volq_state())
         faceq_flux = self.flux(self.faceq_state())
 
-        from grudge.symbolic.primitives import CFunction
-        sqrt = CFunction("sqrt")
+        from grudge.symbolic.primitives import FunctionSymbol
+        sqrt = FunctionSymbol("sqrt")
 
         speed = self.characteristic_velocity_optemplate(self.state())
 
