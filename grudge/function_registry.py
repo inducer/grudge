@@ -88,6 +88,7 @@ class CElementwiseUnaryFunction(Function):
         i = Variable("i")
 
         if self.identifier == "fabs":  # FIXME
+            # Loopy has a type-adaptive "abs", but no "fabs".
             func_name = "abs"
 
         cached_name += func_name

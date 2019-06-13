@@ -39,6 +39,8 @@ def is_zero(x):
         return False
 
 
+# {{{ SubsettableCrossProduct
+
 class SubsettableCrossProduct:
     """A cross product that can operate on an arbitrary subsets of its
     two operands and return an arbitrary subset of its result.
@@ -100,6 +102,8 @@ class SubsettableCrossProduct:
 
 
 cross = SubsettableCrossProduct()
+
+# }}}
 
 
 def count_subset(subset):

@@ -335,7 +335,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(ctx_factory,  order):
-    """Test whether 3D maxwells actually converges"""
+    """Test whether 3D Maxwell's actually converges"""
 
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)

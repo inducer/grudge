@@ -29,8 +29,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from six.moves import range
-
 from pytools import memoize_method
 
 from grudge.models import HyperbolicOperator
@@ -110,7 +108,6 @@ class MaxwellOperator(HyperbolicOperator):
         self.current = current
         self.incident_bc_data = incident_bc
 
-
     def flux(self, w):
         """The template for the numerical flux for variable coefficients.
 
@@ -127,15 +124,14 @@ class MaxwellOperator(HyperbolicOperator):
             epsilon = self.epsilon
             mu = self.mu
 
-
-        Z_int = (mu/epsilon)**0.5
-        Y_int = 1/Z_int
-        Z_ext = (mu/epsilon)**0.5
-        Y_ext = 1/Z_ext
+        Z_int = (mu/epsilon)**0.5  # noqa: N806
+        Y_int = 1/Z_int  # noqa: N806
+        Z_ext = (mu/epsilon)**0.5  # noqa: N806
+        Y_ext = 1/Z_ext  # noqa: N806
 
         if self.flux_type == "lf":
-            if self.fixed_material:
-                max_c = (self.epsilon*self.mu)**(-0.5)
+            # if self.fixed_material:
+            #     max_c = (self.epsilon*self.mu)**(-0.5)
 
             return join_fields(
                     # flux e,
@@ -178,13 +174,12 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(w)
 
         nabla = sym.nabla(self.dimensions)
+
         def e_curl(field):
             return self.space_cross_e(nabla, field)
 
         def h_curl(field):
             return self.space_cross_h(nabla, field)
-
-
 
         # in conservation form: u_t + A u_x = 0
         return join_fields(
@@ -198,7 +193,6 @@ class MaxwellOperator(HyperbolicOperator):
 
         pec_e = sym.cse(sym.interp("vol", self.pec_tag)(e))
         pec_h = sym.cse(sym.interp("vol", self.pec_tag)(h))
-
 
         return join_fields(-pec_e, pec_h)
 
@@ -218,15 +212,14 @@ class MaxwellOperator(HyperbolicOperator):
 
         absorb_normal = sym.normal(self.absorb_tag, self.dimensions)
 
-
         e, h = self.split_eh(w)
 
         if self.fixed_material:
             epsilon = self.epsilon
             mu = self.mu
 
-        absorb_Z = (mu/epsilon)**0.5
-        absorb_Y = 1/absorb_Z
+        absorb_Z = (mu/epsilon)**0.5  # noqa: N806
+        absorb_Y = 1/absorb_Z  # noqa: N806
 
         absorb_e = sym.cse(sym.interp("vol", self.absorb_tag)(e))
         absorb_h = sym.cse(sym.interp("vol", self.absorb_tag)(h))
@@ -284,7 +277,6 @@ class MaxwellOperator(HyperbolicOperator):
                 (self.incident_tag, self.incident_bc(w)),
                 ]
 
-
         def flux(pair):
             return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
@@ -294,10 +286,8 @@ class MaxwellOperator(HyperbolicOperator):
                     flux(sym.int_tpair(w))
                     + sum(
                         flux(sym.bv_tpair(tag, w, bc))
-                            for tag, bc in tags_and_bcs)
-                    ) )) / material_divisor
-
-
+                        for tag, bc in tags_and_bcs)
+                    ))) / material_divisor
 
     @memoize_method
     def partial_to_eh_subsets(self):
@@ -313,31 +303,12 @@ class MaxwellOperator(HyperbolicOperator):
         return tuple(partial_to_all_subset_indices(
             [e_subset, h_subset]))
 
-    def split_eps_mu_eh(self, w):
-        """Splits an array into epsilon, mu, E and H components.
-
-        Only used for fluxes.
-        """
-        e_idx, h_idx = self.partial_to_eh_subsets()
-        epsilon, mu, e, h = w[[0]], w[[1]], w[e_idx+2], w[h_idx+2]
-
-        from grudge.flux import FluxVectorPlaceholder as FVP
-        if isinstance(w, FVP):
-            return (
-                    FVP(scalars=epsilon),
-                    FVP(scalars=mu),
-                    FVP(scalars=e),
-                    FVP(scalars=h))
-        else:
-            return epsilon, mu, make_obj_array(e), make_obj_array(h)
-
     def split_eh(self, w):
         "Splits an array into E and H components"
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
 
-        return e,h
-        #return make_obj_array(e), make_obj_array(h)
+        return e, h
 
     def get_eh_subset(self):
         """Return a 6-tuple of :class:`bool` objects indicating whether field
@@ -384,8 +355,7 @@ class TMMaxwellOperator(MaxwellOperator):
     def get_eh_subset(self):
         return (
                 (False, False, True)  # only ez
-                +
-                (True, True, False)  # hx and hy
+                + (True, True, False)  # hx and hy
                 )
 
 
@@ -400,8 +370,7 @@ class TEMaxwellOperator(MaxwellOperator):
     def get_eh_subset(self):
         return (
                 (True, True, False)  # ex and ey
-                +
-                (False, False, True)  # only hz
+                + (False, False, True)  # only hz
                 )
 
 
@@ -416,8 +385,7 @@ class TE1DMaxwellOperator(MaxwellOperator):
     def get_eh_subset(self):
         return (
                 (True, True, False)
-                +
-                (False, False, True)
+                + (False, False, True)
                 )
 
 
@@ -432,11 +400,11 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
     def get_eh_subset(self):
         return (
                 (False, True, False)
-                +
-                (False, False, True)
+                + (False, False, True)
                 )
 
-def get_rectangular_cavity_mode(E_0, mode_indices):
+
+def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
     """A rectangular TM cavity mode for a rectangle / cube
     with one corner at the origin and the other at (1,1[,1])."""
     dims = len(mode_indices)
@@ -451,7 +419,6 @@ def get_rectangular_cavity_mode(E_0, mode_indices):
         kz = factors[2]
 
     omega = numpy.sqrt(sum(f**2 for f in factors))
-
 
     nodes = sym.nodes(dims)
     x = nodes[0]
@@ -471,13 +438,13 @@ def get_rectangular_cavity_mode(E_0, mode_indices):
         tfac = sym.ScalarVariable("t") * omega
 
         result = sym.join_fields(
-                0,
-                0,
-                sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
-                -ky * sym.sin(kx * x) * sym.cos(ky * y) * sym.sin(tfac) / omega,  # hx
-                kx * sym.cos(kx * x) * sym.sin(ky * y) * sym.sin(tfac) / omega,  # hy
-                0,
-                )
+            0,
+            0,
+            sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
+            -ky * sym.sin(kx * x) * sym.cos(ky * y) * sym.sin(tfac) / omega,  # hx
+            kx * sym.cos(kx * x) * sym.sin(ky * y) * sym.sin(tfac) / omega,  # hy
+            0,
+            )
     else:
         tdep = sym.exp(-1j * omega * sym.ScalarVariable("t"))
 
