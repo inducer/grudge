@@ -1230,6 +1230,7 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
     def map_constant(self, expr, *args, **kwargs):
         return OrderedSet()
 
+    map_variable = map_constant
     map_grudge_variable = map_constant
     map_function_symbol = map_constant
 
@@ -1274,6 +1275,33 @@ class FluxExchangeCollector(CSECachingMapperMixin, CollectorMixin, CombineMapper
 
 class Evaluator(pymbolic.mapper.evaluator.EvaluationMapper):
     pass
+
+
+class SymbolicEvaluator(pymbolic.mapper.evaluator.EvaluationMapper):
+    def map_operator_binding(self, expr, *args, **kwargs):
+        return expr.op(self.rec(expr.field, *args, **kwargs))
+
+    def map_node_coordinate_component(self, expr, *args, **kwargs):
+        return expr
+
+    def map_call(self, expr, *args, **kwargs):
+        return type(expr)(
+                expr.function,
+                tuple(self.rec(child, *args, **kwargs)
+                    for child in expr.parameters))
+
+    def map_call_with_kwargs(self, expr, *args, **kwargs):
+        return type(expr)(
+                expr.function,
+                tuple(self.rec(child, *args, **kwargs)
+                    for child in expr.parameters),
+                dict(
+                    (key, self.rec(val, *args, **kwargs))
+                    for key, val in six.iteritems(expr.kw_parameters))
+                    )
+
+    def map_common_subexpression(self, expr):
+        return type(expr)(self.rec(expr.child), expr.prefix, expr.scope)
 
 # }}}
 

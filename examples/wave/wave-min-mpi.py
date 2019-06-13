@@ -134,7 +134,7 @@ def main(write_output=True, order=4):
                     time()-t_last_step)
             if step % 10 == 0:
                 vis.write_vtk_file(
-                        "fld-%03d-%04d.vtu" % (
+                        "fld-wave-min-mpi-%03d-%04d.vtu" % (
                             rank,
                             step,
                             ),

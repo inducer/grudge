@@ -76,6 +76,7 @@ Symbols
 .. autoclass:: ScalarVariable
 .. autoclass:: make_sym_array
 .. autoclass:: make_sym_mv
+.. autoclass:: FunctionSymbol
 
 .. function :: sqrt(arg)
 .. function :: exp(arg)

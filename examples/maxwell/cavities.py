@@ -28,9 +28,12 @@ THE SOFTWARE.
 import numpy as np
 import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, Discretization
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 from grudge.models.em import get_rectangular_cavity_mode
+
+
+STEPS = 60
 
 
 def main(dims, write_output=True, order=4):
@@ -43,7 +46,7 @@ def main(dims, write_output=True, order=4):
             b=(1.0,)*dims,
             n=(5,)*dims)
 
-    discr = Discretization(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
     if 0:
         epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)
@@ -84,7 +87,7 @@ def main(dims, write_output=True, order=4):
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    final_t = dt * 600
+    final_t = dt * STEPS
     nsteps = int(final_t/dt)
 
     print("dt=%g nsteps=%d" % (dt, nsteps))
@@ -102,7 +105,7 @@ def main(dims, write_output=True, order=4):
     e, h = op.split_eh(fields)
 
     if 1:
-        vis.write_vtk_file("fld-%04d.vtu" % step,
+        vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
                 [
                     ("e", e),
                     ("h", h),
@@ -119,7 +122,7 @@ def main(dims, write_output=True, order=4):
                     time()-t_last_step)
             if step % 10 == 0:
                 e, h = op.split_eh(event.state_component)
-                vis.write_vtk_file("fld-%04d.vtu" % step,
+                vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
                         [
                             ("e", e),
                             ("h", h),

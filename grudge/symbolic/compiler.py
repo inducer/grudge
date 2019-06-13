@@ -106,10 +106,13 @@ class LoopyKernelInstruction(Instruction):
     @memoize_method
     def get_dependencies(self):
         from pymbolic.primitives import Variable, Subscript
-        return set(
-                v
-                for v in self.kernel_descriptor.input_mappings.values()
-                if isinstance(v, (Variable, Subscript)))
+        result = set()
+        for v in self.kernel_descriptor.input_mappings.values():
+            if isinstance(v, Variable):
+                result.add(v)
+            elif isinstance(v, Subscript):
+                result.add(v.aggregate)
+        return result
 
     def __str__(self):
         knl_str = "\n".join(
@@ -523,7 +526,7 @@ class Code(object):
                                 log_quantities["rank_data_swap_timer"],
                                 log_quantities["rank_data_swap_counter"])
 
-                assignments, new_futures = mapper_method(insn)
+                assignments, new_futures = mapper_method(insn, profile_data)
 
                 for target, value in assignments:
                     if pre_assign_check is not None:
@@ -580,10 +583,6 @@ class Code(object):
                             break
 
         if len(done_insns) < len(self.instructions):
-            print("Unreachable instructions:")
-            for insn in set(self.instructions) - done_insns:
-                print("    ", insn)
-
             raise RuntimeError("not all instructions are reachable"
                     "--did you forget to pass a value for a placeholder?")
 
@@ -591,7 +590,7 @@ class Code(object):
             exec_sub_timer.stop().submit()
         from pytools.obj_array import with_object_array_or_scalar
         if profile_data is not None:
-            profile_data['total_time'] += time() - start_time
+            profile_data['total_time'] = time() - start_time
             return (with_object_array_or_scalar(exec_mapper, self.result),
                     profile_data)
         return with_object_array_or_scalar(exec_mapper, self.result)

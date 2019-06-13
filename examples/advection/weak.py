@@ -103,7 +103,7 @@ def main(write_output=True, order=4):
             step += 1
 
             #print(step, event.t, norm(queue, u=event.state_component[0]))
-            vis.write_vtk_file("fld-%04d.vtu" % step,
+            vis.write_vtk_file("fld-weak-%04d.vtu" % step,
                     [  ("u", event.state_component) ])
 
 
