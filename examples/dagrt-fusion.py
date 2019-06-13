@@ -44,6 +44,7 @@ import grudge.symbolic.mappers as gmap
 import grudge.symbolic.operators as op
 from grudge.execution import ExecutionMapper
 from grudge.function_registry import base_function_registry
+from pymbolic.mapper import Mapper
 from pymbolic.mapper.evaluator import EvaluationMapper \
         as PymbolicEvaluationMapper
 from pytools import memoize
@@ -482,32 +483,50 @@ def test_stepper_equivalence(ctx_factory, order=4):
 # }}}
 
 
-# {{{ mem op counter implementation
+# {{{ execution mapper wrapper
 
-class ExecutionMapperWithMemOpCounting(ExecutionMapper):
-    # This is a skeleton implementation that only has just enough functionality
-    # for the wave-min example to work.
+class ExecutionMapperWrapper(Mapper):
 
     def __init__(self, queue, context, bound_op):
-        super().__init__(queue, context, bound_op)
+        self.inner_mapper = ExecutionMapper(queue, context, bound_op)
+        self.queue = queue
+        self.context = context
+        self.bound_op = bound_op
+
+    def map_variable(self, expr):
+        # Needed, because bound op execution can ask for variable values.
+        return self.inner_mapper.map_variable(expr)
+
+    def map_grudge_variable(self, expr):
+        # See map_variable()
+        return self.inner_mapper.map_grudge_variable(expr)
+
+# }}}
+
+
+# {{{ mem op counter implementation
+
+class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
+    # This is a skeleton implementation that only has just enough functionality
+    # for the wave-min example to work.
 
     # {{{ expressions
 
     def map_profiled_call(self, expr, profile_data):
-        args = [self.rec(p) for p in expr.parameters]
-        return self.function_registry[expr.function.name](
+        args = [self.inner_mapper.rec(p) for p in expr.parameters]
+        return self.inner_mapper.function_registry[expr.function.name](
                 self.queue, *args, profile_data=profile_data)
 
     def map_profiled_essentially_elementwise_linear(self, op, field_expr,
                                                     profile_data):
-        result = getattr(self, op.mapper_method)(op, field_expr)
+        result = getattr(self.inner_mapper, op.mapper_method)(op, field_expr)
 
         if profile_data is not None:
             # We model the cost to load the input and write the output.  In
             # particular, we assume the elementwise matrices are negligible in
             # size and thus ignorable.
 
-            field = self.rec(field_expr)
+            field = self.inner_mapper.rec(field_expr)
             profile_data["bytes_read"] = (
                     profile_data.get("bytes_read", 0) + field.nbytes)
             profile_data["bytes_written"] = (
@@ -547,7 +566,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
 
         else:
             logger.debug("assignment not profiled: %s", expr)
-            val = self.rec(expr)
+            val = self.inner_mapper.rec(expr)
 
         return val
 
@@ -561,7 +580,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
         kwargs = {}
         kdescr = insn.kernel_descriptor
         for name, expr in six.iteritems(kdescr.input_mappings):
-            val = self.rec(expr)
+            val = self.inner_mapper.rec(expr)
             kwargs[name] = val
             assert not isinstance(val, np.ndarray)
             if profile_data is not None and isinstance(val, pyopencl.array.Array):
@@ -571,7 +590,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
                         profile_data.get("bytes_read_by_scalar_assignments", 0)
                         + val.nbytes)
 
-        discr = self.discrwb.discr_from_dd(kdescr.governing_dd)
+        discr = self.inner_mapper.discrwb.discr_from_dd(kdescr.governing_dd)
         for name in kdescr.scalar_args():
             v = kwargs[name]
             if isinstance(v, (int, float)):
@@ -603,28 +622,31 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapper):
 
         for name, expr in zip(insn.names, insn.exprs):
             logger.debug("assignment not profiled: %s <- %s", name, expr)
-            value = self.rec(expr)
-            self.discrwb._discr_scoped_subexpr_name_to_value[name] = value
+            inner_mapper = self.inner_mapper
+            value = inner_mapper.rec(expr)
+            inner_mapper.discrwb._discr_scoped_subexpr_name_to_value[name] = value
             assignments.append((name, value))
 
         return assignments, []
 
     def map_insn_assign_from_discr_scoped(self, insn, profile_data=None):
-        return [(insn.name,
-            self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
+        return [(
+            insn.name,
+            self.inner_mapper.
+                discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_rank_data_swap(self, insn, profile_data):
         raise NotImplementedError("no profiling for instruction: %s" % insn)
 
     def map_insn_diff_batch_assign(self, insn, profile_data):
-        assignments, futures = super().map_insn_diff_batch_assign(insn)
+        assignments, futures = self.inner_mapper.map_insn_diff_batch_assign(insn)
 
         if profile_data is not None:
             # We model the cost to load the input and write the output.  In
             # particular, we assume the elementwise matrices are negligible in
             # size and thus ignorable.
 
-            field = self.rec(insn.field)
+            field = self.inner_mapper.rec(insn.field)
             profile_data["bytes_read"] = (
                     profile_data.get("bytes_read", 0) + field.nbytes)
 
@@ -781,19 +803,19 @@ def time_insn(f):
     return wrapper
 
 
-class ExecutionMapperWithTiming(ExecutionMapper):
+class ExecutionMapperWithTiming(ExecutionMapperWrapper):
 
     def map_profiled_call(self, expr, profile_data):
-        args = [self.rec(p) for p in expr.parameters]
-        return self.function_registry[expr.function.name](
+        args = [self.inner_mapper.rec(p) for p in expr.parameters]
+        return self.inner_mapper.function_registry[expr.function.name](
                 self.queue, *args, profile_data=profile_data)
 
     def map_profiled_operator_binding(self, expr, profile_data):
         if profile_data is None:
-            return super().map_operator_binding(expr)
+            return self.inner_mapper.map_operator_binding(expr)
 
         start = cl.enqueue_marker(self.queue)
-        retval = super().map_operator_binding(expr)
+        retval = self.inner_mapper.map_operator_binding(expr)
         end = cl.enqueue_marker(self.queue)
         time_field_name = "time_op_%s" % expr.op.mapper_method
         profile_data\
@@ -802,9 +824,16 @@ class ExecutionMapperWithTiming(ExecutionMapper):
 
         return retval
 
+    def map_insn_assign_to_discr_scoped(self, insn, profile_data):
+        return self.inner_mapper.map_insn_assign_to_discr_scoped(insn, profile_data)
+
+    def map_insn_assign_from_discr_scoped(self, insn, profile_data):
+        return self.\
+            inner_mapper.map_insn_assign_from_discr_scoped(insn, profile_data)
+
     @time_insn
     def map_insn_loopy_kernel(self, *args, **kwargs):
-        return super().map_insn_loopy_kernel(*args, **kwargs)
+        return self.inner_mapper.map_insn_loopy_kernel(*args, **kwargs)
 
     def map_insn_assign(self, insn, profile_data):
         if len(insn.exprs) == 1:
@@ -817,11 +846,11 @@ class ExecutionMapperWithTiming(ExecutionMapper):
                 val = self.map_profiled_operator_binding(insn.exprs[0], profile_data)
                 return [(insn.names[0], val)], []
 
-        return super().map_insn_assign(insn, profile_data)
+        return self.inner_mapper.map_insn_assign(insn, profile_data)
 
     @time_insn
     def map_insn_diff_batch_assign(self, insn, profile_data):
-        return super().map_insn_diff_batch_assign(insn, profile_data)
+        return self.inner_mapper.map_insn_diff_batch_assign(insn, profile_data)
 
 # }}}
 
