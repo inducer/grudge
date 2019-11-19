@@ -40,9 +40,9 @@ from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
 class ExpressionBase(pymbolic.primitives.Expression):
-    def stringifier(self):
+    def make_stringifier(self, originating_stringifier=None):
         from grudge.symbolic.mappers import StringifyMapper
-        return StringifyMapper
+        return StringifyMapper()
 
 
 def _sym():
@@ -657,6 +657,10 @@ class TracePair:
                 self.dd,
                 self.exterior[index],
                 self.interior[index])
+
+    def __len__(self):
+        assert len(self.exterior) == len(self.interior)
+        return len(self.exterior)
 
     @property
     def int(self):

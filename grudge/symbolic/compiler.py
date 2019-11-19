@@ -1018,7 +1018,7 @@ class ToLoopyInstructionMapper(object):
                     lp.Assignment(
                         expr_mapper(var(name)),
                         expr_mapper(expr),
-                        temp_var_type=lp.auto if dnr else None,
+                        temp_var_type=lp.Optional(None) if dnr else lp.Optional(),
                         no_sync_with=frozenset([
                             ("*", "any"),
                             ]),
