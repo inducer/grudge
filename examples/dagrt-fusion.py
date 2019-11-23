@@ -71,7 +71,7 @@ OUT_DIR = os.environ.get("OUT_DIR", ".")
 @contextlib.contextmanager
 def open_output_file(filename):
     if not PAPER_OUTPUT:
-        yield OutputFile(sys.stdout, False)
+        yield sys.stdout
     else:
         try:
             outfile = open(os.path.join(OUT_DIR, filename), "w")
