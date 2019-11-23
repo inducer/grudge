@@ -72,6 +72,7 @@ OUT_DIR = os.environ.get("OUT_DIR", ".")
 def open_output_file(filename):
     if not PAPER_OUTPUT:
         yield sys.stdout
+        sys.stdout.flush()
     else:
         try:
             outfile = open(os.path.join(OUT_DIR, filename), "w")
