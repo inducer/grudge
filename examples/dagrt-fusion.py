@@ -30,6 +30,7 @@ THE SOFTWARE.
 """
 
 
+import contextlib
 import logging
 import numpy as np
 import os
@@ -67,11 +68,16 @@ PAPER_OUTPUT = int(os.environ.get("PAPER_OUTPUT", 0))
 OUT_DIR = os.environ.get("OUT_DIR", ".")
 
 
+@contextlib.contextmanager
 def open_output_file(filename):
     if not PAPER_OUTPUT:
-        return sys.stdout
+        yield OutputFile(sys.stdout, False)
     else:
-        return open(os.path.join(OUT_DIR, filename), "w")
+        try:
+            outfile = open(os.path.join(OUT_DIR, filename), "w")
+            yield outfile
+        finally:
+            outfile.close()
 
 
 # {{{ topological sort
@@ -1081,23 +1087,24 @@ else:
 
 def problem_stats(order=3):
     cl_ctx = cl.create_some_context()
-    outf = open_output_file("grudge-problem-stats.txt")
 
-    _, dg_discr_2d = get_strong_wave_op_with_discr_direct(
+    with open_output_file("grudge-problem-stats.txt") as outf:
+        _, dg_discr_2d = get_strong_wave_op_with_discr_direct(
             cl_ctx, dims=2, order=order)
-    print("Number of 2D elements:", dg_discr_2d.mesh.nelements, file=outf)
-    vol_discr_2d = dg_discr_2d.discr_from_dd("vol")
-    dofs_2d = {group.nunit_nodes for group in vol_discr_2d.groups}
-    from pytools import one
-    print("Number of DOFs per 2D element:", one(dofs_2d), file=outf)
+        print("Number of 2D elements:", dg_discr_2d.mesh.nelements, file=outf)
+        vol_discr_2d = dg_discr_2d.discr_from_dd("vol")
+        dofs_2d = {group.nunit_nodes for group in vol_discr_2d.groups}
+        from pytools import one
+        print("Number of DOFs per 2D element:", one(dofs_2d), file=outf)
 
-    _, dg_discr_3d = get_strong_wave_op_with_discr_direct(
+        _, dg_discr_3d = get_strong_wave_op_with_discr_direct(
             cl_ctx, dims=3, order=order)
-    print("Number of 3D elements:", dg_discr_3d.mesh.nelements, file=outf)
-    vol_discr_3d = dg_discr_3d.discr_from_dd("vol")
-    dofs_3d = {group.nunit_nodes for group in vol_discr_3d.groups}
-    from pytools import one
-    print("Number of DOFs per 3D element:", one(dofs_3d), file=outf)
+        print("Number of 3D elements:", dg_discr_3d.mesh.nelements, file=outf)
+        vol_discr_3d = dg_discr_3d.discr_from_dd("vol")
+        dofs_3d = {group.nunit_nodes for group in vol_discr_3d.groups}
+        from pytools import one
+        print("Number of DOFs per 3D element:", one(dofs_3d), file=outf)
+
     logger.info("Wrote '%s'", outf.name)
 
 
@@ -1108,23 +1115,26 @@ def statement_counts_table():
     fused_stepper = get_example_stepper(queue, use_fusion=True)
     stepper = get_example_stepper(queue, use_fusion=False)
 
-    outf = open_output_file("statement-counts.tex")
-    if not PAPER_OUTPUT:
-        print("==== Statement Counts ====", file=outf)
+    with open_output_file("statement-counts.tex") as outf:
+        if not PAPER_OUTPUT:
+            print("==== Statement Counts ====", file=outf)
 
-    print(
-        table(
+        print(table(
             "lr",
             ("Operator", "Grudge Node Count"),
             (
                 ("Time integration: baseline",
-                 r"\num{%d}" % len(stepper.bound_op.eval_code.instructions)),
+                 r"\num{%d}"
+                     % len(stepper.bound_op.eval_code.instructions)),
                 ("Right-hand side: baseline",
-                 r"\num{%d}" % len(stepper.grudge_bound_op.eval_code.instructions)),
+                 r"\num{%d}"
+                     % len(stepper.grudge_bound_op.eval_code.instructions)),
                 ("Inlined operator",
-                 r"\num{%d}" % len(fused_stepper.bound_op.eval_code.instructions))
+                 r"\num{%d}"
+                     % len(fused_stepper.bound_op.eval_code.instructions))
             )),
-        file=outf)
+            file=outf)
+
     logger.info("Wrote '%s'", outf.name)
 
 
@@ -1195,34 +1205,36 @@ def scalar_assignment_percent_of_total_mem_ops_table():
     result2d = mem_ops_results(queue, 2)
     result3d = mem_ops_results(queue, 3)
 
-    outf = open_output_file("scalar-assignments-mem-op-percentage.tex")
-    if not PAPER_OUTPUT:
-        print("==== Scalar Assigment % of Total Mem Ops ====", file=outf)
+    with open_output_file("scalar-assignments-mem-op-percentage.tex") as outf:
+        if not PAPER_OUTPUT:
+            print("==== Scalar Assigment % of Total Mem Ops ====", file=outf)
 
-    print(
-        table(
-            "lr",
-            ("Operator",
-             r"\parbox{1in}{\centering \% Memory Ops. Due to Scalar Assignments}"),
-            (
-                ("2D: Baseline",
-                 "%.1f" % (
-                        100 * result2d["nonfused_bytes_total_by_scalar_assignments"]
-                        / result2d["nonfused_bytes_total"])),
-                ("2D: Inlined",
-                 "%.1f" % (
-                        100 * result2d["fused_bytes_total_by_scalar_assignments"]
-                        / result2d["fused_bytes_total"])),
-                ("3D: Baseline",
-                 "%.1f" % (
-                        100 * result3d["nonfused_bytes_total_by_scalar_assignments"]
-                        / result3d["nonfused_bytes_total"])),
-                ("3D: Inlined",
-                  "%.1f" % (
-                        100 * result3d["fused_bytes_total_by_scalar_assignments"]
-                        / result3d["fused_bytes_total"])),
-            )),
-        file=outf)
+        print(
+            table(
+                "lr",
+                ("Operator",
+                 r"\parbox{1in}{\centering \% Memory Ops. "
+                 r"Due to Scalar Assignments}"),
+                (
+                    ("2D: Baseline",
+                     "%.1f" % (
+                         100 * result2d["nonfused_bytes_total_by_scalar_assignments"]
+                         / result2d["nonfused_bytes_total"])),
+                    ("2D: Inlined",
+                     "%.1f" % (
+                         100 * result2d["fused_bytes_total_by_scalar_assignments"]
+                         / result2d["fused_bytes_total"])),
+                    ("3D: Baseline",
+                     "%.1f" % (
+                         100 * result3d["nonfused_bytes_total_by_scalar_assignments"]
+                         / result3d["nonfused_bytes_total"])),
+                    ("3D: Inlined",
+                     "%.1f" % (
+                         100 * result3d["fused_bytes_total_by_scalar_assignments"]
+                         / result3d["fused_bytes_total"])),
+                )),
+            file=outf)
+
     logger.info("Wrote '%s'", outf.name)
 
 
@@ -1233,57 +1245,57 @@ def scalar_assignment_effect_of_fusion_mem_ops_table():
     result2d = mem_ops_results(queue, 2)
     result3d = mem_ops_results(queue, 3)
 
-    outf = open_output_file("scalar-assignments-fusion-impact.tex")
-    if not PAPER_OUTPUT:
-        print("==== Scalar Assigment Inlining Impact ====", file=outf)
+    with open_output_file("scalar-assignments-fusion-impact.tex") as outf:
+        if not PAPER_OUTPUT:
+            print("==== Scalar Assigment Inlining Impact ====", file=outf)
 
-    print(
-        table(
-            "lrrrr",
-            ("Operator",
-             r"Bytes Read",
-             r"Bytes Written",
-             r"Total",
-             r"\% of Baseline"),
-            (
-                ("2D: Baseline",
-                 r"\num{%d}" % (
-                     result2d["nonfused_bytes_read_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result2d["nonfused_bytes_written_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result2d["nonfused_bytes_total_by_scalar_assignments"]),
-                 "100"),
-                ("2D: Inlined",
-                 r"\num{%d}" % (
-                     result2d["fused_bytes_read_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result2d["fused_bytes_written_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result2d["fused_bytes_total_by_scalar_assignments"]),
-                 r"%.1f" % (
-                     100 * result2d["fused_bytes_total_by_scalar_assignments"]
-                     / result2d["nonfused_bytes_total_by_scalar_assignments"])),
-                ("3D: Baseline",
-                 r"\num{%d}" % (
-                     result3d["nonfused_bytes_read_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result3d["nonfused_bytes_written_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result3d["nonfused_bytes_total_by_scalar_assignments"]),
-                 "100"),
-                ("3D: Inlined",
-                 r"\num{%d}" % (
-                     result3d["fused_bytes_read_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result3d["fused_bytes_written_by_scalar_assignments"]),
-                 r"\num{%d}" % (
-                     result3d["fused_bytes_total_by_scalar_assignments"]),
-                 r"%.1f" % (
-                     100 * result3d["fused_bytes_total_by_scalar_assignments"]
-                     / result3d["nonfused_bytes_total_by_scalar_assignments"])),
-            )),
-        file=outf)
+        print(
+            table(
+                "lrrrr",
+                ("Operator",
+                 r"Bytes Read",
+                 r"Bytes Written",
+                 r"Total",
+                 r"\% of Baseline"),
+                (
+                    ("2D: Baseline",
+                     r"\num{%d}" % (
+                         result2d["nonfused_bytes_read_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result2d["nonfused_bytes_written_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result2d["nonfused_bytes_total_by_scalar_assignments"]),
+                     "100"),
+                    ("2D: Inlined",
+                     r"\num{%d}" % (
+                         result2d["fused_bytes_read_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result2d["fused_bytes_written_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result2d["fused_bytes_total_by_scalar_assignments"]),
+                     r"%.1f" % (
+                         100 * result2d["fused_bytes_total_by_scalar_assignments"]
+                         / result2d["nonfused_bytes_total_by_scalar_assignments"])),
+                    ("3D: Baseline",
+                     r"\num{%d}" % (
+                         result3d["nonfused_bytes_read_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result3d["nonfused_bytes_written_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result3d["nonfused_bytes_total_by_scalar_assignments"]),
+                     "100"),
+                    ("3D: Inlined",
+                     r"\num{%d}" % (
+                         result3d["fused_bytes_read_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result3d["fused_bytes_written_by_scalar_assignments"]),
+                     r"\num{%d}" % (
+                         result3d["fused_bytes_total_by_scalar_assignments"]),
+                     r"%.1f" % (
+                         100 * result3d["fused_bytes_total_by_scalar_assignments"]
+                         / result3d["nonfused_bytes_total_by_scalar_assignments"])),
+                )),
+            file=outf)
     logger.info("Wrote '%s'", outf.name)
 
 # }}}
