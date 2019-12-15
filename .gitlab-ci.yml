@@ -81,9 +81,6 @@ Python 3 POCL Examples:
   - large-node
   except:
   - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
 
 Documentation:
   script:
