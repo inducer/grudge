@@ -29,10 +29,10 @@ import pyopencl as cl
 
 
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
-    from leap.rk import LSRK4Method
+    from leap.rk import LSRK4MethodBuilder
     from dagrt.codegen import PythonCodeGenerator
 
-    dt_method = LSRK4Method(component_id=field_var_name)
+    dt_method = LSRK4MethodBuilder(component_id=field_var_name)
     dt_code = dt_method.generate()
     dt_stepper_class = PythonCodeGenerator("TimeStep").get_class(dt_code)
     dt_stepper = dt_stepper_class({"<func>"+dt_method.component_id: rhs})

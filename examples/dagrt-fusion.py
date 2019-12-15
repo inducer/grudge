@@ -52,7 +52,7 @@ from pymbolic.mapper.evaluator import EvaluationMapper \
 from pytools import memoize
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
-from leap.rk import LSRK4Method
+from leap.rk import LSRK4MethodBuilder
 
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
@@ -267,7 +267,7 @@ class RK4TimeStepperBase(object):
     def set_up_stepper(self, discr, field_var_name, sym_rhs, num_fields,
                        function_registry=base_function_registry,
                        exec_mapper_factory=ExecutionMapper):
-        dt_method = LSRK4Method(component_id=field_var_name)
+        dt_method = LSRK4MethodBuilder(component_id=field_var_name)
         dt_code = dt_method.generate()
         self.field_var_name = field_var_name
         self.state_name = f"input_{field_var_name}"
