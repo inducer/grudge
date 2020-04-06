@@ -385,10 +385,15 @@ class Code(object):
         # self.last_schedule = None
         self.static_schedule_attempts = 5
 
-    def dump_dataflow_graph(self):
+    def dump_dataflow_graph(self, name=None):
         from pytools.debug import open_unique_debug_file
 
-        outf, _ = open_unique_debug_file("dataflow", ".dot")
+        if name is None:
+            stem = "dataflow"
+        else:
+            stem = "dataflow-%s" % name
+
+        outf, _ = open_unique_debug_file(stem, ".dot")
         with outf:
             outf.write(dot_dataflow_graph(self, max_node_label_length=None))
 
