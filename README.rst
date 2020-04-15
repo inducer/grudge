@@ -1,6 +1,18 @@
 grudge
 ======
 
+.. image:: https://gitlab.tiker.net/inducer/grudge/badges/master/pipeline.svg
+    :alt: Gitlab Build Status
+    :target: https://gitlab.tiker.net/inducer/grudge/commits/master
+.. image:: https://github.com/inducer/grudge/workflows/CI/badge.svg?branch=master&event=push
+    :alt: Github Build Status
+    :target: https://github.com/inducer/grudge/actions?query=branch%3Amaster+workflow%3ACI+event%3Apush
+
+..
+    .. image:: https://badge.fury.io/py/grudge.png
+        :alt: Python Package Index Release Page
+        :target: https://pypi.org/project/grudge/
+
 grudge helps you discretize discontinuous Galerkin operators, quickly
 and accurately.
 
