@@ -19,3 +19,4 @@ dependencies:
     - git+https://github.com/inducer/meshmode
     - git+https://github.com/inducer/dagrt
     - git+https://github.com/inducer/leap
+    - git+https://github.com/inducer/pyvisfile
