@@ -628,13 +628,14 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
             allocator=allocator)
 
     if "dump_op_code" in debug_flags:
-        from grudge.tools import open_unique_debug_file
+        from pytools.debug import open_unique_debug_file
         outf, _ = open_unique_debug_file("op-code", ".txt")
         with outf:
             outf.write(str(bound_op))
 
     if "dump_dataflow_graph" in debug_flags:
-        bound_op.code.dump_dataflow_graph()
+        discr_code.dump_dataflow_graph("discr")
+        eval_code.dump_dataflow_graph("eval")
 
     return bound_op
 
