@@ -32,14 +32,11 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 import numpy.linalg as la
 
 
-
-
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
     dim = 2
-
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
@@ -50,12 +47,10 @@ def main(write_output=True, order=4):
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
-    c = np.array([0.1,0.1])
+    c = np.array([0.1, 0.1])
     norm_c = la.norm(c)
 
-
     flux_type = "central"
-         
 
     def f(x):
         return sym.sin(3*x)
@@ -64,8 +59,7 @@ def main(write_output=True, order=4):
         return f(-np.dot(c, x)/norm_c+sym.var("t", sym.DD_SCALAR)*norm_c)
 
     from grudge.models.advection import WeakAdvectionOperator
-    from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    
+
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
     op = WeakAdvectionOperator(c,
         inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
@@ -84,18 +78,13 @@ def main(write_output=True, order=4):
     nsteps = (final_time // dt) + 1
     dt = final_time/nsteps + 1e-15
 
-
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-
-    last_u = None
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(discr, vis_order=order)
 
     step = 0
-
-    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     for event in dt_stepper.run(t_end=final_time):
         if isinstance(event, dt_stepper.StateComputed):
@@ -104,15 +93,8 @@ def main(write_output=True, order=4):
 
             #print(step, event.t, norm(queue, u=event.state_component[0]))
             vis.write_vtk_file("fld-weak-%04d.vtu" % step,
-                    [  ("u", event.state_component) ])
-
-
-
-
-
+                    [("u", event.state_component)])
 
 
 if __name__ == "__main__":
     main()
-
-
