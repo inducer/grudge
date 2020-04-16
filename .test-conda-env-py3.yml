@@ -5,7 +5,11 @@ channels:
 dependencies:
 - git
 - conda-forge::numpy
+
+# to avoid conflict with system openmpi's libhwloc
+- libhwloc=1
 - pocl
+
 - islpy
 - pyopencl
 - python=3
