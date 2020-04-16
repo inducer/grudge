@@ -25,3 +25,4 @@ dependencies:
     - git+https://github.com/inducer/leap
     - git+https://github.com/inducer/pyvisfile
     - mpi4py
+    - pymetis
