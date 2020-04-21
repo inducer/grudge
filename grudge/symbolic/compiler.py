@@ -1047,6 +1047,11 @@ class ToLoopyInstructionMapper(object):
 
         self.insn_count += 1
 
+        for expr in insn.exprs:
+            print(expr)
+            print(self.dd_inference_mapper(expr))
+        print()
+
         from pytools import single_valued
         governing_dd = single_valued(
                 self.dd_inference_mapper(expr)
