@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def main(ctx_factory, dim=1, order=4, visualize=True):
+def main(ctx_factory, dim=2, order=4, visualize=True):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
