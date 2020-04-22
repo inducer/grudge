@@ -364,6 +364,7 @@ class FunctionSymbol(ExpressionBase, pymbolic.primitives.Variable):
     mapper_method = "map_function_symbol"
 
 
+fabs = FunctionSymbol("fabs")
 sqrt = FunctionSymbol("sqrt")
 exp = FunctionSymbol("exp")
 sin = FunctionSymbol("sin")
@@ -506,7 +507,8 @@ def parametrization_derivative(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     if dim == 0:
-        return MultiVector(np.array([1.]))
+        inner_dd = (DD_VOLUME if dd is None else dd).with_qtag(QTAG_NONE)
+        return MultiVector(np.array([Ones(dd=inner_dd)]))
 
     from pytools import product
     return product(
@@ -612,9 +614,10 @@ def mv_normal(dd, ambient_dim, dim=None):
             pseudoscalar(ambient_dim, dim, dd=dd)
             /  # noqa: W504
             area_element(ambient_dim, dim, dd=dd))
+
     return cse(
             # Dorst Section 3.7.2
-            pder << pder.I.inv(),
+            pder if dim == 0 else pder << pder.I.inv(),
             "normal", cse_scope.DISCRETIZATION)
 
 

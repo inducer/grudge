@@ -41,12 +41,12 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
     # grid spacing
     h = d / npoints
     # cfl?
-    dt_factor = 4
+    dt_factor = 2.0
     # final time
     final_time = 1.0
 
     # velocity field
-    c = np.array([0.1] * dim)
+    c = np.array([0.5] * dim)
     norm_c = la.norm(c)
     # flux
     flux_type = "central"
@@ -68,6 +68,9 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
     from grudge import DGDiscretizationWithBoundaries
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
 
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    faces_discr = discr.discr_from_dd(sym.FACE_RESTR_INTERIOR)
+
     # }}}
 
     # {{{ solve advection
@@ -75,8 +78,9 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
     def f(x):
         return sym.sin(3 * x)
 
-    def u_analytic(x):
-        t = sym.var("t", sym.DD_SCALAR)
+    def u_analytic(x, t=None):
+        if t is None:
+            t = sym.var("t", sym.DD_SCALAR)
         return f(-np.dot(c, x) / norm_c + t * norm_c)
 
     from grudge.models.advection import WeakAdvectionOperator
@@ -87,8 +91,6 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
     bound_op = bind(discr, op.sym_operator())
     u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
 
-    return
-
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
@@ -98,9 +100,31 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
     if dim == 1:
         import matplotlib.pyplot as pt
         pt.figure(figsize=(8, 8), dpi=300)
+
+        volume_x = volume_discr.nodes().get(queue)
     else:
         from grudge.shortcuts import make_visualizer
         vis = make_visualizer(discr, vis_order=order)
+
+    def plot_solution(evt):
+        if not visualize:
+            return
+
+        if dim == 1:
+            u = event.state_component.get(queue)
+            u_ = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=evt.t).get(queue)
+
+            pt.plot(volume_x[0], u, 'o')
+            pt.plot(volume_x[0], u_, "k.")
+            pt.xlabel("$x$")
+            pt.ylabel("$u$")
+            pt.title("t = {:.2f}".format(evt.t))
+            pt.savefig("fld-weak-%04d.png" % step)
+            pt.clf()
+        else:
+            vis.write_vtk_file("fld-weak-%04d.vtu" % step, [
+                ("u", evt.state_component)
+                ], overwrite=True)
 
     step = 0
     norm = bind(discr, sym.norm(2, sym.var("u")))
@@ -111,21 +135,7 @@ def main(ctx_factory, dim=1, order=4, visualize=True):
         step += 1
         norm_u = norm(queue, u=event.state_component)
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
-
-        if dim == 1:
-            x = discr.discr_from_dd(sym.DTAG_VOLUME_ALL).nodes().get(queue)
-            u = event.state_component.get(queue)
-
-            pt.plot(x, u)
-            pt.xlabel("$x$")
-            pt.ylabel("$u$")
-            pt.title("t = {:.2f}".format(event.t))
-            pt.savefig("fld-weak-%04d.png" % step)
-            pt.clf()
-        else:
-            vis.write_vtk_file("fld-weak-%04d.vtu" % step, [
-                ("u", event.state_component)
-                ], overwrite=True)
+        plot_solution(event)
 
 
 if __name__ == "__main__":
