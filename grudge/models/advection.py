@@ -59,9 +59,10 @@ class AdvectionOperatorBase(HyperbolicOperator):
         elif self.flux_type == "lf":
             return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
         elif self.flux_type == "upwind":
+            from pymbolic.primitives import If, Comparison
             return (
-                    v_dot_normal * sym.If(
-                        sym.Comparison(v_dot_normal, ">", 0),
+                    v_dot_normal * If(
+                        Comparison(v_dot_normal, ">", 0),
                         u.int,  # outflow
                         u.ext,  # inflow
                         ))
@@ -155,9 +156,10 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
         elif self.flux_type == "lf":
             return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
         elif self.flux_type == "upwind":
+            from pymbolic.primitives import If, Comparison
             return (
-                    v_dot_normal * sym.If(
-                        sym.Comparison(v_dot_normal, ">", 0),
+                    v_dot_normal * If(
+                        Comparison(v_dot_normal, ">", 0),
                         u.int,  # outflow
                         u.ext,  # inflow
                         ))

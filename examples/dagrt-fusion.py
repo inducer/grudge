@@ -50,6 +50,7 @@ from pymbolic.mapper import Mapper
 from pymbolic.mapper.evaluator import EvaluationMapper \
         as PymbolicEvaluationMapper
 from pytools import memoize
+from pytools.obj_array import join_fields
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from leap.rk import LSRK4MethodBuilder
@@ -245,7 +246,6 @@ class RK4TimeStepperBase(object):
         self.component_getter = component_getter
 
     def get_initial_context(self, fields, t_start, dt):
-        from pytools.obj_array import join_fields
 
         # Flatten fields.
         flattened_fields = []
@@ -286,7 +286,6 @@ class RK4TimeStepperBase(object):
         assert len(output_states) == num_fields
         assert len(output_states) == len(output_residuals)
 
-        from pytools.obj_array import join_fields
         flattened_results = join_fields(output_t, output_dt, *output_states)
 
         self.bound_op = bind(
@@ -354,8 +353,6 @@ class RK4TimeStepper(RK4TimeStepperBase):
                     + tuple(
                         Variable(field_var_name, dd=sym.DD_VOLUME)[i]
                         for i in range(num_fields)))))
-
-        from pytools.obj_array import join_fields
         sym_rhs = join_fields(*(call[i] for i in range(num_fields)))
 
         self.queue = queue
@@ -377,7 +374,6 @@ class RK4TimeStepper(RK4TimeStepperBase):
         self.component_getter = component_getter
 
     def _bound_op(self, queue, t, *args, profile_data=None):
-        from pytools.obj_array import join_fields
         context = {
                 "t": t,
                 self.field_var_name: join_fields(*args)}
@@ -452,16 +448,15 @@ def dg_flux(c, tpair):
     dims = len(v)
 
     normal = sym.normal(tpair.dd, dims)
-
-    flux_weak = sym.join_fields(
+    flux_weak = join_fields(
             np.dot(v.avg, normal),
             u.avg * normal)
 
-    flux_weak -= (1 if c > 0 else -1)*sym.join_fields(
+    flux_weak -= (1 if c > 0 else -1)*join_fields(
             0.5*(u.int-u.ext),
             0.5*(normal * np.dot(normal, v.int-v.ext)))
 
-    flux_strong = sym.join_fields(
+    flux_strong = join_fields(
             np.dot(v.int, normal),
             u.int * normal) - flux_weak
 
@@ -507,13 +502,13 @@ def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
     rad_u = sym.cse(sym.interp("vol", BTAG_ALL)(u))
     rad_v = sym.cse(sym.interp("vol", BTAG_ALL)(v))
 
-    rad_bc = sym.cse(sym.join_fields(
+    rad_bc = sym.cse(join_fields(
             0.5*(rad_u - sign*np.dot(rad_normal, rad_v)),
             0.5*rad_normal*(np.dot(rad_normal, rad_v) - sign*rad_u)
             ), "rad_bc")
 
     sym_operator = (
-            - sym.join_fields(
+            - join_fields(
                 -c*np.dot(sym.nabla(dims), v) - source_f,
                 -c*(sym.nabla(dims)*u)
                 )
@@ -550,7 +545,6 @@ def test_stepper_equivalence(ctx_factory, order=4):
     elif dims == 3:
         dt = 0.02
 
-    from pytools.obj_array import join_fields
     ic = join_fields(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
@@ -804,7 +798,6 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     dt = 0.04
     t_end = 0.2
 
-    from pytools.obj_array import join_fields
     ic = join_fields(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
@@ -975,7 +968,6 @@ def test_stepper_timing(ctx_factory, use_fusion):
     dt = 0.04
     t_end = 0.1
 
-    from pytools.obj_array import join_fields
     ic = join_fields(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
@@ -1040,7 +1032,6 @@ def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
                 exec_mapper_factory=exec_mapper_factory)
 
     if return_ic:
-        from pytools.obj_array import join_fields
         ic = join_fields(discr.zeros(queue),
                 [discr.zeros(queue) for i in range(discr.dim)])
         return stepper, ic

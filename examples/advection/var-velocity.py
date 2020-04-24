@@ -75,8 +75,9 @@ def main(write_output=True, order=4):
                     / source_width**2)
 
     def f_step(x):
-        return sym.If(
-                sym.Comparison(
+        from pymbolic.primitives import If, Comparison
+        return If(
+                Comparison(
                     np.dot(sym_source_center_dist, sym_source_center_dist),
                     "<",
                     (4*source_width)**2),

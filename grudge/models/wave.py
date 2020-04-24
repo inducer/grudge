@@ -350,9 +350,9 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         self.ambient_dim = ambient_dim
         self.source_f = source_f
 
-        self.sign = sym.If(sym.Comparison(
-                            self.c, ">", 0),
-                                            np.int32(1), np.int32(-1))
+        from pymbolic.primitives import If, Comparison
+        self.sign = If(Comparison(self.c, ">", 0),
+                       np.int32(1), np.int32(-1))
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag

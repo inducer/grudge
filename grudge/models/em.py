@@ -437,7 +437,7 @@ def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
     if dims == 2:
         tfac = sym.ScalarVariable("t") * omega
 
-        result = sym.join_fields(
+        result = join_fields(
             0,
             0,
             sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
@@ -449,7 +449,7 @@ def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
         tdep = sym.exp(-1j * omega * sym.ScalarVariable("t"))
 
         gamma_squared = ky**2 + kx**2
-        result = sym.join_fields(
+        result = join_fields(
             -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
             -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
             E_0 * sx*sy*cz*tdep,  # ez
