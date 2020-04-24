@@ -26,3 +26,6 @@ THE SOFTWARE.
 
 from grudge.symbolic.primitives import *        # noqa: F401,F403
 from grudge.symbolic.operators import *         # noqa: F401,F403
+from grudge.symbolic.tools import pretty        # noqa: F401
+
+from pymbolic.primitives import If, Comparison  # noqa: F401

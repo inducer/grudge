@@ -320,11 +320,11 @@ texinfo_documents = [
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     'http://docs.python.org/': None,
-    'http://documen.tician.de/boxtree/': None,
     'http://docs.scipy.org/doc/numpy/': None,
-    'http://documen.tician.de/modepy/': None,
     'http://documen.tician.de/pyopencl/': None,
+    'http://documen.tician.de/modepy/': None,
     'http://documen.tician.de/pymbolic/': None,
+    'http://documen.tician.de/meshmode/': None,
     #'http://documen.tician.de/loopy/': None,
     }
 autoclass_content = "both"

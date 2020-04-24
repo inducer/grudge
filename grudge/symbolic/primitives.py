@@ -55,15 +55,16 @@ class ExpressionBase(prim.Expression):
 
 __doc__ = """
 
-.. currentmodule:: grudge.symbolic.primitives
-
 DOF description
 ^^^^^^^^^^^^^^^
 
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
+.. autoclass:: DTAG_BOUNDARY
 .. autoclass:: QTAG_NONE
+
 .. autoclass:: DOFDesc
+.. autofunction:: as_dofdesc
 
 .. data:: DD_SCALAR
 .. data:: DD_VOLUME
@@ -73,9 +74,10 @@ Symbols
 
 .. autoclass:: Variable
 .. autoclass:: ScalarVariable
-.. autoclass:: make_sym_array
-.. autoclass:: make_sym_mv
 .. autoclass:: FunctionSymbol
+
+.. autofunction:: make_sym_array
+.. autofunction:: make_sym_mv
 
 .. function :: fabs(arg)
 .. function :: sqrt(arg)
@@ -90,11 +92,11 @@ Helpers
 
 .. autoclass:: OperatorBinding
 .. autoclass:: PrioritizedSubexpression
-.. autoclass:: BoundaryPair
 .. autoclass:: Ones
 
 Geometry data
 ^^^^^^^^^^^^^
+
 .. autoclass:: NodeCoordinateComponent
 .. autofunction:: nodes
 .. autofunction:: mv_nodes
@@ -156,10 +158,14 @@ class DOFDesc(object):
             :class:`DTAG_SCALAR` (or the string ``"scalar"``),
             :class:`DTAG_VOLUME_ALL` (or the string ``"vol"``)
             for the default volume discretization,
-            :class:`FACE_RESTR_ALL` (or the string ``"all_faces"``),
-            or :class:`FACE_RESTR_INTERIOR` (or the string ``"int_faces"``),
-            or one of :class:`BTAG_ALL`, :class:`BTAG_NONE`,
-            :class:`BTAG_REALLY_ALL`, :class:`BTAG_PARTITION`,
+            :class:`~meshmode.discretization.connection.FACE_RESTR_ALL`
+            (or the string ``"all_faces"``), or
+            :class:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
+            (or the string ``"int_faces"``), or one of
+            :class:`~meshmode.mesh.BTAG_ALL`,
+            :class:`~meshmode.mesh.BTAG_NONE`,
+            :class:`~meshmode.mesh.BTAG_REALLY_ALL`,
+            :class:`~meshmode.mesh.BTAG_PARTITION`,
             or *None* to indicate that the geometry is not yet known.
 
         :arg quadrature_tag:
@@ -586,7 +592,7 @@ def area_element(ambient_dim, dim=None, dd=None):
 
 
 def mv_normal(dd, ambient_dim, dim=None):
-    """Exterior unit normal as a MultiVector."""
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
 
     dd = as_dofdesc(dd)
 

@@ -1,5 +1,3 @@
-"""Building blocks and mappers for operator expression trees."""
-
 from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
@@ -28,6 +26,62 @@ from six.moves import intern
 
 import numpy as np
 import pymbolic.primitives
+
+__doc__ = """
+
+Building blocks and mappers for operator expression trees.
+
+Basic Operators
+^^^^^^^^^^^^^^^
+
+.. autoclass:: Operator
+.. autoclass:: ElementwiseLinearOperator
+.. autoclass:: InterpolationOperator
+
+.. data:: interp
+
+Reductions
+^^^^^^^^^^
+
+.. autoclass:: ElementwiseMaxOperator
+
+.. autoclass:: NodalReductionOperator
+.. autoclass:: NodalSum
+.. autoclass:: NodalMax
+.. autoclass:: NodalMin
+
+Differentiation
+^^^^^^^^^^^^^^^
+
+.. autoclass:: StrongFormDiffOperatorBase
+.. autoclass:: WeakFormDiffOperatorBase
+.. autoclass:: StiffnessOperator
+.. autoclass:: DiffOperator
+.. autoclass:: StiffnessTOperator
+.. autoclass:: MInvSTOperator
+
+.. autoclass:: RefDiffOperator
+.. autoclass:: RefStiffnessTOperator
+
+.. autofunction:: nabla
+.. autofunction:: minv_stiffness_t
+.. autofunction:: stiffness
+.. autofunction:: stiffness_t
+
+Mass Operators
+^^^^^^^^^^^^^^
+
+.. autoclass:: MassOperatorBase
+
+.. autoclass:: MassOperator
+.. autoclass:: InverseMassOperator
+.. autoclass:: FaceMassOperator
+
+.. autoclass:: RefMassOperator
+.. autoclass:: RefInverseMassOperator
+.. autoclass:: RefFaceMassOperator
+
+"""
 
 
 # {{{ base classes
