@@ -158,9 +158,9 @@ class DOFDesc(object):
             :class:`DTAG_SCALAR` (or the string ``"scalar"``),
             :class:`DTAG_VOLUME_ALL` (or the string ``"vol"``)
             for the default volume discretization,
-            :class:`~meshmode.discretization.connection.FACE_RESTR_ALL`
+            :data:`~meshmode.discretization.connection.FACE_RESTR_ALL`
             (or the string ``"all_faces"``), or
-            :class:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
+            :data:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
             (or the string ``"int_faces"``), or one of
             :class:`~meshmode.mesh.BTAG_ALL`,
             :class:`~meshmode.mesh.BTAG_NONE`,
@@ -465,7 +465,7 @@ def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
 
     .. math::
 
-        \frac{d x_{\mathtt{xyz\_axis}} }{d r_{\mathtt{rst\_axis}} }
+        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}} }
     """
     if dd is None:
         dd = DD_VOLUME
