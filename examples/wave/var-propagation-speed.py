@@ -51,10 +51,9 @@ def main(write_output=True, order=4):
     sym_x = sym.nodes(mesh.dim)
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
-
-    from pymbolic.primitives import If, Comparison
-    c = If(Comparison(np.dot(sym_x, sym_x), "<", 0.15),
-            np.float32(-0.1), np.float32(-0.2))
+    c = sym.If(sym.Comparison(
+                np.dot(sym_x, sym_x), "<", 0.15),
+                np.float32(-0.1), np.float32(-0.2))
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
