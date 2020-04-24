@@ -183,6 +183,7 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
         return expr.dd
 
     map_node_coordinate_component = map_ones
+    map_signed_face_ones = map_ones
 
     def map_call(self, expr):
         arg_dds = [

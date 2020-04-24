@@ -67,9 +67,7 @@ def main(ctx_factory, dim=2, order=4, visualize=True):
 
     from grudge import DGDiscretizationWithBoundaries
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
-
     volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-    faces_discr = discr.discr_from_dd(sym.FACE_RESTR_INTERIOR)
 
     # }}}
 

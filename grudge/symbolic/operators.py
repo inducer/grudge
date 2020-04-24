@@ -536,13 +536,6 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     volgrp.order,
                     face_vertices)
 
-        if afgrp.dim == 0 and volgrp.dim == 1:
-            # NOTE: This complements a choice in `parametrization_derivative`
-            # where we don't really get a sign for the 0-dim case, so we add
-            # signs here in the hope that it'll only be used for fluxes where
-            # this makes sense
-            matrix[0, 0, 0] = -matrix[0, 0, 0]
-
         # np.set_printoptions(linewidth=200, precision=3)
         # matrix[np.abs(matrix) < 1e-13] = 0
         # print(matrix)

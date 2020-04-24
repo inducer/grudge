@@ -426,6 +426,20 @@ class Ones(HasDOFDesc, ExpressionBase):
     mapper_method = intern("map_ones")
 
 
+class _SignedFaceOnes(HasDOFDesc, ExpressionBase):
+    """Sets the face to :math:`-1` if its odd and :math:`+1` if its even.
+    This is based on the face order of
+    :meth:`meshmode.mesh.MeshElementGroup.face_vertex_indices`.
+    """
+
+    def __init__(self, dd):
+        dd = as_dofdesc(dd)
+        assert dd.is_trace()
+        super(_SignedFaceOnes, self).__init__(dd)
+
+    mapper_method = intern("map_signed_face_ones")
+
+
 # {{{ geometry data
 
 class DiscretizationProperty(HasDOFDesc, ExpressionBase):
@@ -507,8 +521,7 @@ def parametrization_derivative(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     if dim == 0:
-        inner_dd = (DD_VOLUME if dd is None else dd).with_qtag(QTAG_NONE)
-        return MultiVector(np.array([Ones(dd=inner_dd)]))
+        return MultiVector(np.array([_SignedFaceOnes(dd)]))
 
     from pytools import product
     return product(
@@ -607,18 +620,29 @@ def mv_normal(dd, ambient_dim, dim=None):
     if dim is None:
         dim = ambient_dim - 1
 
-    # Don't be tempted to add a sign here. As it is, it produces
+    # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
 
-    pder = (
-            pseudoscalar(ambient_dim, dim, dd=dd)
-            /  # noqa: W504
-            area_element(ambient_dim, dim, dd=dd))
+    pder = pseudoscalar(ambient_dim, dim, dd=dd) \
+            / area_element(ambient_dim, dim, dd=dd)
 
-    return cse(
-            # Dorst Section 3.7.2
-            pder if dim == 0 else pder << pder.I.inv(),
-            "normal", cse_scope.DISCRETIZATION)
+    # Dorst Section 3.7.2
+    mv = pder << pder.I.inv()
+
+    if dim == 0:
+        # NOTE: when the mesh is 0D, we do not have a clear notion of
+        # `exterior normal`, so we just take the tangent of the 1D element,
+        # interpolate it to the element faces and make it signed
+        tangent = parametrization_derivative(
+                ambient_dim, dim=1, dd=DD_VOLUME)
+        tangent = tangent / sqrt(tangent.norm_squared())
+
+        interp = _sym().interp(DD_VOLUME, dd)
+        mv = MultiVector(np.array([
+            mv.as_scalar() * interp(t) for t in tangent.as_vector()
+            ]))
+
+    return cse(mv, "normal", cse_scope.DISCRETIZATION)
 
 
 def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
