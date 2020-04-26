@@ -641,7 +641,8 @@ def mv_normal(dd, ambient_dim, dim=None):
                 ambient_dim, dim=1, dd=DD_VOLUME)
         tangent = tangent / sqrt(tangent.norm_squared())
 
-        interp = _sym().interp(DD_VOLUME, dd)
+        from grudge.symbolic.operators import interp
+        interp = interp(DD_VOLUME, dd)
         mv = MultiVector(np.array([
             mv.as_scalar() * interp(t) for t in tangent.as_vector()
             ]))
