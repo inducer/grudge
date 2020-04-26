@@ -283,6 +283,21 @@ class ExecutionMapper(mappers.Evaluator,
 
     # }}}
 
+    def map_signed_face_ones(self, expr):
+        face_discr = self.discrwb.discr_from_dd(expr.dd)
+        assert face_discr.dim == 0
+
+        all_faces_conn = self.discrwb.connection_from_dds("vol", expr.dd)
+        field = face_discr.empty(self.queue, allocator=self.bound_op.allocator)
+        field.fill(1)
+
+        for grp in all_faces_conn.groups:
+            for batch in grp.batches:
+                i = batch.to_element_indices.with_queue(self.queue)
+                field[i] = (2.0 * (batch.to_element_face % 2) - 1.0) * field[i]
+
+        return field
+
     # }}}
 
     # {{{ instruction execution functions

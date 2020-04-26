@@ -160,7 +160,7 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
             "<dt>": sym.var("input_dt", sym.DD_SCALAR),
             f"<state>{field_var_name}": sym.make_sym_array(
                 f"input_{field_var_name}", field_components),
-            f"<p>residual": sym.make_sym_array(
+            "<p>residual": sym.make_sym_array(
                 "input_residual", field_components),
     }
 

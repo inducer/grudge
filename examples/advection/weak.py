@@ -13,106 +13,135 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import numpy as np
-import pyopencl as cl  # noqa
-import pyopencl.array  # noqa
-import pyopencl.clmath  # noqa
-
-import pytest  # noqa
-
-from pyopencl.tools import (  # noqa
-                pytest_generate_tests_for_pyopencl as pytest_generate_tests)
-
-import logging
-logger = logging.getLogger(__name__)
-
-from grudge import sym, bind, DGDiscretizationWithBoundaries
-
 import numpy.linalg as la
 
+import pyopencl as cl
+import pyopencl.array
+import pyopencl.clmath
+
+from grudge import bind, sym
+
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
-
-def main(write_output=True, order=4):
-    cl_ctx = cl.create_some_context()
+def main(ctx_factory, dim=2, order=4, visualize=True):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
-    dim = 2
+    # {{{ parameters
 
+    # domain side [-d/2, d/2]^dim
+    d = 1.0
+    # number of points in each dimension
+    npoints = 20
+    # grid spacing
+    h = d / npoints
+    # cfl?
+    dt_factor = 2.0
+    # final time
+    final_time = 1.0
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(20, 20), order=order)
-
-    dt_factor = 4
-    h = 1/20
-
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
-
-    c = np.array([0.1,0.1])
+    # velocity field
+    c = np.array([0.5] * dim)
     norm_c = la.norm(c)
-
-
+    # flux
     flux_type = "central"
-         
+
+    # compute number of steps
+    dt = dt_factor * h / order**2
+    nsteps = int(final_time // dt) + 1
+    dt = final_time/nsteps + 1.0e-15
+
+    # }}}
+
+    # {{{ discretization
+
+    from meshmode.mesh.generation import generate_box_mesh
+    mesh = generate_box_mesh(
+            [np.linspace(-d/2, d/2, npoints) for _ in range(dim)],
+            order=order)
+
+    from grudge import DGDiscretizationWithBoundaries
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+    # }}}
+
+    # {{{ solve advection
 
     def f(x):
-        return sym.sin(3*x)
+        return sym.sin(3 * x)
 
-    def u_analytic(x):
-        return f(-np.dot(c, x)/norm_c+sym.var("t", sym.DD_SCALAR)*norm_c)
+    def u_analytic(x, t=None):
+        if t is None:
+            t = sym.var("t", sym.DD_SCALAR)
+        return f(-np.dot(c, x) / norm_c + t * norm_c)
 
     from grudge.models.advection import WeakAdvectionOperator
-    from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
     op = WeakAdvectionOperator(c,
         inflow_u=u_analytic(sym.nodes(dim, sym.BTAG_ALL)),
         flux_type=flux_type)
 
     bound_op = bind(discr, op.sym_operator())
-
     u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
 
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
-    final_time = 0.3
-
-    dt = dt_factor * h/order**2
-    nsteps = (final_time // dt) + 1
-    dt = final_time/nsteps + 1e-15
-
-
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
 
-    last_u = None
+    if dim == 1:
+        import matplotlib.pyplot as pt
+        pt.figure(figsize=(8, 8), dpi=300)
 
-    from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+        volume_x = volume_discr.nodes().get(queue)
+    else:
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(discr, vis_order=order)
+
+    def plot_solution(evt):
+        if not visualize:
+            return
+
+        if dim == 1:
+            u = event.state_component.get(queue)
+            u_ = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=evt.t).get(queue)
+
+            pt.plot(volume_x[0], u, 'o')
+            pt.plot(volume_x[0], u_, "k.")
+            pt.xlabel("$x$")
+            pt.ylabel("$u$")
+            pt.title("t = {:.2f}".format(evt.t))
+            pt.savefig("fld-weak-%04d.png" % step)
+            pt.clf()
+        else:
+            vis.write_vtk_file("fld-weak-%04d.vtu" % step, [
+                ("u", evt.state_component)
+                ], overwrite=True)
 
     step = 0
-
     norm = bind(discr, sym.norm(2, sym.var("u")))
-
     for event in dt_stepper.run(t_end=final_time):
-        if isinstance(event, dt_stepper.StateComputed):
+        if not isinstance(event, dt_stepper.StateComputed):
+            continue
 
-            step += 1
-
-            #print(step, event.t, norm(queue, u=event.state_component[0]))
-            vis.write_vtk_file("fld-weak-%04d.vtu" % step,
-                    [  ("u", event.state_component) ])
-
-
-
-
-
+        step += 1
+        norm_u = norm(queue, u=event.state_component)
+        logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+        plot_solution(event)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    args = parser.parse_args()
 
+    main(cl.create_some_context,
+            dim=args.dim)

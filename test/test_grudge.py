@@ -207,18 +207,18 @@ def test_2d_gauss_theorem(ctx_factory):
 
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
+    ("segment", [8, 16, 32]),
     ("disk", [0.1, 0.05]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
-@pytest.mark.parametrize("flux_type", ["upwind"])
+@pytest.mark.parametrize("flux_type", ["central"])
 @pytest.mark.parametrize("order", [3, 4, 5])
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
 def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
     """Test whether 2D advection actually converges"""
-
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -226,7 +226,16 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
     eoc_rec = EOCRecorder()
 
     for mesh_par in mesh_pars:
-        if mesh_name == "disk":
+        if mesh_name == "segment":
+            from meshmode.mesh.generation import generate_box_mesh
+            mesh = generate_box_mesh(
+                [np.linspace(-1.0, 1.0, mesh_par)],
+                order=order)
+
+            h = 2.0 / mesh_par
+            dim = 1
+            dt_factor = 1.0
+        elif mesh_name == "disk":
             pytest.importorskip("meshpy")
 
             from meshpy.geometry import make_circle, GeometryBuilder
@@ -244,7 +253,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
             h = np.sqrt(mesh_par)
             dim = 2
             dt_factor = 4
-
         elif mesh_name.startswith("rect"):
             dim = int(mesh_name[4:])
             from meshmode.mesh.generation import generate_regular_rect_mesh
