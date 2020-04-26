@@ -427,9 +427,17 @@ class Ones(HasDOFDesc, ExpressionBase):
 
 
 class _SignedFaceOnes(HasDOFDesc, ExpressionBase):
-    """Sets the face to :math:`-1` if its odd and :math:`+1` if its even.
+    """Produces DoFs on a face that are :math:`-1` if their corresponding
+    face number is odd and :math:`+1` if it is even.
+    *dd* must refer to a 0D (point-shaped) trace domain.
     This is based on the face order of
     :meth:`meshmode.mesh.MeshElementGroup.face_vertex_indices`.
+
+   .. note::
+
+       This is used as a hack to generate normals with the correct orientation
+       in 1D problems, and so far only intended for this particular use cases.
+       (If you can think of a better way, please speak up!)
     """
 
     def __init__(self, dd):
