@@ -27,45 +27,45 @@ THE SOFTWARE.
 from six.moves import range, intern
 
 import numpy as np
-import pymbolic.primitives
-from meshmode.mesh import BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.discretization.connection import (  # noqa
-        FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
+from pytools.obj_array import make_obj_array
 
-from pymbolic.primitives import (  # noqa
+from meshmode.mesh import (
+        BTAG_ALL,
+        BTAG_REALLY_ALL,
+        BTAG_NONE,
+        BTAG_PARTITION)
+from meshmode.discretization.connection import (
+        FACE_RESTR_ALL,
+        FACE_RESTR_INTERIOR)
+
+import pymbolic.primitives as prim
+from pymbolic.primitives import (
+        Variable as VariableBase,
+        CommonSubexpression as CommonSubexpressionBase,
         cse_scope as cse_scope_base,
-        make_common_subexpression as cse, If, Comparison)
+        make_common_subexpression as cse)
 from pymbolic.geometric_algebra import MultiVector
-from pytools.obj_array import join_fields, make_obj_array  # noqa
 
 
-class ExpressionBase(pymbolic.primitives.Expression):
+class ExpressionBase(prim.Expression):
     def make_stringifier(self, originating_stringifier=None):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper()
 
 
-def _sym():
-    # A hack to make referring to grudge.sym possible without
-    # circular imports and tons of typing.
-
-    from grudge import sym
-    return sym
-
-
 __doc__ = """
-
-.. currentmodule:: grudge.sym
-
-.. autoclass:: If
 
 DOF description
 ^^^^^^^^^^^^^^^
 
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
+.. autoclass:: DTAG_BOUNDARY
 .. autoclass:: QTAG_NONE
+
 .. autoclass:: DOFDesc
+.. autofunction:: as_dofdesc
+
 .. data:: DD_SCALAR
 .. data:: DD_VOLUME
 
@@ -74,10 +74,12 @@ Symbols
 
 .. autoclass:: Variable
 .. autoclass:: ScalarVariable
-.. autoclass:: make_sym_array
-.. autoclass:: make_sym_mv
 .. autoclass:: FunctionSymbol
 
+.. autofunction:: make_sym_array
+.. autofunction:: make_sym_mv
+
+.. function :: fabs(arg)
 .. function :: sqrt(arg)
 .. function :: exp(arg)
 .. function :: sin(arg)
@@ -90,11 +92,11 @@ Helpers
 
 .. autoclass:: OperatorBinding
 .. autoclass:: PrioritizedSubexpression
-.. autoclass:: BoundaryPair
 .. autoclass:: Ones
 
 Geometry data
 ^^^^^^^^^^^^^
+
 .. autoclass:: NodeCoordinateComponent
 .. autofunction:: nodes
 .. autofunction:: mv_nodes
@@ -111,20 +113,20 @@ Geometry data
 
 # {{{ DOF description
 
-class DTAG_SCALAR:  # noqa
+class DTAG_SCALAR:          # noqa: N801
     pass
 
 
-class DTAG_VOLUME_ALL:  # noqa
+class DTAG_VOLUME_ALL:      # noqa: N801
     pass
 
 
-class DTAG_BOUNDARY:  # noqa
+class DTAG_BOUNDARY:        # noqa: N801
     def __init__(self, tag):
         self.tag = tag
 
 
-class QTAG_NONE:  # noqa
+class QTAG_NONE:            # noqa: N801
     pass
 
 
@@ -133,14 +135,18 @@ class DOFDesc(object):
 
     .. attribute:: domain_tag
     .. attribute:: quadrature_tag
+
     .. automethod:: is_scalar
     .. automethod:: is_discretized
     .. automethod:: is_volume
     .. automethod:: is_boundary
     .. automethod:: is_trace
+
     .. automethod:: uses_quadrature
+
     .. automethod:: with_qtag
     .. automethod:: with_dtag
+
     .. automethod:: __eq__
     .. automethod:: __ne__
     .. automethod:: __hash__
@@ -149,46 +155,36 @@ class DOFDesc(object):
     def __init__(self, domain_tag, quadrature_tag=None):
         """
         :arg domain_tag: One of the following:
-            :class:`grudge.sym.DTAG_SCALAR` (or the string ``"scalar"``),
-            :class:`grudge.sym.DTAG_VOLUME_ALL` (or the string ``"vol"``)
+            :class:`DTAG_SCALAR` (or the string ``"scalar"``),
+            :class:`DTAG_VOLUME_ALL` (or the string ``"vol"``)
             for the default volume discretization,
-            :class:`meshmode.discretization.connection.FACE_RESTR_ALL`
-            (or the string ``"all_faces"``),
-            or
-            :class:`meshmode.discretization.connection.FACE_RESTR_INTERIOR`
-            (or the string ``"int_faces"``),
-            or one of
-            :class:`meshmode.discretization.BTAG_ALL`,
-            :class:`meshmode.discretization.BTAG_NONE`,
-            :class:`meshmode.discretization.BTAG_REALLY_ALL`,
-            :class:`meshmode.discretization.PARTITION`,
-            or :class
+            :data:`~meshmode.discretization.connection.FACE_RESTR_ALL`
+            (or the string ``"all_faces"``), or
+            :data:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
+            (or the string ``"int_faces"``), or one of
+            :class:`~meshmode.mesh.BTAG_ALL`,
+            :class:`~meshmode.mesh.BTAG_NONE`,
+            :class:`~meshmode.mesh.BTAG_REALLY_ALL`,
+            :class:`~meshmode.mesh.BTAG_PARTITION`,
             or *None* to indicate that the geometry is not yet known.
 
         :arg quadrature_tag:
-            *None* to indicate that the quadrature grid is not known,or
+            *None* to indicate that the quadrature grid is not known, or
             :class:`QTAG_NONE` to indicate the use of the basic discretization
             grid, or a string to indicate the use of the thus-tagged quadratue
             grid.
         """
-        if domain_tag == "scalar":
+
+        if domain_tag is None:
+            pass
+        elif domain_tag in [DTAG_SCALAR, "scalar"]:
             domain_tag = DTAG_SCALAR
-        elif domain_tag is DTAG_SCALAR:
-            domain_tag = DTAG_SCALAR
-        elif domain_tag == "vol":
+        elif domain_tag in [DTAG_VOLUME_ALL, "vol"]:
             domain_tag = DTAG_VOLUME_ALL
-        elif domain_tag is DTAG_VOLUME_ALL:
-            pass
-        elif domain_tag == "all_faces":
+        elif domain_tag in [FACE_RESTR_ALL, "all_faces"]:
             domain_tag = FACE_RESTR_ALL
-        elif domain_tag is FACE_RESTR_ALL:
-            pass
-        elif domain_tag == "int_faces":
+        elif domain_tag in [FACE_RESTR_INTERIOR, "int_faces"]:
             domain_tag = FACE_RESTR_INTERIOR
-        elif domain_tag is FACE_RESTR_INTERIOR:
-            pass
-        elif domain_tag is None:
-            pass
         elif isinstance(domain_tag, BTAG_PARTITION):
             pass
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
@@ -273,8 +269,7 @@ DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
 def as_dofdesc(dd):
     if isinstance(dd, DOFDesc):
         return dd
-    else:
-        return DOFDesc(dd, None)
+    return DOFDesc(dd, quadrature_tag=None)
 
 # }}}
 
@@ -314,11 +309,11 @@ class HasDOFDesc(object):
 
 # {{{ variables
 
-class cse_scope(cse_scope_base):  # noqa
+class cse_scope(cse_scope_base):        # noqa: N801
     DISCRETIZATION = "grudge_discretization"
 
 
-class Variable(HasDOFDesc, ExpressionBase, pymbolic.primitives.Variable):
+class Variable(HasDOFDesc, ExpressionBase, VariableBase):
     """A user-supplied input variable with a known :class:`DOFDesc`.
     """
     init_arg_names = ("name", "dd")
@@ -347,7 +342,7 @@ def make_sym_array(name, shape, dd=None):
     def var_factory(name):
         return Variable(name, dd)
 
-    return pymbolic.primitives.make_sym_array(name, shape, var_factory)
+    return prim.make_sym_array(name, shape, var_factory)
 
 
 def make_sym_mv(name, dim, var_factory=None):
@@ -355,15 +350,15 @@ def make_sym_mv(name, dim, var_factory=None):
             make_sym_array(name, dim, var_factory))
 
 
-class FunctionSymbol(ExpressionBase, pymbolic.primitives.Variable):
+class FunctionSymbol(ExpressionBase, VariableBase):
     """A symbol to be used as the function argument of
-    :class:`pymbolic.primitives.Call`.
-
+    :class:`~pymbolic.primitives.Call`.
     """
 
     mapper_method = "map_function_symbol"
 
 
+fabs = FunctionSymbol("fabs")
 sqrt = FunctionSymbol("sqrt")
 exp = FunctionSymbol("exp")
 sin = FunctionSymbol("sin")
@@ -399,7 +394,7 @@ class OperatorBinding(ExpressionBase):
         return hash((self.__class__, self.op, obj_array_to_hashable(self.field)))
 
 
-class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
+class PrioritizedSubexpression(CommonSubexpressionBase):
     """When the optemplate-to-code transformation is performed,
     prioritized subexpressions  work like common subexpression in
     that they are assigned their own separate identifier/register
@@ -409,7 +404,7 @@ class PrioritizedSubexpression(pymbolic.primitives.CommonSubexpression):
     """
 
     def __init__(self, child, priority=0):
-        pymbolic.primitives.CommonSubexpression.__init__(self, child)
+        super(PrioritizedSubexpression, self).__init__(child)
         self.priority = priority
 
     def __getinitargs__(self):
@@ -470,19 +465,21 @@ def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
 
     .. math::
 
-        \frac{d x_{\mathtt{xyz\_axis}} }{d r_{\mathtt{rst\_axis}} }
+        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}} }
     """
     if dd is None:
         dd = DD_VOLUME
 
     inner_dd = dd.with_qtag(QTAG_NONE)
 
-    diff_op = _sym().RefDiffOperator(rst_axis, inner_dd)
+    from grudge.symbolic.operators import RefDiffOperator
+    diff_op = RefDiffOperator(rst_axis, inner_dd)
 
     result = diff_op(NodeCoordinateComponent(xyz_axis, inner_dd))
 
     if dd.uses_quadrature():
-        result = _sym().interp(inner_dd, dd)(result)
+        from grudge.symbolic.operators import interp
+        result = interp(inner_dd, dd)(result)
 
     return cse(
             result,
@@ -595,7 +592,7 @@ def area_element(ambient_dim, dim=None, dd=None):
 
 
 def mv_normal(dd, ambient_dim, dim=None):
-    """Exterior unit normal as a MultiVector."""
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
 
     dd = as_dofdesc(dd)
 
@@ -676,13 +673,15 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None):
-    i = _sym().interp("vol", "int_faces")(expression)
-    e = cse(_sym().OppositeInteriorFaceSwap()(i))
+    from grudge.symbolic.operators import interp, OppositeInteriorFaceSwap
 
-    if qtag is not None and qtag != _sym().QTAG_NONE:
-        q_dd = _sym().DOFDesc("int_faces", qtag)
-        i = cse(_sym().interp("int_faces", q_dd)(i))
-        e = cse(_sym().interp("int_faces", q_dd)(e))
+    i = interp("vol", "int_faces")(expression)
+    e = cse(OppositeInteriorFaceSwap()(i))
+
+    if qtag is not None and qtag != QTAG_NONE:
+        q_dd = DOFDesc("int_faces", qtag)
+        i = cse(interp("int_faces", q_dd)(i))
+        e = cse(interp("int_faces", q_dd)(e))
     else:
         q_dd = "int_faces"
 
@@ -710,7 +709,8 @@ def bv_tpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    interior = _sym().cse(_sym().interp("vol", dd)(interior))
+    from grudge.symbolic.operators import interp
+    interior = cse(interp("vol", dd)(interior))
     return TracePair(dd, interior, exterior)
 
 # }}}

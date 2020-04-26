@@ -1,5 +1,3 @@
-"""Building blocks and mappers for operator expression trees."""
-
 from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
@@ -27,16 +25,63 @@ THE SOFTWARE.
 from six.moves import intern
 
 import numpy as np
-import numpy.linalg as la  # noqa
 import pymbolic.primitives
 
+__doc__ = """
 
-def _sym():
-    # A hack to make referring to grudge.sym possible without
-    # circular imports and tons of typing.
+Building blocks and mappers for operator expression trees.
 
-    from grudge import sym
-    return sym
+Basic Operators
+^^^^^^^^^^^^^^^
+
+.. autoclass:: Operator
+.. autoclass:: ElementwiseLinearOperator
+.. autoclass:: InterpolationOperator
+
+.. data:: interp
+
+Reductions
+^^^^^^^^^^
+
+.. autoclass:: ElementwiseMaxOperator
+
+.. autoclass:: NodalReductionOperator
+.. autoclass:: NodalSum
+.. autoclass:: NodalMax
+.. autoclass:: NodalMin
+
+Differentiation
+^^^^^^^^^^^^^^^
+
+.. autoclass:: StrongFormDiffOperatorBase
+.. autoclass:: WeakFormDiffOperatorBase
+.. autoclass:: StiffnessOperator
+.. autoclass:: DiffOperator
+.. autoclass:: StiffnessTOperator
+.. autoclass:: MInvSTOperator
+
+.. autoclass:: RefDiffOperator
+.. autoclass:: RefStiffnessTOperator
+
+.. autofunction:: nabla
+.. autofunction:: minv_stiffness_t
+.. autofunction:: stiffness
+.. autofunction:: stiffness_t
+
+Mass Operators
+^^^^^^^^^^^^^^
+
+.. autoclass:: MassOperatorBase
+
+.. autoclass:: MassOperator
+.. autoclass:: InverseMassOperator
+.. autoclass:: FaceMassOperator
+
+.. autoclass:: RefMassOperator
+.. autoclass:: RefInverseMassOperator
+.. autoclass:: RefFaceMassOperator
+
+"""
 
 
 # {{{ base classes
@@ -45,18 +90,19 @@ class Operator(pymbolic.primitives.Expression):
     """
     .. attribute:: dd_in
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
         input discretization.
 
     .. attribute:: dd_out
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
         output discretization.
     """
 
     def __init__(self, dd_in, dd_out):
-        self.dd_in = _sym().as_dofdesc(dd_in)
-        self.dd_out = _sym().as_dofdesc(dd_out)
+        import grudge.symbolic.primitives as prim
+        self.dd_in = prim.as_dofdesc(dd_in)
+        self.dd_out = prim.as_dofdesc(dd_out)
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -100,8 +146,10 @@ class ElementwiseLinearOperator(Operator):
 
 class InterpolationOperator(Operator):
     def __init__(self, dd_in, dd_out):
-        official_dd_in = _sym().as_dofdesc(dd_in)
-        official_dd_out = _sym().as_dofdesc(dd_out)
+        import grudge.symbolic.primitives as prim
+        official_dd_in = prim.as_dofdesc(dd_in)
+        official_dd_out = prim.as_dofdesc(dd_out)
+
         if official_dd_in == official_dd_out:
             raise ValueError("Interpolating from {} to {}"
             " does not do anything.".format(official_dd_in, official_dd_out))
@@ -123,7 +171,8 @@ class ElementwiseMaxOperator(Operator):
 class NodalReductionOperator(Operator):
     def __init__(self, dd_in, dd_out=None):
         if dd_out is None:
-            dd_out = _sym().DD_SCALAR
+            import grudge.symbolic.primitives as prim
+            dd_out = prim.DD_SCALAR
 
         assert dd_out.is_scalar()
 
@@ -150,13 +199,14 @@ class NodalMin(NodalReductionOperator):
 
 class DiffOperatorBase(Operator):
     def __init__(self, xyz_axis, dd_in=None, dd_out=None):
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = _sym().DD_VOLUME
+            dd_in = prim.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
         else:
-            dd_out = _sym().as_dofdesc(dd_out)
+            dd_out = prim.as_dofdesc(dd_out)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -207,10 +257,13 @@ class MInvSTOperator(WeakFormDiffOperatorBase):
 
 class RefDiffOperatorBase(ElementwiseLinearOperator):
     def __init__(self, rst_axis, dd_in=None, dd_out=None):
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = _sym().DD_VOLUME
+            dd_in = prim.DD_VOLUME
+
         if dd_out is None:
-            dd_out = dd_in.with_qtag(_sym().QTAG_NONE)
+            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
+
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
@@ -275,8 +328,10 @@ class FilterOperator(ElementwiseLinearOperator):
           (For example an instance of
           :class:`ExponentialFilterResponseFunction`.
         """
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = _sym().DD_VOLUME
+            dd_in = prim.DD_VOLUME
+
         if dd_out is None:
             dd_out = dd_in
 
@@ -314,8 +369,10 @@ class FilterOperator(ElementwiseLinearOperator):
 
 class AveragingOperator(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = _sym().DD_VOLUME
+            dd_in = prim.DD_VOLUME
+
         if dd_out is None:
             dd_out = dd_in
 
@@ -362,8 +419,9 @@ class MassOperatorBase(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None):
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = _sym().DD_VOLUME
+            dd_in = prim.DD_VOLUME
         if dd_out is None:
             dd_out = dd_in
 
@@ -429,15 +487,14 @@ class OppositeInteriorFaceSwap(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
-        sym = _sym()
-
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = sym.DOFDesc(sym.FACE_RESTR_INTERIOR, None)
+            dd_in = prim.DOFDesc(prim.FACE_RESTR_INTERIOR, None)
         if dd_out is None:
             dd_out = dd_in
 
         super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
-        if self.dd_in.domain_tag is not sym.FACE_RESTR_INTERIOR:
+        if self.dd_in.domain_tag is not prim.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -462,7 +519,7 @@ class OppositePartitionFaceSwap(Operator):
         MPI tag offset to keep different subexpressions apart in MPI traffic.
     """
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
-        sym = _sym()
+        import grudge.symbolic.primitives as prim
 
         if dd_in is None and dd_out is None:
             raise ValueError("dd_in or dd_out must be specified")
@@ -472,7 +529,7 @@ class OppositePartitionFaceSwap(Operator):
             dd_out = dd_in
 
         super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
-        if not isinstance(self.dd_in.domain_tag, sym.BTAG_PARTITION):
+        if not isinstance(self.dd_in.domain_tag, prim.BTAG_PARTITION):
             raise ValueError("dd_in must be a partition boundary faces domain")
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -492,20 +549,20 @@ class OppositePartitionFaceSwap(Operator):
 
 class FaceMassOperatorBase(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
-        sym = _sym()
-
+        import grudge.symbolic.primitives as prim
         if dd_in is None:
-            dd_in = sym.DOFDesc(sym.FACE_RESTR_ALL, None)
+            dd_in = prim.DOFDesc(prim.FACE_RESTR_ALL, None)
 
         if dd_out is None or dd_out == "vol":
-            dd_out = sym.DOFDesc("vol", sym.QTAG_NONE)
+            dd_out = prim.DOFDesc("vol", prim.QTAG_NONE)
+
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
                     "quadrature grids")
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
-        if dd_in.domain_tag is not sym.FACE_RESTR_ALL:
+        if dd_in.domain_tag is not prim.FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
         super(FaceMassOperatorBase, self).__init__(dd_in, dd_out)
@@ -575,43 +632,40 @@ def stiffness_t(dim, dd_in=None, dd_out=None):
 
 
 def integral(arg, dd=None):
-    sym = _sym()
+    import grudge.symbolic.primitives as prim
 
     if dd is None:
-        dd = sym.DD_VOLUME
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
 
-    dd = sym.as_dofdesc(dd)
-
-    return sym.NodalSum(dd)(
-            arg * sym.cse(
-                sym.MassOperator(dd_in=dd)(sym.Ones(dd)),
+    return NodalSum(dd)(
+            arg * prim.cse(
+                MassOperator(dd_in=dd)(prim.Ones(dd)),
                 "mass_quad_weights",
-                sym.cse_scope.DISCRETIZATION))
+                prim.cse_scope.DISCRETIZATION))
 
 
 def norm(p, arg, dd=None):
     """
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
-    sym = _sym()
+    import grudge.symbolic.primitives as prim
 
     if dd is None:
-        dd = sym.DD_VOLUME
-
-    dd = sym.as_dofdesc(dd)
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
 
     if p == 2:
-        norm_squared = sym.NodalSum(dd_in=dd)(
-                sym.FunctionSymbol("fabs")(
-                    arg * sym.MassOperator()(arg)))
+        norm_squared = NodalSum(dd_in=dd)(
+                prim.fabs(arg * MassOperator()(arg)))
 
         if isinstance(norm_squared, np.ndarray):
             norm_squared = norm_squared.sum()
 
-        return sym.FunctionSymbol("sqrt")(norm_squared)
+        return prim.sqrt(norm_squared)
 
     elif p == np.Inf:
-        result = sym.NodalMax(dd_in=dd)(sym.FunctionSymbol("fabs")(arg))
+        result = NodalMax(dd_in=dd)(prim.fabs(arg))
         from pymbolic.primitives import Max
 
         if isinstance(result, np.ndarray):
