@@ -22,6 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import grudge.sym  # noqa
-from grudge.execution import bind  # noqa
-from grudge.discretization import DGDiscretizationWithBoundaries  # noqa
+import grudge.symbolic as sym
+from grudge.execution import bind
+
+from grudge.discretization import DGDiscretizationWithBoundaries
+
+__all__ = [
+    "sym", "bind", "DGDiscretizationWithBoundaries"
+]

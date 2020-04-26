@@ -23,11 +23,14 @@ THE SOFTWARE.
 """
 
 
-import numpy as np  # noqa
-import numpy.linalg as la  # noqa
-import pyopencl as cl  # noqa
-import pyopencl.array  # noqa
-import pyopencl.clmath  # noqa
+import numpy as np
+import numpy.linalg as la
+
+import pyopencl as cl
+import pyopencl.array
+import pyopencl.clmath
+
+from pytools.obj_array import join_fields
 
 import pytest  # noqa
 
@@ -185,7 +188,7 @@ def test_2d_gauss_theorem(ctx_factory):
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
 
     def f(x):
-        return sym.join_fields(
+        return join_fields(
                 sym.sin(3*x[0])+sym.cos(3*x[1]),
                 sym.sin(2*x[0])+sym.cos(x[1]))
 
@@ -416,7 +419,6 @@ def test_improvement_quadrature(ctx_factory, order):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
-    from pytools.obj_array import join_fields
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
     cl_ctx = cl.create_some_context()
