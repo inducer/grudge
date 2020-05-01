@@ -132,7 +132,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         if isinstance(else_,  pyopencl.array.Array):
             sym_else = var("b")[i]
-        elif isinstance(then,  np.number):
+        elif isinstance(else_,  np.number):
             sym_else = var("b")
         else:
             raise TypeError(
