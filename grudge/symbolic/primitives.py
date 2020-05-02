@@ -363,6 +363,7 @@ sqrt = FunctionSymbol("sqrt")
 exp = FunctionSymbol("exp")
 sin = FunctionSymbol("sin")
 cos = FunctionSymbol("cos")
+atan2 = FunctionSymbol("atan2")
 bessel_j = FunctionSymbol("bessel_j")
 bessel_y = FunctionSymbol("bessel_y")
 
