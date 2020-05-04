@@ -162,8 +162,25 @@ class InterpolationOperator(Operator):
 interp = InterpolationOperator
 
 
-class ElementwiseMaxOperator(Operator):
+# {{{ element reduction: sum, min, max
+
+class ElementwiseReductionOperator(Operator):
+    def __init__(self, dd):
+        super(ElementwiseReductionOperator, self).__init__(dd_in=dd, dd_out=dd)
+
+
+class ElementwiseSumOperator(ElementwiseReductionOperator):
+    mapper_method = intern("map_elementwise_sum")
+
+
+class ElementwiseMinOperator(ElementwiseReductionOperator):
+    mapper_method = intern("map_elementwise_min")
+
+
+class ElementwiseMaxOperator(ElementwiseReductionOperator):
     mapper_method = intern("map_elementwise_max")
+
+# }}}
 
 
 # {{{ nodal reduction: sum, integral, max
@@ -676,6 +693,19 @@ def norm(p, arg, dd=None):
 
     else:
         raise ValueError("unsupported value of p")
+
+
+def h_max(dd=None):
+    import grudge.symbolic.primitives as prim
+    if dd is None:
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
+
+    return NodalMax(dd_in=dd)(
+            ElementwiseSumOperator(dd)(
+                MassOperator(dd_in=dd)(prim.Ones(dd))
+                )
+            )
 
 # }}}
 

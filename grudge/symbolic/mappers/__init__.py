@@ -133,6 +133,10 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_interpolation = _map_op_base
 
+    map_elementwise_sum = _map_op_base
+    map_elementwise_min = _map_op_base
+    map_elementwise_max = _map_op_base
+
     map_nodal_sum = _map_op_base
     map_nodal_min = _map_op_base
     map_nodal_max = _map_op_base
@@ -181,6 +185,10 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
         return expr
 
     map_interpolation = map_elementwise_linear
+
+    map_elementwise_sum = map_elementwise_linear
+    map_elementwise_min = map_elementwise_linear
+    map_elementwise_max = map_elementwise_linear
 
     map_nodal_sum = map_elementwise_linear
     map_nodal_min = map_elementwise_linear
@@ -745,6 +753,19 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def _format_op_dd(self, op):
         return ":%s->%s" % (self._format_dd(op.dd_in), self._format_dd(op.dd_out))
+
+    # {{{ elementwise ops
+
+    def map_elementwise_sum(self, expr, enclosing_prec):
+        return "ElementwiseSum" + self._format_op_dd(expr)
+
+    def map_elementwise_max(self, expr, enclosing_prec):
+        return "ElementwiseMax" + self._format_op_dd(expr)
+
+    def map_elementwise_min(self, expr, enclosing_prec):
+        return "ElementwiseMin" + self._format_op_dd(expr)
+
+    # }}}
 
     # {{{ nodal ops
 

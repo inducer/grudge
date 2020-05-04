@@ -654,6 +654,7 @@ def mv_normal(dd, ambient_dim, dim=None):
 def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
     return mv_normal(dd, ambient_dim, dim).as_vector()
 
+
 # }}}
 
 
