@@ -695,17 +695,20 @@ def norm(p, arg, dd=None):
         raise ValueError("unsupported value of p")
 
 
-def h_max(dd=None):
+def h_max(ambient_dim, dim=None, dd=None):
     import grudge.symbolic.primitives as prim
     if dd is None:
         dd = prim.DD_VOLUME
     dd = prim.as_dofdesc(dd)
 
+    if dim is None:
+        dim = ambient_dim
+
     return NodalMax(dd_in=dd)(
             ElementwiseSumOperator(dd)(
                 MassOperator(dd_in=dd)(prim.Ones(dd))
                 )
-            )
+            )**(1.0/dim)
 
 # }}}
 
