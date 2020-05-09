@@ -174,6 +174,7 @@ class ExecutionMapper(mappers.Evaluator,
                 default_offset=lp.auto, name="diff")
 
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            knl = lp.tag_array_axes(knl, "mat", "stride:auto,stride:auto")
             return lp.tag_inames(knl, dict(k="g.0"))
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
@@ -287,8 +288,18 @@ class ExecutionMapper(mappers.Evaluator,
         face_discr = self.discrwb.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
 
+        from meshmode.discretization.connection import \
+                ChainedDiscretizationConnection
         all_faces_conn = self.discrwb.connection_from_dds("vol", expr.dd)
-        field = face_discr.empty(self.queue, allocator=self.bound_op.allocator)
+        if isinstance(all_faces_conn, ChainedDiscretizationConnection):
+            # NOTE: this can happen if oversampling on a face. however, since
+            # the face_id stays the same, we can safely just look at the first
+            # connection
+            all_faces_conn = all_faces_conn.connections[0]
+
+        field = face_discr.empty(self.queue,
+                dtype=self.discrwb.real_dtype,
+                allocator=self.bound_op.allocator)
         field.fill(1)
 
         for grp in all_faces_conn.groups:
