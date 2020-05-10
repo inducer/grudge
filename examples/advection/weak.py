@@ -30,6 +30,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# {{{ plotting (keep in sync with `var-velocity.py`)
+
 class Plotter:
     def __init__(self, queue, discr, order, visualize=True):
         volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
@@ -60,7 +62,8 @@ class Plotter:
             u = evt.state_component.get(self.queue)
 
             ax = self.fig.gca()
-            ax.plot(self.x[0], u, 'o')
+            ax.plot(self.x[0], u, '-')
+            ax.plot(self.x[0], u, 'k.')
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
             ax.set_title("t = {:.2f}".format(evt.t))
@@ -70,6 +73,8 @@ class Plotter:
             self.vis.write_vtk_file("%s.vtu" % basename, [
                 ("u", evt.state_component)
                 ], overwrite=True)
+
+# }}}
 
 
 def main(ctx_factory, dim=2, order=4, visualize=True):

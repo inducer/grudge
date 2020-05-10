@@ -35,6 +35,53 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# {{{ plotting (keep in sync with `weak.py`)
+
+class Plotter:
+    def __init__(self, queue, discr, order, visualize=True):
+        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+        self.queue = queue
+        self.x = volume_discr.nodes().get(self.queue)
+
+        self.visualize = visualize
+        if not self.visualize:
+            return
+
+        if self.dim == 1:
+            import matplotlib.pyplot as pt
+            self.fig = pt.figure(figsize=(8, 8), dpi=300)
+        else:
+            from grudge.shortcuts import make_visualizer
+            self.vis = make_visualizer(discr, vis_order=order)
+
+    @property
+    def dim(self):
+        return len(self.x)
+
+    def __call__(self, evt, basename):
+        if not self.visualize:
+            return
+
+        if self.dim == 1:
+            u = evt.state_component.get(self.queue)
+
+            ax = self.fig.gca()
+            ax.plot(self.x[0], u, '-')
+            ax.plot(self.x[0], u, 'k.')
+            ax.set_xlabel("$x$")
+            ax.set_ylabel("$u$")
+            ax.set_title("t = {:.2f}".format(evt.t))
+            self.fig.savefig("%s.png" % basename)
+            self.fig.clf()
+        else:
+            self.vis.write_vtk_file("%s.vtu" % basename, [
+                ("u", evt.state_component)
+                ], overwrite=True)
+
+# }}}
+
+
 def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -106,6 +153,11 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     def f_gaussian(x):
         return sym.exp(-dist_squared / source_width**2)
 
+    def f_step(x):
+        return sym.If(sym.Comparison(
+            dist_squared, "<", (4*source_width) ** 2),
+            1, 0)
+
     def u_bc(x):
         return 0.0
 
@@ -128,8 +180,6 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-
-    from weak import Plotter
     plot = Plotter(queue, discr, order, visualize=visualize)
 
     step = 0
@@ -138,12 +188,12 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
-        if step % 5 == 0:
+        if step % 10 == 0:
             norm_u = norm(queue, u=event.state_component)
+            plot(event, "fld-var-velocity-%04d" % step)
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
-        plot(event, "fld-var-velocity-%04d" % step)
 
     # }}}
 

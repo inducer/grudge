@@ -307,8 +307,11 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
         grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
-        weights = in_elem_grp.weights
+        if not isinstance(grad_vand, tuple):
+            # NOTE: special case for 1d
+            grad_vand = (grad_vand,)
 
+        weights = in_elem_grp.weights
         return np.einsum('c,bz,acz->abc', weights, vand_inv_t, grad_vand)
 
 
