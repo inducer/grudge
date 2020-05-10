@@ -33,6 +33,31 @@ from grudge.models import HyperbolicOperator
 from grudge import sym
 
 
+# {{{ fluxes
+
+def advection_weak_flux(flux_type, u, velocity):
+    normal = sym.normal(u.dd, len(velocity))
+    v_dot_n = sym.cse(velocity.dot(normal), "v_dot_normal")
+
+    flux_type = flux_type.lower()
+    if flux_type == "central":
+        return u.avg * v_dot_n
+    elif flux_type == "lf":
+        norm_v = sym.sqrt((velocity**2).sum())
+        return u.avg * v_dot_n + 0.5 * norm_v * (u.int - u.ext)
+    elif flux_type == "upwind":
+        u_upwind = sym.If(
+                sym.Comparison(v_dot_n, ">", 0),
+                u.int,      # outflow
+                u.ext       # inflow
+                )
+        return u_upwind * v_dot_n
+    else:
+        raise ValueError("flux `{}` is not implemented".format(flux_type))
+
+# }}}
+
+
 # {{{ constant-coefficient advection
 
 class AdvectionOperatorBase(HyperbolicOperator):
@@ -48,25 +73,11 @@ class AdvectionOperatorBase(HyperbolicOperator):
         self.inflow_u = inflow_u
         self.flux_type = flux_type
 
+        if flux_type not in self.flux_types:
+            raise ValueError("unknown flux type: {}".format(flux_type))
+
     def weak_flux(self, u):
-        normal = sym.normal(u. dd, self.ambient_dim)
-
-        v_dot_normal = sym.cse(self.v.dot(normal), "v_dot_normal")
-        norm_v = sym.sqrt((self.v**2).sum())
-
-        if self.flux_type == "central":
-            return u.avg*v_dot_normal
-        elif self.flux_type == "lf":
-            return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
-        elif self.flux_type == "upwind":
-            return (
-                    v_dot_normal * sym.If(
-                        sym.Comparison(v_dot_normal, ">", 0),
-                        u.int,  # outflow
-                        u.ext,  # inflow
-                        ))
-        else:
-            raise ValueError("invalid flux type")
+        return advection_weak_flux(self.flux_type, u, self.v)
 
     def max_eigenvalue(self, t=None, fields=None, discr=None):
         return la.norm(self.v)
@@ -106,13 +117,12 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
     def sym_operator(self):
         u = sym.var("u")
 
-        # boundary conditions -------------------------------------------------
-        bc_in = self.inflow_u
-        # bc_out = sym.interp("vol", self.outflow_tag)(u)
-
         def flux(pair):
             return sym.interp(pair.dd, "all_faces")(
                     self.flux(pair))
+
+        bc_in = self.inflow_u
+        # bc_out = sym.interp("vol", self.outflow_tag)(u)
 
         return sym.InverseMassOperator()(
                 np.dot(
@@ -131,65 +141,40 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
 # {{{ variable-coefficient advection
 
-class VariableCoefficientAdvectionOperator(HyperbolicOperator):
-    def __init__(self, dim, v, inflow_u, flux_type="central", quad_tag="product"):
-        self.ambient_dim = dim
-        self.v = v
-        self.inflow_u = inflow_u
-        self.flux_type = flux_type
+class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
+    def __init__(self, v, inflow_u, flux_type="central", quad_tag="product"):
+        super(VariableCoefficientAdvectionOperator, self).__init__(
+                v, inflow_u, flux_type=flux_type)
 
         self.quad_tag = quad_tag
 
     def flux(self, u):
-
-        normal = sym.normal(u.dd, self.ambient_dim)
-
-        surf_v = sym.interp("vol", u.dd)(self.v)
-
-        v_dot_normal = sym.cse(np.dot(surf_v, normal), "v_dot_normal")
-        norm_v = sym.sqrt(np.sum(self.v**2))
-
-        if self.flux_type == "central":
-            return u.avg*v_dot_normal
-
-        elif self.flux_type == "lf":
-            return u.avg*v_dot_normal + 0.5*norm_v*(u.int - u.ext)
-        elif self.flux_type == "upwind":
-            return (
-                    v_dot_normal * sym.If(
-                        sym.Comparison(v_dot_normal, ">", 0),
-                        u.int,  # outflow
-                        u.ext,  # inflow
-                        ))
-        else:
-            raise ValueError("invalid flux type")
+        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        return advection_weak_flux(self.flux_type, u, surf_v)
 
     def sym_operator(self):
         u = sym.var("u")
 
-        # boundary conditions -------------------------------------------------
-        bc_in = self.inflow_u
-
-        all_faces_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
-        boundary_dd = sym.DOFDesc(sym.BTAG_ALL, self.quad_tag)
-
         def flux(pair):
-            return sym.interp(pair.dd, all_faces_dd)(
-                    self.flux(pair))
+            return sym.interp(pair.dd, face_dd)(self.flux(pair))
 
-        quad_dd = sym.DOFDesc("vol", self.quad_tag)
+        face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
+        boundary_dd = sym.DOFDesc(sym.BTAG_ALL, self.quad_tag)
+        quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.interp("vol", quad_dd)
+        to_quad = sym.interp(sym.DD_VOLUME, quad_dd)
+        stiff_t_op = sym.stiffness_t(self.ambient_dim,
+                dd_in=quad_dd, dd_out=sym.DD_VOLUME)
 
-        stiff_t = sym.stiffness_t(self.ambient_dim, quad_dd, "vol")
         quad_v = to_quad(self.v)
         quad_u = to_quad(u)
 
         return sym.InverseMassOperator()(
-                (stiff_t[0](quad_u * quad_v[0]) + stiff_t[1](quad_u * quad_v[1]))
-                - sym.FaceMassOperator(all_faces_dd, "vol")(
+                sum(stiff_t_op[n](quad_u * quad_v[n])
+                    for n in range(self.ambient_dim))
+                - sym.FaceMassOperator(face_dd, sym.DD_VOLUME)(
                     flux(sym.int_tpair(u, self.quad_tag))
-                    + flux(sym.bv_tpair(boundary_dd, u, bc_in))
+                    + flux(sym.bv_tpair(boundary_dd, u, self.inflow_u))
 
                     # FIXME: Add back support for inflow/outflow tags
                     #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))

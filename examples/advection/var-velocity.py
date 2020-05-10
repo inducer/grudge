@@ -22,114 +22,141 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
 import numpy as np
-import pyopencl as cl  # noqa
-import pyopencl.array  # noqa
-import pyopencl.clmath  # noqa
 
-import pytest  # noqa
+import pyopencl as cl
+import pyopencl.array
+import pyopencl.clmath
 
-from pyopencl.tools import (  # noqa
-                pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+from grudge import bind, sym
+from pytools.obj_array import join_fields
 
 import logging
 logger = logging.getLogger(__name__)
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
-from pytools.obj_array import join_fields
 
-
-FINAL_TIME = 5
-
-
-def main(write_output=True, order=4):
-    cl_ctx = cl.create_some_context()
+def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
-    dim = 2
+    # {{{ parameters
 
-    resolution = 15
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5, -0.5), b=(0.5, 0.5),
-            n=(resolution, resolution), order=order)
+    # domain [0, d]^dim
+    d = 1.0
+    # number of points in each dimension
+    npoints = 25
+    # grid spacing
+    h = d / npoints
 
-    dt_factor = 5
-    h = 1/resolution
+    # cfl
+    dt_factor = 1.0
+    # finale time
+    final_time = 0.5
+    # time steps
+    dt = dt_factor * h/order**2
+    nsteps = int(final_time // dt) + 1
+    dt = final_time/nsteps + 1.0e-15
 
-    sym_x = sym.nodes(2)
-
-    advec_v = join_fields(-1*sym_x[1], sym_x[0]) / 2
-
+    # flux
     flux_type = "upwind"
+    # velocity field
+    sym_x = sym.nodes(dim)
+    if dim == 1:
+        c = sym_x
+    else:
+        # solid body rotation
+        c = join_fields(
+                np.pi * (d/2 - sym_x[1]),
+                np.pi * (sym_x[0] - d/2),
+                0)[:dim]
 
-    source_center = np.array([0.1, 0.1])
+    # }}}
+
+    # {{{ discretization
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(0,)*dim, b=(d,)*dim,
+            n=(npoints,)*dim,
+            order=order)
+
+    from meshmode.discretization.poly_element import \
+            QuadratureSimplexGroupFactory
+
+    if product_tag:
+        quad_tag_to_group_factory = {
+                product_tag: QuadratureSimplexGroupFactory(order=4*order)
+                }
+    else:
+        quad_tag_to_group_factory = {}
+
+    from grudge import DGDiscretizationWithBoundaries
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+            quad_tag_to_group_factory=quad_tag_to_group_factory)
+
+    # }}}
+
+    # {{{ symbolic operators
+
+    # gaussian parameters
+    source_center = np.array([0.5, 0.75, 0.0])[:dim]
     source_width = 0.05
-
-    sym_x = sym.nodes(2)
-    sym_source_center_dist = sym_x - source_center
+    dist_squared = np.dot(sym_x - source_center, sym_x - source_center)
 
     def f_gaussian(x):
-        return sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2)
+        return sym.exp(-dist_squared / source_width**2)
 
-    def f_step(x):
-        return sym.If(
-                sym.Comparison(
-                    np.dot(sym_source_center_dist, sym_source_center_dist),
-                    "<",
-                    (4*source_width)**2),
-                1, 0)
-
-    def u_analytic(x):
-        return 0
+    def u_bc(x):
+        return 0.0
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
-    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory  # noqa
+    op = VariableCoefficientAdvectionOperator(
+            c,
+            u_bc(sym.nodes(dim, sym.BTAG_ALL)),
+            quad_tag=product_tag,
+            flux_type=flux_type)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
-            quad_tag_to_group_factory={
-                #"product": None,
-                "product": QuadratureSimplexGroupFactory(order=4*order)
-                })
-
-    op = VariableCoefficientAdvectionOperator(2, advec_v,
-        u_analytic(sym.nodes(dim, sym.BTAG_ALL)), quad_tag="product",
-        flux_type=flux_type)
-
-    bound_op = bind(
-            discr, op.sym_operator(),
-            #debug_flags=["dump_sym_operator_stages"]
-            )
-
+    bound_op = bind(discr, op.sym_operator())
     u = bind(discr, f_gaussian(sym.nodes(dim)))(queue, t=0)
 
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
-    dt = dt_factor * h/order**2
-    nsteps = (FINAL_TIME // dt) + 1
-    dt = FINAL_TIME/nsteps + 1e-15
+    # }}}
+
+    # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
 
-    from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=2*order)
+    from weak import Plotter
+    plot = Plotter(queue, discr, order, visualize=visualize)
 
     step = 0
+    norm = bind(discr, sym.norm(2, sym.var("u")))
+    for event in dt_stepper.run(t_end=final_time):
+        if not isinstance(event, dt_stepper.StateComputed):
+            continue
 
-    for event in dt_stepper.run(t_end=FINAL_TIME):
-        if isinstance(event, dt_stepper.StateComputed):
+        if step % 5 == 0:
+            norm_u = norm(queue, u=event.state_component)
 
-            step += 1
-            if step % 30 == 0:
-                print(step)
+        step += 1
+        logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+        plot(event, "fld-var-velocity-%04d" % step)
 
-                vis.write_vtk_file("fld-var-velocity-%04d.vtu" % step,
-                        [("u", event.state_component)])
+    # }}}
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--qtag", default="product")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+            dim=args.dim,
+            product_tag=args.qtag)
