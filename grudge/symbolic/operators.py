@@ -152,9 +152,10 @@ class InterpolationOperator(Operator):
         from pytools.obj_array import with_object_array_or_scalar
 
         def interp_one(subexpr):
+            from pymbolic.primitives import is_constant
             if self.dd_in == self.dd_out:
                 return subexpr
-            elif isinstance(subexpr, (int, float, complex, np.number)):
+            elif is_constant(subexpr):
                 return subexpr
             else:
                 from grudge.symbolic.primitives import OperatorBinding

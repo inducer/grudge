@@ -136,6 +136,7 @@ class CElementwiseBinaryFunction(Function):
             return func(arg0, arg1)
 
         from pymbolic.primitives import Variable
+
         @memoize_in(self, "map_call_knl_%s" % func_name)
         def knl():
             i = Variable("i")
