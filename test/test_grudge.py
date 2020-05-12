@@ -90,7 +90,7 @@ def test_inverse_metric(ctx_factory, dim):
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
-def test_1d_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
+def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """

@@ -285,17 +285,15 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     def map_signed_face_ones(self, expr):
+        assert expr.dd.is_trace()
         face_discr = self.discrwb.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
 
-        from meshmode.discretization.connection import \
-                ChainedDiscretizationConnection
-        all_faces_conn = self.discrwb.connection_from_dds("vol", expr.dd)
-        if isinstance(all_faces_conn, ChainedDiscretizationConnection):
-            # NOTE: this can happen if oversampling on a face. however, since
-            # the face_id stays the same, we can safely just look at the first
-            # connection
-            all_faces_conn = all_faces_conn.connections[0]
+        # NOTE: ignore quadrature_tags on expr.dd, since we only care about
+        # the face_id here
+        all_faces_conn = self.discrwb.connection_from_dds(
+                sym.DD_VOLUME,
+                sym.DOFDesc(expr.dd.domain_tag))
 
         field = face_discr.empty(self.queue,
                 dtype=self.discrwb.real_dtype,
