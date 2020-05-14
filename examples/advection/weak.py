@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 import numpy as np
 import numpy.linalg as la
 
@@ -33,11 +34,9 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, queue, discr, order, visualize=True):
-        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-
+    def __init__(self, queue, discr, order, visualize=True, ylim=None):
         self.queue = queue
-        self.x = volume_discr.nodes().get(self.queue)
+        self.dim = discr.ambient_dim
 
         self.visualize = visualize
         if not self.visualize:
@@ -46,33 +45,42 @@ class Plotter:
         if self.dim == 1:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
+            self.ylim = ylim
+
+            volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+            self.x = volume_discr.nodes().get(self.queue)
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(discr, vis_order=order)
 
-    @property
-    def dim(self):
-        return len(self.x)
-
-    def __call__(self, evt, basename):
+    def __call__(self, evt, basename, overwrite=True):
         if not self.visualize:
             return
 
         if self.dim == 1:
             u = evt.state_component.get(self.queue)
 
+            filename = "%s.png" % basename
+            if not overwrite and os.path.exists(filename):
+                from meshmode import FileExistsError
+                raise FileExistsError("output file '%s' already exists" % filename)
+
             ax = self.fig.gca()
             ax.plot(self.x[0], u, '-')
             ax.plot(self.x[0], u, 'k.')
+            if self.ylim is not None:
+                ax.set_ylim(self.ylim)
+
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
             ax.set_title("t = {:.2f}".format(evt.t))
-            self.fig.savefig("%s.png" % basename)
+
+            self.fig.savefig(filename)
             self.fig.clf()
         else:
             self.vis.write_vtk_file("%s.vtu" % basename, [
                 ("u", evt.state_component)
-                ], overwrite=True)
+                ], overwrite=overwrite)
 
 # }}}
 
@@ -145,18 +153,23 @@ def main(ctx_factory, dim=2, order=4, visualize=True):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-    plot = Plotter(queue, discr, order, visualize=visualize)
+    plot = Plotter(queue, discr, order, visualize=visualize,
+            ylim=[-1.1, 1.1])
+
+    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     step = 0
-    norm = bind(discr, sym.norm(2, sym.var("u")))
+    norm_u = 0.0
     for event in dt_stepper.run(t_end=final_time):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
+        if step % 10 == 0:
+            norm_u = norm(queue, u=event.state_component)
+            plot(event, "fld-weak-%04d" % step)
+
         step += 1
-        norm_u = norm(queue, u=event.state_component)
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
-        plot(event, "fld-weak-%04d" % step)
 
     # }}}
 
