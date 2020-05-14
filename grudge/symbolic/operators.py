@@ -154,6 +154,7 @@ class InterpolationOperator(Operator):
         def interp_one(subexpr):
             from pymbolic.primitives import is_constant
             if self.dd_in == self.dd_out:
+                # no-op interpolation, go away
                 return subexpr
             elif is_constant(subexpr):
                 return subexpr
