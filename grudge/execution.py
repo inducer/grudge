@@ -174,6 +174,7 @@ class ExecutionMapper(mappers.Evaluator,
                 default_offset=lp.auto, name="diff")
 
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            knl = lp.tag_array_axes(knl, "mat", "stride:auto,stride:auto")
             return lp.tag_inames(knl, dict(k="g.0"))
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
@@ -284,11 +285,19 @@ class ExecutionMapper(mappers.Evaluator,
     # }}}
 
     def map_signed_face_ones(self, expr):
+        assert expr.dd.is_trace()
         face_discr = self.discrwb.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
 
-        all_faces_conn = self.discrwb.connection_from_dds("vol", expr.dd)
-        field = face_discr.empty(self.queue, allocator=self.bound_op.allocator)
+        # NOTE: ignore quadrature_tags on expr.dd, since we only care about
+        # the face_id here
+        all_faces_conn = self.discrwb.connection_from_dds(
+                sym.DD_VOLUME,
+                sym.DOFDesc(expr.dd.domain_tag))
+
+        field = face_discr.empty(self.queue,
+                dtype=self.discrwb.real_dtype,
+                allocator=self.bound_op.allocator)
         field.fill(1)
 
         for grp in all_faces_conn.groups:

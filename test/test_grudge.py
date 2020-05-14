@@ -88,39 +88,70 @@ def test_inverse_metric(ctx_factory, dim):
             assert err < 1e-12, (i, j, err)
 
 
-def test_1d_mass_mat_trig(ctx_factory):
+@pytest.mark.parametrize("ambient_dim", [1, 2, 3])
+@pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
+def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
-    matrix
+    matrix.
     """
-
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
+    nelements = 17
+    order = 4
+
+    a = -4.0 * np.pi
+    b = +9.0 * np.pi
+    true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
+
+    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+    dd_quad = sym.DOFDesc(sym.DTAG_VOLUME_ALL, quad_tag)
+    if quad_tag is sym.QTAG_NONE:
+        quad_tag_to_group_factory = {}
+    else:
+        quad_tag_to_group_factory = {
+                quad_tag: QuadratureSimplexGroupFactory(order=2*order)
+                }
+
     from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(a,)*ambient_dim, b=(b,)*ambient_dim,
+            n=(nelements,)*ambient_dim, order=1)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+            quad_tag_to_group_factory=quad_tag_to_group_factory)
 
-    mesh = generate_regular_rect_mesh(a=(-4*np.pi,), b=(9*np.pi,),
-            n=(17,), order=1)
+    def _get_variables_on(dd):
+        sym_f = sym.var("f", dd=dd)
+        sym_x = sym.nodes(ambient_dim, dd=dd)
+        sym_ones = sym.Ones(dd)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=8)
+        return sym_f, sym_x, sym_ones
 
-    x = sym.nodes(1)
-    f = bind(discr, sym.cos(x[0])**2)(queue)
-    ones = bind(discr, sym.Ones(sym.DD_VOLUME))(queue)
+    sym_f, sym_x, sym_ones = _get_variables_on(sym.DD_VOLUME)
+    f_volm = bind(discr, sym.cos(sym_x[0])**2)(queue).get()
+    ones_volm = bind(discr, sym_ones)(queue).get()
 
-    mass_op = bind(discr, sym.MassOperator()(sym.var("f")))
+    sym_f, sym_x, sym_ones = _get_variables_on(dd_quad)
+    f_quad = bind(discr, sym.cos(sym_x[0])**2)(queue)
+    ones_quad = bind(discr, sym_ones)(queue)
 
-    num_integral_1 = np.dot(ones.get(), mass_op(queue, f=f))
-    num_integral_2 = np.dot(f.get(), mass_op(queue, f=ones))
-    num_integral_3 = bind(discr, sym.integral(sym.var("f")))(queue, f=f)
+    mass_op = bind(discr, sym.MassOperator(dd_quad, sym.DD_VOLUME)(sym_f))
 
-    true_integral = 13*np.pi/2
-    err_1 = abs(num_integral_1-true_integral)
-    err_2 = abs(num_integral_2-true_integral)
-    err_3 = abs(num_integral_3-true_integral)
+    num_integral_1 = np.dot(ones_volm, mass_op(queue, f=f_quad).get())
+    err_1 = abs(num_integral_1 - true_integral)
+    assert err_1 < 5.0e-10, err_1
 
-    assert err_1 < 1e-10
-    assert err_2 < 1e-10
-    assert err_3 < 1e-10
+    num_integral_2 = np.dot(f_volm, mass_op(queue, f=ones_quad).get())
+    err_2 = abs(num_integral_2 - true_integral)
+    assert err_2 < 5.0e-10, err_2
+
+    if quad_tag is sym.QTAG_NONE:
+        # NOTE: `integral` always makes a square mass matrix and
+        # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
+        num_integral_3 = bind(discr,
+                sym.integral(sym_f, dd=dd_quad))(queue, f=f_quad)
+        err_3 = abs(num_integral_3 - true_integral)
+        assert err_3 < 5.0e-10, err_3
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
