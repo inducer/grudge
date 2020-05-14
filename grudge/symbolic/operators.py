@@ -146,15 +146,23 @@ class ElementwiseLinearOperator(Operator):
 
 class InterpolationOperator(Operator):
     def __init__(self, dd_in, dd_out):
-        import grudge.symbolic.primitives as prim
-        official_dd_in = prim.as_dofdesc(dd_in)
-        official_dd_out = prim.as_dofdesc(dd_out)
-
-        if official_dd_in == official_dd_out:
-            raise ValueError("Interpolating from {} to {}"
-            " does not do anything.".format(official_dd_in, official_dd_out))
-
         super(InterpolationOperator, self).__init__(dd_in, dd_out)
+
+    def __call__(self, expr):
+        from pytools.obj_array import with_object_array_or_scalar
+
+        def interp_one(subexpr):
+            from pymbolic.primitives import is_constant
+            if self.dd_in == self.dd_out:
+                # no-op interpolation, go away
+                return subexpr
+            elif is_constant(subexpr):
+                return subexpr
+            else:
+                from grudge.symbolic.primitives import OperatorBinding
+                return OperatorBinding(self, subexpr)
+
+        return with_object_array_or_scalar(interp_one, expr)
 
     mapper_method = intern("map_interpolation")
 
