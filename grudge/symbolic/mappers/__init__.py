@@ -213,6 +213,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_function_symbol = map_grudge_variable
     map_ones = map_grudge_variable
+    map_signed_face_ones = map_grudge_variable
     map_node_coordinate_component = map_grudge_variable
 
     # }}}
@@ -266,6 +267,7 @@ class DependencyMapper(
         return set()
 
     map_ones = _map_leaf
+    map_signed_face_ones = _map_leaf
     map_node_coordinate_component = _map_leaf
 
 
@@ -1189,6 +1191,7 @@ class CollectorMixin(OperatorReducerMixin, LocalOpReducerMixin, FluxOpReducerMix
     map_function_symbol = map_constant
 
     map_ones = map_grudge_variable
+    map_signed_face_ones = map_grudge_variable
     map_node_coordinate_component = map_grudge_variable
 
     map_operator = map_grudge_variable

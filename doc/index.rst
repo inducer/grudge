@@ -1,9 +1,4 @@
-.. grudge documentation master file, created by
-   sphinx-quickstart on Sun Sep 27 13:08:30 2015.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Welcome to grudge's documentation!
+Welcome to grudge's Documentation!
 ==================================
 
 Contents:
@@ -12,10 +7,10 @@ Contents:
     :maxdepth: 2
 
     misc
+    symbolic
 
 
-
-Indices and tables
+Indices and Tables
 ==================
 
 * :ref:`genindex`

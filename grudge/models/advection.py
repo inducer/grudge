@@ -74,7 +74,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
 
 class StrongAdvectionOperator(AdvectionOperatorBase):
     def flux(self, u):
-        normal = sym.normal(u. dd, self.ambient_dim)
+        normal = sym.normal(u.dd, self.ambient_dim)
         v_dot_normal = sym.cse(self.v.dot(normal), "v_dot_normal")
 
         return u.int * v_dot_normal - self.weak_flux(u)
@@ -142,7 +142,7 @@ class VariableCoefficientAdvectionOperator(HyperbolicOperator):
 
     def flux(self, u):
 
-        normal = sym.normal(u. dd, self.ambient_dim)
+        normal = sym.normal(u.dd, self.ambient_dim)
 
         surf_v = sym.interp("vol", u.dd)(self.v)
 

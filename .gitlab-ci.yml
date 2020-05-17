@@ -9,6 +9,8 @@ Python 2.7 POCL:
   - python2.7
   - pocl
   - mpi
+  # https://github.com/pocl/pocl/issues/757
+  allow_failure: true
   except:
   - tags
   artifacts:
@@ -20,6 +22,26 @@ Python 3 POCL:
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable
   - export EXTRA_INSTALL="pybind11 numpy mako"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3
+  - pocl
+  - mpi
+  # https://github.com/pocl/pocl/issues/757
+  allow_failure: true
+  except:
+  - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
+
+Python 3 Intel:
+  script:
+  - export PY_EXE=python3
+  - export EXTRA_INSTALL="pybind11 numpy mako"
+  - source /opt/enable-intel-cl.sh
+  - export PYOPENCL_TEST="intel(r):pu"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
@@ -44,6 +66,8 @@ Python 2.7 POCL MPI:
   - python2.7
   - pocl
   - mpi
+  # https://github.com/pocl/pocl/issues/757
+  allow_failure: true
   except:
   - tags
   artifacts:
@@ -62,6 +86,27 @@ Python 3 POCL MPI:
   - python3
   - pocl
   - mpi
+  # https://github.com/pocl/pocl/issues/757
+  allow_failure: true
+  except:
+  - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
+
+Python 3 Intel MPI:
+  script:
+  - export PY_EXE=python3
+  - source /opt/enable-intel-cl.sh
+  - export PYOPENCL_TEST="intel(r):pu"
+  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pymetis"
+  - export PYTEST_ADDOPTS="-k mpi"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3
+  - pocl
+  - mpi
   except:
   - tags
   artifacts:
@@ -72,6 +117,23 @@ Python 3 POCL Examples:
   script:
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile pymetis"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
+  - ". ./build-py-project-and-run-examples.sh"
+  tags:
+  - python3
+  - pocl
+  - large-node
+  # https://github.com/pocl/pocl/issues/757
+  allow_failure: true
+  except:
+  - tags
+
+Python 3 Intel Examples:
+  script:
+  - export PY_EXE=python3
+  - source /opt/enable-intel-cl.sh
+  - export PYOPENCL_TEST="intel(r):pu"
   - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile pymetis"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"
