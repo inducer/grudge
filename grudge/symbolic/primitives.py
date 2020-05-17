@@ -124,6 +124,18 @@ class DTAG_BOUNDARY:  # noqa
     def __init__(self, tag):
         self.tag = tag
 
+    def __eq__(self, other):
+        return isinstance(other, DTAG_BOUNDARY) and self.tag == other.tag
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(type(self)) ^ hash(self.tag)
+
+    def __repr__(self):
+        return "<%s(%s)>" % (type(self).__name__, repr(self.tag))
+
 
 class QTAG_NONE:  # noqa
     pass
