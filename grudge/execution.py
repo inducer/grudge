@@ -132,7 +132,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         if isinstance(else_,  pyopencl.array.Array):
             sym_else = var("b")[i]
-        elif isinstance(then,  np.number):
+        elif isinstance(else_,  np.number):
             sym_else = var("b")
         else:
             raise TypeError(
@@ -174,6 +174,7 @@ class ExecutionMapper(mappers.Evaluator,
                 default_offset=lp.auto, name="diff")
 
             knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
+            knl = lp.tag_array_axes(knl, "mat", "stride:auto,stride:auto")
             return lp.tag_inames(knl, dict(k="g.0"))
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
@@ -282,6 +283,29 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     # }}}
+
+    def map_signed_face_ones(self, expr):
+        assert expr.dd.is_trace()
+        face_discr = self.discrwb.discr_from_dd(expr.dd)
+        assert face_discr.dim == 0
+
+        # NOTE: ignore quadrature_tags on expr.dd, since we only care about
+        # the face_id here
+        all_faces_conn = self.discrwb.connection_from_dds(
+                sym.DD_VOLUME,
+                sym.DOFDesc(expr.dd.domain_tag))
+
+        field = face_discr.empty(self.queue,
+                dtype=self.discrwb.real_dtype,
+                allocator=self.bound_op.allocator)
+        field.fill(1)
+
+        for grp in all_faces_conn.groups:
+            for batch in grp.batches:
+                i = batch.to_element_indices.with_queue(self.queue)
+                field[i] = (2.0 * (batch.to_element_face % 2) - 1.0) * field[i]
+
+        return field
 
     # }}}
 
