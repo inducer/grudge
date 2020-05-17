@@ -64,6 +64,7 @@ DOF description
 
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
+.. autoclass:: DTAG_BOUNDARY
 .. autoclass:: QTAG_NONE
 .. autoclass:: DOFDesc
 .. data:: DD_SCALAR
