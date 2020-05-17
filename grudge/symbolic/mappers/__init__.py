@@ -930,14 +930,13 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
     def map_operator_binding(self, expr):
         from meshmode.mesh import is_boundary_tag_empty
         if (isinstance(expr.op, sym.InterpolationOperator)
-                and expr.op.dd_out.is_boundary()
-                and expr.op.dd_out.domain_tag not in [
-                    sym.FACE_RESTR_ALL, sym.FACE_RESTR_INTERIOR]
-                and is_boundary_tag_empty(self.mesh,
-                    expr.op.dd_out.domain_tag)):
-            return 0
-        else:
-            return IdentityMapper.map_operator_binding(self, expr)
+                and expr.op.dd_out.is_boundary_or_partition_interface()):
+            domain_tag = expr.op.dd_out.domain_tag
+            assert isinstance(domain_tag, sym.DTAG_BOUNDARY)
+            if is_boundary_tag_empty(self.mesh, domain_tag.tag):
+                return 0
+
+        return IdentityMapper.map_operator_binding(self, expr)
 
 
 class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):

@@ -131,9 +131,10 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             # FIXME
             raise NotImplementedError("Distributed communication with quadrature")
 
-        assert isinstance(dd.domain_tag, sym.BTAG_PARTITION)
+        assert isinstance(dd.domain_tag, sym.DTAG_BOUNDARY)
+        assert isinstance(dd.domain_tag.tag, sym.BTAG_PARTITION)
 
-        return self._dist_boundary_connections[dd.domain_tag.part_nr]
+        return self._dist_boundary_connections[dd.domain_tag.tag.part_nr]
 
     @memoize_method
     def discr_from_dd(self, dd):
@@ -161,8 +162,8 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             return self._all_faces_volume_connection().to_discr
         elif dd.domain_tag is sym.FACE_RESTR_INTERIOR:
             return self._interior_faces_connection().to_discr
-        elif dd.is_boundary():
-            return self._boundary_connection(dd.domain_tag).to_discr
+        elif dd.is_boundary_or_partition_interface():
+            return self._boundary_connection(dd.domain_tag.tag).to_discr
         else:
             raise ValueError("DOF desc tag not understood: " + str(dd))
 
@@ -239,9 +240,9 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                 return self._all_faces_volume_connection()
             if to_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
                 return self._interior_faces_connection()
-            elif to_dd.is_boundary():
+            elif to_dd.is_boundary_or_partition_interface():
                 assert from_dd.quadrature_tag is sym.QTAG_NONE
-                return self._boundary_connection(to_dd.domain_tag)
+                return self._boundary_connection(to_dd.domain_tag.tag)
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import \
                         make_same_mesh_connection

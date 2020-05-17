@@ -472,12 +472,15 @@ class OppositePartitionFaceSwap(Operator):
             dd_out = dd_in
 
         super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
-        if not isinstance(self.dd_in.domain_tag, sym.BTAG_PARTITION):
-            raise ValueError("dd_in must be a partition boundary faces domain")
+        if not (isinstance(self.dd_in.domain_tag, sym.DTAG_BOUNDARY)
+                and isinstance(self.dd_in.domain_tag.tag, sym.BTAG_PARTITION)):
+            raise ValueError(
+                    "dd_in must be a partition boundary faces domain, not '%s'"
+                    % self.dd_in.domain_tag)
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
 
-        self.i_remote_part = self.dd_in.domain_tag.part_nr
+        self.i_remote_part = self.dd_in.domain_tag.tag.part_nr
 
         assert unique_id is None or isinstance(unique_id, int)
         self.unique_id = unique_id
