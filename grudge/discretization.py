@@ -385,6 +385,8 @@ class PointsDiscretization(DiscretizationBase):
                 np.float64: np.complex128
         }[self.real_dtype.type])
 
+        self.mpi_communicator = None
+
     def ambient_dim(self):
         return self._nodes.shape[0]
 
@@ -398,6 +400,10 @@ class PointsDiscretization(DiscretizationBase):
 
     def nodes(self):
         return self._nodes
+
+    @property
+    def facial_adjacency_groups(self):
+        return []
 
     def discr_from_dd(self, dd):
         dd = sym.as_dofdesc(dd)
