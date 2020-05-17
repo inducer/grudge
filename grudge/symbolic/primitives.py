@@ -125,6 +125,18 @@ class DTAG_BOUNDARY:        # noqa: N801
     def __init__(self, tag):
         self.tag = tag
 
+    def __eq__(self, other):
+        return isinstance(other, DTAG_BOUNDARY) and self.tag == other.tag
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(type(self)) ^ hash(self.tag)
+
+    def __repr__(self):
+        return "<%s(%s)>" % (type(self).__name__, repr(self.tag))
+
 
 class QTAG_NONE:            # noqa: N801
     pass
@@ -139,7 +151,7 @@ class DOFDesc(object):
     .. automethod:: is_scalar
     .. automethod:: is_discretized
     .. automethod:: is_volume
-    .. automethod:: is_boundary
+    .. automethod:: is_boundary_or_partition_interface
     .. automethod:: is_trace
 
     .. automethod:: uses_quadrature
@@ -186,10 +198,9 @@ class DOFDesc(object):
         elif domain_tag in [FACE_RESTR_INTERIOR, "int_faces"]:
             domain_tag = FACE_RESTR_INTERIOR
         elif isinstance(domain_tag, BTAG_PARTITION):
-            pass
+            domain_tag = DTAG_BOUNDARY(domain_tag)
         elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
-            # FIXME: Should wrap these in DTAG_BOUNDARY
-            pass
+            domain_tag = DTAG_BOUNDARY(domain_tag)
         elif isinstance(domain_tag, DTAG_BOUNDARY):
             pass
         else:
@@ -213,15 +224,11 @@ class DOFDesc(object):
     def is_volume(self):
         return self.domain_tag is DTAG_VOLUME_ALL
 
-    def is_boundary(self):
-        return (
-                self.domain_tag in [
-                    BTAG_ALL, BTAG_NONE, BTAG_REALLY_ALL]
-                or isinstance(self.domain_tag, BTAG_PARTITION)
-                or isinstance(self.domain_tag, DTAG_BOUNDARY))
+    def is_boundary_or_partition_interface(self):
+        return isinstance(self.domain_tag, DTAG_BOUNDARY)
 
     def is_trace(self):
-        return (self.is_boundary()
+        return (self.is_boundary_or_partition_interface()
                 or self.domain_tag in [
                     FACE_RESTR_ALL,
                     FACE_RESTR_INTERIOR])

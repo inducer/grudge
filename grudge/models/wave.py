@@ -163,7 +163,9 @@ class StrongWaveOperator(HyperbolicOperator):
                         + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
                         + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
                         + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
-                        )))
+                        )
+                    )
+                )
 
         result[0] += self.source_f
 
