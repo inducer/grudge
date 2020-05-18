@@ -54,7 +54,7 @@ class ExecutionMapper(mappers.Evaluator,
         self.function_registry = bound_op.function_registry
         self.queue = queue
 
-    # {{{ expression mappings -------------------------------------------------
+    # {{{ expression mappings
 
     def map_ones(self, expr):
         if expr.dd.is_scalar():
@@ -100,6 +100,49 @@ class ExecutionMapper(mappers.Evaluator,
         args = [self.rec(p) for p in expr.parameters]
         return self.function_registry[expr.function.name](self.queue, *args)
 
+    # }}}
+
+    # {{{ elementwise reductions
+
+    def _map_elementwise_reduction(self, op_name, field_expr, dd):
+        @memoize_in(self, "elementwise_%s_knl" % op_name)
+        def knl():
+            knl = lp.make_kernel(
+                "{[el, idof, jdof]: 0<=el<nelements and 0<=idof, jdof<ndofs}",
+                """
+                result[el, idof] = %s(jdof, operand[el, jdof])
+                """ % op_name,
+                default_offset=lp.auto,
+                name="elementwise_%s_knl" % op_name)
+
+            return lp.tag_inames(knl, "el:g.0,idof:l.0")
+
+        field = self.rec(field_expr)
+        discr = self.discrwb.discr_from_dd(dd)
+        assert field.shape == (discr.nnodes,)
+
+        result = discr.empty(queue=self.queue, dtype=field.dtype,
+                allocator=self.bound_op.allocator)
+        for grp in discr.groups:
+            knl()(self.queue,
+                    operand=grp.view(field),
+                    result=grp.view(result))
+
+        return result
+
+    def map_elementwise_sum(self, op, field_expr):
+        return self._map_elementwise_reduction("sum", field_expr, op.dd_in)
+
+    def map_elementwise_min(self, op, field_expr):
+        return self._map_elementwise_reduction("min", field_expr, op.dd_in)
+
+    def map_elementwise_max(self, op, field_expr):
+        return self._map_elementwise_reduction("max", field_expr, op.dd_in)
+
+    # }}}
+
+    # {{{ nodal reductions
+
     def map_nodal_sum(self, op, field_expr):
         # FIXME: Could allow array scalars
         return cl.array.sum(self.rec(field_expr)).get()[()]
@@ -111,6 +154,8 @@ class ExecutionMapper(mappers.Evaluator,
     def map_nodal_min(self, op, field_expr):
         # FIXME: Could allow array scalars
         return cl.array.min(self.rec(field_expr)).get()[()]
+
+    # }}}
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
@@ -151,6 +196,8 @@ class ExecutionMapper(mappers.Evaluator,
         evt, (out,) = knl()(self.queue, crit=bool_crit, a=then, b=else_)
 
         return out
+
+    # {{{ elementwise linear operators
 
     def map_ref_diff_base(self, op, field_expr):
         raise NotImplementedError(
@@ -203,16 +250,6 @@ class ExecutionMapper(mappers.Evaluator,
 
         return result
 
-    def map_elementwise_max(self, op, field_expr):
-        from grudge._internal import perform_elwise_max
-        field = self.rec(field_expr)
-
-        out = self.discr.volume_zeros(dtype=field.dtype)
-        for eg in self.discr.element_groups:
-            perform_elwise_max(eg.ranges, field, out)
-
-        return out
-
     def map_interpolation(self, op, field_expr):
         conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
@@ -226,6 +263,8 @@ class ExecutionMapper(mappers.Evaluator,
     def map_opposite_interior_face_swap(self, op, field_expr):
         return self.discrwb.opposite_face_connection()(
                 self.queue, self.rec(field_expr)).with_queue(self.queue)
+
+    # }}}
 
     # {{{ face mass operator
 
@@ -281,8 +320,6 @@ class ExecutionMapper(mappers.Evaluator,
                     vec=input_view)
 
         return result
-
-    # }}}
 
     def map_signed_face_ones(self, expr):
         assert expr.dd.is_trace()

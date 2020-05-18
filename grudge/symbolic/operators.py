@@ -43,6 +43,8 @@ Basic Operators
 Reductions
 ^^^^^^^^^^
 
+.. autoclass:: ElementwiseSumOperator
+.. autoclass:: ElementwiseMinOperator
 .. autoclass:: ElementwiseMaxOperator
 
 .. autoclass:: NodalReductionOperator
@@ -170,8 +172,37 @@ class InterpolationOperator(Operator):
 interp = InterpolationOperator
 
 
-class ElementwiseMaxOperator(Operator):
+# {{{ element reduction: sum, min, max
+
+class ElementwiseReductionOperator(Operator):
+    def __init__(self, dd):
+        super(ElementwiseReductionOperator, self).__init__(dd_in=dd, dd_out=dd)
+
+
+class ElementwiseSumOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the sum of DOFs on that element.
+    """
+
+    mapper_method = intern("map_elementwise_sum")
+
+
+class ElementwiseMinOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the minimum of DOFs on that element.
+    """
+
+    mapper_method = intern("map_elementwise_min")
+
+
+class ElementwiseMaxOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the maximum of DOFs on that element.
+    """
+
     mapper_method = intern("map_elementwise_max")
+
+# }}}
 
 
 # {{{ nodal reduction: sum, integral, max
@@ -686,6 +717,27 @@ def norm(p, arg, dd=None):
 
     else:
         raise ValueError("unsupported value of p")
+
+
+def h_max_from_volume(ambient_dim, dim=None, dd=None):
+    """Defines a characteristic length based on the volume of the elements.
+    This length may not be representative if the elements have very high
+    aspect ratios.
+    """
+
+    import grudge.symbolic.primitives as prim
+    if dd is None:
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
+
+    if dim is None:
+        dim = ambient_dim
+
+    return NodalMax(dd_in=dd)(
+            ElementwiseSumOperator(dd)(
+                MassOperator(dd_in=dd)(prim.Ones(dd))
+                )
+            )**(1.0/dim)
 
 # }}}
 

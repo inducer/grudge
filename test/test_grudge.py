@@ -263,7 +263,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
                 [np.linspace(-1.0, 1.0, mesh_par)],
                 order=order)
 
-            h = 2.0 / mesh_par
             dim = 1
             dt_factor = 1.0
         elif mesh_name == "disk":
@@ -281,7 +280,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
             from meshmode.mesh.io import from_meshpy
             mesh = from_meshpy(mesh_info, order=1)
-            h = np.sqrt(mesh_par)
             dim = 2
             dt_factor = 4
         elif mesh_name.startswith("rect"):
@@ -290,7 +288,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
             mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                     n=(mesh_par,)*dim, order=4)
 
-            h = 1/mesh_par
             if dim == 2:
                 dt_factor = 4
             elif dim == 3:
@@ -337,7 +334,8 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         else:
             final_time = 0.2
 
-        dt = dt_factor * h/order**2
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(queue)
+        dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
 
@@ -366,11 +364,12 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         error_l2 = bind(discr,
             sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
                 queue, t=last_t, u=last_u)
-        print(h, error_l2)
-        eoc_rec.add_data_point(h, error_l2)
+        print(h_max, error_l2)
+        eoc_rec.add_data_point(h_max, error_l2)
 
-    print(eoc_rec.pretty_print(abscissa_label="h",
-            error_label="L2 Error"))
+    print(eoc_rec.pretty_print(
+        abscissa_label="h",
+        error_label="L2 Error"))
 
     assert eoc_rec.order_estimate() > order
 
