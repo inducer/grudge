@@ -123,7 +123,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         result = discr.empty(queue=self.queue, dtype=field.dtype,
                 allocator=self.bound_op.allocator)
-        for igrp, grp in enumerate(discr.groups):
+        for grp in discr.groups:
             knl()(self.queue,
                     operand=grp.view(field),
                     result=grp.view(result))

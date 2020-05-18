@@ -334,7 +334,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         else:
             final_time = 0.2
 
-        h_max = bind(discr, sym.h_max(discr.ambient_dim))(queue)
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(queue)
         dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15

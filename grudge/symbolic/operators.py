@@ -43,6 +43,8 @@ Basic Operators
 Reductions
 ^^^^^^^^^^
 
+.. autoclass:: ElementwiseSumOperator
+.. autoclass:: ElementwiseMinOperator
 .. autoclass:: ElementwiseMaxOperator
 
 .. autoclass:: NodalReductionOperator
@@ -178,14 +180,26 @@ class ElementwiseReductionOperator(Operator):
 
 
 class ElementwiseSumOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the sum of DOFs on that element.
+    """
+
     mapper_method = intern("map_elementwise_sum")
 
 
 class ElementwiseMinOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the minimum of DOFs on that element.
+    """
+
     mapper_method = intern("map_elementwise_min")
 
 
 class ElementwiseMaxOperator(ElementwiseReductionOperator):
+    """Returns a vector of DOFs with all entries on each element set
+    to the maximum of DOFs on that element.
+    """
+
     mapper_method = intern("map_elementwise_max")
 
 # }}}
@@ -702,7 +716,12 @@ def norm(p, arg, dd=None):
         raise ValueError("unsupported value of p")
 
 
-def h_max(ambient_dim, dim=None, dd=None):
+def h_max_from_volume(ambient_dim, dim=None, dd=None):
+    """Defines a characteristic length based on the volume of the elements.
+    This length may not be representative if the elements have very high
+    aspect ratios.
+    """
+
     import grudge.symbolic.primitives as prim
     if dd is None:
         dd = prim.DD_VOLUME
