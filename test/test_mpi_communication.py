@@ -30,7 +30,10 @@ import os
 import numpy as np
 import pyopencl as cl
 import logging
+
 logger = logging.getLogger(__name__)
+logging.basicConfig()
+logger.setLevel(logging.INFO)
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from grudge.shortcuts import set_up_rk4
@@ -81,16 +84,14 @@ def simple_mpi_communication_entrypoint():
             ) - (sym_all_faces_func - sym_bdry_faces_func)
             )
 
-    # print(bound_face_swap)
-    # 1/0
-
     hopefully_zero = bound_face_swap(queue, myfunc=myfunc)
     import numpy.linalg as la
     error = la.norm(hopefully_zero.get())
 
-    np.set_printoptions(threshold=100000000, suppress=True)
-    print(hopefully_zero)
-    print(error)
+    print(__file__)
+    with np.printoptions(threshold=100000000, suppress=True):
+        logger.debug(hopefully_zero)
+    logger.info("error: %.5e", error)
 
     assert error < 1e-14
 
@@ -184,10 +185,8 @@ def mpi_communication_entrypoint():
     for quantity in log_quantities.values():
         logmgr.add_quantity(quantity)
 
-    # print(sym.pretty(op.sym_operator()))
+    logger.debug("\n%s", sym.pretty(op.sym_operator()))
     bound_op = bind(vol_discr, op.sym_operator())
-    # print(bound_op)
-    # 1/0
 
     def rhs(t, w):
         val, rhs.profile_data = bound_op(queue, profile_data=rhs.profile_data,
@@ -200,7 +199,7 @@ def mpi_communication_entrypoint():
 
     final_t = 4
     nsteps = int(final_t/dt)
-    print("rank=%d dt=%g nsteps=%d" % (i_local_rank, dt, nsteps))
+    logger.info("[%04d] dt %.5e nsteps %4d", i_local_rank, dt, nsteps)
 
     # from grudge.shortcuts import make_visualizer
     # vis = make_visualizer(vol_discr, vis_order=order)
@@ -218,8 +217,10 @@ def mpi_communication_entrypoint():
             assert event.component_id == "w"
 
             step += 1
-            print(step, event.t, norm(queue, u=event.state_component[0]),
-                  time()-t_last_step)
+            logger.debug("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
+                    step, event.t,
+                    norm(queue, u=event.state_component[0]),
+                    time() - t_last_step)
 
             # if step % 10 == 0:
             #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
@@ -231,20 +232,20 @@ def mpi_communication_entrypoint():
     logmgr.tick_after()
 
     def print_profile_data(data):
-        print("""execute() for rank %d:
-            \tInstruction Evaluation: %f%%
-            \tFuture Evaluation: %f%%
-            \tBusy Wait: %f%%
-            \tTotal: %f seconds""" %
-            (i_local_rank,
-             data['insn_eval_time'] / data['total_time'] * 100,
-             data['future_eval_time'] / data['total_time'] * 100,
-             data['busy_wait_time'] / data['total_time'] * 100,
-             data['total_time']))
+        logger.info("""execute() for rank %d:\n
+            \tInstruction Evaluation: %g\n
+            \tFuture Evaluation: %g\n
+            \tBusy Wait: %g\n
+            \tTotal: %g seconds""",
+            i_local_rank,
+            data['insn_eval_time'] / data['total_time'] * 100,
+            data['future_eval_time'] / data['total_time'] * 100,
+            data['busy_wait_time'] / data['total_time'] * 100,
+            data['total_time'])
 
     print_profile_data(rhs.profile_data)
     logmgr.close()
-    logger.debug("Rank %d exiting", i_local_rank)
+    logger.info("Rank %d exiting", i_local_rank)
 
 
 # {{{ MPI test pytest entrypoint
