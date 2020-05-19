@@ -38,14 +38,17 @@ from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
 import logging
+
 logger = logging.getLogger(__name__)
+logging.basicConfig()
+logger.setLevel(logging.INFO)
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 
 @pytest.mark.parametrize("dim", [2, 3])
 def test_inverse_metric(ctx_factory, dim):
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -84,8 +87,8 @@ def test_inverse_metric(ctx_factory, dim):
             tgt = 1 if i == j else 0
 
             err = np.max(np.abs((mat[i, j] - tgt).get(queue=queue)))
-            print(i, j, err)
-            assert err < 1e-12, (i, j, err)
+            logger.info("error[%d, %d]: %.5e", i, j, err)
+            assert err < 1.0e-12, (i, j, err)
 
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
@@ -94,7 +97,7 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     nelements = 17
@@ -161,7 +164,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
     Uses sines as the function to differentiate.
     """
 
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -190,8 +193,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
             axis_eoc_recs[axis].add_data_point(1/n, linf_error)
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
-        print(axis)
-        print(eoc_rec)
+        logger.info("axis %d\n%s", axis, eoc_rec)
         assert eoc_rec.order_estimate() >= order
 
 
@@ -213,7 +215,7 @@ def test_2d_gauss_theorem(ctx_factory):
     from meshmode.mesh.io import from_meshpy
     mesh = from_meshpy(mesh_info, order=1)
 
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
@@ -250,7 +252,8 @@ def test_2d_gauss_theorem(ctx_factory):
 def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
     """Test whether 2D advection actually converges"""
-    cl_ctx = cl.create_some_context()
+
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     from pytools.convergence import EOCRecorder
@@ -321,8 +324,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
                 flux_type=flux_type)
 
         bound_op = bind(discr, op.sym_operator())
-        #print(bound_op)
-        #1/0
 
         u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
 
@@ -352,7 +353,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         for event in dt_stepper.run(t_end=final_time):
             if isinstance(event, dt_stepper.StateComputed):
                 step += 1
-                print(event.t)
+                logger.debug("[%04d] t = %.5f", step, event.t)
 
                 last_t = event.t
                 last_u = event.state_component
@@ -364,10 +365,10 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         error_l2 = bind(discr,
             sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
                 queue, t=last_t, u=last_u)
-        print(h_max, error_l2)
+        logger.info("h_max %.5e error %.5e", h_max, error_l2)
         eoc_rec.add_data_point(h_max, error_l2)
 
-    print(eoc_rec.pretty_print(
+    logger.info("\n%s", eoc_rec.pretty_print(
         abscissa_label="h",
         error_label="L2 Error"))
 
@@ -378,7 +379,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 def test_convergence_maxwell(ctx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     from pytools.convergence import EOCRecorder
@@ -419,7 +420,7 @@ def test_convergence_maxwell(ctx_factory,  order):
         from grudge.shortcuts import set_up_rk4
         dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-        print("dt=%g nsteps=%d" % (dt, nsteps))
+        logger.info("dt %.5e nsteps %5d", dt, nsteps)
 
         norm = bind(discr, sym.norm(2, sym.var("u")))
 
@@ -430,15 +431,16 @@ def test_convergence_maxwell(ctx_factory,  order):
                 esc = event.state_component
 
                 step += 1
-                print(step)
+                logger.debug("[%04d] t = %.5e", step, event.t)
 
         sol = analytic_sol(queue, mu=mu, epsilon=epsilon, t=step * dt)
         vals = [norm(queue, u=(esc[i] - sol[i])) / norm(queue, u=sol[i]) for i in range(5)] # noqa E501
         total_error = sum(vals)
         eoc_rec.add_data_point(1.0/n, total_error)
 
-    print(eoc_rec.pretty_print(abscissa_label="h",
-            error_label="L2 Error"))
+    logger.info("\n%s", eoc_rec.pretty_print(
+        abscissa_label="h",
+        error_label="L2 Error"))
 
     assert eoc_rec.order_estimate() > order
 
@@ -451,7 +453,7 @@ def test_improvement_quadrature(ctx_factory, order):
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     dims = 2
@@ -467,9 +469,9 @@ def test_improvement_quadrature(ctx_factory, order):
         return sym.exp(-np.dot(sym_x, sym_x) / source_width**2)
 
     def conv_test(descr, use_quad):
-        print("-"*75)
-        print(descr)
-        print("-"*75)
+        logger.info("-" * 75)
+        logger.info(descr)
+        logger.info("-" * 75)
         eoc_rec = EOCRecorder()
 
         ns = [20, 25]
@@ -498,12 +500,15 @@ def test_improvement_quadrature(ctx_factory, order):
             total_error = norm(queue, u=esc)
             eoc_rec.add_data_point(1.0/n, total_error)
 
-        print(eoc_rec.pretty_print(abscissa_label="h", error_label="LInf Error"))
+        logger.info("\n%s", eoc_rec.pretty_print(
+            abscissa_label="h",
+            error_label="L2 Error"))
 
         return eoc_rec.order_estimate(), np.array([x[1] for x in eoc_rec.history])
 
     eoc, errs = conv_test("no quadrature", False)
     q_eoc, q_errs = conv_test("with quadrature", True)
+
     assert q_eoc > eoc
     assert (q_errs < errs).all()
     assert q_eoc > order
@@ -513,7 +518,7 @@ def test_foreign_points(ctx_factory):
     pytest.importorskip("sumpy")
     import sumpy.point_calculus as pc
 
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     dim = 2
@@ -551,7 +556,7 @@ def test_op_collector_order_determinism():
 
 
 def test_bessel(ctx_factory):
-    cl_ctx = cl.create_some_context()
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
     dims = 2
