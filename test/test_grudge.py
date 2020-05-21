@@ -461,7 +461,7 @@ def test_improvement_quadrature(ctx_factory, order):
     advec_v = join_fields(-1*sym_nds[1], sym_nds[0])
 
     flux = "upwind"
-    op = VariableCoefficientAdvectionOperator(2, advec_v, 0, flux_type=flux)
+    op = VariableCoefficientAdvectionOperator(advec_v, 0, flux_type=flux)
 
     def gaussian_mode():
         source_width = 0.1
