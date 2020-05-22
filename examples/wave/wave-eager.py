@@ -118,8 +118,8 @@ def bump(discr, queue, t=0):
 
     nodes = discr.nodes().with_queue(queue)
     center_dist = join_fields([
-        nodes[0] - source_center[0],
-        nodes[1] - source_center[1],
+        nodes[i] - source_center[i]
+        for i in range(discr.dim)
         ])
 
     return (
@@ -143,8 +143,14 @@ def main():
 
     order = 3
 
-    # no deep meaning here, just a fudge factor
-    dt = 0.75/(nel_1d*order**2)
+    if dim == 2:
+        # no deep meaning here, just a fudge factor
+        dt = 0.75/(nel_1d*order**2)
+    elif dim == 3:
+        # no deep meaning here, just a fudge factor
+        dt = 0.45/(nel_1d*order**2)
+    else:
+        raise ValueError("don't have a stable time step guesstimate")
 
     print("%d elements" % mesh.nelements)
 
@@ -155,7 +161,7 @@ def main():
             [discr.zeros(queue) for i in range(discr.dim)]
             )
 
-    vis = make_visualizer(discr, discr.order+3)
+    vis = make_visualizer(discr, discr.order+3 if dim == 2 else discr.order)
 
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
