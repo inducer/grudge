@@ -69,12 +69,7 @@ def wave_flux(discr, c, w_tpair):
             0.5*normal_times(v_jump),
             )
 
-    flux_strong = join_fields(
-            np.dot(v.int, normal),
-            normal_times(u.int),
-            ) - flux_weak
-
-    return discr.interp(w_tpair.dd, "all_faces", c*flux_strong)
+    return discr.interp(w_tpair.dd, "all_faces", c*flux_weak)
 
 
 def wave_operator(discr, c, w):
@@ -87,12 +82,12 @@ def wave_operator(discr, c, w):
     dir_bc = join_fields(-dir_u, dir_v)
 
     return (
-            - join_fields(
-                -c*discr.div(v),
-                -c*discr.grad(u)
-                )
-            +  # noqa: W504
             discr.inverse_mass(
+                join_fields(
+                    c*discr.weak_div(v),
+                    c*discr.weak_grad(u)
+                    )
+                -  # noqa: W504
                 discr.face_mass(
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(

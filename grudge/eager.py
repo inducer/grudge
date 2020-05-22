@@ -67,6 +67,17 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                 self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
 
     @memoize_method
+    def _bound_weak_grad(self):
+        return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"))
+
+    def weak_grad(self, vec):
+        return self._bound_weak_grad()(vec.queue, u=vec)
+
+    def weak_div(self, vecs):
+        return sum(
+                self.weak_grad(vec_i)[i] for i, vec_i in enumerate(vecs))
+
+    @memoize_method
     def normal(self, dd):
         with cl.CommandQueue(self.cl_context) as queue:
             surface_discr = self.discr_from_dd(dd)
