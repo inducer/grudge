@@ -29,7 +29,7 @@ import pyopencl as cl
 import pyopencl.array as cla  # noqa
 import pyopencl.clmath as clmath
 from pytools.obj_array import (
-        join_fields,
+        join_fields, make_obj_array,
         with_object_array_or_scalar)
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from grudge.eager import EagerDGDiscretization, with_queue
@@ -53,23 +53,25 @@ def wave_flux(discr, c, w_tpair):
 
     normal = with_queue(u.int.queue, discr.normal(w_tpair.dd))
 
+    def normal_times(scalar):
+        # workaround for object array behavior
+        return make_obj_array([ni*scalar for ni in normal])
+
     flux_weak = join_fields(
             np.dot(v.avg, normal),
-            normal[0] * u.avg,
-            normal[1] * u.avg)
+            normal_times(u.avg),
+            )
 
     # upwind
     v_jump = np.dot(normal, v.int-v.ext)
     flux_weak -= join_fields(
             0.5*(u.int-u.ext),
-            0.5*normal[0]*v_jump,
-            0.5*normal[1]*v_jump,
+            0.5*normal_times(v_jump),
             )
 
     flux_strong = join_fields(
             np.dot(v.int, normal),
-            u.int * normal[0],
-            u.int * normal[1],
+            normal_times(u.int),
             ) - flux_weak
 
     return discr.interp(w_tpair.dd, "all_faces", c*flux_strong)
@@ -98,7 +100,6 @@ def wave_operator(discr, c, w):
                     ))
                 )
 
-
 # }}}
 
 
@@ -111,7 +112,7 @@ def rk4_step(y, t, h, f):
 
 
 def bump(discr, queue, t=0):
-    source_center = np.array([0.0, 0.05])
+    source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
     source_width = 0.05
     source_omega = 3
 
@@ -132,12 +133,13 @@ def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
 
+    dim = 2
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            a=(-0.5, -0.5),
-            b=(0.5, 0.5),
-            n=(nel_1d, nel_1d))
+            a=(-0.5,)*dim,
+            b=(0.5,)*dim,
+            n=(nel_1d,)*dim)
 
     order = 3
 
@@ -166,7 +168,7 @@ def main():
 
         if istep % 10 == 0:
             print(istep, t, la.norm(fields[0].get()))
-            vis.write_vtk_file("fld-wave-min-%04d.vtu" % istep,
+            vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
