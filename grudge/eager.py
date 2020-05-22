@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
+import numpy as np  # noqa
 from grudge.discretization import DGDiscretizationWithBoundaries
 from pytools import memoize_method
 from pytools.obj_array import (
@@ -54,34 +54,6 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     def nodes(self):
         return self._volume_discr.nodes()
-
-    @memoize_method
-    def parametrization_derivative(self):
-        with cl.CommandQueue(self.cl_context) as queue:
-            fmat = sym.forward_metric_derivative_mat(
-                    self.ambient_dim, self.dim)
-            result = bind(self, fmat.reshape(-1))(queue)
-            return result.reshape(*fmat.shape)
-
-    @memoize_method
-    def vol_jacobian(self):
-        with cl.CommandQueue(self.cl_context) as queue:
-            [a, b], [c, d] = with_queue(queue, self.parametrization_derivative())
-            return (a*d-b*c).with_queue(None)
-
-    @memoize_method
-    def inverse_parametrization_derivative(self):
-        with cl.CommandQueue(self.cl_context) as queue:
-            [a, b], [c, d] = with_queue(queue, self.parametrization_derivative())
-
-            result = np.zeros((2, 2), dtype=object)
-            det = a*d-b*c
-            result[0, 0] = d/det
-            result[0, 1] = -b/det
-            result[1, 0] = -c/det
-            result[1, 1] = a/det
-
-            return without_queue(result)
 
     @memoize_method
     def _bound_grad(self):
