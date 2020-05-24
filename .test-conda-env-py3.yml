@@ -1,10 +1,10 @@
 name: test-conda-env-py3
 channels:
 - conda-forge
-- defaults
+- nodefaults
 dependencies:
 - git
-- conda-forge::numpy
+- numpy
 
 # to avoid conflict with system openmpi's libhwloc
 - libhwloc=1
