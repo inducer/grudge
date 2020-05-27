@@ -362,6 +362,11 @@ class FunctionSymbol(ExpressionBase, VariableBase):
     :class:`~pymbolic.primitives.Call`.
     """
 
+    def __call__(self, *exprs):
+        from pytools.obj_array import with_object_array_or_scalar_n_args
+        return with_object_array_or_scalar_n_args(
+                super(FunctionSymbol, self).__call__, *exprs)
+
     mapper_method = "map_function_symbol"
 
 

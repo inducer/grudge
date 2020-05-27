@@ -30,7 +30,7 @@ import pyopencl as cl
 import pyopencl.array
 import pyopencl.clmath
 
-from pytools.obj_array import join_fields
+from pytools.obj_array import join_fields, make_obj_array
 
 import pytest  # noqa
 
@@ -616,6 +616,36 @@ def test_external_call(ctx_factory):
 
     result = bound_op(queue, double=double)
     assert (result == 5).get().all()
+
+
+@pytest.mark.parametrize("array_type", ["scalar", "vector"])
+def test_function_symbol_array(ctx_factory, array_type):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    dim = 2
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            n=(8,)*dim, order=4)
+    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=4)
+    nnodes = discr.discr_from_dd(sym.DD_VOLUME).nnodes
+
+    import pyopencl.clrandom        # noqa: F401
+    if array_type == "scalar":
+        sym_x = sym.var("x")
+        x = cl.clrandom.rand(queue, nnodes, dtype=np.float)
+    elif array_type == "vector":
+        sym_x = sym.make_sym_array("x", dim)
+        x = make_obj_array([
+            cl.clrandom.rand(queue, nnodes, dtype=np.float)
+            for _ in range(dim)
+            ])
+    else:
+        raise ValueError("unknown array type")
+
+    norm = bind(discr, sym.norm(2, sym_x))(queue, x=x)
+    assert isinstance(norm, float)
 
 
 # You can test individual routines by typing
