@@ -1138,6 +1138,31 @@ def test_empty_boundary(actx_factory):
         assert len(component) == len(discr.discr_from_dd(BTAG_NONE).groups)
 
 
+def test_operator_compiler_overwrite(ctx_factory):
+    """Tests that the same expression in ``eval_code`` and ``discr_code``
+    does not confuse the OperatorCompiler in grudge/symbolic/compiler.py.
+    """
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    ambient_dim = 2
+    target_order = 4
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
+            n=(8,)*ambient_dim, order=1)
+    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=target_order)
+
+    sym_u = sym.nodes(ambient_dim)
+    sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
+
+    div_u = bind(discr, sym_div_u)(queue)
+    error = la.norm(div_u.get(queue) - discr.dim)
+    logger.info("error: %.5e", error)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
