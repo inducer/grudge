@@ -31,9 +31,7 @@ def main():
               'Natural Language :: English',
               'Programming Language :: Python',
 
-              'Programming Language :: Python :: 2.6',
-              'Programming Language :: Python :: 2.7',
-              # 3.x has not yet been tested.
+              'Programming Language :: Python :: 3',
               'Topic :: Scientific/Engineering',
               'Topic :: Scientific/Engineering :: Information Analysis',
               'Topic :: Scientific/Engineering :: Mathematics',
