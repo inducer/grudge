@@ -651,6 +651,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                         # TODO: Not comprehensive.
                         sym_op.InterpolationOperator,
                         sym_op.RefFaceMassOperator,
+                        sym_op.RefMassOperator,
                         sym_op.RefInverseMassOperator,
                         sym_op.OppositeInteriorFaceSwap)):
                 val = self.map_profiled_essentially_elementwise_linear(

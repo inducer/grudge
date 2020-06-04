@@ -597,6 +597,9 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         self.ambient_dim = ambient_dim
         self.dim = dim
 
+        # NOTE: only use WADG on surfaces at the moment
+        self.use_wadg = self.ambient_dim == (self.dim + 1)
+
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
@@ -605,14 +608,17 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         # if we encounter non-quadrature operators here, we know they
         # must be nodal.
 
-        if expr.op.dd_in.is_volume():
+        dd_in = expr.op.dd_in
+        dd_out = expr.op.dd_out
+
+        if dd_in.is_volume():
             dim = self.dim
         else:
             dim = self.dim - 1
 
-        jac_in = sym.area_element(self.ambient_dim, dim, dd=expr.op.dd_in)
+        jac_in = sym.area_element(self.ambient_dim, dim, dd=dd_in)
         jac_noquad = sym.area_element(self.ambient_dim, dim,
-                dd=expr.op.dd_in.with_qtag(sym.QTAG_NONE))
+                dd=dd_in.with_qtag(sym.QTAG_NONE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
             jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
@@ -628,21 +634,31 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                     for rst_axis in range(self.dim))
 
         if isinstance(expr.op, op.MassOperator):
-            return op.RefMassOperator(expr.op.dd_in, expr.op.dd_out)(
+            return op.RefMassOperator(dd_in, dd_out)(
                     jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.InverseMassOperator):
-            return op.RefInverseMassOperator(expr.op.dd_in, expr.op.dd_out)(
-                1/jac_in * self.rec(expr.field))
+            if self.use_wadg:
+                # TODO: this is also required for flat curvilinear elements
+                # based on https://arxiv.org/pdf/1608.03836.pdf
+                return op.RefInverseMassOperator(dd_in, dd_out)(
+                    op.RefMassOperator(dd_in, dd_out)(
+                        1.0/jac_in * op.RefInverseMassOperator(dd_in, dd_out)(
+                            self.rec(expr.field))
+                            )
+                    )
+            else:
+                return op.RefInverseMassOperator(dd_in, dd_out)(
+                        1/jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.FaceMassOperator):
-            jac_in_surf = sym.area_element(self.ambient_dim, self.dim - 1,
-                    dd=expr.op.dd_in)
-            return op.RefFaceMassOperator(expr.op.dd_in, expr.op.dd_out)(
+            jac_in_surf = sym.area_element(
+                    self.ambient_dim, self.dim - 1, dd=dd_in)
+            return op.RefFaceMassOperator(dd_in, dd_out)(
                     jac_in_surf * self.rec(expr.field))
 
         elif isinstance(expr.op, op.StiffnessOperator):
-            return op.RefMassOperator()(
+            return op.RefMassOperator(dd_in=dd_in, dd_out=dd_out)(
                     jac_noquad
                     * self.rec(
                         op.DiffOperator(expr.op.xyz_axis)(expr.field)))
@@ -650,12 +666,12 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         elif isinstance(expr.op, op.DiffOperator):
             return rewrite_derivative(
                     op.RefDiffOperator,
-                    expr.field, dd_in=expr.op.dd_in, with_jacobian=False)
+                    expr.field, dd_in=dd_in, with_jacobian=False)
 
         elif isinstance(expr.op, op.StiffnessTOperator):
             return rewrite_derivative(
                     op.RefStiffnessTOperator,
-                    expr.field, dd_in=expr.op.dd_in)
+                    expr.field, dd_in=dd_in)
 
         elif isinstance(expr.op, op.MInvSTOperator):
             return self.rec(
@@ -804,6 +820,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_ones(self, expr, enclosing_prec):
         return "Ones:" + self._format_dd(expr.dd)
+
+    def map_signed_face_ones(self, expr, enclosing_prec):
+        return "SignedOnes:" + self._format_dd(expr.dd)
 
     # {{{ geometry data
 
@@ -1174,7 +1193,7 @@ class ErrorChecker(CSECachingMapperMixin, IdentityMapper):
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.DiffOperatorBase):
             if (self.mesh is not None
-                    and expr.op.xyz_axis >= self.mesh.dim):
+                    and expr.op.xyz_axis >= self.mesh.ambient_dim):
                 raise ValueError("optemplate tries to differentiate along a "
                         "non-existent axis (e.g. Z in 2D)")
 

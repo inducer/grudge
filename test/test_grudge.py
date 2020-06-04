@@ -31,19 +31,17 @@ import pyopencl.array
 import pyopencl.clmath
 
 from pytools.obj_array import join_fields, make_obj_array
+from grudge import sym, bind, DGDiscretizationWithBoundaries
 
-import pytest  # noqa
-
+import pytest
 from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+        pytest_generate_tests_for_pyopencl
+        as pytest_generate_tests)
 
 import logging
 
 logger = logging.getLogger(__name__)
-logging.basicConfig()
-logger.setLevel(logging.INFO)
-
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+logging.basicConfig(level=logging.INFO)
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -155,6 +153,166 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
                 sym.integral(sym_f, dd=dd_quad))(queue, f=f_quad)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
+
+
+def _ellipse_surface_area(radius, aspect_ratio):
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
+    eccentricity = 1.0 - (1/aspect_ratio)**2
+
+    if abs(aspect_ratio - 2.0) < 1.0e-14:
+        # NOTE: hardcoded value so we don't need scipy for the test
+        ellip_e = 1.2110560275684594
+    else:
+        from scipy.special import ellipe
+        ellip_e = ellipe(eccentricity)
+
+    return 4.0 * radius * ellip_e
+
+
+def _spheroid_surface_area(radius, aspect_ratio):
+    # https://en.wikipedia.org/wiki/Ellipsoid#Surface_area
+    a = 1.0
+    c = aspect_ratio
+
+    if a < c:
+        e = np.sqrt(1.0 - (a/c)**2)
+        return 2.0 * np.pi * radius**2 * (1.0 + (c/a) / e * np.arcsin(e))
+    else:
+        e = np.sqrt(1.0 - (c/a)**2)
+        return 2.0 * np.pi * radius**2 * (1 + (c/a)**2 / e * np.arctanh(e))
+
+
+@pytest.mark.parametrize("name", [
+    "2-1-ellipse", "spheroid", "box2d", "box3d"
+    ])
+def test_mass_surface_area(ctx_factory, name):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+        surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "box2d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=2)
+        surface_area = 1.0
+    elif name == "box3d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=3)
+        surface_area = 1.0
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=builder.order)
+        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+        x = discr.discr_from_dd("vol").nodes().get(queue)
+        logger.info("nnodes:    %d", volume_discr.nnodes)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+        logger.info("bbox:      %s",
+                [(np.min(x[n]), np.max(x[n])) for n in range(x.shape[0])])
+
+        # {{{ compute surface area
+
+        dd = sym.DD_VOLUME
+        sym_op = sym.NodalSum(dd)(sym.MassOperator(dd, dd)(sym.Ones(dd)))
+        approx_surface_area = bind(discr, sym_op)(queue)
+
+        logger.info("surface: got {:.5e} / expected {:.5e}".format(
+            approx_surface_area, surface_area))
+        area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
+
+        # }}}
+
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        eoc.add_data_point(h_max, area_error)
+
+    # }}}
+
+    logger.info("surface area error\n%s", str(eoc))
+
+    assert eoc.max_error() < 1.0e-14 \
+            or eoc.order_estimate() >= (builder.order - 1.0)
+
+
+@pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
+def test_surface_mass_operator_inverse(ctx_factory, name):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+        surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=builder.order)
+        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+        x = discr.discr_from_dd("vol").nodes().get(queue)
+        logger.info("nnodes:    %d", volume_discr.nnodes)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+        logger.info("bbox:      %s",
+                [(np.min(x[n]), np.max(x[n])) for n in range(x.shape[0])])
+
+        # {{{ compute inverse mass
+
+        dd = sym.DD_VOLUME
+        sym_f = sym.cos(4.0 * sym.nodes(mesh.ambient_dim, dd)[0])
+        sym_op = sym.InverseMassOperator(dd, dd)(
+                sym.MassOperator(dd, dd)(sym.var("f")))
+
+        f = bind(discr, sym_f)(queue)
+        f_inv = bind(discr, sym_op)(queue, f=f)
+
+        logger.info("inverse: got {:.5e} / expected {:.5e}".format(
+            cl.array.max(f - f_inv).get(queue), 1.0))
+        inv_error = la.norm(f.get(queue) - f_inv.get(queue)) \
+                / la.norm(f.get(queue))
+
+        # }}}
+
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        eoc.add_data_point(h_max, inv_error)
+
+    # }}}
+
+    logger.info("inverse mass error\n%s", str(eoc))
+
+    assert eoc.max_error() < 5.0e-09 \
+            or eoc.order_estimate() >= (builder.order - 1.0)
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
@@ -656,7 +814,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        from pytest import main
-        main([__file__])
+        pytest.main([__file__])
 
 # vim: fdm=marker
