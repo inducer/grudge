@@ -538,7 +538,9 @@ def parametrization_derivative(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     if dim == 0:
-        return MultiVector(np.array([_SignedFaceOnes(dd)]))
+        from pymbolic.geometric_algebra import get_euclidean_space
+        return MultiVector(_SignedFaceOnes(dd),
+                space=get_euclidean_space(ambient_dim))
 
     from pytools import product
     return product(
@@ -626,14 +628,8 @@ def area_element(ambient_dim, dim=None, dd=None):
             "area_element", cse_scope.DISCRETIZATION)
 
 
-def mv_normal(dd, ambient_dim, dim=None):
-    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
-
+def surface_normal(ambient_dim, dim=None, dd=None):
     dd = as_dofdesc(dd)
-
-    if not dd.is_trace():
-        raise ValueError("may only request normals on boundaries")
-
     if dim is None:
         dim = ambient_dim - 1
 
@@ -644,23 +640,46 @@ def mv_normal(dd, ambient_dim, dim=None):
             / area_element(ambient_dim, dim, dd=dd)
 
     # Dorst Section 3.7.2
-    mv = pder << pder.I.inv()
+    return cse(pder << pder.I.inv(),
+            "surface_normal",
+            cse_scope.DISCRETIZATION)
 
-    if dim == 0:
-        # NOTE: when the mesh is 0D, we do not have a clear notion of
-        # `exterior normal`, so we just take the tangent of the 1D element,
-        # interpolate it to the element faces and make it signed
-        tangent = parametrization_derivative(
-                ambient_dim, dim=1, dd=DD_VOLUME)
-        tangent = tangent / sqrt(tangent.norm_squared())
 
-        from grudge.symbolic.operators import interp
-        interp = interp(DD_VOLUME, dd)
-        mv = MultiVector(np.array([
-            mv.as_scalar() * interp(t) for t in tangent.as_vector()
-            ]))
+def mv_normal(dd, ambient_dim, dim=None):
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
+    dd = as_dofdesc(dd)
+    if not dd.is_trace():
+        raise ValueError("may only request normals on boundaries")
 
-    return cse(mv, "normal", cse_scope.DISCRETIZATION)
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if dim == ambient_dim - 1:
+        return surface_normal(ambient_dim, dim=dim, dd=dd)
+
+    # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
+    # enough information on the face to decide what an "exterior face normal"
+    # is (e.g the "normal" to a 1D curve in 3D space is actually a
+    # "normal plane")
+    #
+    # The trick done here is that we take the surface normal, move it to the
+    # face and then take a cross product with the face normal to get the
+    # correct exterior face normal vector.
+    assert dim == ambient_dim - 2
+
+    from grudge.symbolic.operators import interp
+    volm_normal = (
+            surface_normal(ambient_dim, dim=dim + 1, dd=DD_VOLUME)
+            .map(interp(DD_VOLUME, dd)))
+    pder = pseudoscalar(ambient_dim, dim, dd=dd)
+
+    mv = cse(-(volm_normal ^ pder) << volm_normal.I.inv(),
+            "face_normal",
+            cse_scope.DISCRETIZATION)
+
+    return cse(mv / sqrt(mv.norm_squared()),
+            "unit_face_normal",
+            cse_scope.DISCRETIZATION)
 
 
 def normal(dd, ambient_dim, dim=None, quadrature_tag=None):

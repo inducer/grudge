@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
+# {{{ inverse metric
+
 @pytest.mark.parametrize("dim", [2, 3])
 def test_inverse_metric(ctx_factory, dim):
     cl_ctx = ctx_factory()
@@ -88,6 +90,10 @@ def test_inverse_metric(ctx_factory, dim):
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
+# }}}
+
+
+# {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
@@ -154,6 +160,10 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
 
+# }}}
+
+
+# {{{ mass operator surface area
 
 def _ellipse_surface_area(radius, aspect_ratio):
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
@@ -250,6 +260,10 @@ def test_mass_surface_area(ctx_factory, name):
     assert eoc.max_error() < 1.0e-14 \
             or eoc.order_estimate() >= (builder.order - 1.0)
 
+# }}}
+
+
+# {{{ surface mass inverse
 
 @pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
 def test_surface_mass_operator_inverse(ctx_factory, name):
@@ -314,6 +328,119 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
     assert eoc.max_error() < 5.0e-09 \
             or eoc.order_estimate() >= (builder.order - 1.0)
 
+# }}}
+
+
+# {{{ surface face normal orthogonality
+
+def _avg_face_normal(dd, ambient_dim, dim=None):
+    dd = sym.as_dofdesc(dd)
+    assert dd.is_trace()
+
+    if dim is None:
+        dim = ambient_dim - 1
+
+    face_normal_i = sym.normal(dd, ambient_dim, dim=dim)
+    face_normal_e = sym.OppositeInteriorFaceSwap()(face_normal_i)
+    face_normal = (face_normal_i - face_normal_e) / 2.0
+
+    return sym.cse(
+            face_normal / sym.sqrt(face_normal.dot(face_normal)),
+            "avg_face_normal",
+            sym.cse_scope.DISCRETIZATION)
+
+
+@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
+def test_face_normal_surface(ctx_factory, mesh_name):
+    """Check that face normals are orthogonal to the surface normal"""
+
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+
+    # {{{ geometry
+
+    if mesh_name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif mesh_name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    else:
+        raise ValueError("unknown mesh name: %s" % mesh_name)
+
+    mesh = builder.get_mesh(builder.resolutions[1], builder.mesh_order)
+    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=builder.order)
+
+    # }}}
+
+    # {{{ symbolic
+
+    dv = sym.DD_VOLUME
+    df = sym.as_dofdesc(sym.FACE_RESTR_INTERIOR)
+
+    ambient_dim = mesh.ambient_dim
+    surf_dim = mesh.dim
+    face_dim = surf_dim - 1
+
+    sym_surf_normal = sym.interp(dv, df)(
+            sym.surface_normal(ambient_dim, dim=surf_dim, dd=dv).as_vector()
+            )
+    sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
+
+    sym_face_normal_i = sym.normal(df, ambient_dim, dim=face_dim)
+    sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
+
+    sym_face_normal_avg = _avg_face_normal(df, ambient_dim, dim=face_dim)
+    sym_face_normal_op = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_avg)
+
+    if mesh.ambient_dim == 3:
+        # NOTE: there's only one face tangent in 3d
+        sym_face_tangent = (sym.pseudoscalar(ambient_dim, face_dim, dd=df)
+                / sym.area_element(ambient_dim, face_dim, dd=df)).as_vector()
+
+    # }}}
+
+    # {{{ checks
+
+    rtol = 1.0e-14
+
+    surf_normal = bind(discr, sym_surf_normal)(queue)
+
+    face_normal_i = bind(discr, sym_face_normal_i)(queue)
+    face_normal_e = bind(discr, sym_face_normal_e)(queue)
+
+    face_normal_avg = bind(discr, sym_face_normal_avg)(queue)
+    face_normal_op = bind(discr, sym_face_normal_op)(queue)
+
+    # check interpolated surface normal is orthogonal to face normal
+    error = la.norm(surf_normal.dot(face_normal_i).get(queue), np.inf)
+    logger.info("error[n_dot_i]:    %.5e", error)
+    assert error < rtol
+
+    # check angle between two neighboring elements
+    error = la.norm(face_normal_i.dot(face_normal_e).get(queue) + 1.0, np.inf)
+    logger.info("error[i_dot_e]:    %.5e", error)
+    assert error > rtol
+
+    # check uniqueness of normal on the two sides
+    error = la.norm(sum(face_normal_avg + face_normal_op).get(queue), np.inf)
+    logger.info("error[a_plus_o]:   %.5e", error)
+    assert error < rtol
+
+    # check orthogonality with face tangent
+    if ambient_dim == 3:
+        face_tangent = bind(discr, sym_face_tangent)(queue)
+
+        error = la.norm(face_tangent.dot(face_normal_avg).get(queue), np.inf)
+        logger.info("error[t_dot_avg]:  %.5e", error)
+        assert error < 5 * rtol
+
+    # }}}
+
+# }}}
+
+
+# {{{ diff operator
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 def test_tri_diff_mat(ctx_factory, dim, order=4):
@@ -354,6 +481,10 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
         logger.info("axis %d\n%s", axis, eoc_rec)
         assert eoc_rec.order_estimate() >= order
 
+# }}}
+
+
+# {{{ divergence theorem
 
 def test_2d_gauss_theorem(ctx_factory):
     """Verify Gauss's theorem explicitly on a mesh"""
@@ -396,6 +527,10 @@ def test_2d_gauss_theorem(ctx_factory):
 
     assert abs(gauss_err) < 1e-13
 
+# }}}
+
+
+# {{{ models: advection
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
@@ -532,6 +667,10 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
     assert eoc_rec.order_estimate() > order
 
+# }}}
+
+
+# {{{ models: maxwell
 
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(ctx_factory,  order):
@@ -602,6 +741,10 @@ def test_convergence_maxwell(ctx_factory,  order):
 
     assert eoc_rec.order_estimate() > order
 
+# }}}
+
+
+# {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(ctx_factory, order):
@@ -671,6 +814,10 @@ def test_improvement_quadrature(ctx_factory, order):
     assert (q_errs < errs).all()
     assert q_eoc > order
 
+# }}}
+
+
+# {{{ foreign points
 
 def test_foreign_points(ctx_factory):
     pytest.importorskip("sumpy")
@@ -687,6 +834,10 @@ def test_foreign_points(ctx_factory):
 
     bind(pdiscr, sym.nodes(dim)**2)(queue)
 
+# }}}
+
+
+# {{{ operator collector determinism
 
 def test_op_collector_order_determinism():
     class TestOperator(sym.Operator):
@@ -712,6 +863,10 @@ def test_op_collector_order_determinism():
     # The output order isn't significant, but it should always be the same.
     assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
 
+# }}}
+
+
+# {{{ bessel
 
 def test_bessel(ctx_factory):
     cl_ctx = ctx_factory()
@@ -741,6 +896,10 @@ def test_bessel(ctx_factory):
 
     assert z < 1e-15
 
+# }}}
+
+
+# {{{ function symbol
 
 def test_external_call(ctx_factory):
     cl_ctx = ctx_factory()
@@ -804,6 +963,8 @@ def test_function_symbol_array(ctx_factory, array_type):
 
     norm = bind(discr, sym.norm(2, sym_x))(queue, x=x)
     assert isinstance(norm, float)
+
+# }}}
 
 
 # You can test individual routines by typing
