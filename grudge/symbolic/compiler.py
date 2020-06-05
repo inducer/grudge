@@ -95,6 +95,7 @@ class LoopyKernelInstruction(Instruction):
     scope_indicator = ""
 
     def __init__(self, kernel_descriptor):
+        super(LoopyKernelInstruction, self).__init__()
         self.kernel_descriptor = kernel_descriptor
 
     @memoize_method
