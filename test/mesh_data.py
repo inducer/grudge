@@ -74,7 +74,7 @@ class SpheroidMeshBuilder(MeshBuilder):
 
     mesh_order = 3
     resolutions = [1.0, 0.1, 0.05]
-    # resolutions = [1.0, 0.1, 0.05, 0.025, 0.015]
+    # resolutions = [1.0, 0.1, 0.05, 0.03, 0.015]
 
     @property
     def radius(self):

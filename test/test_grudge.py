@@ -527,6 +527,163 @@ def test_2d_gauss_theorem(ctx_factory):
 
     assert abs(gauss_err) < 1e-13
 
+
+@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
+def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
+    r"""Check the surface divergence theorem.
+
+        .. math::
+
+            \int_Sigma \phi \nabla_i f_i =
+            \int_\Sigma \nabla_i \phi f_i +
+            \int_\Sigma \kappa \phi f_i n_i +
+            \int_{\partial \Sigma} \phi f_i m_i
+
+        where :math:`n_i` is the surface normal and :class:`m_i` is the
+        face normal (which should be orthogonal to both the surface normal
+        and the face tangent).
+    """
+
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+
+    # {{{ cases
+
+    if mesh_name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif mesh_name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    elif mesh_name == "circle":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
+    elif mesh_name == "starfish":
+        from mesh_data import StarfishMeshBuilder
+        builder = StarfishMeshBuilder()
+    elif mesh_name == "sphere":
+        from mesh_data import SphereMeshBuilder
+        builder = SphereMeshBuilder(radius=1.0, mesh_order=16)
+    else:
+        raise ValueError("unknown mesh name: %s" % mesh_name)
+
+    # }}}
+
+    # {{{ convergene
+
+    def f(x):
+        return join_fields(
+                sym.sin(3*x[1]) + sym.cos(3*x[0]) + 1.0,
+                sym.sin(2*x[0]) + sym.cos(x[1]),
+                3.0 * sym.cos(x[0] / 2) + sym.cos(x[1]),
+                )[:ambient_dim]
+
+    from pytools.convergence import EOCRecorder
+    eoc_global = EOCRecorder()
+    eoc_local = EOCRecorder()
+
+    theta = np.pi / 3.33
+    ambient_dim = builder.ambient_dim
+    if ambient_dim == 2:
+        mesh_rotation = np.array([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta), np.cos(theta)],
+            ])
+    else:
+        mesh_rotation = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, np.cos(theta), -np.sin(theta)],
+            [0.0, np.sin(theta), np.cos(theta)],
+            ])
+
+    mesh_offset = np.array([0.33, -0.21, 0.0])[:ambient_dim]
+
+    for i, resolution in enumerate(builder.resolutions):
+        from meshmode.mesh.processing import affine_map
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        # mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
+
+        from meshmode.discretization.poly_element import \
+                QuadratureSimplexGroupFactory
+        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=builder.order,
+                quad_tag_to_group_factory={
+                    "product": QuadratureSimplexGroupFactory(2 * builder.order)
+                    })
+
+        volume = discr.discr_from_dd(sym.DD_VOLUME)
+        assert len(volume.groups) == 1
+        logger.info("nnodes:    %d", volume.nnodes)
+        logger.info("nelements: %d", volume.mesh.nelements)
+
+        dd = sym.DD_VOLUME
+        dq = dd.with_qtag("product")
+        df = sym.as_dofdesc(sym.FACE_RESTR_ALL)
+        ambient_dim = discr.ambient_dim
+        dim = discr.dim
+
+        # variables
+        sym_f = f(sym.nodes(ambient_dim, dd=dd))
+        sym_f_quad = f(sym.nodes(ambient_dim, dd=dq))
+        sym_kappa = sym.summed_curvature(ambient_dim, dim=dim, dd=dq)
+        sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
+
+        sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
+        sym_face_f = sym.interp(dd, df)(sym_f)
+
+        # operators
+        sym_stiff = sum(
+                sym.StiffnessOperator(d)(f) for d, f in enumerate(sym_f)
+                )
+        sym_stiff_t = sum(
+                sym.StiffnessTOperator(d)(f) for d, f in enumerate(sym_f)
+                )
+        sym_k = sym.MassOperator(dq, dd)(sym_kappa * sym_f_quad.dot(sym_normal))
+        sym_flux = sym.FaceMassOperator()(sym_face_f.dot(sym_face_normal))
+
+        # sum everything up and check the result
+        sym_op_global = sym.NodalSum(dd)(
+                sym_stiff - (sym_stiff_t + sym_k))
+        sym_op_local = sym.ElementwiseSumOperator(dd)(
+                sym_stiff - (sym_stiff_t + sym_k + sym_flux))
+
+        op_global = bind(discr, sym_op_global)(queue)
+        op_local = bind(discr, sym_op_local)(queue).get(queue)
+
+        err_global = la.norm(op_global)
+        err_local = la.norm(
+                la.norm(volume.groups[0].view(op_local), np.inf, axis=1),
+                np.inf)
+        logger.info("errors: global %.5e local %.5e", err_global, err_local)
+
+        # compute max element size
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        eoc_global.add_data_point(h_max, err_global)
+        eoc_local.add_data_point(h_max, err_local)
+
+        if visualize:
+            r = cl.array.to_device(queue, op_local)
+            r = cl.clmath.log10(cl.clmath.fabs(r) + 1.0e-16)
+
+            from meshmode.discretization.visualization import make_visualizer
+            vis = make_visualizer(queue, discr, vis_order=builder.order)
+
+            filename = "test_surface_divergence_theorem_error_{:04d}".format(i)
+            vis.write_vtk_file(filename, [
+                ("r", r)
+                ], overwrite=True, legend=False)
+
+    # }}}
+
+    order = min(builder.order, builder.mesh_order) - 0.5
+    logger.info("\n%s", str(eoc_global))
+    logger.info("\n%s", str(eoc_local))
+
+    assert eoc_global.max_error() < 1.0e-12 \
+            or eoc_global.order_estimate() >= order
+
+    assert eoc_local.max_error() < 1.0e-12 \
+            or eoc_local.order_estimate() >= order
+
 # }}}
 
 
@@ -537,6 +694,7 @@ def test_2d_gauss_theorem(ctx_factory):
     ("disk", [0.1, 0.05]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
+    ("warped", [4, 6, 8])
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["central"])
@@ -548,6 +706,9 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+
+    if mesh_name == "warped" and op_type == "strong":
+        pytest.skip("expected failure for strong form on curvilinear grids")
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -590,7 +751,12 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
                 dt_factor = 2
             else:
                 raise ValueError("dt_factor not known for %dd" % dim)
+        elif mesh_name == "warped":
+            dim = 2
+            from meshmode.mesh.generation import generate_warped_rect_mesh
+            mesh = generate_warped_rect_mesh(dim, order, mesh_par)
 
+            dt_factor = 1 if dim == 2 else 2
         else:
             raise ValueError("invalid mesh name: " + mesh_name)
 
@@ -665,7 +831,11 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         abscissa_label="h",
         error_label="L2 Error"))
 
-    assert eoc_rec.order_estimate() > order
+    if mesh_name == "warped":
+        # NOTE: warped grids are hard.. be more forgiving
+        assert eoc_rec.order_estimate() > order - 0.25
+    else:
+        assert eoc_rec.order_estimate() > order
 
 # }}}
 

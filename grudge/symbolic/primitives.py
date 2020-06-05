@@ -494,7 +494,7 @@ def mv_nodes(ambient_dim, dd=None):
     return MultiVector(nodes(ambient_dim, dd))
 
 
-def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
+def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
     r"""
     Pointwise metric derivatives representing
 
@@ -502,24 +502,44 @@ def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
 
         \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}} }
     """
+
+    if isinstance(ref_axes, int):
+        ref_axes = ((ref_axes, 1),)
+
+    if not isinstance(ref_axes, tuple):
+        raise ValueError("ref_axes must be a tuple")
+
+    if tuple(sorted(ref_axes)) != ref_axes:
+        raise ValueError("ref_axes must be sorted")
+
+    if len(dict(ref_axes)) != len(ref_axes):
+        raise ValueError("ref_axes must not contain an axis more than once")
+
     if dd is None:
         dd = DD_VOLUME
-
     inner_dd = dd.with_qtag(QTAG_NONE)
 
-    from grudge.symbolic.operators import RefDiffOperator
-    diff_op = RefDiffOperator(rst_axis, inner_dd)
+    from pytools import flatten
+    flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
 
-    result = diff_op(NodeCoordinateComponent(xyz_axis, inner_dd))
+    from grudge.symbolic.operators import RefDiffOperator
+    result = NodeCoordinateComponent(xyz_axis, inner_dd)
+    for rst_axis in flat_ref_axes:
+        result = RefDiffOperator(rst_axis, inner_dd)(result)
 
     if dd.uses_quadrature():
         from grudge.symbolic.operators import interp
         result = interp(inner_dd, dd)(result)
 
-    return cse(
-            result,
-            prefix="dx%d_dr%d" % (xyz_axis, rst_axis),
-            scope=cse_scope.DISCRETIZATION)
+    prefix = "dx%d_%s" % (
+            xyz_axis,
+            "_".join("%sr%d" % ("d" * n, rst_axis) for rst_axis, n in ref_axes))
+
+    return cse(result, prefix, cse_scope.DISCRETIZATION)
+
+
+def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
+    return forward_metric_nth_derivative(xyz_axis, rst_axis, dd=dd)
 
 
 def forward_metric_derivative_vector(ambient_dim, rst_axis, dd=None):
@@ -594,6 +614,7 @@ def forward_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     result = np.zeros((ambient_dim, dim), dtype=np.object)
     for j in range(dim):
         result[:, j] = forward_metric_derivative_vector(ambient_dim, j, dd=dd)
+
     return result
 
 
@@ -608,6 +629,91 @@ def inverse_metric_derivative_mat(ambient_dim, dim=None, dd=None):
                     i, j, ambient_dim, dim, dd=dd)
 
     return result
+
+
+def first_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    mder = forward_metric_derivative_mat(ambient_dim, dim=dim, dd=dd)
+    return cse(mder.T.dot(mder), "form1_mat", cse_scope.DISCRETIZATION)
+
+
+def inverse_first_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == dim:
+        inv_mder = inverse_metric_derivative_mat(ambient_dim, dim=dim, dd=dd)
+        inv_form1 = inv_mder.dot(inv_mder.T)
+    else:
+        form1 = first_fundamental_form(ambient_dim, dim, dd)
+
+        if dim == 1:
+            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=np.object)
+        elif dim == 2:
+            (E, F), (_, G) = form1      # noqa: N806
+            inv_form1 = 1.0 / (E * G - F * F) * np.array([
+                [G, -F], [-F, E]
+                ], dtype=np.object)
+        else:
+            raise ValueError("%dD surfaces not supported" % dim)
+
+    return cse(inv_form1, "inv_form1_mat", cse_scope.DISCRETIZATION)
+
+
+def inverse_surface_metric_derivative(rst_axis, xyz_axis,
+        ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == dim:
+        return inverse_metric_derivative(rst_axis, xyz_axis,
+                ambient_dim, dim=dim, dd=dd)
+    else:
+        inv_form1 = inverse_first_fundamental_form(ambient_dim, dim=dim, dd=dd)
+        imd = sum(
+                inv_form1[rst_axis, d] * forward_metric_derivative(xyz_axis, d, dd=dd)
+                for d in range(dim))
+
+        return cse(imd,
+                prefix="ds%d_dx%d" % (rst_axis, xyz_axis),
+                scope=cse_scope.DISCRETIZATION)
+
+
+def second_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    normal = surface_normal(ambient_dim, dim=dim, dd=dd).as_vector()
+    if dim == 1:
+        second_ref_axes = [((0, 2),)]
+    elif dim == 2:
+        second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
+    else:
+        raise ValueError("%dD surfaces not supported" % dim)
+
+    from pytools import flatten
+    form2 = np.empty((dim, dim), dtype=np.object)
+    for ref_axes in second_ref_axes:
+        i, j = flatten([rst_axis] * n for rst_axis, n in ref_axes)
+
+        ruv = np.array([
+            forward_metric_nth_derivative(xyz_axis, ref_axes, dd=dd)
+            for xyz_axis in range(ambient_dim)])
+        form2[i, j] = form2[j, i] = normal.dot(ruv)
+
+    return cse(form2, "form2_mat", cse_scope.DISCRETIZATION)
+
+
+def shape_operator(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    inv_form1 = inverse_first_fundamental_form(ambient_dim, dim=dim, dd=dd)
+    form2 = second_fundamental_form(ambient_dim, dim=dim, dd=dd)
+
+    return cse(-form2.dot(inv_form1), "shape_operator", cse_scope.DISCRETIZATION)
 
 
 def pseudoscalar(ambient_dim, dim=None, dd=None):
@@ -684,6 +790,24 @@ def mv_normal(dd, ambient_dim, dim=None):
 
 def normal(dd, ambient_dim, dim=None, quadrature_tag=None):
     return mv_normal(dd, ambient_dim, dim).as_vector()
+
+
+def summed_curvature(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == 1:
+        return 0.0
+
+    if ambient_dim == dim:
+        return 0.0
+
+    op = shape_operator(ambient_dim, dim=dim, dd=dd)
+    return cse(np.trace(op), "summed_curvature", cse_scope.DISCRETIZATION)
+
+
+def mean_curvature(ambient_dim, dim=None, dd=None):
+    return 1.0 / (ambient_dim-1.0) * summed_curvature(ambient_dim, dim=dim, dd=dd)
 
 # }}}
 

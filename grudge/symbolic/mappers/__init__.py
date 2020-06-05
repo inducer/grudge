@@ -621,17 +621,24 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                 dd=dd_in.with_qtag(sym.QTAG_NONE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
-            jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
+            def imd(rst):
+                return sym.inverse_surface_metric_derivative(
+                        rst, expr.op.xyz_axis,
+                        ambient_dim=self.ambient_dim, dim=self.dim,
+                        dd=dd_in)
 
             rec_field = self.rec(field)
             if with_jacobian:
+                jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
                 rec_field = jac_tag * rec_field
-            return sum(
-                    sym.inverse_metric_derivative(
-                        rst_axis, expr.op.xyz_axis,
-                        ambient_dim=self.ambient_dim, dim=self.dim)
-                    * ref_class(rst_axis, dd_in=dd_in)(rec_field)
-                    for rst_axis in range(self.dim))
+
+                return sum(
+                        ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
+                        for rst_axis in range(self.dim))
+            else:
+                return sum(
+                        ref_class(rst_axis, dd_in=dd_in)(rec_field) * imd(rst_axis)
+                        for rst_axis in range(self.dim))
 
         if isinstance(expr.op, op.MassOperator):
             return op.RefMassOperator(dd_in, dd_out)(
