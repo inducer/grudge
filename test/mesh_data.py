@@ -91,11 +91,11 @@ class SpheroidMeshBuilder(MeshBuilder):
     def get_mesh(self, resolution, mesh_order):
         from meshmode.mesh.io import ScriptSource
         source = ScriptSource("""
-        SetFactory("OpenCASCADE");
-        Sphere(1) = {{0, 0, 0, {r}}};
-        Dilate {{ {{0, 0, 0}}, {{ {r}, {r}, {rr} }} }} {{ Volume{{1}}; }}
-        """.format(r=self.diameter, rr=self.aspect_ratio * self.diameter),
-        "geo"
+            SetFactory("OpenCASCADE");
+            Sphere(1) = {{0, 0, 0, {r}}};
+            Dilate {{ {{0, 0, 0}}, {{ {r}, {r}, {rr} }} }} {{ Volume{{1}}; }}
+            """.format(r=self.diameter, rr=self.aspect_ratio * self.diameter),
+            "geo"
         )
 
         from meshmode.mesh.io import generate_gmsh

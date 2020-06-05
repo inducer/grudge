@@ -673,7 +673,7 @@ def inverse_surface_metric_derivative(rst_axis, xyz_axis,
     else:
         inv_form1 = inverse_first_fundamental_form(ambient_dim, dim=dim, dd=dd)
         imd = sum(
-                inv_form1[rst_axis, d] * forward_metric_derivative(xyz_axis, d, dd=dd)
+                inv_form1[rst_axis, d]*forward_metric_derivative(xyz_axis, d, dd=dd)
                 for d in range(dim))
 
         return cse(imd,

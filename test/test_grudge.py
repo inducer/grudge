@@ -275,11 +275,9 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
     if name == "2-1-ellipse":
         from mesh_data import EllipseMeshBuilder
         builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
-        surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "spheroid":
         from mesh_data import SpheroidMeshBuilder
         builder = SpheroidMeshBuilder()
-        surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
@@ -601,7 +599,7 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
     for i, resolution in enumerate(builder.resolutions):
         from meshmode.mesh.processing import affine_map
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        # mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
+        mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
 
         from meshmode.discretization.poly_element import \
                 QuadratureSimplexGroupFactory
