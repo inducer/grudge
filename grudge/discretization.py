@@ -388,8 +388,13 @@ class PointsDiscretization(DiscretizationBase):
 
         self.mpi_communicator = None
 
+    @property
     def ambient_dim(self):
         return self._nodes.shape[0]
+
+    @property
+    def dim(self):
+        return self.ambient_dim
 
     @property
     def mesh(self):

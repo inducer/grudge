@@ -102,7 +102,8 @@ class SpheroidMeshBuilder(MeshBuilder):
         mesh = generate_gmsh(source, 2, order=mesh_order,
                 other_options=[
                     "-string",
-                    "Mesh.CharacteristicLengthMax = %g;" % resolution])
+                    "Mesh.CharacteristicLengthMax = %g;" % resolution],
+                target_unit="MM")
 
         from meshmode.mesh.processing import perform_flips
         return perform_flips(mesh, np.ones(mesh.nelements))

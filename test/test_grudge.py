@@ -455,7 +455,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
     from pytools.convergence import EOCRecorder
     axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
 
-    for n in [10, 20]:
+    for n in [4, 8, 16]:
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
@@ -692,7 +692,6 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
     ("disk", [0.1, 0.05]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
-    ("warped", [4, 6, 8])
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["central"])
@@ -704,9 +703,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-
-    if mesh_name == "warped" and op_type == "strong":
-        pytest.skip("expected failure for strong form on curvilinear grids")
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -749,12 +745,6 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
                 dt_factor = 2
             else:
                 raise ValueError("dt_factor not known for %dd" % dim)
-        elif mesh_name == "warped":
-            dim = 2
-            from meshmode.mesh.generation import generate_warped_rect_mesh
-            mesh = generate_warped_rect_mesh(dim, order, mesh_par)
-
-            dt_factor = 1 if dim == 2 else 2
         else:
             raise ValueError("invalid mesh name: " + mesh_name)
 
@@ -829,11 +819,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         abscissa_label="h",
         error_label="L2 Error"))
 
-    if mesh_name == "warped":
-        # NOTE: warped grids are hard.. be more forgiving
-        assert eoc_rec.order_estimate() > order - 0.25
-    else:
-        assert eoc_rec.order_estimate() > order
+    assert eoc_rec.order_estimate() > order
 
 # }}}
 
