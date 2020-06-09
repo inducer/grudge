@@ -250,7 +250,8 @@ def test_mass_surface_area(ctx_factory, name):
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(queue)
         eoc.add_data_point(h_max, area_error)
 
     # }}}
@@ -258,7 +259,7 @@ def test_mass_surface_area(ctx_factory, name):
     logger.info("surface area error\n%s", str(eoc))
 
     assert eoc.max_error() < 1.0e-14 \
-            or eoc.order_estimate() >= (builder.order - 1.0)
+            or eoc.order_estimate() > builder.order
 
 # }}}
 
@@ -316,7 +317,8 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(queue)
         eoc.add_data_point(h_max, inv_error)
 
     # }}}
@@ -324,7 +326,7 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
     logger.info("inverse mass error\n%s", str(eoc))
 
     assert eoc.max_error() < 5.0e-09 \
-            or eoc.order_estimate() >= (builder.order - 1.0)
+            or eoc.order_estimate() > builder.order
 
 # }}}
 
@@ -477,7 +479,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
         logger.info("axis %d\n%s", axis, eoc_rec)
-        assert eoc_rec.order_estimate() >= order
+        assert eoc_rec.order_estimate() > order
 
 # }}}
 
@@ -654,7 +656,8 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim, dd=dd))(queue)
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(queue)
         eoc_global.add_data_point(h_max, err_global)
         eoc_local.add_data_point(h_max, err_local)
 
@@ -677,10 +680,10 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
     logger.info("\n%s", str(eoc_local))
 
     assert eoc_global.max_error() < 1.0e-12 \
-            or eoc_global.order_estimate() >= order
+            or eoc_global.order_estimate() > order - 0.5
 
     assert eoc_local.max_error() < 1.0e-12 \
-            or eoc_local.order_estimate() >= order
+            or eoc_local.order_estimate() > order - 0.5
 
 # }}}
 

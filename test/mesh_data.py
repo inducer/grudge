@@ -73,8 +73,8 @@ class SpheroidMeshBuilder(MeshBuilder):
     ambient_dim = 3
 
     mesh_order = 3
-    resolutions = [1.0, 0.1, 0.05]
-    # resolutions = [1.0, 0.1, 0.05, 0.03, 0.015]
+    resolutions = [1.0, 0.11, 0.05]
+    # resolutions = [1.0, 0.11, 0.05, 0.03, 0.015]
 
     @property
     def radius(self):
@@ -101,8 +101,9 @@ class SpheroidMeshBuilder(MeshBuilder):
         from meshmode.mesh.io import generate_gmsh
         mesh = generate_gmsh(source, 2, order=mesh_order,
                 other_options=[
-                    "-string",
-                    "Mesh.CharacteristicLengthMax = %g;" % resolution],
+                    "-optimize_ho",
+                    "-string", "Mesh.CharacteristicLengthMax = %g;" % resolution
+                    ],
                 target_unit="MM")
 
         from meshmode.mesh.processing import perform_flips
