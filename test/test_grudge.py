@@ -514,22 +514,6 @@ def test_improvement_quadrature(ctx_factory, order):
     assert q_eoc > order
 
 
-def test_foreign_points(ctx_factory):
-    pytest.importorskip("sumpy")
-    import sumpy.point_calculus as pc
-
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-
-    dim = 2
-    cp = pc.CalculusPatch(np.zeros(dim))
-
-    from grudge.discretization import PointsDiscretization
-    pdiscr = PointsDiscretization(cl.array.to_device(queue, cp.points))
-
-    bind(pdiscr, sym.nodes(dim)**2)(queue)
-
-
 def test_op_collector_order_determinism():
     class TestOperator(sym.Operator):
 
