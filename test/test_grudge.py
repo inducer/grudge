@@ -29,8 +29,8 @@ import numpy.linalg as la
 import pyopencl as cl
 import pyopencl.array
 import pyopencl.clmath
+from pytools.obj_array import flat_obj_array, make_obj_array
 
-from pytools.obj_array import join_fields, make_obj_array
 
 import pytest  # noqa
 
@@ -221,7 +221,7 @@ def test_2d_gauss_theorem(ctx_factory):
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
 
     def f(x):
-        return join_fields(
+        return flat_obj_array(
                 sym.sin(3*x[0])+sym.cos(3*x[1]),
                 sym.sin(2*x[0])+sym.cos(x[1]))
 
@@ -458,7 +458,7 @@ def test_improvement_quadrature(ctx_factory, order):
 
     dims = 2
     sym_nds = sym.nodes(dims)
-    advec_v = join_fields(-1*sym_nds[1], sym_nds[0])
+    advec_v = flat_obj_array(-1*sym_nds[1], sym_nds[0])
 
     flux = "upwind"
     op = VariableCoefficientAdvectionOperator(advec_v, 0, flux_type=flux)

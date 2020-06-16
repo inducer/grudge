@@ -30,7 +30,7 @@ import numpy as np
 from grudge.models import HyperbolicOperator
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym
-from pytools.obj_array import join_fields
+from pytools.obj_array import flat_obj_array
 
 
 # {{{ constant-velocity
@@ -83,7 +83,7 @@ class StrongWaveOperator(HyperbolicOperator):
         v = w[1:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
-        flux_weak = join_fields(
+        flux_weak = flat_obj_array(
                 np.dot(v.avg, normal),
                 u.avg * normal)
 
@@ -91,13 +91,13 @@ class StrongWaveOperator(HyperbolicOperator):
             pass
         elif self.flux_type == "upwind":
             # see doc/notes/grudge-notes.tm
-            flux_weak -= self.sign*join_fields(
+            flux_weak -= self.sign*flat_obj_array(
                     0.5*(u.int-u.ext),
                     0.5*(normal * np.dot(normal, v.int-v.ext)))
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
-        flux_strong = join_fields(
+        flux_strong = flat_obj_array(
                 np.dot(v.int, normal),
                 u.int * normal) - flux_weak
 
@@ -122,16 +122,16 @@ class StrongWaveOperator(HyperbolicOperator):
                     "are still having issues.")
 
             dir_g = sym.Field("dir_bc_u")
-            dir_bc = join_fields(2*dir_g - dir_u, dir_v)
+            dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = join_fields(-dir_u, dir_v)
+            dir_bc = flat_obj_array(-dir_u, dir_v)
 
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
         neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
         neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
+        neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
@@ -139,7 +139,7 @@ class StrongWaveOperator(HyperbolicOperator):
         rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
         rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_bc = sym.cse(join_fields(
+        rad_bc = sym.cse(flat_obj_array(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
                 ), "rad_bc")
@@ -152,7 +152,7 @@ class StrongWaveOperator(HyperbolicOperator):
                     self.flux(pair))
 
         result = (
-                - join_fields(
+                - flat_obj_array(
                     -self.c*np.dot(nabla, v),
                     -self.c*(nabla*u)
                     )
@@ -230,14 +230,14 @@ class WeakWaveOperator(HyperbolicOperator):
         v = w[1:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
-        flux_weak = join_fields(
+        flux_weak = flat_obj_array(
                 np.dot(v.avg, normal),
                 u.avg * normal)
 
         if self.flux_type == "central":
             return -self.c*flux_weak
         elif self.flux_type == "upwind":
-            return -self.c*(flux_weak + self.sign*join_fields(
+            return -self.c*(flux_weak + self.sign*flat_obj_array(
                     0.5*(u.int-u.ext),
                     0.5*(normal * np.dot(normal, v.int-v.ext))))
         else:
@@ -262,16 +262,16 @@ class WeakWaveOperator(HyperbolicOperator):
                     "are still having issues.")
 
             dir_g = sym.Field("dir_bc_u")
-            dir_bc = join_fields(2*dir_g - dir_u, dir_v)
+            dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = join_fields(-dir_u, dir_v)
+            dir_bc = flat_obj_array(-dir_u, dir_v)
 
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
         neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
         neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(join_fields(neu_u, -neu_v), "neu_bc")
+        neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
@@ -279,7 +279,7 @@ class WeakWaveOperator(HyperbolicOperator):
         rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
         rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_bc = sym.cse(join_fields(
+        rad_bc = sym.cse(flat_obj_array(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
                 ), "rad_bc")
@@ -289,7 +289,7 @@ class WeakWaveOperator(HyperbolicOperator):
             return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
         result = sym.InverseMassOperator()(
-                join_fields(
+                flat_obj_array(
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
@@ -371,14 +371,16 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         normal = sym.normal(w.dd, self.ambient_dim)
 
         if self.flux_type == "central":
-            return -0.5 * join_fields(
+            return -0.5 * flat_obj_array(
                 np.dot(v.int*c.int + v.ext*c.ext, normal),
                 (u.int * c.int + u.ext*c.ext) * normal)
 
         elif self.flux_type == "upwind":
-            return -0.5 * join_fields(np.dot(normal, c.ext * v.ext + c.int * v.int)
+            return -0.5 * flat_obj_array(
+                    np.dot(normal, c.ext * v.ext + c.int * v.int)
                     + c.ext*u.ext - c.int * u.int,
-                normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)
+
+                    normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)
                     + c.ext*u.ext + c.int * u.int))
 
         else:
@@ -390,7 +392,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         w = sym.make_sym_array("w", d+1)
         u = w[0]
         v = w[1:]
-        flux_w = join_fields(self.c, w)
+        flux_w = flat_obj_array(self.c, w)
 
         # boundary conditions -------------------------------------------------
 
@@ -405,9 +407,9 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     "are still having issues.")
 
             dir_g = sym.Field("dir_bc_u")
-            dir_bc = join_fields(dir_c, 2*dir_g - dir_u, dir_v)
+            dir_bc = flat_obj_array(dir_c, 2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = join_fields(dir_c, -dir_u, dir_v)
+            dir_bc = flat_obj_array(dir_c, -dir_u, dir_v)
 
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
@@ -415,7 +417,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_c = sym.cse(sym.interp("vol", self.neumann_tag)(self.c))
         neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
         neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(join_fields(neu_c, neu_u, -neu_v), "neu_bc")
+        neu_bc = sym.cse(flat_obj_array(neu_c, neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
@@ -424,7 +426,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
         rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
 
-        rad_bc = sym.cse(join_fields(rad_c,
+        rad_bc = sym.cse(flat_obj_array(rad_c,
                 0.5*(rad_u - sym.interp("vol", self.radiation_tag)(self.sign)
                     * np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v)
@@ -436,7 +438,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             return sym.interp(pair.dd, "all_faces")(self.flux(pair))
 
         result = sym.InverseMassOperator()(
-                join_fields(
+                flat_obj_array(
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )

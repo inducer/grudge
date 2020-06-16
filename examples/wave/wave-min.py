@@ -73,8 +73,8 @@ def main(write_output=True, order=4):
             flux_type="upwind")
 
     queue = cl.CommandQueue(discr.cl_context)
-    from pytools.obj_array import join_fields
-    fields = join_fields(discr.zeros(queue),
+    from pytools.obj_array import flat_obj_array
+    fields = flat_obj_array(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
     # FIXME

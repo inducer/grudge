@@ -148,8 +148,8 @@ def mpi_communication_entrypoint():
             radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
-    from pytools.obj_array import join_fields
-    fields = join_fields(vol_discr.zeros(queue),
+    from pytools.obj_array import flat_obj_array
+    fields = flat_obj_array(vol_discr.zeros(queue),
             [vol_discr.zeros(queue) for i in range(vol_discr.dim)])
 
     # FIXME

@@ -29,13 +29,13 @@ import pyopencl as cl
 import pyopencl.array as cla  # noqa
 import pyopencl.clmath as clmath
 from pytools.obj_array import (
-        join_fields, make_obj_array,
         with_object_array_or_scalar)
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from grudge.eager import EagerDGDiscretization, with_queue
 from grudge.symbolic.primitives import TracePair
 from grudge.shortcuts import make_visualizer
 
+from pytools.obj_array import flat_obj_array, make_obj_array
 
 def interior_trace_pair(discr, vec):
     i = discr.interp("vol", "int_faces", vec)
@@ -57,14 +57,14 @@ def wave_flux(discr, c, w_tpair):
         # workaround for object array behavior
         return make_obj_array([ni*scalar for ni in normal])
 
-    flux_weak = join_fields(
+    flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
             normal_times(u.avg),
             )
 
     # upwind
     v_jump = np.dot(normal, v.int-v.ext)
-    flux_weak -= join_fields(
+    flux_weak -= flat_obj_array(
             0.5*(u.int-u.ext),
             0.5*normal_times(v_jump),
             )
@@ -78,12 +78,12 @@ def wave_operator(discr, c, w):
 
     dir_u = discr.interp("vol", BTAG_ALL, u)
     dir_v = discr.interp("vol", BTAG_ALL, v)
-    dir_bval = join_fields(dir_u, dir_v)
-    dir_bc = join_fields(-dir_u, dir_v)
+    dir_bval = flat_obj_array(dir_u, dir_v)
+    dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
             discr.inverse_mass(
-                join_fields(
+                flat_obj_array(
                     c*discr.weak_div(v),
                     c*discr.weak_grad(u)
                     )
@@ -112,7 +112,7 @@ def bump(discr, queue, t=0):
     source_omega = 3
 
     nodes = discr.nodes().with_queue(queue)
-    center_dist = join_fields([
+    center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(discr.dim)
         ])
@@ -151,7 +151,7 @@ def main():
 
     discr = EagerDGDiscretization(cl_ctx, mesh, order=order)
 
-    fields = join_fields(
+    fields = flat_obj_array(
             bump(discr, queue),
             [discr.zeros(queue) for i in range(discr.dim)]
             )
