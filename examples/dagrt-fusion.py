@@ -50,7 +50,7 @@ from pymbolic.mapper import Mapper
 from pymbolic.mapper.evaluator import EvaluationMapper \
         as PymbolicEvaluationMapper
 from pytools import memoize
-from pytools.obj_array import join_fields
+from pytools.obj_array import flat_obj_array
 
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from leap.rk import LSRK4MethodBuilder
@@ -254,7 +254,7 @@ class RK4TimeStepperBase(object):
                 flattened_fields.extend(field)
             else:
                 flattened_fields.append(field)
-        flattened_fields = join_fields(*flattened_fields)
+        flattened_fields = flat_obj_array(*flattened_fields)
         del fields
 
         return {
@@ -286,7 +286,7 @@ class RK4TimeStepperBase(object):
         assert len(output_states) == num_fields
         assert len(output_states) == len(output_residuals)
 
-        flattened_results = join_fields(output_t, output_dt, *output_states)
+        flattened_results = flat_obj_array(output_t, output_dt, *output_states)
 
         self.bound_op = bind(
                 discr, flattened_results,
@@ -353,7 +353,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
                     + tuple(
                         Variable(field_var_name, dd=sym.DD_VOLUME)[i]
                         for i in range(num_fields)))))
-        sym_rhs = join_fields(*(call[i] for i in range(num_fields)))
+        sym_rhs = flat_obj_array(*(call[i] for i in range(num_fields)))
 
         self.queue = queue
         self.grudge_bound_op = grudge_bound_op
@@ -376,7 +376,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
     def _bound_op(self, queue, t, *args, profile_data=None):
         context = {
                 "t": t,
-                self.field_var_name: join_fields(*args)}
+                self.field_var_name: flat_obj_array(*args)}
         result = self.grudge_bound_op(
                 queue, profile_data=profile_data, **context)
         if profile_data is not None:
@@ -448,15 +448,15 @@ def dg_flux(c, tpair):
     dims = len(v)
 
     normal = sym.normal(tpair.dd, dims)
-    flux_weak = join_fields(
+    flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
             u.avg * normal)
 
-    flux_weak -= (1 if c > 0 else -1)*join_fields(
+    flux_weak -= (1 if c > 0 else -1)*flat_obj_array(
             0.5*(u.int-u.ext),
             0.5*(normal * np.dot(normal, v.int-v.ext)))
 
-    flux_strong = join_fields(
+    flux_strong = flat_obj_array(
             np.dot(v.int, normal),
             u.int * normal) - flux_weak
 
@@ -502,13 +502,13 @@ def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
     rad_u = sym.cse(sym.interp("vol", BTAG_ALL)(u))
     rad_v = sym.cse(sym.interp("vol", BTAG_ALL)(v))
 
-    rad_bc = sym.cse(join_fields(
+    rad_bc = sym.cse(flat_obj_array(
             0.5*(rad_u - sign*np.dot(rad_normal, rad_v)),
             0.5*rad_normal*(np.dot(rad_normal, rad_v) - sign*rad_u)
             ), "rad_bc")
 
     sym_operator = (
-            - join_fields(
+            - flat_obj_array(
                 -c*np.dot(sym.nabla(dims), v) - source_f,
                 -c*(sym.nabla(dims)*u)
                 )
@@ -545,7 +545,7 @@ def test_stepper_equivalence(ctx_factory, order=4):
     elif dims == 3:
         dt = 0.02
 
-    ic = join_fields(discr.zeros(queue),
+    ic = flat_obj_array(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
     bound_op = bind(discr, sym_operator)
@@ -798,7 +798,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     dt = 0.04
     t_end = 0.2
 
-    ic = join_fields(discr.zeros(queue),
+    ic = flat_obj_array(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
     if not use_fusion:
@@ -968,7 +968,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
     dt = 0.04
     t_end = 0.1
 
-    ic = join_fields(discr.zeros(queue),
+    ic = flat_obj_array(discr.zeros(queue),
             [discr.zeros(queue) for i in range(discr.dim)])
 
     if not use_fusion:
@@ -1032,7 +1032,7 @@ def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
                 exec_mapper_factory=exec_mapper_factory)
 
     if return_ic:
-        ic = join_fields(discr.zeros(queue),
+        ic = flat_obj_array(discr.zeros(queue),
                 [discr.zeros(queue) for i in range(discr.dim)])
         return stepper, ic
 

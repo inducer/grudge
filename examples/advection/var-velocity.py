@@ -30,7 +30,7 @@ import pyopencl.array
 import pyopencl.clmath
 
 from grudge import bind, sym
-from pytools.obj_array import join_fields
+from pytools.obj_array import flat_obj_array
 
 import logging
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
         c = sym_x
     else:
         # solid body rotation
-        c = join_fields(
+        c = flat_obj_array(
                 np.pi * (d/2 - sym_x[1]),
                 np.pi * (sym_x[0] - d/2),
                 0)[:dim]
