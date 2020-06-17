@@ -111,10 +111,9 @@ def bump(discr, actx, t=0):
         for i in range(discr.dim)
         ])
 
-    exp = actx.special_func("exp")
     return (
         np.cos(source_omega*t)
-        * exp(
+        * actx.np.exp(
             -np.dot(center_dist, center_dist)
             / source_width**2))
 

@@ -102,7 +102,7 @@ class CElementwiseFunction(Function):
             # Loopy has a type-adaptive "abs", but no "fabs".
             func_name = "abs"
 
-        sfunc = array_context.special_func(func_name)
+        sfunc = getattr(array_context.np, func_name)
         return sfunc(*args)
 
 
