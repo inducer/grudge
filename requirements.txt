@@ -1,5 +1,5 @@
 numpy
-git+https://github.com/inducer/pytools.git
+git+https://github.com/inducer/pytools.git@memoize-in-complex-identifiers
 git+https://github.com/inducer/pymbolic.git
 git+https://github.com/inducer/islpy.git
 git+https://github.com/inducer/pyopencl.git
