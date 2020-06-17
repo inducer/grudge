@@ -34,7 +34,6 @@ import contextlib
 import logging
 import numpy as np
 import os
-import six
 import sys
 import pyopencl as cl
 import pyopencl.array  # noqa
@@ -42,6 +41,10 @@ import pytest
 
 import dagrt.language as lang
 import pymbolic.primitives as p
+
+from meshmode.dof_array import DOFArray
+from meshmode.array_context import PyOpenCLArrayContext
+
 import grudge.symbolic.mappers as gmap
 import grudge.symbolic.operators as sym_op
 from grudge.execution import ExecutionMapper
@@ -80,6 +83,10 @@ def open_output_file(filename):
             yield outfile
         finally:
             outfile.close()
+
+
+def dof_array_size(ary: DOFArray):
+    return sum(grp_ary.size for grp_ary in ary)
 
 
 # {{{ topological sort
@@ -241,8 +248,7 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
 
 class RK4TimeStepperBase(object):
 
-    def __init__(self, queue, component_getter):
-        self.queue = queue
+    def __init__(self, component_getter):
         self.component_getter = component_getter
 
     def get_initial_context(self, fields, t_start, dt):
@@ -305,7 +311,6 @@ class RK4TimeStepperBase(object):
                 profile_data = None
 
             results = self.bound_op(
-                    self.queue,
                     profile_data=profile_data,
                     **context)
 
@@ -327,7 +332,7 @@ class RK4TimeStepperBase(object):
 
 class RK4TimeStepper(RK4TimeStepperBase):
 
-    def __init__(self, queue, discr, field_var_name, grudge_bound_op,
+    def __init__(self, discr, field_var_name, grudge_bound_op,
                  num_fields, component_getter, exec_mapper_factory=ExecutionMapper):
         """Arguments:
 
@@ -342,7 +347,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
                its components
 
         """
-        super().__init__(queue, component_getter)
+        super().__init__(component_getter)
 
         # Construct sym_rhs to have the effect of replacing the RHS calls in the
         # dagrt code with calls of the grudge operator.
@@ -355,7 +360,6 @@ class RK4TimeStepper(RK4TimeStepperBase):
                         for i in range(num_fields)))))
         sym_rhs = flat_obj_array(*(call[i] for i in range(num_fields)))
 
-        self.queue = queue
         self.grudge_bound_op = grudge_bound_op
 
         from grudge.function_registry import register_external_function
@@ -373,12 +377,12 @@ class RK4TimeStepper(RK4TimeStepperBase):
 
         self.component_getter = component_getter
 
-    def _bound_op(self, queue, t, *args, profile_data=None):
+    def _bound_op(self, array_context, t, *args, profile_data=None):
         context = {
                 "t": t,
                 self.field_var_name: flat_obj_array(*args)}
         result = self.grudge_bound_op(
-                queue, profile_data=profile_data, **context)
+                array_context, profile_data=profile_data, **context)
         if profile_data is not None:
             result = result[0]
         return result
@@ -391,9 +395,9 @@ class RK4TimeStepper(RK4TimeStepperBase):
 
 class FusedRK4TimeStepper(RK4TimeStepperBase):
 
-    def __init__(self, queue, discr, field_var_name, sym_rhs, num_fields,
+    def __init__(self, discr, field_var_name, sym_rhs, num_fields,
                  component_getter, exec_mapper_factory=ExecutionMapper):
-        super().__init__(queue, component_getter)
+        super().__init__(component_getter)
         self.set_up_stepper(
                 discr, field_var_name, sym_rhs, num_fields,
                 base_function_registry,
@@ -404,7 +408,7 @@ class FusedRK4TimeStepper(RK4TimeStepperBase):
 
 # {{{ problem setup code
 
-def get_strong_wave_op_with_discr(cl_ctx, dims=2, order=4):
+def get_strong_wave_op_with_discr(actx, dims=2, order=4):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -413,7 +417,7 @@ def get_strong_wave_op_with_discr(cl_ctx, dims=2, order=4):
 
     logger.debug("%d elements", mesh.nelements)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:dims]
     source_width = 0.05
@@ -463,7 +467,7 @@ def dg_flux(c, tpair):
     return sym.interp(tpair.dd, "all_faces")(c*flux_strong)
 
 
-def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
+def get_strong_wave_op_with_discr_direct(actx, dims=2, order=4):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -472,7 +476,7 @@ def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
 
     logger.debug("%d elements", mesh.nelements)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:dims]
     source_width = 0.05
@@ -532,29 +536,30 @@ def get_strong_wave_component(state_component):
 def test_stepper_equivalence(ctx_factory, order=4):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 2
 
     sym_operator, _ = get_strong_wave_op_with_discr(
-            cl_ctx, dims=dims, order=order)
+            actx, dims=dims, order=order)
     sym_operator_direct, discr = get_strong_wave_op_with_discr_direct(
-            cl_ctx, dims=dims, order=order)
+            actx, dims=dims, order=order)
 
     if dims == 2:
         dt = 0.04
     elif dims == 3:
         dt = 0.02
 
-    ic = flat_obj_array(discr.zeros(queue),
-            [discr.zeros(queue) for i in range(discr.dim)])
+    ic = flat_obj_array(discr.zeros(actx),
+            [discr.zeros(actx) for i in range(discr.dim)])
 
     bound_op = bind(discr, sym_operator)
 
     stepper = RK4TimeStepper(
-            queue, discr, "w", bound_op, 1 + discr.dim, get_strong_wave_component)
+            discr, "w", bound_op, 1 + discr.dim, get_strong_wave_component)
 
     fused_stepper = FusedRK4TimeStepper(
-            queue, discr, "w", sym_operator_direct, 1 + discr.dim,
+            discr, "w", sym_operator_direct, 1 + discr.dim,
             get_strong_wave_component)
 
     t_start = 0
@@ -573,7 +578,7 @@ def test_stepper_equivalence(ctx_factory, order=4):
         logger.debug("step %d/%d", step, nsteps)
         t, (u, v) = next(fused_steps)
         assert t == t_ref, step
-        assert norm(queue, u=u, u_ref=u_ref) <= 1e-13, step
+        assert norm(u=u, u_ref=u_ref) <= 1e-13, step
 
 # }}}
 
@@ -582,15 +587,18 @@ def test_stepper_equivalence(ctx_factory, order=4):
 
 class ExecutionMapperWrapper(Mapper):
 
-    def __init__(self, queue, context, bound_op):
-        self.inner_mapper = ExecutionMapper(queue, context, bound_op)
-        self.queue = queue
+    def __init__(self, array_context, context, bound_op):
+        self.inner_mapper = ExecutionMapper(array_context, context, bound_op)
+        self.array_context = array_context
         self.context = context
         self.bound_op = bound_op
 
     def map_variable(self, expr):
         # Needed, because bound op execution can ask for variable values.
         return self.inner_mapper.map_variable(expr)
+
+    def map_node_coordinate_component(self, expr):
+        return self.inner_mapper.map_node_coordinate_component(expr)
 
     def map_grudge_variable(self, expr):
         # See map_variable()
@@ -610,7 +618,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
     def map_profiled_call(self, expr, profile_data):
         args = [self.inner_mapper.rec(p) for p in expr.parameters]
         return self.inner_mapper.function_registry[expr.function.name](
-                self.queue, *args, profile_data=profile_data)
+                self.array_context, *args, profile_data=profile_data)
 
     def map_profiled_essentially_elementwise_linear(self, op, field_expr,
                                                     profile_data):
@@ -672,45 +680,71 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
         return result, []
 
     def map_insn_loopy_kernel(self, insn, profile_data):
-        kwargs = {}
         kdescr = insn.kernel_descriptor
-        for name, expr in six.iteritems(kdescr.input_mappings):
-            val = self.inner_mapper.rec(expr)
-            kwargs[name] = val
-            assert not isinstance(val, np.ndarray)
-            if profile_data is not None and isinstance(val, pyopencl.array.Array):
-                profile_data["bytes_read"] = (
-                        profile_data.get("bytes_read", 0) + val.nbytes)
-                profile_data["bytes_read_by_scalar_assignments"] = (
-                        profile_data.get("bytes_read_by_scalar_assignments", 0)
-                        + val.nbytes)
-
         discr = self.inner_mapper.discrwb.discr_from_dd(kdescr.governing_dd)
+
+        dof_array_kwargs = {}
+        other_kwargs = {}
+
+        for name, expr in kdescr.input_mappings.items():
+            v = self.inner_mapper.rec(expr)
+            if isinstance(v, DOFArray):
+                dof_array_kwargs[name] = v
+
+                if profile_data is not None:
+                    size = dof_array_size(v)
+                    profile_data["bytes_read"] = (
+                            profile_data.get("bytes_read", 0) + size)
+                    profile_data["bytes_read_by_scalar_assignments"] = (
+                            profile_data.get("bytes_read_by_scalar_assignments", 0)
+                            + size)
+            else:
+                assert not isinstance(v, np.ndarray)
+                other_kwargs[name] = v
+
         for name in kdescr.scalar_args():
-            v = kwargs[name]
+            v = other_kwargs[name]
             if isinstance(v, (int, float)):
-                kwargs[name] = discr.real_dtype.type(v)
+                other_kwargs[name] = discr.real_dtype.type(v)
             elif isinstance(v, complex):
-                kwargs[name] = discr.complex_dtype.type(v)
+                other_kwargs[name] = discr.complex_dtype.type(v)
             elif isinstance(v, np.number):
                 pass
             else:
                 raise ValueError("unrecognized scalar type for variable '%s': %s"
                         % (name, type(v)))
 
-        kwargs["grdg_n"] = discr.nnodes
-        evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
+        result = {}
+        for grp in discr.groups:
+            kwargs = other_kwargs.copy()
+            kwargs["nelements"] = grp.nelements
+            kwargs["nunit_dofs"] = grp.nunit_dofs
 
-        for val in result_dict.values():
-            assert not isinstance(val, np.ndarray)
-            if profile_data is not None and isinstance(val, pyopencl.array.Array):
+            for name, ary in dof_array_kwargs.items():
+                kwargs[name] = ary[grp.index]
+
+            knl_result = self.inner_mapper.array_context.call_loopy(
+                    kdescr.loopy_kernel, **kwargs)
+
+            for name, val in knl_result.items():
+                result.setdefault(name, []).append(val)
+
+        result = {
+                name: DOFArray.from_list(
+                    self.inner_mapper.array_context, val)
+                for name, val in result.items()}
+
+        for val in result.values():
+            assert isinstance(val, DOFArray)
+            if profile_data is not None:
+                size = dof_array_size(val)
                 profile_data["bytes_written"] = (
-                        profile_data.get("bytes_written", 0) + val.nbytes)
+                        profile_data.get("bytes_written", 0) + size)
                 profile_data["bytes_written_by_scalar_assignments"] = (
                         profile_data.get("bytes_written_by_scalar_assignments", 0)
-                        + val.nbytes)
+                        + size)
 
-        return list(result_dict.items()), []
+        return list(result.items()), []
 
     def map_insn_assign_to_discr_scoped(self, insn, profile_data=None):
         assignments = []
@@ -743,11 +777,11 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
             field = self.inner_mapper.rec(insn.field)
             profile_data["bytes_read"] = (
-                    profile_data.get("bytes_read", 0) + field.nbytes)
+                    profile_data.get("bytes_read", 0) + dof_array_size(field))
 
             for _, value in assignments:
                 profile_data["bytes_written"] = (
-                        profile_data.get("bytes_written", 0) + value.nbytes)
+                        profile_data.get("bytes_written", 0) + dof_array_size(value))
 
         return assignments, futures
 
@@ -761,8 +795,9 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 def test_assignment_memory_model(ctx_factory):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
-    _, discr = get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=3)
+    _, discr = get_strong_wave_op_with_discr_direct(actx, dims=2, order=3)
 
     # Assignment instruction
     bound_op = bind(
@@ -771,35 +806,36 @@ def test_assignment_memory_model(ctx_factory):
             + sym.Variable("input1", sym.DD_VOLUME),
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
-    input0 = discr.zeros(queue)
-    input1 = discr.zeros(queue)
+    input0 = discr.zeros(actx)
+    input1 = discr.zeros(actx)
 
     result, profile_data = bound_op(
-            queue,
             profile_data={},
             input0=input0,
             input1=input1)
 
-    assert profile_data["bytes_read"] == input0.nbytes + input1.nbytes
-    assert profile_data["bytes_written"] == result.nbytes
+    assert profile_data["bytes_read"] == \
+            dof_array_size(input0) + dof_array_size(input1)
+    assert profile_data["bytes_written"] == dof_array_size(result)
 
 
 @pytest.mark.parametrize("use_fusion", (True, False))
 def test_stepper_mem_ops(ctx_factory, use_fusion):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 2
 
     sym_operator, discr = get_strong_wave_op_with_discr_direct(
-            cl_ctx, dims=dims, order=3)
+            actx, dims=dims, order=3)
 
     t_start = 0
     dt = 0.04
     t_end = 0.2
 
-    ic = flat_obj_array(discr.zeros(queue),
-            [discr.zeros(queue) for i in range(discr.dim)])
+    ic = flat_obj_array(discr.zeros(actx),
+            [discr.zeros(actx) for i in range(discr.dim)])
 
     if not use_fusion:
         bound_op = bind(
@@ -807,13 +843,13 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
                 exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
         stepper = RK4TimeStepper(
-                queue, discr, "w", bound_op, 1 + discr.dim,
+                discr, "w", bound_op, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     else:
         stepper = FusedRK4TimeStepper(
-                queue, discr, "w", sym_operator, 1 + discr.dim,
+                discr, "w", sym_operator, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
@@ -886,9 +922,9 @@ def time_insn(f):
         if profile_data is None:
             return f(self, insn, profile_data)
 
-        start = cl.enqueue_marker(self.queue)
+        start = cl.enqueue_marker(self.array_context.queue)
         retval = f(self, insn, profile_data)
-        end = cl.enqueue_marker(self.queue)
+        end = cl.enqueue_marker(self.array_context.queue)
         profile_data\
                 .setdefault(time_field_name, TimingFutureList())\
                 .append(TimingFuture(start, end))
@@ -903,15 +939,15 @@ class ExecutionMapperWithTiming(ExecutionMapperWrapper):
     def map_profiled_call(self, expr, profile_data):
         args = [self.inner_mapper.rec(p) for p in expr.parameters]
         return self.inner_mapper.function_registry[expr.function.name](
-                self.queue, *args, profile_data=profile_data)
+                self.array_context, *args, profile_data=profile_data)
 
     def map_profiled_operator_binding(self, expr, profile_data):
         if profile_data is None:
             return self.inner_mapper.map_operator_binding(expr)
 
-        start = cl.enqueue_marker(self.queue)
+        start = cl.enqueue_marker(self.array_context.queue)
         retval = self.inner_mapper.map_operator_binding(expr)
-        end = cl.enqueue_marker(self.queue)
+        end = cl.enqueue_marker(self.array_context.queue)
         time_field_name = "time_op_%s" % expr.op.mapper_method
         profile_data\
                 .setdefault(time_field_name, TimingFutureList())\
@@ -958,18 +994,19 @@ def test_stepper_timing(ctx_factory, use_fusion):
     queue = cl.CommandQueue(
             cl_ctx,
             properties=cl.command_queue_properties.PROFILING_ENABLE)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 3
 
     sym_operator, discr = get_strong_wave_op_with_discr_direct(
-            cl_ctx, dims=dims, order=3)
+            actx, dims=dims, order=3)
 
     t_start = 0
     dt = 0.04
     t_end = 0.1
 
-    ic = flat_obj_array(discr.zeros(queue),
-            [discr.zeros(queue) for i in range(discr.dim)])
+    ic = flat_obj_array(discr.zeros(actx),
+            [discr.zeros(actx) for i in range(discr.dim)])
 
     if not use_fusion:
         bound_op = bind(
@@ -977,13 +1014,13 @@ def test_stepper_timing(ctx_factory, use_fusion):
                 exec_mapper_factory=ExecutionMapperWithTiming)
 
         stepper = RK4TimeStepper(
-                queue, discr, "w", bound_op, 1 + discr.dim,
+                discr, "w", bound_op, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=ExecutionMapperWithTiming)
 
     else:
         stepper = FusedRK4TimeStepper(
-                queue, discr, "w", sym_operator, 1 + discr.dim,
+                discr, "w", sym_operator, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=ExecutionMapperWithTiming)
 
@@ -1009,11 +1046,11 @@ def test_stepper_timing(ctx_factory, use_fusion):
 
 # {{{ paper outputs
 
-def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
+def get_example_stepper(actx, dims=2, order=3, use_fusion=True,
                         exec_mapper_factory=ExecutionMapper,
                         return_ic=False):
     sym_operator, discr = get_strong_wave_op_with_discr_direct(
-            queue.context, dims=dims, order=3)
+            actx, dims=dims, order=3)
 
     if not use_fusion:
         bound_op = bind(
@@ -1021,19 +1058,19 @@ def get_example_stepper(queue, dims=2, order=3, use_fusion=True,
                 exec_mapper_factory=exec_mapper_factory)
 
         stepper = RK4TimeStepper(
-                queue, discr, "w", bound_op, 1 + discr.dim,
+                discr, "w", bound_op, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=exec_mapper_factory)
 
     else:
         stepper = FusedRK4TimeStepper(
-                queue, discr, "w", sym_operator, 1 + discr.dim,
+                discr, "w", sym_operator, 1 + discr.dim,
                 get_strong_wave_component,
                 exec_mapper_factory=exec_mapper_factory)
 
     if return_ic:
-        ic = flat_obj_array(discr.zeros(queue),
-                [discr.zeros(queue) for i in range(discr.dim)])
+        ic = flat_obj_array(discr.zeros(actx),
+                [discr.zeros(actx) for i in range(discr.dim)])
         return stepper, ic
 
     return stepper
@@ -1103,9 +1140,10 @@ def problem_stats(order=3):
 def statement_counts_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
-    fused_stepper = get_example_stepper(queue, use_fusion=True)
-    stepper = get_example_stepper(queue, use_fusion=False)
+    fused_stepper = get_example_stepper(actx, use_fusion=True)
+    stepper = get_example_stepper(actx, use_fusion=False)
 
     with open_output_file("statement-counts.tex") as outf:
         if not PAPER_OUTPUT:
@@ -1131,15 +1169,15 @@ def statement_counts_table():
 
 
 @memoize(key=lambda queue, dims: dims)
-def mem_ops_results(queue, dims):
+def mem_ops_results(actx, dims):
     fused_stepper = get_example_stepper(
-            queue,
+            actx,
             dims=dims,
             use_fusion=True,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     stepper, ic = get_example_stepper(
-            queue,
+            actx,
             dims=dims,
             use_fusion=False,
             exec_mapper_factory=ExecutionMapperWithMemOpCounting,
@@ -1193,9 +1231,10 @@ def mem_ops_results(queue, dims):
 def scalar_assignment_percent_of_total_mem_ops_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
-    result2d = mem_ops_results(queue, 2)
-    result3d = mem_ops_results(queue, 3)
+    result2d = mem_ops_results(actx, 2)
+    result3d = mem_ops_results(actx, 3)
 
     with open_output_file("scalar-assignments-mem-op-percentage.tex") as outf:
         if not PAPER_OUTPUT:
