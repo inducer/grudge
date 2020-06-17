@@ -43,7 +43,6 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 # {{{ instructions
 
 class Instruction(Record):
-    __slots__ = []
     priority = 0
     neglect_for_dofdesc_inference = False
 
