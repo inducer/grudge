@@ -111,7 +111,7 @@ class Operator(pymbolic.primitives.Expression):
         return StringifyMapper
 
     def __call__(self, expr):
-        from pytools.obj_array import with_object_array_or_scalar
+        from pytools.obj_array import obj_array_vectorize
         from grudge.tools import is_zero
 
         def bind_one(subexpr):
@@ -121,7 +121,7 @@ class Operator(pymbolic.primitives.Expression):
                 from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
-        return with_object_array_or_scalar(bind_one, expr)
+        return obj_array_vectorize(bind_one, expr)
 
     def with_dd(self, dd_in=None, dd_out=None):
         """Return a copy of *self*, modified to the given DOF descriptors.
@@ -151,7 +151,7 @@ class InterpolationOperator(Operator):
         super(InterpolationOperator, self).__init__(dd_in, dd_out)
 
     def __call__(self, expr):
-        from pytools.obj_array import with_object_array_or_scalar
+        from pytools.obj_array import obj_array_vectorize
 
         def interp_one(subexpr):
             from pymbolic.primitives import is_constant
@@ -164,7 +164,7 @@ class InterpolationOperator(Operator):
                 from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
-        return with_object_array_or_scalar(interp_one, expr)
+        return obj_array_vectorize(interp_one, expr)
 
     mapper_method = intern("map_interpolation")
 

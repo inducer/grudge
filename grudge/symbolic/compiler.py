@@ -28,7 +28,10 @@ import numpy as np
 
 import six  # noqa
 from six.moves import zip, reduce
+
 from pytools import Record, memoize_method, memoize
+from pytools.obj_array import obj_array_vectorize
+
 from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
@@ -363,9 +366,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
         for dep in insn.get_dependencies():
             gen_expr_arrow(dep, node_names[insn])
 
-    from pytools.obj_array import is_obj_array
-
-    if is_obj_array(code.result):
+    if isinstance(code.result, np.ndarray) and code.result.dtype.char == "O":
         for subexp in code.result:
             gen_expr_arrow(subexp, "result")
     else:
@@ -469,8 +470,6 @@ class Code(object):
 
         # {{{ make sure results do not get discarded
 
-        from pytools.obj_array import with_object_array_or_scalar
-
         dm = mappers.DependencyMapper(composite_leaves=False)
 
         def remove_result_variable(result_expr):
@@ -483,7 +482,7 @@ class Code(object):
                 assert isinstance(var, Variable)
                 discardable_vars.discard(var.name)
 
-        with_object_array_or_scalar(remove_result_variable, self.result)
+        obj_array_vectorize(remove_result_variable, self.result)
 
         # }}}
 
@@ -593,12 +592,11 @@ class Code(object):
 
         if log_quantities is not None:
             exec_sub_timer.stop().submit()
-        from pytools.obj_array import with_object_array_or_scalar
         if profile_data is not None:
             profile_data['total_time'] = time() - start_time
-            return (with_object_array_or_scalar(exec_mapper, self.result),
+            return (obj_array_vectorize(exec_mapper, self.result),
                     profile_data)
-        return with_object_array_or_scalar(exec_mapper, self.result)
+        return obj_array_vectorize(exec_mapper, self.result)
 
 # }}}
 
@@ -767,8 +765,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
             for insn in processed_assigns + other_insns
             for expr in insn.get_dependencies())
 
-    from pytools.obj_array import is_obj_array
-    if is_obj_array(result):
+    if isinstance(result, np.ndarray) and result.dtype.char == "O":
         externally_used_names |= set(expr for expr in result)
     else:
         externally_used_names |= set([result])
