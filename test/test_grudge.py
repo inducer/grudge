@@ -25,14 +25,14 @@ THE SOFTWARE.
 
 import numpy as np
 import numpy.linalg as la
+import pytest  # noqa
 
-import pyopencl as cl
-import pyopencl.array
-import pyopencl.clmath
 from pytools.obj_array import flat_obj_array, make_obj_array
 
+import pyopencl as cl
 
-import pytest  # noqa
+from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import unflatten, flatten, flat_norm
 
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
@@ -50,6 +50,7 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 def test_inverse_metric(ctx_factory, dim):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
@@ -70,7 +71,7 @@ def test_inverse_metric(ctx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
 
     sym_op = (
             sym.forward_metric_derivative_mat(mesh.dim)
@@ -80,13 +81,13 @@ def test_inverse_metric(ctx_factory, dim):
             .reshape(-1))
 
     op = bind(discr, sym_op)
-    mat = op(queue).reshape(mesh.dim, mesh.dim)
+    mat = op(actx).reshape(mesh.dim, mesh.dim)
 
     for i in range(mesh.dim):
         for j in range(mesh.dim):
             tgt = 1 if i == j else 0
 
-            err = np.max(np.abs((mat[i, j] - tgt).get(queue=queue)))
+            err = flat_norm(mat[i, j] - tgt, np.inf)
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
@@ -99,6 +100,7 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
     """
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     nelements = 17
     order = 4
@@ -120,7 +122,7 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
     mesh = generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             n=(nelements,)*ambient_dim, order=1)
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
     def _get_variables_on(dd):
@@ -131,20 +133,20 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
         return sym_f, sym_x, sym_ones
 
     sym_f, sym_x, sym_ones = _get_variables_on(sym.DD_VOLUME)
-    f_volm = bind(discr, sym.cos(sym_x[0])**2)(queue).get()
-    ones_volm = bind(discr, sym_ones)(queue).get()
+    f_volm = actx.to_numpy(flatten(bind(discr, sym.cos(sym_x[0])**2)(actx)))
+    ones_volm = actx.to_numpy(flatten(bind(discr, sym_ones)(actx)))
 
     sym_f, sym_x, sym_ones = _get_variables_on(dd_quad)
-    f_quad = bind(discr, sym.cos(sym_x[0])**2)(queue)
-    ones_quad = bind(discr, sym_ones)(queue)
+    f_quad = bind(discr, sym.cos(sym_x[0])**2)(actx)
+    ones_quad = bind(discr, sym_ones)(actx)
 
     mass_op = bind(discr, sym.MassOperator(dd_quad, sym.DD_VOLUME)(sym_f))
 
-    num_integral_1 = np.dot(ones_volm, mass_op(queue, f=f_quad).get())
+    num_integral_1 = np.dot(ones_volm, actx.to_numpy(flatten(mass_op(f=f_quad))))
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 5.0e-10, err_1
 
-    num_integral_2 = np.dot(f_volm, mass_op(queue, f=ones_quad).get())
+    num_integral_2 = np.dot(f_volm, actx.to_numpy(flatten(mass_op(f=ones_quad))))
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 5.0e-10, err_2
 
@@ -152,7 +154,7 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
         num_integral_3 = bind(discr,
-                sym.integral(sym_f, dd=dd_quad))(queue, f=f_quad)
+                sym.integral(sym_f, dd=dd_quad))(f=f_quad)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
 
@@ -166,6 +168,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
@@ -176,20 +179,20 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
-        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
         nabla = sym.nabla(dim)
 
         for axis in range(dim):
             x = sym.nodes(dim)
 
-            f = bind(discr, sym.sin(3*x[axis]))(queue)
-            df = bind(discr, 3*sym.cos(3*x[axis]))(queue)
+            f = bind(discr, sym.sin(3*x[axis]))(actx)
+            df = bind(discr, 3*sym.cos(3*x[axis]))(actx)
 
             sym_op = nabla[axis](sym.var("f"))
             bound_op = bind(discr, sym_op)
-            df_num = bound_op(queue, f=f)
+            df_num = bound_op(f=f)
 
-            linf_error = la.norm((df_num-df).get(), np.Inf)
+            linf_error = flat_norm(df_num-df, np.Inf)
             axis_eoc_recs[axis].add_data_point(1/n, linf_error)
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
@@ -217,8 +220,9 @@ def test_2d_gauss_theorem(ctx_factory):
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=2)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=2)
 
     def f(x):
         return flat_obj_array(
@@ -234,7 +238,7 @@ def test_2d_gauss_theorem(ctx_factory):
                 sym.interp("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
                 .dot(sym.normal(sym.BTAG_ALL, 2)),
                 dd=sym.BTAG_ALL)
-            )(queue)
+            )(actx)
 
     assert abs(gauss_err) < 1e-13
 
@@ -255,6 +259,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -314,7 +319,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         from grudge.models.advection import (
                 StrongAdvectionOperator, WeakAdvectionOperator)
-        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
         op_class = {
                 "strong": StrongAdvectionOperator,
                 "weak": WeakAdvectionOperator,
@@ -325,17 +330,17 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         bound_op = bind(discr, op.sym_operator())
 
-        u = bind(discr, u_analytic(sym.nodes(dim)))(queue, t=0)
+        u = bind(discr, u_analytic(sym.nodes(dim)))(actx, t=0)
 
         def rhs(t, u):
-            return bound_op(queue, t=t, u=u)
+            return bound_op(t=t, u=u)
 
         if dim == 3:
             final_time = 0.1
         else:
             final_time = 0.2
 
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(queue)
+        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(actx)
         dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
@@ -364,7 +369,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
         error_l2 = bind(discr,
             sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
-                queue, t=last_t, u=last_u)
+                t=last_t, u=last_u)
         logger.info("h_max %.5e error %.5e", h_max, error_l2)
         eoc_rec.add_data_point(h_max, error_l2)
 
@@ -381,6 +386,7 @@ def test_convergence_maxwell(ctx_factory,  order):
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -394,7 +400,7 @@ def test_convergence_maxwell(ctx_factory,  order):
                 b=(1.0,)*dims,
                 n=(n,)*dims)
 
-        discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
         epsilon = 1
         mu = 1
@@ -403,7 +409,7 @@ def test_convergence_maxwell(ctx_factory,  order):
         sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
 
         analytic_sol = bind(discr, sym_mode)
-        fields = analytic_sol(queue, t=0, epsilon=epsilon, mu=mu)
+        fields = analytic_sol(actx, t=0, epsilon=epsilon, mu=mu)
 
         from grudge.models.em import MaxwellOperator
         op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
@@ -411,7 +417,7 @@ def test_convergence_maxwell(ctx_factory,  order):
         bound_op = bind(discr, op.sym_operator())
 
         def rhs(t, w):
-            return bound_op(queue, t=t, w=w)
+            return bound_op(t=t, w=w)
 
         dt = 0.002
         final_t = dt * 5
@@ -433,8 +439,8 @@ def test_convergence_maxwell(ctx_factory,  order):
                 step += 1
                 logger.debug("[%04d] t = %.5e", step, event.t)
 
-        sol = analytic_sol(queue, mu=mu, epsilon=epsilon, t=step * dt)
-        vals = [norm(queue, u=(esc[i] - sol[i])) / norm(queue, u=sol[i]) for i in range(5)] # noqa E501
+        sol = analytic_sol(actx, mu=mu, epsilon=epsilon, t=step * dt)
+        vals = [norm(u=(esc[i] - sol[i])) / norm(u=sol[i]) for i in range(5)] # noqa E501
         total_error = sum(vals)
         eoc_rec.add_data_point(1.0/n, total_error)
 
@@ -455,6 +461,7 @@ def test_improvement_quadrature(ctx_factory, order):
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 2
     sym_nds = sym.nodes(dims)
@@ -489,15 +496,15 @@ def test_improvement_quadrature(ctx_factory, order):
             else:
                 quad_tag_to_group_factory = {"product": None}
 
-            discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+            discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
                     quad_tag_to_group_factory=quad_tag_to_group_factory)
 
             bound_op = bind(discr, op.sym_operator())
-            fields = bind(discr, gaussian_mode())(queue, t=0)
+            fields = bind(discr, gaussian_mode())(actx, t=0)
             norm = bind(discr, sym.norm(2, sym.var("u")))
 
-            esc = bound_op(queue, u=fields)
-            total_error = norm(queue, u=esc)
+            esc = bound_op(u=fields)
+            total_error = norm(u=esc)
             eoc_rec.add_data_point(1.0/n, total_error)
 
         logger.info("\n%s", eoc_rec.pretty_print(
@@ -542,6 +549,7 @@ def test_op_collector_order_determinism():
 def test_bessel(ctx_factory):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 2
 
@@ -551,7 +559,7 @@ def test_bessel(ctx_factory):
             b=(1.0,)*dims,
             n=(8,)*dims)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=3)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=3)
 
     nodes = sym.nodes(dims)
     r = sym.cse(sym.sqrt(nodes[0]**2 + nodes[1]**2))
@@ -563,7 +571,7 @@ def test_bessel(ctx_factory):
             + sym.bessel_j(n-1, r)
             - 2*n/r * sym.bessel_j(n, r))
 
-    z = bind(discr, sym.norm(2, bessel_zero))(queue)
+    z = bind(discr, sym.norm(2, bessel_zero))(actx)
 
     assert z < 1e-15
 
@@ -571,6 +579,7 @@ def test_bessel(ctx_factory):
 def test_external_call(ctx_factory):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     def double(queue, x):
         return 2 * x
@@ -580,7 +589,7 @@ def test_external_call(ctx_factory):
     dims = 2
 
     mesh = generate_regular_rect_mesh(a=(0,) * dims, b=(1,) * dims, n=(4,) * dims)
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=1)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=1)
 
     ones = sym.Ones(sym.DD_VOLUME)
     op = (
@@ -598,37 +607,41 @@ def test_external_call(ctx_factory):
 
     bound_op = bind(discr, op, function_registry=freg)
 
-    result = bound_op(queue, double=double)
-    assert (result == 5).get().all()
+    result = bound_op(actx, double=double)
+    assert actx.to_numpy(flatten(result) == 5).all()
 
 
 @pytest.mark.parametrize("array_type", ["scalar", "vector"])
 def test_function_symbol_array(ctx_factory, array_type):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             n=(8,)*dim, order=4)
-    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=4)
-    nnodes = discr.discr_from_dd(sym.DD_VOLUME).nnodes
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    ndofs = sum(grp.ndofs for grp in volume_discr.groups)
 
     import pyopencl.clrandom        # noqa: F401
     if array_type == "scalar":
         sym_x = sym.var("x")
-        x = cl.clrandom.rand(queue, nnodes, dtype=np.float)
+        x = unflatten(actx, volume_discr,
+                cl.clrandom.rand(queue, ndofs, dtype=np.float))
     elif array_type == "vector":
         sym_x = sym.make_sym_array("x", dim)
         x = make_obj_array([
-            cl.clrandom.rand(queue, nnodes, dtype=np.float)
+            unflatten(actx, volume_discr,
+                cl.clrandom.rand(queue, ndofs, dtype=np.float))
             for _ in range(dim)
             ])
     else:
         raise ValueError("unknown array type")
 
-    norm = bind(discr, sym.norm(2, sym_x))(queue, x=x)
+    norm = bind(discr, sym.norm(2, sym_x))(x=x)
     assert isinstance(norm, float)
 
 
