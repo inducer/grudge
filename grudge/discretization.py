@@ -25,9 +25,9 @@ THE SOFTWARE.
 
 import six
 from pytools import memoize_method
-import pyopencl as cl
 from grudge import sym
-import numpy as np
+import numpy as np  # noqa: F401
+from meshmode.array_context import ArrayContext
 
 
 # FIXME Naming not ideal
@@ -40,7 +40,6 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
 
-    .. autoattribute :: cl_context
     .. autoattribute :: dim
     .. autoattribute :: ambient_dim
     .. autoattribute :: mesh
@@ -49,7 +48,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     .. automethod :: zeros
     """
 
-    def __init__(self, cl_ctx, mesh, order, quad_tag_to_group_factory=None,
+    def __init__(self, array_context, mesh, order, quad_tag_to_group_factory=None,
             mpi_communicator=None):
         """
         :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
@@ -60,6 +59,8 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             be carried out with the standard volume discretization.
         """
 
+        self._setup_actx = array_context
+
         if quad_tag_to_group_factory is None:
             quad_tag_to_group_factory = {}
 
@@ -68,7 +69,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         from meshmode.discretization import Discretization
 
-        self._volume_discr = Discretization(cl_ctx, mesh,
+        self._volume_discr = Discretization(array_context, mesh,
                 self.group_factory_for_quadrature_tag(sym.QTAG_NONE))
 
         # {{{ management of discretization-scoped common subexpressions
@@ -81,9 +82,9 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         # }}}
 
-        with cl.CommandQueue(cl_ctx) as queue:
-            self._dist_boundary_connections = \
-                    self._set_up_distributed_communication(mpi_communicator, queue)
+        self._dist_boundary_connections = \
+                self._set_up_distributed_communication(
+                        mpi_communicator, array_context)
 
         self.mpi_communicator = mpi_communicator
 
@@ -97,7 +98,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
             return self.mpi_communicator.Get_rank() \
                     == self._get_management_rank_index()
 
-    def _set_up_distributed_communication(self, mpi_communicator, queue):
+    def _set_up_distributed_communication(self, mpi_communicator, array_context):
         from_dd = sym.DOFDesc("vol", sym.QTAG_NONE)
 
         from meshmode.distributed import get_connected_partitions
@@ -118,7 +119,8 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                     from_dd,
                     sym.DOFDesc(sym.BTAG_PARTITION(i_remote_part), sym.QTAG_NONE))
             setup_helper = setup_helpers[i_remote_part] = MPIBoundaryCommSetupHelper(
-                    mpi_communicator, queue, conn, i_remote_part, grp_factory)
+                    mpi_communicator, array_context, conn,
+                    i_remote_part, grp_factory)
             setup_helper.post_sends()
 
         for i_remote_part, setup_helper in six.iteritems(setup_helpers):
@@ -152,7 +154,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
             from meshmode.discretization import Discretization
             return Discretization(
-                    self._volume_discr.cl_context,
+                    self._setup_actx,
                     no_quad_discr.mesh,
                     self.group_factory_for_quadrature_tag(qtag))
 
@@ -186,6 +188,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                     make_face_to_all_faces_embedding
 
             return make_face_to_all_faces_embedding(
+                    self._setup_actx,
                     faces_conn, self.discr_from_dd(to_dd),
                     self.discr_from_dd(from_dd))
 
@@ -224,6 +227,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                     make_same_mesh_connection
 
             return make_same_mesh_connection(
+                    self._setup_actx,
                     self.discr_from_dd(to_dd),
                     self.discr_from_dd(from_dd))
 
@@ -276,7 +280,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     def _quad_volume_discr(self, quadrature_tag):
         from meshmode.discretization import Discretization
 
-        return Discretization(self._volume_discr.cl_context, self._volume_discr.mesh,
+        return Discretization(self._setup_actx, self._volume_discr.mesh,
                 self.group_factory_for_quadrature_tag(quadrature_tag))
 
     # {{{ boundary
@@ -285,9 +289,10 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     def _boundary_connection(self, boundary_tag):
         from meshmode.discretization.connection import make_face_restriction
         return make_face_restriction(
-                        self._volume_discr,
-                        self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
-                        boundary_tag=boundary_tag)
+                self._setup_actx,
+                self._volume_discr,
+                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                boundary_tag=boundary_tag)
 
     # }}}
 
@@ -298,21 +303,24 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_INTERIOR)
         return make_face_restriction(
-                        self._volume_discr,
-                        self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
-                        FACE_RESTR_INTERIOR,
+                self._setup_actx,
+                self._volume_discr,
+                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                FACE_RESTR_INTERIOR,
 
-                        # FIXME: This will need to change as soon as we support
-                        # pyramids or other elements with non-identical face
-                        # types.
-                        per_face_groups=False)
+                # FIXME: This will need to change as soon as we support
+                # pyramids or other elements with non-identical face
+                # types.
+                per_face_groups=False)
 
     @memoize_method
     def opposite_face_connection(self):
         from meshmode.discretization.connection import \
                 make_opposite_face_connection
 
-        return make_opposite_face_connection(self._interior_faces_connection())
+        return make_opposite_face_connection(
+                self._setup_actx,
+                self._interior_faces_connection())
 
     # }}}
 
@@ -323,20 +331,17 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         from meshmode.discretization.connection import (
                 make_face_restriction, FACE_RESTR_ALL)
         return make_face_restriction(
-                        self._volume_discr,
-                        self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
-                        FACE_RESTR_ALL,
+                self._setup_actx,
+                self._volume_discr,
+                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                FACE_RESTR_ALL,
 
-                        # FIXME: This will need to change as soon as we support
-                        # pyramids or other elements with non-identical face
-                        # types.
-                        per_face_groups=False)
+                # FIXME: This will need to change as soon as we support
+                # pyramids or other elements with non-identical face
+                # types.
+                per_face_groups=False)
 
     # }}}
-
-    @property
-    def cl_context(self):
-        return self._volume_discr.cl_context
 
     @property
     def dim(self):
@@ -358,13 +363,11 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     def mesh(self):
         return self._volume_discr.mesh
 
-    def empty(self, queue=None, dtype=None, extra_dims=None, allocator=None):
-        return self._volume_discr.empty(queue, dtype, extra_dims=extra_dims,
-                allocator=allocator)
+    def empty(self, array_context: ArrayContext, dtype=None):
+        return self._volume_discr.empty(array_context, dtype)
 
-    def zeros(self, queue, dtype=None, extra_dims=None, allocator=None):
-        return self._volume_discr.zeros(queue, dtype, extra_dims=extra_dims,
-                allocator=allocator)
+    def zeros(self, array_context: ArrayContext, dtype=None):
+        return self._volume_discr.zeros(array_context, dtype)
 
     def is_volume_where(self, where):
         from grudge import sym

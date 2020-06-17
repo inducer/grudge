@@ -26,31 +26,23 @@ THE SOFTWARE.
 import numpy as np  # noqa
 from grudge.discretization import DGDiscretizationWithBoundaries
 from pytools import memoize_method
-from pytools.obj_array import (
-        with_object_array_or_scalar,
-        is_obj_array)
-import pyopencl as cl
+from pytools.obj_array import obj_array_vectorize
 import pyopencl.array as cla  # noqa
 from grudge import sym, bind
+
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-
-
-def with_queue(queue, ary):
-    return with_object_array_or_scalar(
-            lambda x: x.with_queue(queue), ary)
-
-
-def without_queue(ary):
-    return with_queue(None, ary)
+from meshmode.dof_array import freeze, DOFArray
 
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def interp(self, src, tgt, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
                     lambda el: self.interp(src, tgt, el), vec)
 
-        return self.connection_from_dds(src, tgt)(vec.queue, vec)
+        return self.connection_from_dds(src, tgt)(vec)
 
     def nodes(self):
         return self._volume_discr.nodes()
@@ -60,7 +52,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return bind(self, sym.nabla(self.dim) * sym.Variable("u"))
 
     def grad(self, vec):
-        return self._bound_grad()(vec.queue, u=vec)
+        return self._bound_grad()(u=vec)
 
     def div(self, vecs):
         return sum(
@@ -71,7 +63,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"))
 
     def weak_grad(self, vec):
-        return self._bound_weak_grad()(vec.queue, u=vec)
+        return self._bound_weak_grad()(u=vec)
 
     def weak_div(self, vecs):
         return sum(
@@ -79,22 +71,25 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def normal(self, dd):
-        with cl.CommandQueue(self.cl_context) as queue:
-            surface_discr = self.discr_from_dd(dd)
-            return without_queue(
-                    bind(self, sym.normal(
-                        dd, surface_discr.ambient_dim, surface_discr.dim))(queue))
+        surface_discr = self.discr_from_dd(dd)
+        actx = surface_discr._setup_actx
+        return freeze(
+                bind(self,
+                    sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim))
+                (array_context=actx))
 
     @memoize_method
     def _bound_inverse_mass(self):
         return bind(self, sym.InverseMassOperator()(sym.Variable("u")))
 
     def inverse_mass(self, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
                     lambda el: self.inverse_mass(el), vec)
 
-        return self._bound_inverse_mass()(vec.queue, u=vec)
+        return self._bound_inverse_mass()(u=vec)
 
     @memoize_method
     def _bound_face_mass(self):
@@ -102,10 +97,34 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return bind(self, sym.FaceMassOperator()(u))
 
     def face_mass(self, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
                     lambda el: self.face_mass(el), vec)
 
-        return self._bound_face_mass()(vec.queue, u=vec)
+        return self._bound_face_mass()(u=vec)
+
+    @memoize_method
+    def _norm(self, p):
+        return bind(self, sym.norm(p, sym.var("arg")))
+
+    def norm(self, vec, p=2):
+        return self._norm(p)(arg=vec)
+
+
+def interior_trace_pair(discr, vec):
+    i = discr.interp("vol", "int_faces", vec)
+
+    if (isinstance(vec, np.ndarray)
+            and vec.dtype.char == "O"
+            and not isinstance(vec, DOFArray)):
+        e = obj_array_vectorize(
+                lambda el: discr.opposite_face_connection()(el),
+                i)
+
+    from grudge.symbolic.primitives import TracePair
+    return TracePair("int_faces", i, e)
+
 
 # vim: foldmethod=marker

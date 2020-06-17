@@ -87,7 +87,7 @@ class LoopyKernelDescriptor(object):
         import loopy as lp
         return [arg.name for arg in self.loopy_kernel.args
                 if isinstance(arg, lp.ValueArg)
-                and arg.name != "grdg_n"]
+                and arg.name not in ["nelements", "nunit_dofs"]]
 
 
 class LoopyKernelInstruction(Instruction):
@@ -845,13 +845,11 @@ def is_function_loopyable(function, function_registry):
 
 
 class ToLoopyExpressionMapper(mappers.IdentityMapper):
-    def __init__(self, dd_inference_mapper, temp_names, iname):
+    def __init__(self, dd_inference_mapper, temp_names, subscript):
         self.dd_inference_mapper = dd_inference_mapper
         self.function_registry = dd_inference_mapper.function_registry
         self.temp_names = temp_names
-        self.iname = iname
-        from pymbolic import var
-        self.iname_expr = var(iname)
+        self.subscript = subscript
 
         self.expr_to_name = {}
         self.used_names = set()
@@ -887,7 +885,7 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
             return var(name)
         else:
             self.non_scalar_vars.append(name)
-            return var(name)[self.iname_expr]
+            return var(name)[self.subscript]
 
     def map_variable(self, expr):
         return self.map_variable_ref_expr(expr, expr.name)
@@ -1004,16 +1002,19 @@ class ToLoopyInstructionMapper(object):
                         insn.exprs[0], self.function_registry))):
             return insn
 
-        iname = "grdg_i"
-        size_name = "grdg_n"
+        # FIXME: These names and the size names could clash with user-given names.
+        # Need better metadata tracking in loopy.
+        iel = "iel"
+        idof = "idof"
 
         temp_names = [
                 name
                 for name, dnr in zip(insn.names, insn.do_not_return)
                 if dnr]
 
+        from pymbolic import var
         expr_mapper = ToLoopyExpressionMapper(
-                self.dd_inference_mapper, temp_names, iname)
+                self.dd_inference_mapper, temp_names, (var(iel), var(idof)))
         insns = []
 
         import loopy as lp
@@ -1033,17 +1034,21 @@ class ToLoopyInstructionMapper(object):
             return insn
 
         knl = lp.make_kernel(
-                "{[%s]: 0 <= %s < %s}" % (iname, iname, size_name),
+                "{[%(iel)s, %(idof)s]: "
+                "0 <= %(iel)s < nelements and 0 <= %(idof)s < nunit_dofs}"
+                % {"iel": iel, "idof": idof},
                 insns,
-                default_offset=lp.auto,
 
                 name="grudge_assign_%d" % self.insn_count,
+
                 # Single-insn kernels may have their no_sync_with resolve to an
                 # empty set, that's OK.
-                options=lp.Options(check_dep_resolution=False))
-
-        knl = lp.set_options(knl, return_dict=True)
-        knl = lp.split_iname(knl, iname, 128, outer_tag="g.0", inner_tag="l.0")
+                options=lp.Options(
+                    check_dep_resolution=False,
+                    return_dict=True,
+                    no_numpy=True,
+                    )
+                )
 
         self.insn_count += 1
 
