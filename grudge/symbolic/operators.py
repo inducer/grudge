@@ -624,9 +624,9 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
         assert afgrp.nelements == nfaces * volgrp.nelements
 
         matrix = np.empty(
-                (volgrp.nunit_nodes,
+                (volgrp.nunit_dofs,
                     nfaces,
-                    afgrp.nunit_nodes),
+                    afgrp.nunit_dofs),
                 dtype=dtype)
 
         from modepy.tools import UNIT_VERTICES
