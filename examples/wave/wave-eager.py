@@ -26,23 +26,17 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la  # noqa
 import pyopencl as cl
-import pyopencl.array as cla  # noqa
-import pyopencl.clmath as clmath
-from pytools.obj_array import (
-        with_object_array_or_scalar)
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-from grudge.eager import EagerDGDiscretization, with_queue
-from grudge.symbolic.primitives import TracePair
-from grudge.shortcuts import make_visualizer
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-def interior_trace_pair(discr, vec):
-    i = discr.interp("vol", "int_faces", vec)
-    e = with_object_array_or_scalar(
-            lambda el: discr.opposite_face_connection()(el.queue, el),
-            i)
-    return TracePair("int_faces", i, e)
+from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import thaw
+
+from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+
+from grudge.eager import EagerDGDiscretization, interior_trace_pair
+from grudge.shortcuts import make_visualizer
+from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits
@@ -51,7 +45,7 @@ def wave_flux(discr, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = with_queue(u.int.queue, discr.normal(w_tpair.dd))
+    normal = thaw(u.int.array_context, discr.normal(w_tpair.dd))
 
     def normal_times(scalar):
         # workaround for object array behavior
@@ -106,20 +100,21 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(discr, queue, t=0):
+def bump(discr, actx, t=0):
     source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
     source_width = 0.05
     source_omega = 3
 
-    nodes = discr.nodes().with_queue(queue)
+    nodes = thaw(actx, discr.nodes())
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(discr.dim)
         ])
 
+    exp = actx.special_func("exp")
     return (
         np.cos(source_omega*t)
-        * clmath.exp(
+        * exp(
             -np.dot(center_dist, center_dist)
             / source_width**2))
 
@@ -127,6 +122,7 @@ def bump(discr, queue, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dim = 2
     nel_1d = 16
@@ -149,11 +145,11 @@ def main():
 
     print("%d elements" % mesh.nelements)
 
-    discr = EagerDGDiscretization(cl_ctx, mesh, order=order)
+    discr = EagerDGDiscretization(actx, mesh, order=order)
 
     fields = flat_obj_array(
-            bump(discr, queue),
-            [discr.zeros(queue) for i in range(discr.dim)]
+            bump(discr, actx),
+            [discr.zeros(actx) for i in range(discr.dim)]
             )
 
     vis = make_visualizer(discr, discr.order+3 if dim == 2 else discr.order)
@@ -168,7 +164,7 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, la.norm(fields[0].get()))
+            print(istep, t, discr.norm(fields[0]))
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),

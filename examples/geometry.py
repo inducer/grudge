@@ -28,15 +28,18 @@ import numpy as np  # noqa
 import pyopencl as cl
 from grudge import sym, bind, DGDiscretizationWithBoundaries, shortcuts
 
+from meshmode.array_context import PyOpenCLArrayContext
+
 
 def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_warped_rect_mesh
     mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=4)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
 
     sym_op = sym.normal(sym.BTAG_ALL, mesh.dim)
     #sym_op = sym.nodes(mesh.dim, where=sym.BTAG_ALL)
@@ -45,7 +48,7 @@ def main(write_output=True):
     print()
     print(op.eval_code)
 
-    vec = op(queue)
+    vec = op(actx)
 
     vis = shortcuts.make_visualizer(discr, 4)
     vis.write_vtk_file("geo.vtu", [
