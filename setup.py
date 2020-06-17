@@ -21,7 +21,7 @@ def main():
           author="Andreas Kloeckner",
           author_email="inform@tiker.net",
           license="MIT",
-          url="http://gitlab.tiker.net/inducer/grudge",
+          url="http://github.com/inducer/grudge",
           classifiers=[
               'Development Status :: 3 - Alpha',
               'Intended Audience :: Developers',
