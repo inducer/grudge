@@ -46,7 +46,7 @@ def main():
               "pytest>=2.3",
               "pytools>=2020.3",
               "modepy>=2013.3",
-              "meshmode>=2013.3",
+              "meshmode>=2020.2",
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
               "loo.py>=2013.1beta",
