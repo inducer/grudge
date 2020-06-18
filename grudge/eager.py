@@ -24,14 +24,16 @@ THE SOFTWARE.
 
 
 import numpy as np  # noqa
-from grudge.discretization import DGDiscretizationWithBoundaries
 from pytools import memoize_method
-from pytools.obj_array import obj_array_vectorize
+from pytools.obj_array import obj_array_vectorize, make_obj_array
 import pyopencl.array as cla  # noqa
 from grudge import sym, bind
 
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-from meshmode.dof_array import freeze, DOFArray
+from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
+from meshmode.dof_array import freeze, DOFArray, flatten, unflatten
+
+from grudge.discretization import DGDiscretizationWithBoundaries
+from grudge.symbolic.primitives import TracePair
 
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
@@ -115,19 +117,98 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def norm(self, vec, p=2):
         return self._norm(p)(arg=vec)
 
+    @memoize_method
+    def connected_ranks(self):
+        from meshmode.distributed import get_connected_partitions
+        return get_connected_partitions(self._volume_discr.mesh)
 
-def interior_trace_pair(discr, vec):
-    i = discr.interp("vol", "int_faces", vec)
+
+def interior_trace_pair(discrwb, vec):
+    i = discrwb.interp("vol", "int_faces", vec)
 
     if (isinstance(vec, np.ndarray)
             and vec.dtype.char == "O"
             and not isinstance(vec, DOFArray)):
         e = obj_array_vectorize(
-                lambda el: discr.opposite_face_connection()(el),
+                lambda el: discrwb.opposite_face_connection()(el),
                 i)
 
-    from grudge.symbolic.primitives import TracePair
     return TracePair("int_faces", i, e)
+
+
+class RankBoundaryCommunication:
+    base_tag = 1273
+
+    def __init__(self, discrwb, remote_rank, vol_field, tag=None):
+        self.tag = self.base_tag
+        if tag is not None:
+            self.tag += tag
+
+        self.discrwb = discrwb
+        self.array_context = vol_field.array_context
+        self.remote_btag = BTAG_PARTITION(remote_rank)
+
+        self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
+        self.local_dof_array = discrwb.interp("vol", self.remote_btag, vol_field)
+
+        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
+
+        comm = self.discrwb.mpi_communicator
+
+        self.send_req = comm.Isend(
+                local_data, remote_rank, tag=self.tag)
+
+        self.remote_data_host = np.empty_like(local_data)
+        self.recv_req = comm.Irecv(self.remote_data_host, remote_rank, self.tag)
+
+    def finish(self):
+        self.recv_req.Wait()
+
+        actx = self.array_context
+        remote_dof_array = unflatten(self.array_context, self.bdry_discr,
+                actx.from_numpy(self.remote_data_host))
+
+        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(
+                sym.as_dofdesc(sym.DTAG_BOUNDARY(self.remote_btag)))
+        swapped_remote_dof_array = bdry_conn(remote_dof_array)
+
+        self.send_req.Wait()
+
+        return TracePair(self.remote_btag, self.local_dof_array,
+                swapped_remote_dof_array)
+
+
+def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
+    rbcomms = [RankBoundaryCommunication(discrwb, remote_rank, vec, tag=tag)
+            for remote_rank in discrwb.connected_ranks()]
+    return [rbcomm.finish() for rbcomm in rbcomms]
+
+
+def cross_rank_trace_pairs(discrwb, vec, tag=None):
+    if (isinstance(vec, np.ndarray)
+            and vec.dtype.char == "O"
+            and not isinstance(vec, DOFArray)):
+
+        n, = vec.shape
+        result = {}
+        for ivec in range(n):
+            for rank_tpair in _cross_rank_trace_pairs_scalar_field(
+                    discrwb, vec[ivec]):
+                assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
+                assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
+                result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
+
+        return [
+            TracePair(
+                dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
+                interior=make_obj_array([
+                    result[remote_rank, i].int for i in range(n)]),
+                exterior=make_obj_array([
+                    result[remote_rank, i].ext for i in range(n)])
+                )
+            for remote_rank in discrwb.connected_ranks()]
+    else:
+        return _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=tag)
 
 
 # vim: foldmethod=marker
