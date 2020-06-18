@@ -584,7 +584,7 @@ class MPISendFuture(object):
         return self.send_request.Test()
 
     def __call__(self):
-        self.send_request.wait()
+        self.send_request.Wait()
         return [], []
 
 # }}}
