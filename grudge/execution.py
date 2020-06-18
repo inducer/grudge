@@ -118,7 +118,8 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ elementwise reductions
 
     def _map_elementwise_reduction(self, op_name, field_expr, dd):
-        @memoize_in(self, "elementwise_%s_prg" % op_name)
+        @memoize_in(self.array_context,
+                (ExecutionMapper, "elementwise_%s_prg" % op_name))
         def prg():
             return make_loopy_program(
                 "{[iel, idof, jdof]: 0<=iel<nelements and 0<=idof, jdof<ndofs}",
@@ -235,7 +236,7 @@ class ExecutionMapper(mappers.Evaluator,
             raise TypeError(
                 "Expected 'else' to be of type np.number or DOFArray")
 
-        @memoize_in(self.bound_op, "map_if_knl")
+        @memoize_in(self.array_context, (ExecutionMapper, "map_if_knl"))
         def knl(sym_then, sym_else):
             return make_loopy_program(
                 "{[iel, idof]: 0<=iel<nelements and 0<=idof<nunit_dofs}",
@@ -265,7 +266,7 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.bound_op, "elwise_linear_knl")
+        @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
         def prg():
             result = make_loopy_program(
                 """{[iel, idof, j]:
@@ -329,7 +330,7 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.bound_op, "face_mass_knl")
+        @memoize_in(self.array_context, (ExecutionMapper, "face_mass_knl"))
         def prg():
             return make_loopy_program(
                 """{[iel,idof,f,j]:
@@ -496,7 +497,8 @@ class ExecutionMapper(mappers.Evaluator,
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        @memoize_in(self.discrwb, "reference_derivative_prg")
+        @memoize_in(self.array_context,
+                (ExecutionMapper, "reference_derivative_prg"))
         def prg(nmatrices):
             result = make_loopy_program(
                 """{[imatrix, iel, idof, j]:
