@@ -49,7 +49,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def _bound_grad(self):
-        return bind(self, sym.nabla(self.dim) * sym.Variable("u"))
+        return bind(self, sym.nabla(self.dim) * sym.Variable("u"), local_only=True)
 
     def grad(self, vec):
         return self._bound_grad()(u=vec)
@@ -60,7 +60,8 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def _bound_weak_grad(self):
-        return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"))
+        return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"),
+                local_only=True)
 
     def weak_grad(self, vec):
         return self._bound_weak_grad()(u=vec)
@@ -75,12 +76,14 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         actx = surface_discr._setup_actx
         return freeze(
                 bind(self,
-                    sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim))
+                    sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim),
+                    local_only=True)
                 (array_context=actx))
 
     @memoize_method
     def _bound_inverse_mass(self):
-        return bind(self, sym.InverseMassOperator()(sym.Variable("u")))
+        return bind(self, sym.InverseMassOperator()(sym.Variable("u")),
+                local_only=True)
 
     def inverse_mass(self, vec):
         if (isinstance(vec, np.ndarray)
@@ -94,7 +97,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     @memoize_method
     def _bound_face_mass(self):
         u = sym.Variable("u", dd=sym.as_dofdesc("all_faces"))
-        return bind(self, sym.FaceMassOperator()(u))
+        return bind(self, sym.FaceMassOperator()(u), local_only=True)
 
     def face_mass(self, vec):
         if (isinstance(vec, np.ndarray)
@@ -107,7 +110,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def _norm(self, p):
-        return bind(self, sym.norm(p, sym.var("arg")))
+        return bind(self, sym.norm(p, sym.var("arg")), local_only=True)
 
     def norm(self, vec, p=2):
         return self._norm(p)(arg=vec)
