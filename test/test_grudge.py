@@ -333,21 +333,12 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
 
 # {{{ surface face normal orthogonality
 
-def _avg_face_normal(dd, ambient_dim, dim=None):
-    dd = sym.as_dofdesc(dd)
-    assert dd.is_trace()
+def _avg_face_normal(x, side=-1):
+    x_i = x
+    x_e = sym.OppositeInteriorFaceSwap()(x_i)
+    x_avg = (x_i + side * x_e) / 2.0
 
-    if dim is None:
-        dim = ambient_dim - 1
-
-    face_normal_i = sym.normal(dd, ambient_dim, dim=dim)
-    face_normal_e = sym.OppositeInteriorFaceSwap()(face_normal_i)
-    face_normal = (face_normal_i - face_normal_e) / 2.0
-
-    return sym.cse(
-            face_normal / sym.sqrt(face_normal.dot(face_normal)),
-            "avg_face_normal",
-            sym.cse_scope.DISCRETIZATION)
+    return x_avg / sym.sqrt(x_avg.dot(x_avg))
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
@@ -368,8 +359,12 @@ def test_face_normal_surface(ctx_factory, mesh_name):
     else:
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
-    mesh = builder.get_mesh(builder.resolutions[1], builder.mesh_order)
+    mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=builder.order)
+
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    logger.info("nnodes:    %d", volume_discr.nnodes)
+    logger.info("nelements: %d", volume_discr.mesh.nelements)
 
     # }}}
 
@@ -379,24 +374,26 @@ def test_face_normal_surface(ctx_factory, mesh_name):
     df = sym.as_dofdesc(sym.FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
-    surf_dim = mesh.dim
-    face_dim = surf_dim - 1
+    dim = mesh.dim
 
     sym_surf_normal = sym.interp(dv, df)(
-            sym.surface_normal(ambient_dim, dim=surf_dim, dd=dv).as_vector()
+            sym.surface_normal(ambient_dim, dim=dim, dd=dv).as_vector()
             )
     sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
 
-    sym_face_normal_i = sym.normal(df, ambient_dim, dim=face_dim)
+    sym_surf_normal_avg = _avg_face_normal(sym_surf_normal, side=1.0)
+
+    sym_face_normal_i = sym.normal(df, ambient_dim, dim=dim - 1)
     sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
 
-    sym_face_normal_avg = _avg_face_normal(df, ambient_dim, dim=face_dim)
+    sym_face_normal_avg = _avg_face_normal(sym_face_normal_i)
     sym_face_normal_op = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_avg)
 
     if mesh.ambient_dim == 3:
         # NOTE: there's only one face tangent in 3d
-        sym_face_tangent = (sym.pseudoscalar(ambient_dim, face_dim, dd=df)
-                / sym.area_element(ambient_dim, face_dim, dd=df)).as_vector()
+        sym_face_tangent = (
+                sym.pseudoscalar(ambient_dim, dim - 1, dd=df)
+                / sym.area_element(ambient_dim, dim - 1, dd=df)).as_vector()
 
     # }}}
 
@@ -405,6 +402,7 @@ def test_face_normal_surface(ctx_factory, mesh_name):
     rtol = 1.0e-14
 
     surf_normal = bind(discr, sym_surf_normal)(queue)
+    surf_normal_avg = bind(discr, sym_surf_normal_avg)(queue)
 
     face_normal_i = bind(discr, sym_face_normal_i)(queue)
     face_normal_e = bind(discr, sym_face_normal_e)(queue)
@@ -416,6 +414,16 @@ def test_face_normal_surface(ctx_factory, mesh_name):
     error = la.norm(surf_normal.dot(face_normal_i).get(queue), np.inf)
     logger.info("error[n_dot_i]:    %.5e", error)
     assert error < rtol
+
+    # check averaged ones are also orthogonal
+    error = la.norm(surf_normal_avg.dot(face_normal_avg).get(queue), np.inf)
+    logger.info("error[a_dot_a]:    %.5e", error)
+    assert error < rtol
+
+    # check averaged face normal and interpolated face normal
+    error = la.norm(surf_normal.dot(face_normal_avg).get(queue), np.inf)
+    logger.info("error[n_dot_a]:    %.5e", error)
+    assert error > rtol
 
     # check angle between two neighboring elements
     error = la.norm(face_normal_i.dot(face_normal_e).get(queue) + 1.0, np.inf)

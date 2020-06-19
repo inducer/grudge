@@ -72,7 +72,7 @@ class SphereMeshBuilder(MeshBuilder):
 class SpheroidMeshBuilder(MeshBuilder):
     ambient_dim = 3
 
-    mesh_order = 3
+    mesh_order = 4
     resolutions = [1.0, 0.11, 0.05]
     # resolutions = [1.0, 0.11, 0.05, 0.03, 0.015]
 
