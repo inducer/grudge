@@ -182,4 +182,65 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
                 ))
 # }}}
 
+
+# {{{ closed surface advection
+
+def v_dot_n_tpair(velocity, dd=None):
+    ambient_dim = len(velocity)
+    normal = sym.normal(dd, ambient_dim, dim=ambient_dim - 2)
+
+    v_dot_n_i = sym.cse(velocity.dot(normal), "v_dot_normal")
+    v_dot_n_e = sym.cse(sym.OppositeInteriorFaceSwap()(v_dot_n_i))
+
+    return sym.TracePair(dd, v_dot_n_i, -v_dot_n_e)
+
+
+def surface_advection_weak_flux(flux_type, u, velocity):
+    v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
+
+    flux_type = flux_type.lower()
+    if flux_type == "central":
+        return u.avg * v_dot_n.avg
+    elif flux_type == "lf":
+        return u.avg * v_dot_n.avg + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
+    else:
+        raise ValueError("flux `{}` is not implemented".format(flux_type))
+
+
+class SurfaceAdvectionOperator(AdvectionOperatorBase):
+    def __init__(self, v, flux_type="central", quad_tag=None):
+        super(SurfaceAdvectionOperator, self).__init__(
+                v, inflow_u=None, flux_type=flux_type)
+        self.quad_tag = quad_tag
+
+    def flux(self, u):
+        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        return surface_advection_weak_flux(self.flux_type, u, surf_v)
+
+    def sym_operator(self):
+        u = sym.var("u")
+
+        def flux(pair):
+            return sym.interp(pair.dd, face_dd)(self.flux(pair))
+
+        face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
+
+        quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
+        to_quad = sym.interp(sym.DD_VOLUME, quad_dd)
+        stiff_t_op = sym.stiffness_t(self.ambient_dim,
+                dd_in=quad_dd, dd_out=sym.DD_VOLUME)
+
+        quad_v = to_quad(self.v)
+        quad_u = to_quad(u)
+
+        return sym.InverseMassOperator()(
+                sum(stiff_t_op[n](quad_u * quad_v[n])
+                    for n in range(self.ambient_dim))
+                - sym.FaceMassOperator(face_dd, sym.DD_VOLUME)(
+                    flux(sym.int_tpair(u, self.quad_tag))
+                    )
+                )
+
+# }}}
+
 # vim: foldmethod=marker
