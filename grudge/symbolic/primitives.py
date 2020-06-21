@@ -859,6 +859,10 @@ class TracePair:
         return self.exterior
 
     @property
+    def jump(self):
+        return self.int - self.ext
+
+    @property
     def avg(self):
         return 0.5*(self.int + self.ext)
 

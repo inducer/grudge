@@ -189,22 +189,33 @@ def v_dot_n_tpair(velocity, dd=None):
     ambient_dim = len(velocity)
     normal = sym.normal(dd, ambient_dim, dim=ambient_dim - 2)
 
-    v_dot_n_i = sym.cse(velocity.dot(normal), "v_dot_normal")
+    v_dot_n_i = sym.cse(velocity.dot(normal))
     v_dot_n_e = sym.cse(sym.OppositeInteriorFaceSwap()(v_dot_n_i))
 
-    return sym.TracePair(dd, v_dot_n_i, -v_dot_n_e)
+    return sym.TracePair(dd, v_dot_n_i, v_dot_n_e)
 
 
 def surface_advection_weak_flux(flux_type, u, velocity):
     v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
+    v_dot_n = sym.cse(0.5 * v_dot_n.jump, "v_dot_normal")
 
     flux_type = flux_type.lower()
     if flux_type == "central":
-        return u.avg * v_dot_n.avg
+        return u.avg * v_dot_n
     elif flux_type == "lf":
-        return u.avg * v_dot_n.avg + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
+        return u.avg * v_dot_n + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
     else:
         raise ValueError("flux `{}` is not implemented".format(flux_type))
+
+
+def surface_penalty_flux(u, velocity, tau=1.0):
+    if abs(tau) < 1.0e-14:
+        return 0.0
+
+    v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
+    return sym.If(sym.Comparison(v_dot_n.avg, ">", 0),
+            0.5 * tau * u.avg * v_dot_n.int,
+            0.0)
 
 
 class SurfaceAdvectionOperator(AdvectionOperatorBase):
@@ -217,11 +228,18 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
         return surface_advection_weak_flux(self.flux_type, u, surf_v)
 
+    def penalty(self, u):
+        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        return surface_penalty_flux(u, surf_v, tau=0.0)
+
     def sym_operator(self):
         u = sym.var("u")
 
         def flux(pair):
             return sym.interp(pair.dd, face_dd)(self.flux(pair))
+
+        def penalty(pair):
+            return sym.interp(pair.dd, face_dd)(self.penalty(pair))
 
         face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
 
@@ -238,6 +256,7 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                     for n in range(self.ambient_dim))
                 - sym.FaceMassOperator(face_dd, sym.DD_VOLUME)(
                     flux(sym.int_tpair(u, self.quad_tag))
+                    + penalty(sym.int_tpair(u, self.quad_tag))
                     )
                 )
 

@@ -98,12 +98,12 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     # sphere radius
     radius = 1.0
     # sphere resolution
-    resolution = 64 if dim == 2 else 1
+    resolution = 64 if dim == 2 else 1.0
 
     # cfl
     dt_factor = 1.0
     # final time
-    final_time = 1.0
+    final_time = 2.0 * np.pi
 
     # velocity field
     sym_x = sym.nodes(dim)
@@ -112,7 +112,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
         ])[:dim]
     norm_c = sym.sqrt((c**2).sum())
     # flux
-    flux_type = "central"
+    flux_type = "lf"
 
     # }}}
 
@@ -125,9 +125,29 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
                 np.linspace(0.0, 1.0, resolution + 1),
                 order)
     elif dim == 3:
-        from meshmode.mesh.generation import generate_icosphere
-        return generate_icosphere(radius, order=order,
-                uniform_refinement_rounds=resolution)
+        if 0:
+            from meshmode.mesh.generation import generate_icosphere
+            mesh = generate_icosphere(radius, order=4 * order)
+            from meshmode.mesh.refinement import refine_uniformly
+            mesh = refine_uniformly(mesh, resolution, with_adjacency=False)
+        else:
+            from meshmode.mesh.io import ScriptSource
+            source = ScriptSource("""
+                SetFactory("OpenCASCADE");
+                Sphere(1) = {0, 0, 0, %g};
+                Mesh.Algorithm = 6;
+                """ % radius, "geo")
+
+            from meshmode.mesh.io import generate_gmsh
+            mesh = generate_gmsh(source, 2, order=order,
+                    other_options=[
+                        "-optimize_ho",
+                        "-string", "Mesh.CharacteristicLengthMax = %g;" % resolution
+                        ],
+                    target_unit="MM")
+
+            from meshmode.mesh.processing import perform_flips
+            mesh = perform_flips(mesh, np.ones(mesh.nelements))
     else:
         raise ValueError("unsupported dimension")
 
@@ -146,9 +166,14 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    logger.info("nnodes:    %d", volume_discr.nnodes)
+    logger.info("nelements: %d", volume_discr.mesh.nelements)
+
     # }}}
 
     # {{{ symbolic operators
+
 
     def f_gaussian(x):
         return x[0]
@@ -164,6 +189,11 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     def rhs(t, u):
         return bound_op(queue, t=t, u=u)
 
+    # check velocity is tangential
+    sym_normal = sym.surface_normal(dim, dim=dim - 1, dd=sym.DD_VOLUME).as_vector()
+    error = la.norm(bind(discr, c.dot(sym_normal))(queue).get(queue))
+    logger.info("u_dot_n:   %.5e", error)
+
     # }}}
 
     # {{{ time stepping
@@ -175,23 +205,51 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     nsteps = int(final_time // dt) + 1
     dt = final_time/nsteps + 1.0e-15
 
+    logger.info("dt:        %.5e", dt)
+    logger.info("nsteps:    %d", nsteps)
+
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
     plot = Plotter(queue, discr, order, visualize=visualize)
 
     norm = bind(discr, sym.norm(2, sym.var("u")))
+    norm_u = 0.0
 
     step = 0
-    norm_u = 0.0
-    for event in dt_stepper.run(t_end=final_time):
+
+    event = dt_stepper.StateComputed(0.0, 0, 0, u)
+    plot(event, "fld-surface-%04d" % 0)
+
+    if visualize and dim == 3:
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(discr, vis_order=order)
+        vis.write_vtk_file("fld-surface-velocity.vtu", [
+            ("u", bind(discr, c)(queue)),
+            ("n", bind(discr, sym_normal)(queue))
+            ], overwrite=True)
+
+        df = sym.DOFDesc(sym.FACE_RESTR_INTERIOR)
+        face_discr = discr.connection_from_dds(sym.DD_VOLUME, df).to_discr
+
+        face_normal = bind(discr, sym.normal(
+            df, face_discr.ambient_dim, dim=face_discr.dim))(queue)
+
+        from meshmode.discretization.visualization import make_visualizer
+        vis = make_visualizer(queue, face_discr, vis_order=order,
+                use_high_order_vtk=False)
+        vis.write_vtk_file("fld-surface-face-normals.vtu", [
+            ("n", face_normal)
+            ], overwrite=True)
+
+    for event in dt_stepper.run(t_end=final_time, max_steps=nsteps + 1):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
+        step += 1
         if step % 1 == 0:
             norm_u = norm(queue, u=event.state_component)
             plot(event, "fld-surface-%04d" % step)
 
-        step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 
     # }}}
@@ -201,8 +259,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
-    parser.add_argument("--qtag", default="none")
+    parser.add_argument("--dim", choices=[2, 3], default=2, type=int)
+    parser.add_argument("--qtag", choices=["none", "product"], default="none")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
