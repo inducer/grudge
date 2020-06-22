@@ -867,20 +867,25 @@ class TracePair:
         return 0.5*(self.int + self.ext)
 
 
-def int_tpair(expression, qtag=None):
+def int_tpair(expression, qtag=None, from_dd=None):
     from grudge.symbolic.operators import interp, OppositeInteriorFaceSwap
 
-    i = interp("vol", "int_faces")(expression)
+    if from_dd is None:
+        from_dd = DD_VOLUME
+    assert not from_dd.uses_quadrature()
+
+    trace_dd = DOFDesc(FACE_RESTR_INTERIOR, qtag)
+    if from_dd.domain_tag == trace_dd.domain_tag:
+        i = expression
+    else:
+        i = interp(from_dd, trace_dd.with_qtag(None))(expression)
     e = cse(OppositeInteriorFaceSwap()(i))
 
-    if qtag is not None and qtag != QTAG_NONE:
-        q_dd = DOFDesc("int_faces", qtag)
-        i = cse(interp("int_faces", q_dd)(i))
-        e = cse(interp("int_faces", q_dd)(e))
-    else:
-        q_dd = "int_faces"
+    if trace_dd.uses_quadrature():
+        i = cse(interp(trace_dd.with_qtag(None), trace_dd)(i))
+        e = cse(interp(trace_dd.with_qtag(None), trace_dd)(e))
 
-    return TracePair(q_dd, i, e)
+    return TracePair(trace_dd, i, e)
 
 
 def bdry_tpair(dd, interior, exterior):

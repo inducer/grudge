@@ -50,7 +50,8 @@ class Plotter:
 
             volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
             x = volume_discr.nodes().with_queue(queue)
-            self.x = (2.0 * np.pi * (x[1] < 0) + cl.clmath.atan2(x[1], x[0])).get(queue)
+            self.x = (2.0 * np.pi * (x[1] < 0)
+                    + cl.clmath.atan2(x[1], x[0])).get(queue)
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(discr, vis_order=order)
@@ -98,7 +99,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     # sphere radius
     radius = 1.0
     # sphere resolution
-    resolution = 64 if dim == 2 else 1.0
+    resolution = 64 if dim == 2 else 1
 
     # cfl
     dt_factor = 1.0
@@ -110,7 +111,6 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     c = make_obj_array([
         -sym_x[1], sym_x[0], 0.0
         ])[:dim]
-    norm_c = sym.sqrt((c**2).sum())
     # flux
     flux_type = "lf"
 
@@ -125,29 +125,9 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
                 np.linspace(0.0, 1.0, resolution + 1),
                 order)
     elif dim == 3:
-        if 0:
-            from meshmode.mesh.generation import generate_icosphere
-            mesh = generate_icosphere(radius, order=4 * order)
-            from meshmode.mesh.refinement import refine_uniformly
-            mesh = refine_uniformly(mesh, resolution, with_adjacency=False)
-        else:
-            from meshmode.mesh.io import ScriptSource
-            source = ScriptSource("""
-                SetFactory("OpenCASCADE");
-                Sphere(1) = {0, 0, 0, %g};
-                Mesh.Algorithm = 6;
-                """ % radius, "geo")
-
-            from meshmode.mesh.io import generate_gmsh
-            mesh = generate_gmsh(source, 2, order=order,
-                    other_options=[
-                        "-optimize_ho",
-                        "-string", "Mesh.CharacteristicLengthMax = %g;" % resolution
-                        ],
-                    target_unit="MM")
-
-            from meshmode.mesh.processing import perform_flips
-            mesh = perform_flips(mesh, np.ones(mesh.nelements))
+        from meshmode.mesh.generation import generate_icosphere
+        mesh = generate_icosphere(radius, order=4 * order,
+                uniform_refinement_rounds=resolution)
     else:
         raise ValueError("unsupported dimension")
 
@@ -173,7 +153,6 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     # }}}
 
     # {{{ symbolic operators
-
 
     def f_gaussian(x):
         return x[0]

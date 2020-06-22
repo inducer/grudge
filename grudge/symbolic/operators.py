@@ -742,6 +742,7 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
                 )
             )**(1.0/dim)
 
+
 def h_min_from_volume(ambient_dim, dim=None, dd=None):
     """Defines a characteristic length based on the volume of the elements.
     This length may not be representative if the elements have very high

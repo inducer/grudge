@@ -186,13 +186,15 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 # {{{ closed surface advection
 
 def v_dot_n_tpair(velocity, dd=None):
+    if dd is None:
+        dd = sym.DOFDesc(sym.FACE_RESTR_INTERIOR)
+
     ambient_dim = len(velocity)
-    normal = sym.normal(dd, ambient_dim, dim=ambient_dim - 2)
+    normal = sym.normal(dd.with_qtag(None), ambient_dim, dim=ambient_dim - 2)
 
-    v_dot_n_i = sym.cse(velocity.dot(normal))
-    v_dot_n_e = sym.cse(sym.OppositeInteriorFaceSwap()(v_dot_n_i))
-
-    return sym.TracePair(dd, v_dot_n_i, v_dot_n_e)
+    return sym.int_tpair(velocity.dot(normal),
+            qtag=dd.quadrature_tag,
+            from_dd=dd.with_qtag(None))
 
 
 def surface_advection_weak_flux(flux_type, u, velocity):
@@ -225,11 +227,11 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         self.quad_tag = quad_tag
 
     def flux(self, u):
-        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        surf_v = sym.interp(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
         return surface_advection_weak_flux(self.flux_type, u, surf_v)
 
     def penalty(self, u):
-        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        surf_v = sym.interp(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
         return surface_penalty_flux(u, surf_v, tau=0.0)
 
     def sym_operator(self):
@@ -242,8 +244,8 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
             return sym.interp(pair.dd, face_dd)(self.penalty(pair))
 
         face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
-
         quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
+
         to_quad = sym.interp(sym.DD_VOLUME, quad_dd)
         stiff_t_op = sym.stiffness_t(self.ambient_dim,
                 dd_in=quad_dd, dd_out=sym.DD_VOLUME)
