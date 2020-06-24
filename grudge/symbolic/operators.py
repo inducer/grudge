@@ -177,7 +177,7 @@ class InterpolationOperator(ProjectionOperator):
         from warnings import warn
         warn("'InterpolationOperator' is deprecated, "
                 "use 'ProjectionOperator' instead.",
-                DeprecationWarning, stacklevel=1)
+                DeprecationWarning, stacklevel=2)
 
         super(InterpolationOperator, self).__init__(dd_in, dd_out)
 
