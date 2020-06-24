@@ -185,7 +185,7 @@ class InterpolationOperator(ProjectionOperator):
 def interp(dd_in, dd_out):
     from warnings import warn
     warn("using 'interp' is deprecated, use 'project' instead.",
-            DeprecationWarning, stacklevel=1)
+            DeprecationWarning, stacklevel=2)
 
     return ProjectionOperator(dd_in, dd_out)
 
