@@ -48,7 +48,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def interp(self, src, tgt, vec):
         from warnings import warn
         warn("using 'interp' is deprecated, use 'project' instead.",
-+                DeprecationWarning, stacklevel=2)
+                DeprecationWarning, stacklevel=2)
 
         return self.project(src, tgt, vec)
 
