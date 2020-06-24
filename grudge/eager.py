@@ -131,7 +131,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
 
 def interior_trace_pair(discrwb, vec):
-    i = discrwb.interp("vol", "int_faces", vec)
+    i = discrwb.project("vol", "int_faces", vec)
 
     if (isinstance(vec, np.ndarray)
             and vec.dtype.char == "O"
@@ -156,7 +156,7 @@ class RankBoundaryCommunication:
         self.remote_btag = BTAG_PARTITION(remote_rank)
 
         self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
-        self.local_dof_array = discrwb.interp("vol", self.remote_btag, vol_field)
+        self.local_dof_array = discrwb.project("vol", self.remote_btag, vol_field)
 
         local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
 

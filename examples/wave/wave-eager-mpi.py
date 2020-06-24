@@ -65,15 +65,15 @@ def wave_flux(discr, c, w_tpair):
             0.5*normal_times(v_jump),
             )
 
-    return discr.interp(w_tpair.dd, "all_faces", c*flux_weak)
+    return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
 
 
 def wave_operator(discr, c, w):
     u = w[0]
     v = w[1:]
 
-    dir_u = discr.interp("vol", BTAG_ALL, u)
-    dir_v = discr.interp("vol", BTAG_ALL, v)
+    dir_u = discr.project("vol", BTAG_ALL, u)
+    dir_v = discr.project("vol", BTAG_ALL, v)
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
