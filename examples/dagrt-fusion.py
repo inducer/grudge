@@ -460,7 +460,7 @@ def dg_flux(c, tpair):
             np.dot(v.int, normal),
             u.int * normal) - flux_weak
 
-    return sym.interp(tpair.dd, "all_faces")(c*flux_strong)
+    return sym.project(tpair.dd, "all_faces")(c*flux_strong)
 
 
 def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
@@ -499,8 +499,8 @@ def get_strong_wave_op_with_discr_direct(cl_ctx, dims=2, order=4):
 
     rad_normal = sym.normal(BTAG_ALL, dims)
 
-    rad_u = sym.cse(sym.interp("vol", BTAG_ALL)(u))
-    rad_v = sym.cse(sym.interp("vol", BTAG_ALL)(v))
+    rad_u = sym.cse(sym.project("vol", BTAG_ALL)(u))
+    rad_v = sym.cse(sym.project("vol", BTAG_ALL)(v))
 
     rad_bc = sym.cse(join_fields(
             0.5*(rad_u - sign*np.dot(rad_normal, rad_v)),
@@ -627,7 +627,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
             profile_data["bytes_written"] = (
                     profile_data.get("bytes_written", 0) + result.nbytes)
 
-            if op.mapper_method == "map_interpolation":
+            if op.mapper_method == "map_projection":
                 profile_data["interp_bytes_read"] = (
                         profile_data.get("interp_bytes_read", 0) + field.nbytes)
                 profile_data["interp_bytes_written"] = (
@@ -649,7 +649,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                     expr.op,
                     (
                         # TODO: Not comprehensive.
-                        sym_op.InterpolationOperator,
+                        sym_op.ProjectionOperator,
                         sym_op.RefFaceMassOperator,
                         sym_op.RefInverseMassOperator,
                         sym_op.OppositeInteriorFaceSwap)):

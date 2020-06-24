@@ -513,8 +513,8 @@ def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
     result = diff_op(NodeCoordinateComponent(xyz_axis, inner_dd))
 
     if dd.uses_quadrature():
-        from grudge.symbolic.operators import interp
-        result = interp(inner_dd, dd)(result)
+        from grudge.symbolic.operators import project
+        result = project(inner_dd, dd)(result)
 
     return cse(
             result,
@@ -649,15 +649,15 @@ def mv_normal(dd, ambient_dim, dim=None):
     if dim == 0:
         # NOTE: when the mesh is 0D, we do not have a clear notion of
         # `exterior normal`, so we just take the tangent of the 1D element,
-        # interpolate it to the element faces and make it signed
+        # project it to the element faces and make it signed
         tangent = parametrization_derivative(
                 ambient_dim, dim=1, dd=DD_VOLUME)
         tangent = tangent / sqrt(tangent.norm_squared())
 
-        from grudge.symbolic.operators import interp
-        interp = interp(DD_VOLUME, dd)
+        from grudge.symbolic.operators import project
+        project = project(DD_VOLUME, dd)
         mv = MultiVector(np.array([
-            mv.as_scalar() * interp(t) for t in tangent.as_vector()
+            mv.as_scalar() * project(t) for t in tangent.as_vector()
             ]))
 
     return cse(mv, "normal", cse_scope.DISCRETIZATION)
@@ -721,15 +721,15 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None):
-    from grudge.symbolic.operators import interp, OppositeInteriorFaceSwap
+    from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
 
-    i = interp("vol", "int_faces")(expression)
+    i = project("vol", "int_faces")(expression)
     e = cse(OppositeInteriorFaceSwap()(i))
 
     if qtag is not None and qtag != QTAG_NONE:
         q_dd = DOFDesc("int_faces", qtag)
-        i = cse(interp("int_faces", q_dd)(i))
-        e = cse(interp("int_faces", q_dd)(e))
+        i = cse(project("int_faces", q_dd)(i))
+        e = cse(project("int_faces", q_dd)(e))
     else:
         q_dd = "int_faces"
 
@@ -757,8 +757,8 @@ def bv_tpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    from grudge.symbolic.operators import interp
-    interior = cse(interp("vol", dd)(interior))
+    from grudge.symbolic.operators import project
+    interior = cse(project("vol", dd)(interior))
     return TracePair(dd, interior, exterior)
 
 # }}}

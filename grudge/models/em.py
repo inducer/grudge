@@ -191,8 +191,8 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PEC boundary conditions"
         e, h = self.split_eh(w)
 
-        pec_e = sym.cse(sym.interp("vol", self.pec_tag)(e))
-        pec_h = sym.cse(sym.interp("vol", self.pec_tag)(h))
+        pec_e = sym.cse(sym.project("vol", self.pec_tag)(e))
+        pec_h = sym.cse(sym.project("vol", self.pec_tag)(h))
 
         return join_fields(-pec_e, pec_h)
 
@@ -200,8 +200,8 @@ class MaxwellOperator(HyperbolicOperator):
         "Construct part of the flux operator template for PMC boundary conditions"
         e, h = self.split_eh(w)
 
-        pmc_e = sym.cse(sym.interp("vol", self.pmc_tag)(e))
-        pmc_h = sym.cse(sym.interp("vol", self.pmc_tag)(h))
+        pmc_e = sym.cse(sym.project("vol", self.pmc_tag)(e))
+        pmc_h = sym.cse(sym.project("vol", self.pmc_tag)(h))
 
         return join_fields(pmc_e, -pmc_h)
 
@@ -221,8 +221,8 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_Z = (mu/epsilon)**0.5  # noqa: N806
         absorb_Y = 1/absorb_Z  # noqa: N806
 
-        absorb_e = sym.cse(sym.interp("vol", self.absorb_tag)(e))
-        absorb_h = sym.cse(sym.interp("vol", self.absorb_tag)(h))
+        absorb_e = sym.cse(sym.project("vol", self.absorb_tag)(e))
+        absorb_h = sym.cse(sym.project("vol", self.absorb_tag)(h))
 
         bc = join_fields(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
@@ -278,7 +278,7 @@ class MaxwellOperator(HyperbolicOperator):
                 ]
 
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
+            return sym.project(pair.dd, "all_faces")(self.flux(pair))
 
         return (
                 - self.local_derivatives(w)
