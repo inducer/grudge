@@ -75,15 +75,15 @@ def simple_mpi_communication_entrypoint():
     myfunc = bind(vol_discr, myfunc_symb)(actx)
 
     sym_all_faces_func = sym.cse(
-        sym.interp("vol", "all_faces")(sym.var("myfunc")))
+        sym.project("vol", "all_faces")(sym.var("myfunc")))
     sym_int_faces_func = sym.cse(
-        sym.interp("vol", "int_faces")(sym.var("myfunc")))
+        sym.project("vol", "int_faces")(sym.var("myfunc")))
     sym_bdry_faces_func = sym.cse(
-        sym.interp(sym.BTAG_ALL, "all_faces")(
-            sym.interp("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
+        sym.project(sym.BTAG_ALL, "all_faces")(
+            sym.project("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
 
     bound_face_swap = bind(vol_discr,
-        sym.interp("int_faces", "all_faces")(
+        sym.project("int_faces", "all_faces")(
             sym.OppositeInteriorFaceSwap("int_faces")(
                 sym_int_faces_func)
             ) - (sym_all_faces_func - sym_bdry_faces_func)

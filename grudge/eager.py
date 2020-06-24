@@ -38,11 +38,18 @@ from grudge.symbolic.primitives import TracePair
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def interp(self, src, tgt, vec):
+        from warnings import warn
+        warn("using 'interp' is deprecated, use 'project' instead.",
+                DeprecationWarning, stacklevel=2)
+
+        return self.project(src, tgt, vec)
+
+    def project(self, src, tgt, vec):
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
             return obj_array_vectorize(
-                    lambda el: self.interp(src, tgt, el), vec)
+                    lambda el: self.project(src, tgt, el), vec)
 
         return self.connection_from_dds(src, tgt)(vec)
 

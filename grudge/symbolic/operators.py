@@ -38,9 +38,9 @@ Basic Operators
 
 .. autoclass:: Operator
 .. autoclass:: ElementwiseLinearOperator
-.. autoclass:: InterpolationOperator
+.. autoclass:: ProjectionOperator
 
-.. data:: interp
+.. data:: project
 
 Reductions
 ^^^^^^^^^^
@@ -148,17 +148,17 @@ class ElementwiseLinearOperator(Operator):
     mapper_method = intern("map_elementwise_linear")
 
 
-class InterpolationOperator(Operator):
+class ProjectionOperator(Operator):
     def __init__(self, dd_in, dd_out):
-        super(InterpolationOperator, self).__init__(dd_in, dd_out)
+        super(ProjectionOperator, self).__init__(dd_in, dd_out)
 
     def __call__(self, expr):
         from pytools.obj_array import obj_array_vectorize
 
-        def interp_one(subexpr):
+        def project_one(subexpr):
             from pymbolic.primitives import is_constant
             if self.dd_in == self.dd_out:
-                # no-op interpolation, go away
+                # no-op projection, go away
                 return subexpr
             elif is_constant(subexpr):
                 return subexpr
@@ -166,12 +166,30 @@ class InterpolationOperator(Operator):
                 from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
-        return obj_array_vectorize(interp_one, expr)
+        return obj_array_vectorize(project_one, expr)
 
-    mapper_method = intern("map_interpolation")
+    mapper_method = intern("map_projection")
 
 
-interp = InterpolationOperator
+project = ProjectionOperator
+
+
+class InterpolationOperator(ProjectionOperator):
+    def __init__(self, dd_in, dd_out):
+        from warnings import warn
+        warn("'InterpolationOperator' is deprecated, "
+                "use 'ProjectionOperator' instead.",
+                DeprecationWarning, stacklevel=2)
+
+        super(InterpolationOperator, self).__init__(dd_in, dd_out)
+
+
+def interp(dd_in, dd_out):
+    from warnings import warn
+    warn("using 'interp' is deprecated, use 'project' instead.",
+            DeprecationWarning, stacklevel=2)
+
+    return ProjectionOperator(dd_in, dd_out)
 
 
 # {{{ element reduction: sum, min, max

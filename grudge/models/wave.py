@@ -113,8 +113,8 @@ class StrongWaveOperator(HyperbolicOperator):
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
+        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
@@ -129,15 +129,15 @@ class StrongWaveOperator(HyperbolicOperator):
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
-        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
         neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
+        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
 
         rad_bc = sym.cse(flat_obj_array(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
@@ -148,7 +148,7 @@ class StrongWaveOperator(HyperbolicOperator):
         nabla = sym.nabla(d)
 
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(
+            return sym.project(pair.dd, "all_faces")(
                     self.flux(pair))
 
         result = (
@@ -253,8 +253,8 @@ class WeakWaveOperator(HyperbolicOperator):
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
+        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
@@ -269,15 +269,15 @@ class WeakWaveOperator(HyperbolicOperator):
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
-        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
         neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
+        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
 
         rad_bc = sym.cse(flat_obj_array(
                 0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
@@ -286,7 +286,7 @@ class WeakWaveOperator(HyperbolicOperator):
 
         # entire operator -----------------------------------------------------
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
+            return sym.project(pair.dd, "all_faces")(self.flux(pair))
 
         result = sym.InverseMassOperator()(
                 flat_obj_array(
@@ -397,9 +397,9 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_c = sym.cse(sym.interp("vol", self.dirichlet_tag)(self.c))
-        dir_u = sym.cse(sym.interp("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.interp("vol", self.dirichlet_tag)(v))
+        dir_c = sym.cse(sym.project("vol", self.dirichlet_tag)(self.c))
+        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
+        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
@@ -414,28 +414,28 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         dir_bc = sym.cse(dir_bc, "dir_bc")
 
         # neumann BCs ---------------------------------------------------------
-        neu_c = sym.cse(sym.interp("vol", self.neumann_tag)(self.c))
-        neu_u = sym.cse(sym.interp("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.interp("vol", self.neumann_tag)(v))
+        neu_c = sym.cse(sym.project("vol", self.neumann_tag)(self.c))
+        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
+        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
         neu_bc = sym.cse(flat_obj_array(neu_c, neu_u, -neu_v), "neu_bc")
 
         # radiation BCs -------------------------------------------------------
         rad_normal = sym.normal(self.radiation_tag, d)
 
-        rad_c = sym.cse(sym.interp("vol", self.radiation_tag)(self.c))
-        rad_u = sym.cse(sym.interp("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.interp("vol", self.radiation_tag)(v))
+        rad_c = sym.cse(sym.project("vol", self.radiation_tag)(self.c))
+        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
+        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
 
         rad_bc = sym.cse(flat_obj_array(rad_c,
-                0.5*(rad_u - sym.interp("vol", self.radiation_tag)(self.sign)
+                0.5*(rad_u - sym.project("vol", self.radiation_tag)(self.sign)
                     * np.dot(rad_normal, rad_v)),
                 0.5*rad_normal*(np.dot(rad_normal, rad_v)
-                    - sym.interp("vol", self.radiation_tag)(self.sign)*rad_u)
+                    - sym.project("vol", self.radiation_tag)(self.sign)*rad_u)
                 ), "rad_bc")
 
         # entire operator -----------------------------------------------------
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(self.flux(pair))
+            return sym.project(pair.dd, "all_faces")(self.flux(pair))
 
         result = sym.InverseMassOperator()(
                 flat_obj_array(
