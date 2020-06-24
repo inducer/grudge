@@ -235,7 +235,7 @@ def test_2d_gauss_theorem(ctx_factory):
                 ).sum())
             -  # noqa: W504
             sym.integral(
-                sym.interp("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
+                sym.project("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
                 .dot(sym.normal(sym.BTAG_ALL, 2)),
                 dd=sym.BTAG_ALL)
             )(actx)

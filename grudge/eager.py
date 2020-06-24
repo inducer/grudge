@@ -38,11 +38,18 @@ from grudge.symbolic.primitives import TracePair
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def interp(self, src, tgt, vec):
+        from warnings import warn
+        warn("using 'interp' is deprecated, use 'project' instead.",
+                DeprecationWarning, stacklevel=2)
+
+        return self.project(src, tgt, vec)
+
+    def project(self, src, tgt, vec):
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
             return obj_array_vectorize(
-                    lambda el: self.interp(src, tgt, el), vec)
+                    lambda el: self.project(src, tgt, el), vec)
 
         return self.connection_from_dds(src, tgt)(vec)
 
@@ -124,7 +131,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
 
 def interior_trace_pair(discrwb, vec):
-    i = discrwb.interp("vol", "int_faces", vec)
+    i = discrwb.project("vol", "int_faces", vec)
 
     if (isinstance(vec, np.ndarray)
             and vec.dtype.char == "O"
@@ -149,7 +156,7 @@ class RankBoundaryCommunication:
         self.remote_btag = BTAG_PARTITION(remote_rank)
 
         self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
-        self.local_dof_array = discrwb.interp("vol", self.remote_btag, vol_field)
+        self.local_dof_array = discrwb.project("vol", self.remote_btag, vol_field)
 
         local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
 
