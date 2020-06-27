@@ -46,9 +46,16 @@ def without_queue(ary):
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def interp(self, src, tgt, vec):
+        from warnings import warn
+        warn("using 'interp' is deprecated, use 'project' instead.",
+                DeprecationWarning, stacklevel=2)
+
+        return self.project(src, tgt, vec)
+
+    def project(self, src, tgt, vec):
         if is_obj_array(vec):
             return with_object_array_or_scalar(
-                    lambda el: self.interp(src, tgt, el), vec)
+                    lambda el: self.project(src, tgt, el), vec)
 
         return self.connection_from_dds(src, tgt)(vec.queue, vec)
 

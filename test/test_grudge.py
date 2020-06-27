@@ -376,7 +376,7 @@ def test_face_normal_surface(ctx_factory, mesh_name):
     ambient_dim = mesh.ambient_dim
     dim = mesh.dim
 
-    sym_surf_normal = sym.interp(dv, df)(
+    sym_surf_normal = sym.project(dv, df)(
             sym.surface_normal(ambient_dim, dim=dim, dd=dv).as_vector()
             )
     sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
@@ -528,7 +528,7 @@ def test_2d_gauss_theorem(ctx_factory):
                 ).sum())
             -  # noqa: W504
             sym.integral(
-                sym.interp("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
+                sym.project("vol", sym.BTAG_ALL)(f(sym.nodes(2)))
                 .dot(sym.normal(sym.BTAG_ALL, 2)),
                 dd=sym.BTAG_ALL)
             )(queue)
@@ -636,7 +636,7 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
         sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
 
         sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
-        sym_face_f = sym.interp(dd, df)(sym_f)
+        sym_face_f = sym.project(dd, df)(sym_f)
 
         # operators
         sym_stiff = sum(

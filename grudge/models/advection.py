@@ -94,7 +94,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
         u = sym.var("u")
 
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(
+            return sym.project(pair.dd, "all_faces")(
                     self.flux(pair))
 
         return (
@@ -118,11 +118,11 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
         u = sym.var("u")
 
         def flux(pair):
-            return sym.interp(pair.dd, "all_faces")(
+            return sym.project(pair.dd, "all_faces")(
                     self.flux(pair))
 
         bc_in = self.inflow_u
-        # bc_out = sym.interp("vol", self.outflow_tag)(u)
+        # bc_out = sym.project(sym.DD_VOLUME, self.outflow_tag)(u)
 
         return sym.InverseMassOperator()(
                 np.dot(
@@ -149,20 +149,20 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
         self.quad_tag = quad_tag
 
     def flux(self, u):
-        surf_v = sym.interp(sym.DD_VOLUME, u.dd)(self.v)
+        surf_v = sym.project(sym.DD_VOLUME, u.dd)(self.v)
         return advection_weak_flux(self.flux_type, u, surf_v)
 
     def sym_operator(self):
         u = sym.var("u")
 
         def flux(pair):
-            return sym.interp(pair.dd, face_dd)(self.flux(pair))
+            return sym.project(pair.dd, face_dd)(self.flux(pair))
 
         face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
         boundary_dd = sym.DOFDesc(sym.BTAG_ALL, self.quad_tag)
         quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.interp(sym.DD_VOLUME, quad_dd)
+        to_quad = sym.project(sym.DD_VOLUME, quad_dd)
         stiff_t_op = sym.stiffness_t(self.ambient_dim,
                 dd_in=quad_dd, dd_out=sym.DD_VOLUME)
 
@@ -227,26 +227,26 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         self.quad_tag = quad_tag
 
     def flux(self, u):
-        surf_v = sym.interp(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
+        surf_v = sym.project(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
         return surface_advection_weak_flux(self.flux_type, u, surf_v)
 
     def penalty(self, u):
-        surf_v = sym.interp(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
+        surf_v = sym.project(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
         return surface_penalty_flux(u, surf_v, tau=0.0)
 
     def sym_operator(self):
         u = sym.var("u")
 
         def flux(pair):
-            return sym.interp(pair.dd, face_dd)(self.flux(pair))
+            return sym.project(pair.dd, face_dd)(self.flux(pair))
 
         def penalty(pair):
-            return sym.interp(pair.dd, face_dd)(self.penalty(pair))
+            return sym.project(pair.dd, face_dd)(self.penalty(pair))
 
         face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
         quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.interp(sym.DD_VOLUME, quad_dd)
+        to_quad = sym.project(sym.DD_VOLUME, quad_dd)
         stiff_t_op = sym.stiffness_t(self.ambient_dim,
                 dd_in=quad_dd, dd_out=sym.DD_VOLUME)
 

@@ -528,8 +528,8 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         result = RefDiffOperator(rst_axis, inner_dd)(result)
 
     if dd.uses_quadrature():
-        from grudge.symbolic.operators import interp
-        result = interp(inner_dd, dd)(result)
+        from grudge.symbolic.operators import project
+        result = project(inner_dd, dd)(result)
 
     prefix = "dx%d_%s" % (
             xyz_axis,
@@ -773,10 +773,10 @@ def mv_normal(dd, ambient_dim, dim=None):
     # correct exterior face normal vector.
     assert dim == ambient_dim - 2
 
-    from grudge.symbolic.operators import interp
+    from grudge.symbolic.operators import project
     volm_normal = (
             surface_normal(ambient_dim, dim=dim + 1, dd=DD_VOLUME)
-            .map(interp(DD_VOLUME, dd)))
+            .map(project(DD_VOLUME, dd)))
     pder = pseudoscalar(ambient_dim, dim, dd=dd)
 
     mv = cse(-(volm_normal ^ pder) << volm_normal.I.inv(),
@@ -868,7 +868,7 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None, from_dd=None):
-    from grudge.symbolic.operators import interp, OppositeInteriorFaceSwap
+    from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
 
     if from_dd is None:
         from_dd = DD_VOLUME
@@ -878,12 +878,12 @@ def int_tpair(expression, qtag=None, from_dd=None):
     if from_dd.domain_tag == trace_dd.domain_tag:
         i = expression
     else:
-        i = interp(from_dd, trace_dd.with_qtag(None))(expression)
+        i = project(from_dd, trace_dd.with_qtag(None))(expression)
     e = cse(OppositeInteriorFaceSwap()(i))
 
     if trace_dd.uses_quadrature():
-        i = cse(interp(trace_dd.with_qtag(None), trace_dd)(i))
-        e = cse(interp(trace_dd.with_qtag(None), trace_dd)(e))
+        i = cse(project(trace_dd.with_qtag(None), trace_dd)(i))
+        e = cse(project(trace_dd.with_qtag(None), trace_dd)(e))
 
     return TracePair(trace_dd, i, e)
 
@@ -909,8 +909,8 @@ def bv_tpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    from grudge.symbolic.operators import interp
-    interior = cse(interp("vol", dd)(interior))
+    from grudge.symbolic.operators import project
+    interior = cse(project("vol", dd)(interior))
     return TracePair(dd, interior, exterior)
 
 # }}}

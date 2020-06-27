@@ -250,7 +250,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         return result
 
-    def map_interpolation(self, op, field_expr):
+    def map_projection(self, op, field_expr):
         conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
         return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
 

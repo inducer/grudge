@@ -131,7 +131,7 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
 
     map_elementwise_linear = _map_op_base
 
-    map_interpolation = _map_op_base
+    map_projection = _map_op_base
 
     map_elementwise_sum = _map_op_base
     map_elementwise_min = _map_op_base
@@ -184,7 +184,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
         # it's a leaf--no changing children
         return expr
 
-    map_interpolation = map_elementwise_linear
+    map_projection = map_elementwise_linear
 
     map_elementwise_sum = map_elementwise_linear
     map_elementwise_min = map_elementwise_linear
@@ -358,9 +358,9 @@ class DOFDescReplacer(IdentityMapper):
             field = self.rec(expr.field)
             return op.OppositePartitionFaceSwap(dd_in=self.new_dd,
                                                 dd_out=self.new_dd)(field)
-        elif (isinstance(expr.op, op.InterpolationOperator)
+        elif (isinstance(expr.op, op.ProjectionOperator)
                     and expr.op.dd_out == self.prev_dd):
-            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+            return op.ProjectionOperator(dd_in=expr.op.dd_in,
                                             dd_out=self.new_dd)(expr.field)
         elif (isinstance(expr.op, op.RefDiffOperatorBase)
                     and expr.op.dd_out == self.prev_dd
@@ -420,14 +420,14 @@ class DistributedMapper(CSECachingMapperMixin, IdentityMapper):
         from meshmode.mesh import BTAG_PARTITION
         from meshmode.discretization.connection import (FACE_RESTR_ALL,
                                                         FACE_RESTR_INTERIOR)
-        if (isinstance(expr.op, op.InterpolationOperator)
+        if (isinstance(expr.op, op.ProjectionOperator)
                 and expr.op.dd_in.domain_tag is FACE_RESTR_INTERIOR
                 and expr.op.dd_out.domain_tag is FACE_RESTR_ALL):
             distributed_work = 0
             for i_remote_part in self.connected_parts:
                 mapped_field = RankGeometryChanger(i_remote_part)(expr.field)
                 btag_part = BTAG_PARTITION(i_remote_part)
-                distributed_work += op.InterpolationOperator(dd_in=btag_part,
+                distributed_work += op.ProjectionOperator(dd_in=btag_part,
                                              dd_out=expr.op.dd_out)(mapped_field)
             return expr + distributed_work
         else:
@@ -458,9 +458,9 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
                     dd_in=self.new_dd,
                     dd_out=self.new_dd,
                     unique_id=expr.op.unique_id)(field)
-        elif (isinstance(expr.op, op.InterpolationOperator)
+        elif (isinstance(expr.op, op.ProjectionOperator)
                     and expr.op.dd_out == self.prev_dd):
-            return op.InterpolationOperator(dd_in=expr.op.dd_in,
+            return op.ProjectionOperator(dd_in=expr.op.dd_in,
                                             dd_out=self.new_dd)(expr.field)
         elif (isinstance(expr.op, op.RefDiffOperator)
                     and expr.op.dd_out == self.prev_dd
@@ -850,8 +850,8 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     def map_function_symbol(self, expr, enclosing_prec):
         return expr.name
 
-    def map_interpolation(self, expr, enclosing_prec):
-        return "Interp" + self._format_op_dd(expr)
+    def map_projection(self, expr, enclosing_prec):
+        return "Project" + self._format_op_dd(expr)
 
 
 class PrettyStringifyMapper(
@@ -908,14 +908,14 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
         import grudge.symbolic.operators as op
         # changed
 
-        if dd_in == dd_out and isinstance(expr.op, op.InterpolationOperator):
+        if dd_in == dd_out and isinstance(expr.op, op.ProjectionOperator):
             # This used to be to-quad interpolation and has become a no-op.
             # Remove it.
             return self.rec(expr.field)
 
         if isinstance(expr.op, op.StiffnessTOperator):
             new_op = type(expr.op)(expr.op.xyz_axis, dd_in, dd_out)
-        elif isinstance(expr.op, (op.FaceMassOperator, op.InterpolationOperator)):
+        elif isinstance(expr.op, (op.FaceMassOperator, op.ProjectionOperator)):
             new_op = type(expr.op)(dd_in, dd_out)
         else:
             raise NotImplementedError("do not know how to modify dd_in and dd_out "
@@ -978,7 +978,7 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
 
     def map_operator_binding(self, expr):
         from meshmode.mesh import is_boundary_tag_empty
-        if (isinstance(expr.op, sym.InterpolationOperator)
+        if (isinstance(expr.op, sym.ProjectionOperator)
                 and expr.op.dd_out.is_boundary_or_partition_interface()):
             domain_tag = expr.op.dd_out.domain_tag
             assert isinstance(domain_tag, sym.DTAG_BOUNDARY)
