@@ -68,16 +68,33 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                 self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
 
     @memoize_method
-    def _bound_weak_grad(self):
-        return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"),
+    def _bound_weak_grad(self, dd):
+        return bind(self,
+                sym.stiffness_t(self.dim, dd_in=dd) * sym.Variable("u", dd),
                 local_only=True)
 
-    def weak_grad(self, vec):
-        return self._bound_weak_grad()(u=vec)
+    def weak_grad(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
 
-    def weak_div(self, vecs):
+        return self._bound_weak_grad(dd)(u=vec)
+
+    def weak_div(self, *args):
+        if len(args) == 1:
+            vecs, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vecs = args
+        else:
+            raise TypeError("invalid number of arguments")
+
         return sum(
-                self.weak_grad(vec_i)[i] for i, vec_i in enumerate(vecs))
+                self.weak_grad(dd, vec_i)[i] for i, vec_i in enumerate(vecs))
 
     @memoize_method
     def normal(self, dd):
@@ -104,18 +121,26 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self._bound_inverse_mass()(u=vec)
 
     @memoize_method
-    def _bound_face_mass(self):
-        u = sym.Variable("u", dd=sym.as_dofdesc("all_faces"))
-        return bind(self, sym.FaceMassOperator()(u), local_only=True)
+    def _bound_face_mass(self, dd):
+        u = sym.Variable("u", dd=dd)
+        return bind(self, sym.FaceMassOperator(dd_in=dd)(u), local_only=True)
 
-    def face_mass(self, vec):
+    def face_mass(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("all_faces", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
+
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
             return obj_array_vectorize(
-                    lambda el: self.face_mass(el), vec)
+                    lambda el: self.face_mass(dd, el), vec)
 
-        return self._bound_face_mass()(u=vec)
+        return self._bound_face_mass(dd)(u=vec)
 
     @memoize_method
     def _norm(self, p):

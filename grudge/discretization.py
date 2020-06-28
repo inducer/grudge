@@ -48,8 +48,8 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     .. automethod :: zeros
     """
 
-    def __init__(self, array_context, mesh, order, quad_tag_to_group_factory=None,
-            mpi_communicator=None):
+    def __init__(self, array_context, mesh, order=None,
+            quad_tag_to_group_factory=None, mpi_communicator=None):
         """
         :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
             strings--but may be any hashable/comparable object) to a
@@ -61,10 +61,27 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
 
         self._setup_actx = array_context
 
-        if quad_tag_to_group_factory is None:
-            quad_tag_to_group_factory = {}
+        from meshmode.discretization.poly_element import \
+                PolynomialWarpAndBlendGroupFactory
 
-        self.order = order
+        if quad_tag_to_group_factory is None:
+            if order is None:
+                raise TypeError("one of 'order' and "
+                        "'quad_tag_to_group_factory' must be given")
+
+            quad_tag_to_group_factory = {
+                    sym.QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order=order)}
+        else:
+            if order is not None:
+                quad_tag_to_group_factory = quad_tag_to_group_factory.copy()
+                if sym.QTAG_NONE in quad_tag_to_group_factory:
+                    raise ValueError("if 'order' is given, "
+                            "'quad_tag_to_group_factory' must not have a "
+                            "key of QTAG_NONE")
+
+                quad_tag_to_group_factory[sym.QTAG_NONE] = \
+                        PolynomialWarpAndBlendGroupFactory(order=order)
+
         self.quad_tag_to_group_factory = quad_tag_to_group_factory
 
         from meshmode.discretization import Discretization
@@ -268,13 +285,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         if quadrature_tag is None:
             quadrature_tag = sym.QTAG_NONE
 
-        from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
-
-        if quadrature_tag is not sym.QTAG_NONE:
-            return self.quad_tag_to_group_factory[quadrature_tag]
-        else:
-            return PolynomialWarpAndBlendGroupFactory(order=self.order)
+        return self.quad_tag_to_group_factory[quadrature_tag]
 
     @memoize_method
     def _quad_volume_discr(self, quadrature_tag):
@@ -374,6 +385,17 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         return (
                 where is None
                 or where == sym.VTAG_ALL)
+
+    @property
+    def order(self):
+        from warnings import warn
+        warn("DGDiscretizationWithBoundaries.order is deprecated, "
+                "consider the orders of element groups instead. "
+                "'order' will go away in 2021.",
+                DeprecationWarning, stacklevel=2)
+
+        from pytools import single_valued
+        return single_valued(egrp.order for egrp in self._volume_discr.groups)
 
 
 # vim: foldmethod=marker
