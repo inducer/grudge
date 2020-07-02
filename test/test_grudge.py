@@ -1155,12 +1155,52 @@ def test_operator_compiler_overwrite(ctx_factory):
             n=(8,)*ambient_dim, order=1)
     discr = DGDiscretizationWithBoundaries(ctx, mesh, order=target_order)
 
+    # {{{ test
+
     sym_u = sym.nodes(ambient_dim)
     sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
 
     div_u = bind(discr, sym_div_u)(queue)
     error = la.norm(div_u.get(queue) - discr.dim)
     logger.info("error: %.5e", error)
+
+    # }}}
+
+
+@pytest.mark.parametrize("ambient_dim", [2, 3])
+def test_incorrect_assignment_aggregation(ctx_factory, ambient_dim):
+    """Tests that the greedy assignemnt aggregation code works on a non-trivial
+    expression (on which it didn't work at the time of writing).
+    """
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    target_order = 4
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
+            n=(8,)*ambient_dim, order=1)
+    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=target_order)
+
+    # {{{ test
+
+    dd = sym.DD_VOLUME
+    sym_y = sym.make_sym_array("y", ambient_dim, dd=dd)
+    sym_minv_y = sym.cse(sym.InverseMassOperator()(sym_y), "minv_y")
+
+    sym_u = make_obj_array([0.5 * sym.Ones(dd), 0.0, 0.0])[:ambient_dim]
+    sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
+
+    sym_op = sym.MassOperator(dd)(sym_u) \
+            + sym.MassOperator(dd)(sym_minv_y * sym_div_u)
+    logger.info("%s", sym.pretty(sym_op))
+
+    y = make_obj_array(discr.discr_from_dd(dd).nodes())
+    bind(discr, sym_op)(queue, y=y)
+
+    # }}}
 
 
 # You can test individual routines by typing
