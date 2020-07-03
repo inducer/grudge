@@ -85,8 +85,8 @@ def open_output_file(filename):
             outfile.close()
 
 
-def dof_array_size(ary: DOFArray):
-    return sum(grp_ary.size for grp_ary in ary)
+def dof_array_size_bytes(ary: DOFArray):
+    return sum(grp_ary.nbytes for grp_ary in ary)
 
 
 # {{{ topological sort
@@ -692,7 +692,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                 dof_array_kwargs[name] = v
 
                 if profile_data is not None:
-                    size = dof_array_size(v)
+                    size = dof_array_size_bytes(v)
                     profile_data["bytes_read"] = (
                             profile_data.get("bytes_read", 0) + size)
                     profile_data["bytes_read_by_scalar_assignments"] = (
@@ -737,7 +737,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
         for val in result.values():
             assert isinstance(val, DOFArray)
             if profile_data is not None:
-                size = dof_array_size(val)
+                size = dof_array_size_bytes(val)
                 profile_data["bytes_written"] = (
                         profile_data.get("bytes_written", 0) + size)
                 profile_data["bytes_written_by_scalar_assignments"] = (
@@ -777,11 +777,12 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
             field = self.inner_mapper.rec(insn.field)
             profile_data["bytes_read"] = (
-                    profile_data.get("bytes_read", 0) + dof_array_size(field))
+                    profile_data.get("bytes_read", 0) + dof_array_size_bytes(field))
 
             for _, value in assignments:
                 profile_data["bytes_written"] = (
-                        profile_data.get("bytes_written", 0) + dof_array_size(value))
+                        profile_data.get("bytes_written", 0)
+                        + dof_array_size_bytes(value))
 
         return assignments, futures
 
@@ -815,8 +816,8 @@ def test_assignment_memory_model(ctx_factory):
             input1=input1)
 
     assert profile_data["bytes_read"] == \
-            dof_array_size(input0) + dof_array_size(input1)
-    assert profile_data["bytes_written"] == dof_array_size(result)
+            dof_array_size_bytes(input0) + dof_array_size_bytes(input1)
+    assert profile_data["bytes_written"] == dof_array_size_bytes(result)
 
 
 @pytest.mark.parametrize("use_fusion", (True, False))
