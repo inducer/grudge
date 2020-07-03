@@ -85,8 +85,13 @@ def open_output_file(filename):
             outfile.close()
 
 
-def dof_array_size_bytes(ary: DOFArray):
-    return sum(grp_ary.nbytes for grp_ary in ary)
+def dof_array_nbytes(ary: np.ndarray):
+    if isinstance(ary, np.ndarray) and ary.dtype.char == "O":
+        return sum(
+                dof_array_nbytes(ary[idx])
+                for idx in np.ndindex(ary.shape))
+    else:
+        return ary.nbytes
 
 
 # {{{ topological sort
@@ -631,15 +636,19 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
             field = self.inner_mapper.rec(field_expr)
             profile_data["bytes_read"] = (
-                    profile_data.get("bytes_read", 0) + field.nbytes)
+                    profile_data.get("bytes_read", 0)
+                    + dof_array_nbytes(field))
             profile_data["bytes_written"] = (
-                    profile_data.get("bytes_written", 0) + result.nbytes)
+                    profile_data.get("bytes_written", 0)
+                    + dof_array_nbytes(result))
 
             if op.mapper_method == "map_projection":
                 profile_data["interp_bytes_read"] = (
-                        profile_data.get("interp_bytes_read", 0) + field.nbytes)
+                        profile_data.get("interp_bytes_read", 0)
+                        + dof_array_nbytes(field))
                 profile_data["interp_bytes_written"] = (
-                        profile_data.get("interp_bytes_written", 0) + result.nbytes)
+                        profile_data.get("interp_bytes_written", 0)
+                        + dof_array_nbytes(result))
 
         return result
 
@@ -692,7 +701,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                 dof_array_kwargs[name] = v
 
                 if profile_data is not None:
-                    size = dof_array_size_bytes(v)
+                    size = dof_array_nbytes(v)
                     profile_data["bytes_read"] = (
                             profile_data.get("bytes_read", 0) + size)
                     profile_data["bytes_read_by_scalar_assignments"] = (
@@ -737,7 +746,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
         for val in result.values():
             assert isinstance(val, DOFArray)
             if profile_data is not None:
-                size = dof_array_size_bytes(val)
+                size = dof_array_nbytes(val)
                 profile_data["bytes_written"] = (
                         profile_data.get("bytes_written", 0) + size)
                 profile_data["bytes_written_by_scalar_assignments"] = (
@@ -777,12 +786,12 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
             field = self.inner_mapper.rec(insn.field)
             profile_data["bytes_read"] = (
-                    profile_data.get("bytes_read", 0) + dof_array_size_bytes(field))
+                    profile_data.get("bytes_read", 0) + dof_array_nbytes(field))
 
             for _, value in assignments:
                 profile_data["bytes_written"] = (
                         profile_data.get("bytes_written", 0)
-                        + dof_array_size_bytes(value))
+                        + dof_array_nbytes(value))
 
         return assignments, futures
 
@@ -816,8 +825,8 @@ def test_assignment_memory_model(ctx_factory):
             input1=input1)
 
     assert profile_data["bytes_read"] == \
-            dof_array_size_bytes(input0) + dof_array_size_bytes(input1)
-    assert profile_data["bytes_written"] == dof_array_size_bytes(result)
+            dof_array_nbytes(input0) + dof_array_nbytes(input1)
+    assert profile_data["bytes_written"] == dof_array_nbytes(result)
 
 
 @pytest.mark.parametrize("use_fusion", (True, False))
