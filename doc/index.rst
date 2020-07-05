@@ -8,6 +8,7 @@ Contents:
 
     misc
     symbolic
+    eager
 
 
 Indices and Tables
