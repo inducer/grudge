@@ -325,6 +325,6 @@ intersphinx_mapping = {
     'https://documen.tician.de/modepy/': None,
     'https://documen.tician.de/pymbolic/': None,
     'https://documen.tician.de/meshmode/': None,
-    #'http://documen.tician.de/loopy/': None,
+    'http://documen.tician.de/loopy/': None,
     }
 autoclass_content = "both"

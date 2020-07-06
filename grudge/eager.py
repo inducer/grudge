@@ -36,7 +36,24 @@ from grudge.discretization import DGDiscretizationWithBoundaries
 from grudge.symbolic.primitives import TracePair
 
 
+__doc__ = """
+.. autoclass:: EagerDGDiscretization
+"""
+
+
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
+    """
+    .. automethod:: project
+    .. automethod:: nodes
+    .. automethod:: grad
+    .. automethod:: div
+    .. automethod:: weak_grad
+    .. automethod:: weak_div
+    .. automethod:: normal
+    .. automethod:: inverse_mass
+    .. automethod:: face_mass
+    """
+
     def interp(self, src, tgt, vec):
         from warnings import warn
         warn("using 'interp' is deprecated, use 'project' instead.",
