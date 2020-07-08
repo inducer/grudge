@@ -163,7 +163,8 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, discr.norm(fields[0]))
+            print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
+                    f"sol max: {discr.nodal_max('vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),

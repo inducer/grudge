@@ -167,6 +167,19 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self._norm(p)(arg=vec)
 
     @memoize_method
+    def _nodal_reduction(self, operator, dd):
+        return bind(self, operator(dd)(sym.var("arg")), local_only=True)
+
+    def nodal_sum(self, dd, vec):
+        return self._nodal_reduction(sym.NodalSum, dd)(arg=vec)
+
+    def nodal_min(self, dd, vec):
+        return self._nodal_reduction(sym.NodalMin, dd)(arg=vec)
+
+    def nodal_max(self, dd, vec):
+        return self._nodal_reduction(sym.NodalMax, dd)(arg=vec)
+
+    @memoize_method
     def connected_ranks(self):
         from meshmode.distributed import get_connected_partitions
         return get_connected_partitions(self._volume_discr.mesh)
