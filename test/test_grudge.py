@@ -251,7 +251,7 @@ def test_2d_gauss_theorem(ctx_factory):
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["central"])
-@pytest.mark.parametrize("order", [3, 4, 5])
+@pytest.mark.parametrize("order", [0, 3, 4, 5])
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
 def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
@@ -269,7 +269,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
             from meshmode.mesh.generation import generate_box_mesh
             mesh = generate_box_mesh(
                 [np.linspace(-1.0, 1.0, mesh_par)],
-                order=order)
+                order=1)
 
             dim = 1
             dt_factor = 1.0
@@ -341,7 +341,7 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
             final_time = 0.2
 
         h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(actx)
-        dt = dt_factor * h_max/order**2
+        dt = dt_factor * h_max/max(order, 1)**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
 
