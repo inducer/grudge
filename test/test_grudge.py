@@ -255,7 +255,7 @@ def test_2d_gauss_theorem(ctx_factory):
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
 def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
-    """Test whether 2D advection actually converges"""
+    """Test whether advection actually converges"""
 
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
