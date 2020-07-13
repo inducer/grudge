@@ -27,6 +27,8 @@ from six.moves import intern
 import numpy as np
 import pymbolic.primitives
 
+from typing import Tuple
+
 __doc__ = """
 
 Building blocks and mappers for operator expression trees.
@@ -111,7 +113,7 @@ class Operator(pymbolic.primitives.Expression):
         return StringifyMapper
 
     def __call__(self, expr):
-        from pytools.obj_array import with_object_array_or_scalar
+        from pytools.obj_array import obj_array_vectorize
         from grudge.tools import is_zero
 
         def bind_one(subexpr):
@@ -121,7 +123,7 @@ class Operator(pymbolic.primitives.Expression):
                 from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
-        return with_object_array_or_scalar(bind_one, expr)
+        return obj_array_vectorize(bind_one, expr)
 
     def with_dd(self, dd_in=None, dd_out=None):
         """Return a copy of *self*, modified to the given DOF descriptors.
@@ -131,7 +133,7 @@ class Operator(pymbolic.primitives.Expression):
                 dd_in=dd_in or self.dd_in,
                 dd_out=dd_out or self.dd_out)
 
-    init_arg_names = ("dd_in", "dd_out")
+    init_arg_names: Tuple[str, ...] = ("dd_in", "dd_out")
 
     def __getinitargs__(self):
         return (self.dd_in, self.dd_out,)
@@ -151,7 +153,7 @@ class ProjectionOperator(Operator):
         super(ProjectionOperator, self).__init__(dd_in, dd_out)
 
     def __call__(self, expr):
-        from pytools.obj_array import with_object_array_or_scalar
+        from pytools.obj_array import obj_array_vectorize
 
         def project_one(subexpr):
             from pymbolic.primitives import is_constant
@@ -164,7 +166,7 @@ class ProjectionOperator(Operator):
                 from grudge.symbolic.primitives import OperatorBinding
                 return OperatorBinding(self, subexpr)
 
-        return with_object_array_or_scalar(project_one, expr)
+        return obj_array_vectorize(project_one, expr)
 
     mapper_method = intern("map_projection")
 
@@ -640,9 +642,9 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
         assert afgrp.nelements == nfaces * volgrp.nelements
 
         matrix = np.empty(
-                (volgrp.nunit_nodes,
+                (volgrp.nunit_dofs,
                     nfaces,
-                    afgrp.nunit_nodes),
+                    afgrp.nunit_dofs),
                 dtype=dtype)
 
         from modepy.tools import UNIT_VERTICES

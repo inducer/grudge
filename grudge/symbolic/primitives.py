@@ -363,8 +363,8 @@ class FunctionSymbol(ExpressionBase, VariableBase):
     """
 
     def __call__(self, *exprs):
-        from pytools.obj_array import with_object_array_or_scalar_n_args
-        return with_object_array_or_scalar_n_args(
+        from pytools.obj_array import obj_array_vectorize_n_args
+        return obj_array_vectorize_n_args(
                 super(FunctionSymbol, self).__call__, *exprs)
 
     mapper_method = "map_function_symbol"
@@ -397,10 +397,9 @@ class OperatorBinding(ExpressionBase):
         return self.op, self.field
 
     def is_equal(self, other):
-        from pytools.obj_array import obj_array_equal
         return (other.__class__ == self.__class__
                 and other.op == self.op
-                and obj_array_equal(other.field, self.field))
+                and np.array_equal(other.field, self.field))
 
     def get_hash(self):
         from pytools.obj_array import obj_array_to_hashable

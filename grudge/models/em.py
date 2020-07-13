@@ -34,7 +34,7 @@ from pytools import memoize_method
 from grudge.models import HyperbolicOperator
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym
-from pytools.obj_array import join_fields, make_obj_array
+from pytools.obj_array import flat_obj_array, make_obj_array
 
 # TODO: Check PML
 
@@ -133,7 +133,7 @@ class MaxwellOperator(HyperbolicOperator):
             # if self.fixed_material:
             #     max_c = (self.epsilon*self.mu)**(-0.5)
 
-            return join_fields(
+            return flat_obj_array(
                     # flux e,
                     1/2*(
                         -self.space_cross_h(normal, h.int-h.ext)
@@ -148,7 +148,7 @@ class MaxwellOperator(HyperbolicOperator):
                     ))
         elif isinstance(self.flux_type, (int, float)):
             # see doc/maxima/maxwell.mac
-            return join_fields(
+            return flat_obj_array(
                     # flux e,
                     (
                         -1/(Z_int+Z_ext)*self.space_cross_h(normal,
@@ -182,7 +182,7 @@ class MaxwellOperator(HyperbolicOperator):
             return self.space_cross_h(nabla, field)
 
         # in conservation form: u_t + A u_x = 0
-        return join_fields(
+        return flat_obj_array(
                 (self.current - h_curl(h)),
                 e_curl(e)
                 )
@@ -194,7 +194,7 @@ class MaxwellOperator(HyperbolicOperator):
         pec_e = sym.cse(sym.project("vol", self.pec_tag)(e))
         pec_h = sym.cse(sym.project("vol", self.pec_tag)(h))
 
-        return join_fields(-pec_e, pec_h)
+        return flat_obj_array(-pec_e, pec_h)
 
     def pmc_bc(self, w):
         "Construct part of the flux operator template for PMC boundary conditions"
@@ -203,7 +203,7 @@ class MaxwellOperator(HyperbolicOperator):
         pmc_e = sym.cse(sym.project("vol", self.pmc_tag)(e))
         pmc_h = sym.cse(sym.project("vol", self.pmc_tag)(h))
 
-        return join_fields(pmc_e, -pmc_h)
+        return flat_obj_array(pmc_e, -pmc_h)
 
     def absorbing_bc(self, w):
         """Construct part of the flux operator template for 1st order
@@ -224,7 +224,7 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_e = sym.cse(sym.project("vol", self.absorb_tag)(e))
         absorb_h = sym.cse(sym.project("vol", self.absorb_tag)(h))
 
-        bc = join_fields(
+        bc = flat_obj_array(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
                     absorb_normal, absorb_e))
                     - absorb_Z*self.space_cross_h(absorb_normal, absorb_h)),
@@ -437,7 +437,7 @@ def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
     if dims == 2:
         tfac = sym.ScalarVariable("t") * omega
 
-        result = join_fields(
+        result = flat_obj_array(
             0,
             0,
             sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
@@ -449,7 +449,7 @@ def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
         tdep = sym.exp(-1j * omega * sym.ScalarVariable("t"))
 
         gamma_squared = ky**2 + kx**2
-        result = join_fields(
+        result = flat_obj_array(
             -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
             -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
             E_0 * sx*sy*cz*tdep,  # ez

@@ -24,29 +24,21 @@ THE SOFTWARE.
 
 
 import numpy as np  # noqa
-from grudge.discretization import DGDiscretizationWithBoundaries
 from pytools import memoize_method
-from pytools.obj_array import (
-        with_object_array_or_scalar,
-        is_obj_array)
-import pyopencl as cl
+from pytools.obj_array import obj_array_vectorize, make_obj_array
 import pyopencl.array as cla  # noqa
 from grudge import sym, bind
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+
+from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
+from meshmode.dof_array import freeze, DOFArray, flatten, unflatten
+
+from grudge.discretization import DGDiscretizationWithBoundaries
+from grudge.symbolic.primitives import TracePair
 
 
 __doc__ = """
 .. autoclass:: EagerDGDiscretization
 """
-
-
-def with_queue(queue, ary):
-    return with_object_array_or_scalar(
-            lambda x: x.with_queue(queue), ary)
-
-
-def without_queue(ary):
-    return with_queue(None, ary)
 
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
@@ -70,66 +62,215 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self.project(src, tgt, vec)
 
     def project(self, src, tgt, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
                     lambda el: self.project(src, tgt, el), vec)
 
-        return self.connection_from_dds(src, tgt)(vec.queue, vec)
+        return self.connection_from_dds(src, tgt)(vec)
 
     def nodes(self):
         return self._volume_discr.nodes()
 
     @memoize_method
     def _bound_grad(self):
-        return bind(self, sym.nabla(self.dim) * sym.Variable("u"))
+        return bind(self, sym.nabla(self.dim) * sym.Variable("u"), local_only=True)
 
     def grad(self, vec):
-        return self._bound_grad()(vec.queue, u=vec)
+        return self._bound_grad()(u=vec)
 
     def div(self, vecs):
         return sum(
                 self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
 
     @memoize_method
-    def _bound_weak_grad(self):
-        return bind(self, sym.stiffness_t(self.dim) * sym.Variable("u"))
+    def _bound_weak_grad(self, dd):
+        return bind(self,
+                sym.stiffness_t(self.dim, dd_in=dd) * sym.Variable("u", dd),
+                local_only=True)
 
-    def weak_grad(self, vec):
-        return self._bound_weak_grad()(vec.queue, u=vec)
+    def weak_grad(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
 
-    def weak_div(self, vecs):
+        return self._bound_weak_grad(dd)(u=vec)
+
+    def weak_div(self, *args):
+        if len(args) == 1:
+            vecs, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vecs = args
+        else:
+            raise TypeError("invalid number of arguments")
+
         return sum(
-                self.weak_grad(vec_i)[i] for i, vec_i in enumerate(vecs))
+                self.weak_grad(dd, vec_i)[i] for i, vec_i in enumerate(vecs))
 
     @memoize_method
     def normal(self, dd):
-        with cl.CommandQueue(self.cl_context) as queue:
-            surface_discr = self.discr_from_dd(dd)
-            return without_queue(
-                    bind(self, sym.normal(
-                        dd, surface_discr.ambient_dim, surface_discr.dim))(queue))
+        surface_discr = self.discr_from_dd(dd)
+        actx = surface_discr._setup_actx
+        return freeze(
+                bind(self,
+                    sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim),
+                    local_only=True)
+                (array_context=actx))
 
     @memoize_method
     def _bound_inverse_mass(self):
-        return bind(self, sym.InverseMassOperator()(sym.Variable("u")))
+        return bind(self, sym.InverseMassOperator()(sym.Variable("u")),
+                local_only=True)
 
     def inverse_mass(self, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
                     lambda el: self.inverse_mass(el), vec)
 
-        return self._bound_inverse_mass()(vec.queue, u=vec)
+        return self._bound_inverse_mass()(u=vec)
 
     @memoize_method
-    def _bound_face_mass(self):
-        u = sym.Variable("u", dd=sym.as_dofdesc("all_faces"))
-        return bind(self, sym.FaceMassOperator()(u))
+    def _bound_face_mass(self, dd):
+        u = sym.Variable("u", dd=dd)
+        return bind(self, sym.FaceMassOperator(dd_in=dd)(u), local_only=True)
 
-    def face_mass(self, vec):
-        if is_obj_array(vec):
-            return with_object_array_or_scalar(
-                    lambda el: self.face_mass(el), vec)
+    def face_mass(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("all_faces", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
 
-        return self._bound_face_mass()(vec.queue, u=vec)
+        if (isinstance(vec, np.ndarray)
+                and vec.dtype.char == "O"
+                and not isinstance(vec, DOFArray)):
+            return obj_array_vectorize(
+                    lambda el: self.face_mass(dd, el), vec)
+
+        return self._bound_face_mass(dd)(u=vec)
+
+    @memoize_method
+    def _norm(self, p):
+        return bind(self, sym.norm(p, sym.var("arg")), local_only=True)
+
+    def norm(self, vec, p=2):
+        return self._norm(p)(arg=vec)
+
+    @memoize_method
+    def _nodal_reduction(self, operator, dd):
+        return bind(self, operator(dd)(sym.var("arg")), local_only=True)
+
+    def nodal_sum(self, dd, vec):
+        return self._nodal_reduction(sym.NodalSum, dd)(arg=vec)
+
+    def nodal_min(self, dd, vec):
+        return self._nodal_reduction(sym.NodalMin, dd)(arg=vec)
+
+    def nodal_max(self, dd, vec):
+        return self._nodal_reduction(sym.NodalMax, dd)(arg=vec)
+
+    @memoize_method
+    def connected_ranks(self):
+        from meshmode.distributed import get_connected_partitions
+        return get_connected_partitions(self._volume_discr.mesh)
+
+
+def interior_trace_pair(discrwb, vec):
+    i = discrwb.project("vol", "int_faces", vec)
+
+    if (isinstance(vec, np.ndarray)
+            and vec.dtype.char == "O"
+            and not isinstance(vec, DOFArray)):
+        e = obj_array_vectorize(
+                lambda el: discrwb.opposite_face_connection()(el),
+                i)
+
+    return TracePair("int_faces", i, e)
+
+
+class RankBoundaryCommunication:
+    base_tag = 1273
+
+    def __init__(self, discrwb, remote_rank, vol_field, tag=None):
+        self.tag = self.base_tag
+        if tag is not None:
+            self.tag += tag
+
+        self.discrwb = discrwb
+        self.array_context = vol_field.array_context
+        self.remote_btag = BTAG_PARTITION(remote_rank)
+
+        self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
+        self.local_dof_array = discrwb.project("vol", self.remote_btag, vol_field)
+
+        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
+
+        comm = self.discrwb.mpi_communicator
+
+        self.send_req = comm.Isend(
+                local_data, remote_rank, tag=self.tag)
+
+        self.remote_data_host = np.empty_like(local_data)
+        self.recv_req = comm.Irecv(self.remote_data_host, remote_rank, self.tag)
+
+    def finish(self):
+        self.recv_req.Wait()
+
+        actx = self.array_context
+        remote_dof_array = unflatten(self.array_context, self.bdry_discr,
+                actx.from_numpy(self.remote_data_host))
+
+        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(
+                sym.as_dofdesc(sym.DTAG_BOUNDARY(self.remote_btag)))
+        swapped_remote_dof_array = bdry_conn(remote_dof_array)
+
+        self.send_req.Wait()
+
+        return TracePair(self.remote_btag, self.local_dof_array,
+                swapped_remote_dof_array)
+
+
+def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
+    rbcomms = [RankBoundaryCommunication(discrwb, remote_rank, vec, tag=tag)
+            for remote_rank in discrwb.connected_ranks()]
+    return [rbcomm.finish() for rbcomm in rbcomms]
+
+
+def cross_rank_trace_pairs(discrwb, vec, tag=None):
+    if (isinstance(vec, np.ndarray)
+            and vec.dtype.char == "O"
+            and not isinstance(vec, DOFArray)):
+
+        n, = vec.shape
+        result = {}
+        for ivec in range(n):
+            for rank_tpair in _cross_rank_trace_pairs_scalar_field(
+                    discrwb, vec[ivec]):
+                assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
+                assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
+                result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
+
+        return [
+            TracePair(
+                dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
+                interior=make_obj_array([
+                    result[remote_rank, i].int for i in range(n)]),
+                exterior=make_obj_array([
+                    result[remote_rank, i].ext for i in range(n)])
+                )
+            for remote_rank in discrwb.connected_ranks()]
+    else:
+        return _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=tag)
+
 
 # vim: foldmethod=marker

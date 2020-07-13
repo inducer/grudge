@@ -27,6 +27,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+from meshmode.array_context import PyOpenCLArrayContext
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 from mpi4py import MPI
@@ -35,6 +36,7 @@ from mpi4py import MPI
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -61,7 +63,7 @@ def main(write_output=True, order=4):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
+    discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
             mpi_communicator=comm)
 
     if local_mesh.dim == 2:
@@ -90,10 +92,10 @@ def main(write_output=True, order=4):
             radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
-    queue = cl.CommandQueue(discr.cl_context)
-    from pytools.obj_array import join_fields
-    fields = join_fields(discr.zeros(queue),
-            [discr.zeros(queue) for i in range(discr.dim)])
+    from pytools.obj_array import flat_obj_array
+    fields = flat_obj_array(
+            discr.zeros(actx),
+            [discr.zeros(actx) for i in range(discr.dim)])
 
     # FIXME
     #dt = op.estimate_rk4_timestep(discr, fields=fields)
@@ -104,7 +106,7 @@ def main(write_output=True, order=4):
     bound_op = bind(discr, op.sym_operator())
 
     def rhs(t, w):
-        return bound_op(queue, t=t, w=w)
+        return bound_op(t=t, w=w)
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
@@ -130,7 +132,7 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(queue, u=event.state_component[0]),
+            print(step, event.t, norm(u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
                 vis.write_vtk_file(

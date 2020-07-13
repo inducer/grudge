@@ -26,11 +26,11 @@ import os
 import numpy as np
 
 import pyopencl as cl
-import pyopencl.array
-import pyopencl.clmath
+
+from meshmode.array_context import PyOpenCLArrayContext
 
 from grudge import bind, sym
-from pytools.obj_array import join_fields
+from pytools.obj_array import flat_obj_array
 
 import logging
 logger = logging.getLogger(__name__)
@@ -92,6 +92,7 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     # {{{ parameters
 
@@ -119,7 +120,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
         c = sym_x
     else:
         # solid body rotation
-        c = join_fields(
+        c = flat_obj_array(
                 np.pi * (d/2 - sym_x[1]),
                 np.pi * (sym_x[0] - d/2),
                 0)[:dim]
@@ -145,7 +146,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
         quad_tag_to_group_factory = {}
 
     from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
     # }}}
@@ -176,10 +177,10 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
             flux_type=flux_type)
 
     bound_op = bind(discr, op.sym_operator())
-    u = bind(discr, f_gaussian(sym.nodes(dim)))(queue, t=0)
+    u = bind(discr, f_gaussian(sym.nodes(dim)))(actx, t=0)
 
     def rhs(t, u):
-        return bound_op(queue, t=t, u=u)
+        return bound_op(t=t, u=u)
 
     # }}}
 
@@ -197,7 +198,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
             continue
 
         if step % 10 == 0:
-            norm_u = norm(queue, u=event.state_component)
+            norm_u = norm(u=event.state_component)
             plot(event, "fld-var-velocity-%04d" % step)
 
         step += 1
