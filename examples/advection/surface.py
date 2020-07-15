@@ -18,9 +18,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
-import numpy as np
-import numpy.linalg as la
 
+import numpy as np
 import pyopencl as cl
 
 from meshmode.array_context import PyOpenCLArrayContext
@@ -89,7 +88,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
+def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)

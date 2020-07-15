@@ -86,7 +86,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, visualize=True):
+def main(ctx_factory, dim=2, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
