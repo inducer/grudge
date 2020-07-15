@@ -673,16 +673,13 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
         eoc_local.add_data_point(h_max, err_local)
 
         if visualize:
-            r = cl.array.to_device(queue, op_local)
-            r = cl.clmath.log10(cl.clmath.fabs(r) + 1.0e-16)
+            from grudge.shortcuts import make_visualizer
+            vis = make_visualizer(discr, vis_order=builder.order)
 
-            from meshmode.discretization.visualization import make_visualizer
-            vis = make_visualizer(queue, discr, vis_order=builder.order)
-
-            filename = "test_surface_divergence_theorem_error_{:04d}".format(i)
+            filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
             vis.write_vtk_file(filename, [
-                ("r", r)
-                ], overwrite=True, legend=False)
+                ("r", actx.np.log10(op_local))
+                ], overwrite=True)
 
     # }}}
 
