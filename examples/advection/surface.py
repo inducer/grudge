@@ -22,8 +22,9 @@ import numpy as np
 import numpy.linalg as la
 
 import pyopencl as cl
-import pyopencl.array
-import pyopencl.clmath
+
+from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import thaw, flatten
 
 from grudge import bind, sym
 from pytools.obj_array import make_obj_array
@@ -35,8 +36,8 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, queue, discr, order, visualize=True):
-        self.queue = queue
+    def __init__(self, actx, discr, order, visualize=True):
+        self.actx = actx
         self.ambient_dim = discr.ambient_dim
         self.dim = discr.dim
 
@@ -48,10 +49,8 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-            x = volume_discr.nodes().with_queue(queue)
-            self.x = (2.0 * np.pi * (x[1] < 0)
-                    + cl.clmath.atan2(x[1], x[0])).get(queue)
+            x = thaw(actx, discr.discr_from_dd(sym.DD_VOLUME).nodes())
+            self.x = actx.to_numpy(flatten(actx.np.atan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(discr, vis_order=order)
@@ -63,7 +62,7 @@ class Plotter:
             return
 
         if self.ambient_dim == 2:
-            u = evt.state_component.get(self.queue)
+            u = self.actx.to_numpy(flatten(evt.state_component))
 
             filename = "%s.png" % basename
             if not overwrite and os.path.exists(filename):
@@ -90,9 +89,10 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
+def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     # {{{ parameters
 
@@ -143,11 +143,11 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
                 }
 
     from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order,
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
     volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-    logger.info("nnodes:    %d", volume_discr.nnodes)
+    logger.info("ndofs:     %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
     # }}}
@@ -163,14 +163,14 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
         quad_tag=product_tag)
 
     bound_op = bind(discr, op.sym_operator())
-    u = bind(discr, f_gaussian(sym_x))(queue, t=0)
+    u = bind(discr, f_gaussian(sym_x))(actx, t=0)
 
     def rhs(t, u):
-        return bound_op(queue, t=t, u=u)
+        return bound_op(actx, t=t, u=u)
 
     # check velocity is tangential
     sym_normal = sym.surface_normal(dim, dim=dim - 1, dd=sym.DD_VOLUME).as_vector()
-    error = la.norm(bind(discr, c.dot(sym_normal))(queue).get(queue))
+    error = bind(discr, sym.norm(2, c.dot(sym_normal)))(actx)
     logger.info("u_dot_n:   %.5e", error)
 
     # }}}
@@ -179,7 +179,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     # compute time step
     h_min = bind(discr,
-            sym.h_max_from_volume(discr.ambient_dim, dim=discr.dim))(queue)
+            sym.h_max_from_volume(discr.ambient_dim, dim=discr.dim))(actx)
     dt = dt_factor * h_min/order**2
     nsteps = int(final_time // dt) + 1
     dt = final_time/nsteps + 1.0e-15
@@ -189,10 +189,10 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-    plot = Plotter(queue, discr, order, visualize=visualize)
+    plot = Plotter(actx, discr, order, visualize=visualize)
 
     norm = bind(discr, sym.norm(2, sym.var("u")))
-    norm_u = 0.0
+    norm_u = norm(actx, u=u)
 
     step = 0
 
@@ -203,19 +203,18 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
         from grudge.shortcuts import make_visualizer
         vis = make_visualizer(discr, vis_order=order)
         vis.write_vtk_file("fld-surface-velocity.vtu", [
-            ("u", bind(discr, c)(queue)),
-            ("n", bind(discr, sym_normal)(queue))
+            ("u", bind(discr, c)(actx)),
+            ("n", bind(discr, sym_normal)(actx))
             ], overwrite=True)
 
         df = sym.DOFDesc(sym.FACE_RESTR_INTERIOR)
         face_discr = discr.connection_from_dds(sym.DD_VOLUME, df).to_discr
 
         face_normal = bind(discr, sym.normal(
-            df, face_discr.ambient_dim, dim=face_discr.dim))(queue)
+            df, face_discr.ambient_dim, dim=face_discr.dim))(actx)
 
         from meshmode.discretization.visualization import make_visualizer
-        vis = make_visualizer(queue, face_discr, vis_order=order,
-                use_high_order_vtk=False)
+        vis = make_visualizer(actx, face_discr, vis_order=order)
         vis.write_vtk_file("fld-surface-face-normals.vtu", [
             ("n", face_normal)
             ], overwrite=True)
@@ -225,11 +224,13 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
             continue
 
         step += 1
-        if step % 1 == 0:
-            norm_u = norm(queue, u=event.state_component)
+        if step % 10 == 0:
+            norm_u = norm(actx, u=event.state_component)
             plot(event, "fld-surface-%04d" % step)
 
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+
+    plot(event, "fld-surface-%04d" % step)
 
     # }}}
 
