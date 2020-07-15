@@ -46,7 +46,7 @@ jobs:
             run: |
                 sudo apt-get update
                 sudo apt-get install openmpi-bin libopenmpi-dev
-                CONDA_ENVIRONMENT=.test-conda-env.yml
+                CONDA_ENVIRONMENT=.test-conda-env-py3.yml
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
                 . ci-support.sh
                 build_py_project_in_conda_env
