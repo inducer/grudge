@@ -26,11 +26,10 @@ THE SOFTWARE.
 """
 
 
-import loopy as lp
 import numpy as np
 
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
-from pytools import RecordWithoutPickling, memoize_in
+from pytools import RecordWithoutPickling
 
 
 # {{{ helpers
@@ -82,76 +81,29 @@ class Function(RecordWithoutPickling):
         raise NotImplementedError
 
 
-class CElementwiseUnaryFunction(Function):
-
+class CElementwiseFunction(Function):
     supports_codegen = True
 
+    def __init__(self, identifier, nargs):
+        super().__init__(identifier=identifier, nargs=nargs)
+
     def get_result_dofdesc(self, arg_dds):
-        assert len(arg_dds) == 1
+        assert len(arg_dds) == self.nargs
         return arg_dds[0]
 
-    def __call__(self, queue, arg):
+    def __call__(self, array_context, *args):
         func_name = self.identifier
-        if should_use_numpy(arg):
+        from pytools import single_valued
+        if single_valued(should_use_numpy(arg) for arg in args):
             func = getattr(np, func_name)
-            return func(arg)
+            return func(*args)
 
-        cached_name = "map_call_knl_"
-
-        from pymbolic.primitives import Variable
-        i = Variable("i")
-
-        if self.identifier == "fabs":  # FIXME
+        if func_name == "fabs":  # FIXME
             # Loopy has a type-adaptive "abs", but no "fabs".
             func_name = "abs"
 
-        cached_name += func_name
-
-        @memoize_in(self, cached_name)
-        def knl():
-            knl = lp.make_kernel(
-                "{[i]: 0<=i<n}",
-                [
-                    lp.Assignment(Variable("out")[i],
-                        Variable(func_name)(Variable("a")[i]))
-                ], default_offset=lp.auto)
-            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
-
-        evt, (out,) = knl()(queue, a=arg)
-        return out
-
-
-class CElementwiseBinaryFunction(Function):
-    supports_codegen = True
-
-    def get_result_dofdesc(self, arg_dds):
-        assert len(arg_dds) == 2
-        from pytools import single_valued
-        return single_valued(arg_dds)
-
-    def __call__(self, queue, arg0, arg1):
-        func_name = self.identifier
-        if should_use_numpy(arg0) and should_use_numpy(arg1):
-            func = getattr(np, cl_to_numpy_function_name(func_name))
-            return func(arg0, arg1)
-
-        from pymbolic.primitives import Variable
-
-        @memoize_in(self, "map_call_knl_%s" % func_name)
-        def knl():
-            i = Variable("i")
-            knl = lp.make_kernel(
-                "{[i]: 0<=i<n}",
-                [
-                    lp.Assignment(
-                        Variable("out")[i],
-                        Variable(func_name)(Variable("a")[i], Variable("b")[i]))
-                ], default_offset=lp.auto)
-
-            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
-
-        evt, (out,) = knl()(queue, a=arg0, b=arg1)
-        return out
+        sfunc = getattr(array_context.np, func_name)
+        return sfunc(*args)
 
 
 class CBesselFunction(Function):
@@ -173,8 +125,8 @@ class FixedDOFDescExternalFunction(Function):
                 implementation=implementation,
                 dd=dd)
 
-    def __call__(self, queue, *args, **kwargs):
-        return self.implementation(queue, *args, **kwargs)
+    def __call__(self, array_context, *args, **kwargs):
+        return self.implementation(array_context, *args, **kwargs)
 
     def get_result_dofdesc(self, arg_dds):
         return self.dd
@@ -220,12 +172,12 @@ class FunctionRegistry(RecordWithoutPickling):
 def _make_bfr():
     bfr = FunctionRegistry()
 
-    bfr = bfr.register(CElementwiseUnaryFunction("sqrt"))
-    bfr = bfr.register(CElementwiseUnaryFunction("exp"))
-    bfr = bfr.register(CElementwiseUnaryFunction("fabs"))
-    bfr = bfr.register(CElementwiseUnaryFunction("sin"))
-    bfr = bfr.register(CElementwiseUnaryFunction("cos"))
-    bfr = bfr.register(CElementwiseBinaryFunction("atan2"))
+    bfr = bfr.register(CElementwiseFunction("sqrt", 1))
+    bfr = bfr.register(CElementwiseFunction("exp", 1))
+    bfr = bfr.register(CElementwiseFunction("fabs", 1))
+    bfr = bfr.register(CElementwiseFunction("sin", 1))
+    bfr = bfr.register(CElementwiseFunction("cos", 1))
+    bfr = bfr.register(CElementwiseFunction("atan2", 2))
     bfr = bfr.register(CBesselFunction("bessel_j"))
     bfr = bfr.register(CBesselFunction("bessel_y"))
 

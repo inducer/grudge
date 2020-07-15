@@ -25,9 +25,6 @@ THE SOFTWARE.
 """
 
 
-import pyopencl as cl
-
-
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
     from leap.rk import LSRK4MethodBuilder
     from dagrt.codegen import PythonCodeGenerator
@@ -46,14 +43,14 @@ def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
 
 def make_visualizer(discrwb, vis_order):
     from meshmode.discretization.visualization import make_visualizer
-    with cl.CommandQueue(discrwb.cl_context) as queue:
-        return make_visualizer(queue, discrwb.discr_from_dd("vol"), vis_order)
+    return make_visualizer(
+            discrwb._setup_actx,
+            discrwb.discr_from_dd("vol"), vis_order)
 
 
 def make_boundary_visualizer(discrwb, vis_order):
     from meshmode.discretization.visualization import make_visualizer
     from grudge import sym
-    with cl.CommandQueue(discrwb.cl_context) as queue:
-        return make_visualizer(
-                queue, discrwb.discr_from_dd(sym.BTAG_ALL),
-                vis_order)
+    return make_visualizer(
+            discrwb._setup_actx, discrwb.discr_from_dd(sym.BTAG_ALL),
+            vis_order)

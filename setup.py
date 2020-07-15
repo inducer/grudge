@@ -21,7 +21,7 @@ def main():
           author="Andreas Kloeckner",
           author_email="inform@tiker.net",
           license="MIT",
-          url="http://gitlab.tiker.net/inducer/grudge",
+          url="http://github.com/inducer/grudge",
           classifiers=[
               'Development Status :: 3 - Alpha',
               'Intended Audience :: Developers',
@@ -45,9 +45,9 @@ def main():
           python_requires="~=3.6",
           install_requires=[
               "pytest>=2.3",
-              "pytools>=2018.5.2",
+              "pytools>=2020.3",
               "modepy>=2013.3",
-              "meshmode>=2013.3",
+              "meshmode>=2020.2",
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
               "loo.py>=2013.1beta",

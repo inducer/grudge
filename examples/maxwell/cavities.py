@@ -27,6 +27,9 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+
+from meshmode.array_context import PyOpenCLArrayContext
+
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 
@@ -39,6 +42,7 @@ STEPS = 60
 def main(dims, write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -46,7 +50,7 @@ def main(dims, write_output=True, order=4):
             b=(1.0,)*dims,
             n=(5,)*dims)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
     if 0:
         epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)
@@ -60,14 +64,12 @@ def main(dims, write_output=True, order=4):
     from grudge.models.em import MaxwellOperator
     op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
 
-    queue = cl.CommandQueue(discr.cl_context)
-
     if dims == 3:
         sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
-        fields = bind(discr, sym_mode)(queue, t=0, epsilon=epsilon, mu=mu)
+        fields = bind(discr, sym_mode)(actx, t=0, epsilon=epsilon, mu=mu)
     else:
         sym_mode = get_rectangular_cavity_mode(1, (2, 3))
-        fields = bind(discr, sym_mode)(queue, t=0)
+        fields = bind(discr, sym_mode)(actx, t=0)
 
     # FIXME
     #dt = op.estimate_rk4_timestep(discr, fields=fields)
@@ -78,7 +80,7 @@ def main(dims, write_output=True, order=4):
     bound_op = bind(discr, op.sym_operator())
 
     def rhs(t, w):
-        return bound_op(queue, t=t, w=w)
+        return bound_op(t=t, w=w)
 
     if mesh.dim == 2:
         dt = 0.004
@@ -117,8 +119,8 @@ def main(dims, write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(queue, u=e[0]), norm(queue, u=e[1]),
-                    norm(queue, u=h[0]), norm(queue, u=h[1]),
+            print(step, event.t, norm(u=e[0]), norm(u=e[1]),
+                    norm(u=h[0]), norm(u=h[1]),
                     time()-t_last_step)
             if step % 10 == 0:
                 e, h = op.split_eh(event.state_component)

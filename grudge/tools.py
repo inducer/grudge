@@ -92,11 +92,11 @@ class SubsettableCrossProduct:
           used in place of the product *sign*xj*yk*. Defaults to just this
           product if not given.
         """
-        from pytools.obj_array import join_fields
+        from pytools.obj_array import flat_obj_array
         if three_mult is None:
-            return join_fields(*[f(x, y) for f in self.functions])
+            return flat_obj_array(*[f(x, y) for f in self.functions])
         else:
-            return join_fields(
+            return flat_obj_array(
                     *[sum(three_mult(lc, x[j], y[k]) for lc, j, k in lcjk)
                     for lcjk in self.component_lcjk])
 

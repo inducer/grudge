@@ -31,6 +31,9 @@ import numpy as np
 import pyopencl as cl
 import logging
 
+from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import flat_norm
+
 logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
@@ -42,6 +45,8 @@ from grudge.shortcuts import set_up_rk4
 def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
+
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
 
     from mpi4py import MPI
@@ -62,12 +67,12 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=5,
+    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
     sym_x = sym.nodes(local_mesh.dim)
     myfunc_symb = sym.sin(np.dot(sym_x, [2, 3]))
-    myfunc = bind(vol_discr, myfunc_symb)(queue)
+    myfunc = bind(vol_discr, myfunc_symb)(actx)
 
     sym_all_faces_func = sym.cse(
         sym.project("vol", "all_faces")(sym.var("myfunc")))
@@ -84,9 +89,8 @@ def simple_mpi_communication_entrypoint():
             ) - (sym_all_faces_func - sym_bdry_faces_func)
             )
 
-    hopefully_zero = bound_face_swap(queue, myfunc=myfunc)
-    import numpy.linalg as la
-    error = la.norm(hopefully_zero.get())
+    hopefully_zero = bound_face_swap(myfunc=myfunc)
+    error = flat_norm(hopefully_zero, np.inf)
 
     print(__file__)
     with np.printoptions(threshold=100000000, suppress=True):
@@ -99,6 +103,7 @@ def simple_mpi_communication_entrypoint():
 def mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -124,7 +129,7 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
+    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
                                                mpi_communicator=comm)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
@@ -148,9 +153,9 @@ def mpi_communication_entrypoint():
             radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
-    from pytools.obj_array import join_fields
-    fields = join_fields(vol_discr.zeros(queue),
-            [vol_discr.zeros(queue) for i in range(vol_discr.dim)])
+    from pytools.obj_array import flat_obj_array
+    fields = flat_obj_array(vol_discr.zeros(actx),
+            [vol_discr.zeros(actx) for i in range(vol_discr.dim)])
 
     # FIXME
     # dt = op.estimate_rk4_timestep(vol_discr, fields=fields)
@@ -189,7 +194,7 @@ def mpi_communication_entrypoint():
     bound_op = bind(vol_discr, op.sym_operator())
 
     def rhs(t, w):
-        val, rhs.profile_data = bound_op(queue, profile_data=rhs.profile_data,
+        val, rhs.profile_data = bound_op(profile_data=rhs.profile_data,
                                          log_quantities=log_quantities,
                                          t=t, w=w)
         return val
@@ -219,7 +224,7 @@ def mpi_communication_entrypoint():
             step += 1
             logger.debug("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
                     step, event.t,
-                    norm(queue, u=event.state_component[0]),
+                    norm(u=event.state_component[0]),
                     time() - t_last_step)
 
             # if step % 10 == 0:

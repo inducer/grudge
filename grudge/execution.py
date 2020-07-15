@@ -22,12 +22,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import six
+from typing import Optional, Union, Dict
+from numbers import Number
 import numpy as np
+
+from pytools import memoize_in
+from pytools.obj_array import make_obj_array
+
 import loopy as lp
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pytools import memoize_in
+
+from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
+from meshmode.array_context import ArrayContext, make_loopy_program
 
 import grudge.symbolic.mappers as mappers
 from grudge import sym
@@ -42,17 +49,20 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 MPI_TAG_SEND_TAGS = 1729
 
 
+ResultType = Union[DOFArray, Number]
+
+
 # {{{ exec mapper
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
-    def __init__(self, queue, context, bound_op):
+    def __init__(self, array_context, context, bound_op):
         super(ExecutionMapper, self).__init__(context)
         self.discrwb = bound_op.discrwb
         self.bound_op = bound_op
         self.function_registry = bound_op.function_registry
-        self.queue = queue
+        self.array_context = array_context
 
     # {{{ expression mappings
 
@@ -62,13 +72,14 @@ class ExecutionMapper(mappers.Evaluator,
 
         discr = self.discrwb.discr_from_dd(expr.dd)
 
-        result = discr.empty(self.queue, allocator=self.bound_op.allocator)
-        result.fill(1.0)
+        result = discr.empty(self.array_context)
+        for grp_ary in result:
+            grp_ary.fill(1.0)
         return result
 
     def map_node_coordinate_component(self, expr):
         discr = self.discrwb.discr_from_dd(expr.dd)
-        return discr.nodes()[expr.axis].with_queue(self.queue)
+        return thaw(self.array_context, discr.nodes()[expr.axis])
 
     def map_grudge_variable(self, expr):
         from numbers import Number
@@ -76,8 +87,9 @@ class ExecutionMapper(mappers.Evaluator,
         value = self.context[expr.name]
         if not expr.dd.is_scalar() and isinstance(value, Number):
             discr = self.discrwb.discr_from_dd(expr.dd)
-            ary = discr.empty(self.queue)
-            ary.fill(value)
+            ary = discr.empty(self.array_context)
+            for grp_ary in ary:
+                grp_ary.fill(value)
             value = ary
 
         return value
@@ -91,42 +103,42 @@ class ExecutionMapper(mappers.Evaluator,
             from numbers import Number
             if not dd.is_scalar() and isinstance(value, Number):
                 discr = self.discrwb.discr_from_dd(dd)
-                ary = discr.empty(self.queue)
-                ary.fill(value)
+                ary = discr.empty(self.array_context)
+                for grp_ary in ary:
+                    grp_ary.fill(value)
                 value = ary
         return value
 
     def map_call(self, expr):
         args = [self.rec(p) for p in expr.parameters]
-        return self.function_registry[expr.function.name](self.queue, *args)
+        return self.function_registry[expr.function.name](self.array_context, *args)
 
     # }}}
 
     # {{{ elementwise reductions
 
     def _map_elementwise_reduction(self, op_name, field_expr, dd):
-        @memoize_in(self, "elementwise_%s_knl" % op_name)
-        def knl():
-            knl = lp.make_kernel(
-                "{[el, idof, jdof]: 0<=el<nelements and 0<=idof, jdof<ndofs}",
+        @memoize_in(self.array_context,
+                (ExecutionMapper, "elementwise_%s_prg" % op_name))
+        def prg():
+            return make_loopy_program(
+                "{[iel, idof, jdof]: 0<=iel<nelements and 0<=idof, jdof<ndofs}",
                 """
-                result[el, idof] = %s(jdof, operand[el, jdof])
+                result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
-                default_offset=lp.auto,
-                name="elementwise_%s_knl" % op_name)
-
-            return lp.tag_inames(knl, "el:g.0,idof:l.0")
+                name="grudge_elementwise_%s" % op_name)
 
         field = self.rec(field_expr)
         discr = self.discrwb.discr_from_dd(dd)
-        assert field.shape == (discr.nnodes,)
+        assert field.shape == (len(discr.groups),)
 
-        result = discr.empty(queue=self.queue, dtype=field.dtype,
-                allocator=self.bound_op.allocator)
+        result = discr.empty(self.array_context, dtype=field.entry_dtype)
         for grp in discr.groups:
-            knl()(self.queue,
-                    operand=grp.view(field),
-                    result=grp.view(result))
+            assert field[grp.index].shape == (grp.nelements, grp.nunit_dofs)
+            self.array_context.call_loopy(
+                    prg(),
+                    operand=field[grp.index],
+                    result=result[grp.index])
 
         return result
 
@@ -145,20 +157,50 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_nodal_sum(self, op, field_expr):
         # FIXME: Could allow array scalars
-        return cl.array.sum(self.rec(field_expr)).get()[()]
+        # FIXME: Fix CL-specific-ness
+        return sum([
+                cl.array.sum(grp_ary).get()[()]
+                for grp_ary in self.rec(field_expr)
+                ])
 
     def map_nodal_max(self, op, field_expr):
         # FIXME: Could allow array scalars
-        return cl.array.max(self.rec(field_expr)).get()[()]
+        # FIXME: Fix CL-specific-ness
+        return np.max([
+            cl.array.max(grp_ary).get()[()]
+            for grp_ary in self.rec(field_expr)])
 
     def map_nodal_min(self, op, field_expr):
         # FIXME: Could allow array scalars
-        return cl.array.min(self.rec(field_expr)).get()[()]
+        # FIXME: Fix CL-specific-ness
+        return np.min([
+            cl.array.min(grp_ary).get()[()]
+            for grp_ary in self.rec(field_expr)])
 
     # }}}
 
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
+
+        if isinstance(bool_crit,  DOFArray):
+            # continues below
+            pass
+        elif isinstance(bool_crit,  np.number):
+            if bool_crit:
+                return self.rec(expr.then)
+            else:
+                return self.rec(expr.else_)
+        else:
+            raise TypeError(
+                "Expected criterion to be of type np.number or DOFArray")
+
+        assert isinstance(bool_crit,  DOFArray)
+        ngroups = len(bool_crit)
+
+        from pymbolic import var
+        iel = var("iel")
+        idof = var("idof")
+        subscript = (iel, idof)
 
         then = self.rec(expr.then)
         else_ = self.rec(expr.else_)
@@ -166,36 +208,50 @@ class ExecutionMapper(mappers.Evaluator,
         import pymbolic.primitives as p
         var = p.Variable
 
-        i = var("i")
-        if isinstance(then,  pyopencl.array.Array):
-            sym_then = var("a")[i]
-        elif isinstance(then,  np.number):
+        if isinstance(then,  DOFArray):
+            sym_then = var("a")[subscript]
+
+            def get_then(igrp):
+                return then[igrp]
+        elif isinstance(then, np.number):
             sym_then = var("a")
+
+            def get_then(igrp):
+                return then
         else:
             raise TypeError(
-                "Expected parameter to be of type np.number or pyopencl.array.Array")
+                "Expected 'then' to be of type np.number or DOFArray")
 
-        if isinstance(else_,  pyopencl.array.Array):
-            sym_else = var("b")[i]
+        if isinstance(else_,  DOFArray):
+            sym_else = var("b")[subscript]
+
+            def get_else(igrp):
+                return else_[igrp]
         elif isinstance(else_,  np.number):
             sym_else = var("b")
+
+            def get_else(igrp):
+                return else_
         else:
             raise TypeError(
-                "Expected parameter to be of type np.number or pyopencl.array.Array")
+                "Expected 'else' to be of type np.number or DOFArray")
 
-        @memoize_in(self.bound_op, "map_if_knl")
-        def knl():
-            knl = lp.make_kernel(
-                "{[i]: 0<=i<n}",
+        @memoize_in(self.array_context, (ExecutionMapper, "map_if_knl"))
+        def knl(sym_then, sym_else):
+            return make_loopy_program(
+                "{[iel, idof]: 0<=iel<nelements and 0<=idof<nunit_dofs}",
                 [
-                    lp.Assignment(var("out")[i],
-                        p.If(var("crit")[i], sym_then, sym_else))
+                    lp.Assignment(var("out")[iel, idof],
+                        p.If(var("crit")[iel, idof], sym_then, sym_else))
                 ])
-            return lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
-        evt, (out,) = knl()(self.queue, crit=bool_crit, a=then, b=else_)
-
-        return out
+        return DOFArray.from_list(self.array_context, [
+            self.array_context.call_loopy(
+                knl(sym_then, sym_else),
+                crit=bool_crit[igrp],
+                a=get_then(igrp),
+                b=get_else(igrp))
+            for igrp in range(ngroups)])
 
     # {{{ elementwise linear operators
 
@@ -210,26 +266,23 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.bound_op, "elwise_linear_knl")
-        def knl():
-            knl = lp.make_kernel(
-                """{[k,i,j]:
-                    0<=k<nelements and
-                    0<=i<ndiscr_nodes_out and
+        @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
+        def prg():
+            result = make_loopy_program(
+                """{[iel, idof, j]:
+                    0<=iel<nelements and
+                    0<=idof<ndiscr_nodes_out and
                     0<=j<ndiscr_nodes_in}""",
-                "result[k,i] = sum(j, mat[i, j] * vec[k, j])",
-                default_offset=lp.auto, name="diff")
+                "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
+                name="diff")
 
-            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
-            knl = lp.tag_array_axes(knl, "mat", "stride:auto,stride:auto")
-            return lp.tag_inames(knl, dict(k="g.0"))
+            result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+            return result
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
         out_discr = self.discrwb.discr_from_dd(op.dd_out)
 
-        result = out_discr.empty(
-                queue=self.queue,
-                dtype=field.dtype, allocator=self.bound_op.allocator)
+        result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
 
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
 
@@ -237,32 +290,34 @@ class ExecutionMapper(mappers.Evaluator,
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
-                matrix = (
-                    cl.array.to_device(
-                        self.queue,
-                        np.asarray(op.matrix(out_grp, in_grp), dtype=field.dtype))
-                    .with_queue(None))
+                matrix = self.array_context.freeze(
+                        self.array_context.from_numpy(
+                            np.asarray(
+                                op.matrix(out_grp, in_grp),
+                                dtype=field.entry_dtype)))
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
 
-            knl()(self.queue, mat=matrix, result=out_grp.view(result),
-                    vec=in_grp.view(field))
+            self.array_context.call_loopy(
+                    prg(),
+                    mat=matrix,
+                    result=result[out_grp.index],
+                    vec=field[in_grp.index])
 
         return result
 
     def map_projection(self, op, field_expr):
         conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
-        return conn(self.queue, self.rec(field_expr)).with_queue(self.queue)
+        return conn(self.rec(field_expr))
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
         bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
-        return bdry_conn(self.queue, remote_bdry_vec).with_queue(self.queue)
+        return bdry_conn(remote_bdry_vec)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        return self.discrwb.opposite_face_connection()(
-                self.queue, self.rec(field_expr)).with_queue(self.queue)
+        return self.discrwb.opposite_face_connection()(self.rec(field_expr))
 
     # }}}
 
@@ -275,27 +330,24 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.bound_op, "face_mass_knl")
-        def knl():
-            knl = lp.make_kernel(
-                """{[k,i,f,j]:
-                    0<=k<nelements and
+        @memoize_in(self.array_context, (ExecutionMapper, "face_mass_knl"))
+        def prg():
+            return make_loopy_program(
+                """{[iel,idof,f,j]:
+                    0<=iel<nelements and
                     0<=f<nfaces and
-                    0<=i<nvol_nodes and
+                    0<=idof<nvol_nodes and
                     0<=j<nface_nodes}""",
-                "result[k,i] = sum(f, sum(j, mat[i, f, j] * vec[f, k, j]))",
-                default_offset=lp.auto, name="face_mass")
-
-            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
-            return lp.tag_inames(knl, dict(k="g.0"))
+                """
+                result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
+                """,
+                name="face_mass")
 
         all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
         vol_discr = all_faces_conn.from_discr
 
-        result = vol_discr.empty(
-                queue=self.queue,
-                dtype=field.dtype, allocator=self.bound_op.allocator)
+        result = vol_discr.empty(self.array_context, dtype=field.entry_dtype)
 
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
@@ -307,16 +359,18 @@ class ExecutionMapper(mappers.Evaluator,
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
-                matrix = op.matrix(afgrp, volgrp, field.dtype)
-                matrix = (
-                        cl.array.to_device(self.queue, matrix)
-                        .with_queue(None))
+                matrix = op.matrix(afgrp, volgrp, field.entry_dtype)
+                matrix = self.array_context.freeze(
+                        self.array_context.from_numpy(matrix))
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
 
-            input_view = afgrp.view(field).reshape(
-                    nfaces, volgrp.nelements, afgrp.nunit_nodes)
-            knl()(self.queue, mat=matrix, result=volgrp.view(result),
+            input_view = field[afgrp.index].reshape(
+                    nfaces, volgrp.nelements, afgrp.nunit_dofs)
+            self.array_context.call_loopy(
+                    prg(),
+                    mat=matrix,
+                    result=result[volgrp.index],
                     vec=input_view)
 
         return result
@@ -332,15 +386,16 @@ class ExecutionMapper(mappers.Evaluator,
                 sym.DD_VOLUME,
                 sym.DOFDesc(expr.dd.domain_tag))
 
-        field = face_discr.empty(self.queue,
-                dtype=self.discrwb.real_dtype,
-                allocator=self.bound_op.allocator)
-        field.fill(1)
+        field = face_discr.empty(self.array_context, dtype=self.discrwb.real_dtype)
+        for grp_ary in field:
+            grp_ary.fill(1)
 
-        for grp in all_faces_conn.groups:
+        for igrp, grp in enumerate(all_faces_conn.groups):
             for batch in grp.batches:
-                i = batch.to_element_indices.with_queue(self.queue)
-                field[i] = (2.0 * (batch.to_element_face % 2) - 1.0) * field[i]
+                i = self.array_context.thaw(batch.to_element_indices)
+                grp_field = field[igrp].reshape(-1)
+                grp_field[i] = \
+                        (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
 
         return field
 
@@ -349,7 +404,7 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ instruction execution functions
 
     def map_insn_rank_data_swap(self, insn, profile_data=None):
-        local_data = self.rec(insn.field).get(self.queue)
+        local_data = self.array_context.to_numpy(flatten(self.rec(insn.field)))
         comm = self.discrwb.mpi_communicator
 
         # print("Sending data to rank %d with tag %d"
@@ -360,31 +415,60 @@ class ExecutionMapper(mappers.Evaluator,
         recv_req = comm.Irecv(remote_data_host, insn.i_remote_rank, insn.recv_tag)
 
         return [], [
-                MPIRecvFuture(recv_req, insn.name, remote_data_host, self.queue),
+                MPIRecvFuture(
+                    array_context=self.array_context,
+                    bdry_discr=self.discrwb.discr_from_dd(insn.dd_out),
+                    recv_req=recv_req,
+                    insn_name=insn.name,
+                    remote_data_host=remote_data_host),
                 MPISendFuture(send_req)]
 
     def map_insn_loopy_kernel(self, insn, profile_data=None):
-        kwargs = {}
         kdescr = insn.kernel_descriptor
-        for name, expr in six.iteritems(kdescr.input_mappings):
-            kwargs[name] = self.rec(expr)
-
         discr = self.discrwb.discr_from_dd(kdescr.governing_dd)
+
+        dof_array_kwargs = {}
+        other_kwargs = {}
+
+        for name, expr in kdescr.input_mappings.items():
+            v = self.rec(expr)
+            if isinstance(v, DOFArray):
+                dof_array_kwargs[name] = v
+            else:
+                other_kwargs[name] = v
+
         for name in kdescr.scalar_args():
-            v = kwargs[name]
+            v = other_kwargs[name]
             if isinstance(v, (int, float)):
-                kwargs[name] = discr.real_dtype.type(v)
+                other_kwargs[name] = discr.real_dtype.type(v)
             elif isinstance(v, complex):
-                kwargs[name] = discr.complex_dtype.type(v)
+                other_kwargs[name] = discr.complex_dtype.type(v)
             elif isinstance(v, np.number):
                 pass
             else:
                 raise ValueError("unrecognized scalar type for variable '%s': %s"
                         % (name, type(v)))
 
-        kwargs["grdg_n"] = discr.nnodes
-        evt, result_dict = kdescr.loopy_kernel(self.queue, **kwargs)
-        return list(result_dict.items()), []
+        result = {}
+        for grp in discr.groups:
+            kwargs = other_kwargs.copy()
+            kwargs["nelements"] = grp.nelements
+            kwargs["nunit_dofs"] = grp.nunit_dofs
+
+            for name, ary in dof_array_kwargs.items():
+                kwargs[name] = ary[grp.index]
+
+            knl_result = self.array_context.call_loopy(
+                    kdescr.loopy_kernel, **kwargs)
+
+            for name, val in knl_result.items():
+                result.setdefault(name, []).append(val)
+
+        result = {
+                name: DOFArray.from_list(self.array_context, val)
+                for name, val in result.items()}
+
+        return list(result.items()), []
 
     def map_insn_assign(self, insn, profile_data=None):
         return [(name, self.rec(expr))
@@ -413,35 +497,36 @@ class ExecutionMapper(mappers.Evaluator,
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        @memoize_in(self.discrwb, "reference_derivative_knl")
-        def knl():
-            knl = lp.make_kernel(
-                """{[imatrix,k,i,j]:
+        @memoize_in(self.array_context,
+                (ExecutionMapper, "reference_derivative_prg"))
+        def prg(nmatrices):
+            result = make_loopy_program(
+                """{[imatrix, iel, idof, j]:
                     0<=imatrix<nmatrices and
-                    0<=k<nelements and
-                    0<=i<nunit_nodes_out and
+                    0<=iel<nelements and
+                    0<=idof<nunit_nodes_out and
                     0<=j<nunit_nodes_in}""",
                 """
-                result[imatrix, k, i] = sum(
-                        j, diff_mat[imatrix, i, j] * vec[k, j])
+                result[imatrix, iel, idof] = sum(
+                        j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
-                default_offset=lp.auto, name="diff")
+                name="diff")
 
-            knl = lp.split_iname(knl, "i", 16, inner_tag="l.0")
-            return lp.tag_inames(knl, dict(k="g.0"))
+            result = lp.fix_parameters(result, nmatrices=nmatrices)
+            result = lp.tag_inames(result, "imatrix: unr")
+            result = lp.tag_array_axes(result, "result", "sep,c,c")
+            return result
 
         noperators = len(insn.operators)
 
         in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
         out_discr = self.discrwb.discr_from_dd(repr_op.dd_out)
 
-        result = out_discr.empty(
-                queue=self.queue,
-                dtype=field.dtype, extra_dims=(noperators,),
-                allocator=self.bound_op.allocator)
+        result = make_obj_array([
+            out_discr.empty(self.array_context, dtype=field.entry_dtype)
+            for idim in range(noperators)])
 
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
-
             if in_grp.nelements == 0:
                 continue
 
@@ -449,13 +534,18 @@ class ExecutionMapper(mappers.Evaluator,
 
             # FIXME: Should transfer matrices to device and cache them
             matrices_ary = np.empty((
-                noperators, out_grp.nunit_nodes, in_grp.nunit_nodes))
+                noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
             for i, op in enumerate(insn.operators):
                 matrices_ary[i] = matrices[op.rst_axis]
+            matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
 
-            knl()(self.queue,
-                    diff_mat=matrices_ary,
-                    result=out_grp.view(result), vec=in_grp.view(field))
+            self.array_context.call_loopy(
+                    prg(noperators),
+                    diff_mat=matrices_ary_dev,
+                    result=make_obj_array([
+                        result[iop][out_grp.index]
+                        for iop in range(noperators)
+                        ]), vec=field[in_grp.index])
 
         return [(name, result[i]) for i, name in enumerate(insn.names)], []
 
@@ -467,18 +557,22 @@ class ExecutionMapper(mappers.Evaluator,
 # {{{ futures
 
 class MPIRecvFuture(object):
-    def __init__(self, recv_req, insn_name, remote_data_host, queue):
+    def __init__(self, array_context, bdry_discr, recv_req, insn_name,
+            remote_data_host):
+        self.array_context = array_context
+        self.bdry_discr = bdry_discr
         self.receive_request = recv_req
         self.insn_name = insn_name
         self.remote_data_host = remote_data_host
-        self.queue = queue
 
     def is_ready(self):
         return self.receive_request.Test()
 
     def __call__(self):
         self.receive_request.Wait()
-        remote_data = cl.array.to_device(self.queue, self.remote_data_host)
+        actx = self.array_context
+        remote_data = unflatten(self.array_context, self.bdry_discr,
+                actx.from_numpy(self.remote_data_host))
         return [(self.insn_name, remote_data)], []
 
 
@@ -490,7 +584,7 @@ class MPISendFuture(object):
         return self.send_request.Test()
 
     def __call__(self):
-        self.send_request.wait()
+        self.send_request.Wait()
         return [], []
 
 # }}}
@@ -499,16 +593,14 @@ class MPISendFuture(object):
 # {{{ bound operator
 
 class BoundOperator(object):
-
     def __init__(self, discrwb, discr_code, eval_code, debug_flags,
-            function_registry, exec_mapper_factory, allocator=None):
+            function_registry, exec_mapper_factory):
         self.discrwb = discrwb
         self.discr_code = discr_code
         self.eval_code = eval_code
         self.operator_data_cache = {}
         self.debug_flags = debug_flags
         self.function_registry = function_registry
-        self.allocator = allocator
         self.exec_mapper_factory = exec_mapper_factory
 
     def __str__(self):
@@ -523,16 +615,50 @@ class BoundOperator(object):
                 + sep
                 + str(self.eval_code))
 
-    def __call__(self, queue, profile_data=None, log_quantities=None, **context):
-        import pyopencl.array as cl_array
+    def __call__(self, array_context: Optional[ArrayContext] = None,
+            *, profile_data=None, log_quantities=None, **context):
+        """
+        :arg array_context: only needs to be supplied if no instances of
+            :class:`~meshmode.dof_array.DOFArray` with a
+            :class:`~meshmode.array_context.ArrayContext`
+            are supplied as part of *context*.
+        """
 
-        def replace_queue(a):
-            if isinstance(a, cl_array.Array):
-                return a.with_queue(queue)
+        # {{{ figure array context
+
+        array_contexts = []
+        if array_context is not None:
+            if not isinstance(array_context, ArrayContext):
+                raise TypeError(
+                        "first positional argument (if supplied) must be "
+                        "an ArrayContext")
+
+            array_contexts.append(array_context)
+        del array_context
+
+        def look_for_array_contexts(ary):
+            if isinstance(ary, DOFArray):
+                if ary.array_context is not None:
+                    array_contexts.append(ary.array_context)
+            elif isinstance(ary, np.ndarray) and ary.dtype.char == "O":
+                for idx in np.ndindex(ary.shape):
+                    look_for_array_contexts(ary[idx])
             else:
-                return a
+                pass
 
-        from pytools.obj_array import with_object_array_or_scalar
+        for key, val in context.items():
+            look_for_array_contexts(val)
+
+        if array_contexts:
+            from pytools import is_single_valued
+            if not is_single_valued(array_contexts):
+                raise ValueError("arguments do not agree on an array context")
+
+            array_context = array_contexts[0]
+        else:
+            raise ValueError("no array context given or available from arguments")
+
+        # }}}
 
         # {{{ discrwb-scope evaluation
 
@@ -541,18 +667,15 @@ class BoundOperator(object):
                     self.discrwb._discr_scoped_subexpr_name_to_value)
                 for result_var in self.discr_code.result):
             # need to do discrwb-scope evaluation
-            discrwb_eval_context = {}
+            discrwb_eval_context: Dict[str, ResultType] = {}
             self.discr_code.execute(
-                    self.exec_mapper_factory(queue, discrwb_eval_context, self))
+                    self.exec_mapper_factory(
+                        array_context, discrwb_eval_context, self))
 
         # }}}
 
-        new_context = {}
-        for name, var in six.iteritems(context):
-            new_context[name] = with_object_array_or_scalar(replace_queue, var)
-
         return self.eval_code.execute(
-                self.exec_mapper_factory(queue, new_context, self),
+                self.exec_mapper_factory(array_context, context, self),
                 profile_data=profile_data,
                 log_quantities=log_quantities)
 
@@ -561,8 +684,14 @@ class BoundOperator(object):
 
 # {{{ process_sym_operator function
 
-def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
-        dumper=lambda name, sym_operator: None):
+def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=None,
+        local_only=None):
+    if local_only is None:
+        local_only = False
+
+    if dumper is None:
+        def dumper(name, sym_operator):
+            return
 
     orig_sym_operator = sym_operator
     import grudge.symbolic.mappers as mappers
@@ -575,26 +704,26 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
     sym_operator = \
             mappers.OppositeInteriorFaceSwapUniqueIDAssigner()(sym_operator)
 
-    # {{{ broadcast root rank's symn_operator
+    if not local_only:
+        # {{{ broadcast root rank's symn_operator
 
-    # also make sure all ranks had same orig_sym_operator
+        # also make sure all ranks had same orig_sym_operator
 
-    if discrwb.mpi_communicator is not None:
-        (mgmt_rank_orig_sym_operator, mgmt_rank_sym_operator) = \
-                discrwb.mpi_communicator.bcast(
-                    (orig_sym_operator, sym_operator),
-                    discrwb.get_management_rank_index())
+        if discrwb.mpi_communicator is not None:
+            (mgmt_rank_orig_sym_operator, mgmt_rank_sym_operator) = \
+                    discrwb.mpi_communicator.bcast(
+                        (orig_sym_operator, sym_operator),
+                        discrwb.get_management_rank_index())
 
-        from pytools.obj_array import is_equal as is_oa_equal
-        if not is_oa_equal(mgmt_rank_orig_sym_operator, orig_sym_operator):
-            raise ValueError("rank %d received a different symbolic "
-                    "operator to bind from rank %d"
-                    % (discrwb.mpi_communicator.Get_rank(),
-                        discrwb.get_management_rank_index()))
+            if not np.array_equal(mgmt_rank_orig_sym_operator, orig_sym_operator):
+                raise ValueError("rank %d received a different symbolic "
+                        "operator to bind from rank %d"
+                        % (discrwb.mpi_communicator.Get_rank(),
+                            discrwb.get_management_rank_index()))
 
-        sym_operator = mgmt_rank_sym_operator
+            sym_operator = mgmt_rank_sym_operator
 
-    # }}}
+        # }}}
 
     if post_bind_mapper is not None:
         dumper("before-postbind", sym_operator)
@@ -632,12 +761,13 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 
     dumper("before-distributed", sym_operator)
 
-    volume_mesh = discrwb.discr_from_dd("vol").mesh
-    from meshmode.distributed import get_connected_partitions
-    connected_parts = get_connected_partitions(volume_mesh)
+    if not local_only:
+        volume_mesh = discrwb.discr_from_dd("vol").mesh
+        from meshmode.distributed import get_connected_partitions
+        connected_parts = get_connected_partitions(volume_mesh)
 
-    if connected_parts:
-        sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
+        if connected_parts:
+            sym_operator = mappers.DistributedMapper(connected_parts)(sym_operator)
 
     dumper("before-imass", sym_operator)
     sym_operator = mappers.InverseMassContractor()(sym_operator)
@@ -656,10 +786,16 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None,
 # }}}
 
 
-def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
+def bind(discr, sym_operator, *, post_bind_mapper=lambda x: x,
         function_registry=base_function_registry,
         exec_mapper_factory=ExecutionMapper,
-        debug_flags=frozenset(), allocator=None):
+        debug_flags=frozenset(), local_only=None):
+    """
+    :param local_only: If *True*, *sym_operator* should oly be evaluated on the
+        local part of the mesh. No inter-rank communication will take place.
+        (However rank boundaries, tagged :class:`~meshmode.mesh.BTAG_PARTITION`,
+        will not automatically be considered part of the domain boundary.)
+    """
     # from grudge.symbolic.mappers import QuadratureUpsamplerRemover
     # sym_operator = QuadratureUpsamplerRemover(self.quad_min_degrees)(
     #         sym_operator)
@@ -679,7 +815,8 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
             discr,
             sym_operator,
             post_bind_mapper=post_bind_mapper,
-            dumper=dump_sym_operator)
+            dumper=dump_sym_operator,
+            local_only=local_only)
 
     from grudge.symbolic.compiler import OperatorCompiler
     discr_code, eval_code = OperatorCompiler(discr, function_registry)(sym_operator)
@@ -687,8 +824,7 @@ def bind(discr, sym_operator, post_bind_mapper=lambda x: x,
     bound_op = BoundOperator(discr, discr_code, eval_code,
             function_registry=function_registry,
             exec_mapper_factory=exec_mapper_factory,
-            debug_flags=debug_flags,
-            allocator=allocator)
+            debug_flags=debug_flags)
 
     if "dump_op_code" in debug_flags:
         from pytools.debug import open_unique_debug_file

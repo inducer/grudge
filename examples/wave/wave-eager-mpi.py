@@ -34,9 +34,11 @@ from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.eager import EagerDGDiscretization, interior_trace_pair
+from grudge.eager import (
+        EagerDGDiscretization, interior_trace_pair, cross_rank_trace_pairs)
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
+from mpi4py import MPI
 
 
 # {{{ wave equation bits
@@ -86,7 +88,11 @@ def wave_operator(discr, c, w):
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(
                         BTAG_ALL, dir_bval, dir_bc))
-                    ))
+                    + sum(
+                        wave_flux(discr, c=c, w_tpair=tpair)
+                        for tpair in cross_rank_trace_pairs(discr, w))
+                    )
+                )
                 )
 
 # }}}
@@ -123,15 +129,37 @@ def main():
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
 
+    comm = MPI.COMM_WORLD
+    num_parts = comm.Get_size()
+
+    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    mesh_dist = MPIMeshDistributor(comm)
+
     dim = 2
     nel_1d = 16
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*dim,
-            b=(0.5,)*dim,
-            n=(nel_1d,)*dim)
+
+    if mesh_dist.is_mananger_rank():
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+        mesh = generate_regular_rect_mesh(
+                a=(-0.5,)*dim,
+                b=(0.5,)*dim,
+                n=(nel_1d,)*dim)
+
+        print("%d elements" % mesh.nelements)
+
+        part_per_element = get_partition_by_pymetis(mesh, num_parts)
+
+        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+
+        del mesh
+
+    else:
+        local_mesh = mesh_dist.receive_mesh_part()
 
     order = 3
+
+    discr = EagerDGDiscretization(actx, local_mesh, order=order,
+                    mpi_communicator=comm)
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
@@ -141,10 +169,6 @@ def main():
         dt = 0.45/(nel_1d*order**2)
     else:
         raise ValueError("don't have a stable time step guesstimate")
-
-    print("%d elements" % mesh.nelements)
-
-    discr = EagerDGDiscretization(actx, mesh, order=order)
 
     fields = flat_obj_array(
             bump(discr, actx),
@@ -156,6 +180,8 @@ def main():
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
 
+    rank = comm.Get_rank()
+
     t = 0
     t_final = 3
     istep = 0
@@ -163,9 +189,8 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
-                    f"sol max: {discr.nodal_max('vol', fields[0])}")
-            vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
+            print(istep, t, discr.norm(fields[0]))
+            vis.write_vtk_file("fld-wave-eager-mpi-%03d-%04d.vtu" % (rank, istep),
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),

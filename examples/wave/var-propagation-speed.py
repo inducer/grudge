@@ -30,10 +30,13 @@ import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 
+from meshmode.array_context import PyOpenCLArrayContext
+
 
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -42,7 +45,7 @@ def main(write_output=True, order=4):
             b=(0.5,)*dims,
             n=(20,)*dims)
 
-    discr = DGDiscretizationWithBoundaries(cl_ctx, mesh, order=order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05
@@ -69,19 +72,18 @@ def main(write_output=True, order=4):
             radiation_tag=BTAG_ALL,
             flux_type="upwind")
 
-    queue = cl.CommandQueue(discr.cl_context)
-    from pytools.obj_array import join_fields
-    fields = join_fields(discr.zeros(queue),
-            [discr.zeros(queue) for i in range(discr.dim)])
+    from pytools.obj_array import flat_obj_array
+    fields = flat_obj_array(discr.zeros(actx),
+            [discr.zeros(actx) for i in range(discr.dim)])
 
     op.check_bc_coverage(mesh)
 
-    c_eval = bind(discr, c)(queue)
+    c_eval = bind(discr, c)(actx)
 
     bound_op = bind(discr, op.sym_operator())
 
     def rhs(t, w):
-        return bound_op(queue, t=t, w=w)
+        return bound_op(t=t, w=w)
 
     if mesh.dim == 2:
         dt = 0.04 * 0.3
@@ -110,7 +112,7 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(queue, u=event.state_component[0]),
+            print(step, event.t, norm(u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
                 vis.write_vtk_file("fld-var-propogation-speed-%04d.vtu" % step,
