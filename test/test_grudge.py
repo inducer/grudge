@@ -1145,6 +1145,7 @@ def test_operator_compiler_overwrite(ctx_factory):
 
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     ambient_dim = 2
     target_order = 4
@@ -1153,15 +1154,15 @@ def test_operator_compiler_overwrite(ctx_factory):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
             n=(8,)*ambient_dim, order=1)
-    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=target_order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=target_order)
 
     # {{{ test
 
     sym_u = sym.nodes(ambient_dim)
     sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
 
-    div_u = bind(discr, sym_div_u)(queue)
-    error = la.norm(div_u.get(queue) - discr.dim)
+    div_u = bind(discr, sym_div_u)(actx)
+    error = bind(discr, sym.norm(2, sym.var("x")))(actx, x=div_u - discr.dim)
     logger.info("error: %.5e", error)
 
     # }}}
@@ -1175,6 +1176,7 @@ def test_incorrect_assignment_aggregation(ctx_factory, ambient_dim):
 
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue)
 
     target_order = 4
 
@@ -1182,7 +1184,7 @@ def test_incorrect_assignment_aggregation(ctx_factory, ambient_dim):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
             n=(8,)*ambient_dim, order=1)
-    discr = DGDiscretizationWithBoundaries(ctx, mesh, order=target_order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=target_order)
 
     # {{{ test
 
@@ -1197,8 +1199,7 @@ def test_incorrect_assignment_aggregation(ctx_factory, ambient_dim):
             + sym.MassOperator(dd)(sym_minv_y * sym_div_u)
     logger.info("%s", sym.pretty(sym_op))
 
-    y = make_obj_array(discr.discr_from_dd(dd).nodes())
-    bind(discr, sym_op)(queue, y=y)
+    bind(discr, sym_op)(actx, y=discr.discr_from_dd(dd).nodes())
 
     # }}}
 
