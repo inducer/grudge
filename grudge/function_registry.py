@@ -28,7 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 from pytools import RecordWithoutPickling
 
 
