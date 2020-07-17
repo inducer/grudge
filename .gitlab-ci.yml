@@ -9,8 +9,6 @@ Python 3 POCL:
   - python3
   - pocl
   - mpi
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
   artifacts:
@@ -47,8 +45,6 @@ Python 3 POCL MPI:
   - python3
   - pocl
   - mpi
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
   artifacts:
@@ -85,8 +81,6 @@ Python 3 POCL Examples:
   - python3
   - pocl
   - large-node
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
 
