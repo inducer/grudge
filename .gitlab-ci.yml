@@ -100,6 +100,9 @@ Python 3 Intel Examples:
   - tags
 
 Python 3 Conda:
+  tags:
+  - linux
+  - large-node
   script: |
     CONDA_ENVIRONMENT=.test-conda-env.yml
     grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
@@ -107,6 +110,9 @@ Python 3 Conda:
     . ./build-and-test-py-project-within-miniconda.sh
 
 Python 3 Conda Examples:
+  tags:
+  - linux
+  - large-node
   script: |
     CONDA_ENVIRONMENT=.test-conda-env.yml
     grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
