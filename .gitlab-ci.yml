@@ -101,13 +101,15 @@ Python 3 Intel Examples:
 
 Python 3 Conda:
   script: |
-    CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    CONDA_ENVIRONMENT=.test-conda-env.yml
+    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
     . ./build-and-test-py-project-within-miniconda.sh
 
 Python 3 Conda Examples:
   script: |
-    CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    CONDA_ENVIRONMENT=.test-conda-env.yml
+    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
     . ci-support.sh
     build_py_project_in_conda_env
