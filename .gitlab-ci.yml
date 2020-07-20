@@ -100,25 +100,13 @@ Python 3 Intel Examples:
   - tags
 
 Python 3 Conda:
-  tags:
-  - docker-runner
   script: |
-    sudo apt-get update
-    sudo apt-get install openmpi-bin libopenmpi-dev
-    # https://gitlab.com/gitlab-org/gitlab-runner/-/issues/26607
-    sudo hostname gitlab-ci-runner
     CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
     . ./build-and-test-py-project-within-miniconda.sh
 
 Python 3 Conda Examples:
-  tags:
-  - docker-runner
   script: |
-    sudo apt-get update
-    sudo apt-get install openmpi-bin libopenmpi-dev
-    # https://gitlab.com/gitlab-org/gitlab-runner/-/issues/26607
-    sudo hostname gitlab-ci-runner
     CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
     . ci-support.sh
