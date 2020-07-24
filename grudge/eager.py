@@ -38,6 +38,8 @@ from grudge.symbolic.primitives import TracePair
 
 __doc__ = """
 .. autoclass:: EagerDGDiscretization
+.. autofunction:: interior_trace_pair
+.. autofunction:: cross_rank_trace_pairs
 """
 
 
@@ -198,7 +200,7 @@ def interior_trace_pair(discrwb, vec):
     return TracePair("int_faces", i, e)
 
 
-class RankBoundaryCommunication:
+class _RankBoundaryCommunication:
     base_tag = 1273
 
     def __init__(self, discrwb, remote_rank, vol_field, tag=None):
@@ -241,7 +243,7 @@ class RankBoundaryCommunication:
 
 
 def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
-    rbcomms = [RankBoundaryCommunication(discrwb, remote_rank, vec, tag=tag)
+    rbcomms = [_RankBoundaryCommunication(discrwb, remote_rank, vec, tag=tag)
             for remote_rank in discrwb.connected_ranks()]
     return [rbcomm.finish() for rbcomm in rbcomms]
 
