@@ -61,12 +61,12 @@ def wave_flux(discr, c, w_tpair):
 
     # upwind
     v_jump = np.dot(normal, v.int-v.ext)
-    flux_weak -= flat_obj_array(
+    flux_weak += flat_obj_array(
             0.5*(u.int-u.ext),
             0.5*normal*scalar(v_jump),
             )
 
-    # FIMXE this flux is only correct for continuous c
+    # FIXME this flux is only correct for continuous c
     dd_allfaces_quad = dd_quad.with_dtag("all_faces")
     c_quad = discr.project("vol", dd_quad, c)
     flux_quad = discr.project(dd, dd_quad, flux_weak)
@@ -91,14 +91,13 @@ def wave_operator(discr, c, w):
 
     dd_allfaces_quad = DOFDesc("all_faces", "vel_prod")
 
-    # FIXME Fix sign issue
     return (
             discr.inverse_mass(
                 flat_obj_array(
-                    discr.weak_div(dd_quad, scalar(c_quad)*v_quad),
-                    discr.weak_grad(dd_quad, c_quad*u_quad)
+                    -discr.weak_div(dd_quad, scalar(c_quad)*v_quad),
+                    -discr.weak_grad(dd_quad, c_quad*u_quad)
                     )
-                -  # noqa: W504
+                +  # noqa: W504
                 discr.face_mass(
                     dd_allfaces_quad,
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))

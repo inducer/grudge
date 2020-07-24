@@ -60,7 +60,7 @@ def wave_flux(discr, c, w_tpair):
 
     # upwind
     v_jump = np.dot(normal, v.int-v.ext)
-    flux_weak -= flat_obj_array(
+    flux_weak += flat_obj_array(
             0.5*(u.int-u.ext),
             0.5*normal*scalar(v_jump),
             )
@@ -80,10 +80,10 @@ def wave_operator(discr, c, w):
     return (
             discr.inverse_mass(
                 flat_obj_array(
-                    c*discr.weak_div(v),
-                    c*discr.weak_grad(u)
+                    -c*discr.weak_div(v),
+                    -c*discr.weak_grad(u)
                     )
-                -  # noqa: W504
+                +  # noqa: W504
                 discr.face_mass(
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(
