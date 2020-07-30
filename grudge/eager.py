@@ -174,7 +174,9 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                         self.norm(vec[idx])**2
                         for idx in np.ndindex(vec.shape))**0.5
             elif p == np.inf:
-                return max(self.norm(vec[idx]) for idx in np.ndindex(vec.shape))
+                return max(
+                        self.norm(vec[idx], np.inf)
+                        for idx in np.ndindex(vec.shape))
             else:
                 raise ValueError("unsupported norm order")
 
