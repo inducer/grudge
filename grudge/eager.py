@@ -162,23 +162,32 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self._bound_face_mass(dd)(u=vec)
 
     @memoize_method
-    def _norm(self, p):
-        return bind(self, sym.norm(p, sym.var("arg")), local_only=True)
+    def _norm(self, p, dd):
+        return bind(self,
+                sym.norm(p, sym.var("arg", dd=dd), dd=dd),
+                local_only=True)
 
-    def norm(self, vec, p=2):
+    def norm(self, vec, p=2, dd=None):
+        if dd is None:
+            dd = "vol"
+
+        dd = sym.as_dofdesc(dd)
+
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
             if p == 2:
                 return sum(
-                        self.norm(vec[idx])**2
+                        self.norm(vec[idx], dd=dd)**2
                         for idx in np.ndindex(vec.shape))**0.5
             elif p == np.inf:
-                return max(self.norm(vec[idx]) for idx in np.ndindex(vec.shape))
+                return max(
+                        self.norm(vec[idx], np.inf, dd=dd)
+                        for idx in np.ndindex(vec.shape))
             else:
                 raise ValueError("unsupported norm order")
 
-        return self._norm(p)(arg=vec)
+        return self._norm(p, dd)(arg=vec)
 
     @memoize_method
     def _nodal_reduction(self, operator, dd):
