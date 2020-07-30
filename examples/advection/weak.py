@@ -23,7 +23,8 @@ import numpy.linalg as la
 
 import pyopencl as cl
 
-from meshmode.array_context import PyOpenCLArrayContext
+#from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
 
 from grudge import bind, sym
 
@@ -88,7 +89,8 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, visualize=True):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    #actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
     # {{{ parameters
 

@@ -274,8 +274,10 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=idof<ndiscr_nodes_out and
                     0<=j<ndiscr_nodes_in}""",
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
-                name="diff")
+                name="elwise_linear")
 
+            result = lp.tag_array_axes(result, "result", "f,f")
+            result = lp.tag_array_axes(result, "vec", "f,f")
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
             return result
 
@@ -302,8 +304,8 @@ class ExecutionMapper(mappers.Evaluator,
                     prg(),
                     mat=matrix,
                     result=result[out_grp.index],
-                    vec=field[in_grp.index])
-
+                    vec=field[in_grp.index]) #inArg
+            
         return result
 
     def map_projection(self, op, field_expr):
