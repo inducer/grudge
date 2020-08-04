@@ -1,6 +1,8 @@
 from meshmode.array_context import PyOpenCLArrayContext
 import loopy as lp
 import pyopencl
+import pyopencl.array
+import loopy_dg_kernels as dgk
 #import numpy as np
 
 class GrudgeArrayContext(PyOpenCLArrayContext):
@@ -10,6 +12,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
+        '''
         if program.name == "elwise_linear":
             #print("ELWISE LINEAR")
             mat = kwargs["mat"]
@@ -35,6 +38,56 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             super().call_loopy(program,mat=mat,result=outArg,vec=inArg)
             #result.set(np.ascontiguousarray(outArt.get()))
             ftoc_knl(cq, input=outArg, output=result)
+        '''
+        if program.name == "diff" and len(kwargs["diff_mat"]) == 3:
+            print(kwargs)
+            diff_mat = kwargs["diff_mat"]
+            result = kwargs["result"]
+            vec = kwargs["vec"]
+            print(vec)
+            print(type(vec))
+            print(vec.strides)
+            print(vec.shape)
+
+            ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
+            ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
+
+            # Create input array
+            cq = vec.queue
+            shape = vec.shape
+            dtp = vec.dtype
+            #inArg = pyopencl.array.Array(cq,shape,dtp, order="f")                   
+            print(vec.strides)
+            print(vec.shape)
+
+            _,(inArg,) = ctof_knl(cq, input=vec)
+
+            print(inArg)
+
+            print(inArg.strides)
+            print(inArg.shape)
+
+            # Treat as c array
+            #inArg.shape = (inArg.shape[1], inArg.shape[0])
+            #inArg.strides = pyopencl.array._make_strides(vec.dtype.itemsize, inArg.shape, "c")
+
+            argDict = { "result1": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
+                        "result2": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
+                        "result3": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
+                        "vec": inArg,
+                        "mat1": diff_mat[0],
+                        "mat2": diff_mat[1],
+                        "mat3": diff_mat[2] }
+            
+            result = super().call_loopy(program, **argDict)
+
+            print(inArg)
+
+            print(inArg.strides)
+            print(inArg.shape)
+
+            exit()
+
         else:
             result = super().call_loopy(program,**kwargs)
 
@@ -43,7 +96,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     #@memoize_method
     def transform_loopy_program(self, program):
         #print("TRANSFORMING LOOPY KERNEL")
-        program = super().transform_loopy_program(program)
+        if program.name == "diff":
+            filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
+            deviceID = "NVIDIA Titan V"
+            pn = 3
+            transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
+            program = dgk.applyTransformationList(program, transformations)
+        else:
+            program = super().transform_loopy_program(program)
 
         '''
         # Broken currently

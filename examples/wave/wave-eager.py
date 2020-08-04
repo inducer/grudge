@@ -29,7 +29,8 @@ import pyopencl as cl
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
+#from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
@@ -89,7 +90,7 @@ def wave_operator(discr, c, w):
                     ))
                 )
 
-# }}}
+# }}} 
 
 
 def rk4_step(y, t, h, f):
@@ -121,9 +122,9 @@ def bump(discr, actx, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)#PyOpenCLArrayContext(queue)
 
-    dim = 2
+    dim = 3
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(

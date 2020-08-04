@@ -40,6 +40,8 @@ import grudge.symbolic.mappers as mappers
 from grudge import sym
 from grudge.function_registry import base_function_registry
 
+import loopy_dg_kernels as dgk
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -268,6 +270,20 @@ class ExecutionMapper(mappers.Evaluator,
 
         @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
         def prg():
+            # Maybe can change shape and stride to make this work
+            '''
+            result = make_loopy_program(
+                """{[iel, idof, j]:
+                    0<=iel<nelements and
+                    0<=idof<ndiscr_nodes_out and
+                    0<=j<ndiscr_nodes_in}""",
+                "result[idof, iel] = sum(j, mat[idof, j] * vec[j, iel])",
+                name="elwise_linear")
+
+            result = lp.tag_array_axes(result, "result", "c,c")
+            result = lp.tag_array_axes(result, "vec", "c,c")
+            result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+            '''
             result = make_loopy_program(
                 """{[iel, idof, j]:
                     0<=iel<nelements and
@@ -519,6 +535,7 @@ class ExecutionMapper(mappers.Evaluator,
             result = lp.tag_array_axes(result, "result", "sep,c,c")
             return result
 
+
         noperators = len(insn.operators)
 
         in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
@@ -540,9 +557,17 @@ class ExecutionMapper(mappers.Evaluator,
             for i, op in enumerate(insn.operators):
                 matrices_ary[i] = matrices[op.rst_axis]
             matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+            
+            if noperators == 3:
+                n_out, n_in = matrices_ary_dev[0].shape
+                n_elem = field[in_grp.index].shape[0]
+                options = lp.Options(no_numpy=True, return_dict=True)
+                program = dgk.gen_diff_knl_fortran(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
+            else:
+                program = prg(noperators)
 
             self.array_context.call_loopy(
-                    prg(noperators),
+                    program,
                     diff_mat=matrices_ary_dev,
                     result=make_obj_array([
                         result[iop][out_grp.index]
