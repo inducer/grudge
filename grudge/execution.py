@@ -292,8 +292,8 @@ class ExecutionMapper(mappers.Evaluator,
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
                 name="elwise_linear")
 
-            result = lp.tag_array_axes(result, "result", "f,f")
-            result = lp.tag_array_axes(result, "vec", "f,f")
+            #result = lp.tag_array_axes(result, "result", "f,f")
+            #result = lp.tag_array_axes(result, "vec", "f,f")
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
             return result
 
@@ -558,10 +558,12 @@ class ExecutionMapper(mappers.Evaluator,
                 matrices_ary[i] = matrices[op.rst_axis]
             matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
             
-            if noperators == 3:
+            # Breaks on complex data types
+            if noperators == 3 and field.entry_dtype == np.float64:
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
+                print(field.entry_dtype)
                 program = dgk.gen_diff_knl_fortran(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
