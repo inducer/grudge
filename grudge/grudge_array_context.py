@@ -5,6 +5,9 @@ import pyopencl.array
 import loopy_dg_kernels as dgk
 #import numpy as np
 
+ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
+ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
+
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def __init__(self, queue, allocator=None):
@@ -16,9 +19,6 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             diff_mat = kwargs["diff_mat"]
             result = kwargs["result"]
             vec = kwargs["vec"]
-
-            ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
-            ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
             # Create input array
             cq = vec.queue

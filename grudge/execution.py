@@ -270,20 +270,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
         def prg():
-            # Maybe can change shape and stride to make this work
-            '''
-            result = make_loopy_program(
-                """{[iel, idof, j]:
-                    0<=iel<nelements and
-                    0<=idof<ndiscr_nodes_out and
-                    0<=j<ndiscr_nodes_in}""",
-                "result[idof, iel] = sum(j, mat[idof, j] * vec[j, iel])",
-                name="elwise_linear")
 
-            result = lp.tag_array_axes(result, "result", "c,c")
-            result = lp.tag_array_axes(result, "vec", "c,c")
-            result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
-            '''
             result = make_loopy_program(
                 """{[iel, idof, j]:
                     0<=iel<nelements and
