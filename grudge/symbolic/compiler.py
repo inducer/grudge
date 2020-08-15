@@ -37,7 +37,7 @@ import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
 from six.moves import intern
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 # {{{ instructions

@@ -9,8 +9,6 @@ Python 3 POCL:
   - python3
   - pocl
   - mpi
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
   artifacts:
@@ -47,8 +45,6 @@ Python 3 POCL MPI:
   - python3
   - pocl
   - mpi
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
   artifacts:
@@ -85,8 +81,6 @@ Python 3 POCL Examples:
   - python3
   - pocl
   - large-node
-  # https://github.com/pocl/pocl/issues/757
-  allow_failure: true
   except:
   - tags
 
@@ -104,6 +98,28 @@ Python 3 Intel Examples:
   - large-node
   except:
   - tags
+
+Python 3 Conda:
+  tags:
+  - linux
+  - large-node
+  script: |
+    CONDA_ENVIRONMENT=.test-conda-env.yml
+    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
+    curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    . ./build-and-test-py-project-within-miniconda.sh
+
+Python 3 Conda Examples:
+  tags:
+  - linux
+  - large-node
+  script: |
+    CONDA_ENVIRONMENT=.test-conda-env.yml
+    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
+    curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
+    . ci-support.sh
+    build_py_project_in_conda_env
+    run_examples
 
 Documentation:
   script:
