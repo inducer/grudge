@@ -647,6 +647,46 @@ def test_function_symbol_array(ctx_factory, array_type):
     assert isinstance(norm, float)
 
 
+@pytest.mark.parametrize("p", [2, np.inf])
+def test_norm_obj_array(ctx_factory, p):
+    """Test :func:`grudge.symbolic.operators.norm` for object arrays."""
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    dim = 2
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            n=(8,)*dim, order=1)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
+
+    w = make_obj_array([1.0, 2.0, 3.0])[:dim]
+
+    # {{ scalar
+
+    sym_w = sym.var("w")
+    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w[0])
+
+    norm_exact = w[0]
+    logger.info("norm: %.5e %.5e", norm, norm_exact)
+    assert abs(norm - norm_exact) < 1.0e-14
+
+    # }}}
+
+    # {{{ vector
+
+    sym_w = sym.make_sym_array("w", dim)
+    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w)
+
+    norm_exact = np.sqrt(np.sum(w**2)) if p == 2 else np.max(w)
+    logger.info("norm: %.5e %.5e", norm, norm_exact)
+    assert abs(norm - norm_exact) < 1.0e-14
+
+    # }}}
+
+
 def test_map_if(ctx_factory):
     """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
     of scalar conditions.

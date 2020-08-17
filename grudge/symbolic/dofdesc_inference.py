@@ -144,6 +144,8 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
         return self.map_multi_child(expr, expr.children)
 
     map_product = map_sum
+    map_max = map_sum
+    map_min = map_sum
 
     def map_quotient(self, expr):
         return self.map_multi_child(expr, (expr.numerator, expr.denominator))
