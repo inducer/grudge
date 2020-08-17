@@ -730,11 +730,10 @@ def norm(p, arg, dd=None):
 
     elif p == np.Inf:
         result = NodalMax(dd_in=dd)(prim.fabs(arg))
-        from pymbolic.primitives import Max
 
         if isinstance(result, np.ndarray):
-            from functools import reduce
-            result = reduce(Max, result)
+            from pymbolic.primitives import Max
+            result = Max(result)
 
         return result
 
