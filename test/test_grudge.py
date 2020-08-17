@@ -669,7 +669,7 @@ def test_norm_obj_array(ctx_factory, p):
 
     norm_exact = w[0]
     logger.info("norm: %.5e %.5e", norm, norm_exact)
-    # assert abs(norm - norm_exact) < 1.0e-14
+    assert abs(norm - norm_exact) < 1.0e-14
 
     # }}}
 
@@ -680,7 +680,7 @@ def test_norm_obj_array(ctx_factory, p):
 
     norm_exact = np.sqrt(np.sum(w**2)) if p == 2 else np.max(w)
     logger.info("norm: %.5e %.5e", norm, norm_exact)
-    # assert abs(norm - norm_exact) < 1.0e-14
+    assert abs(norm - norm_exact) < 1.0e-14
 
     # }}}
 

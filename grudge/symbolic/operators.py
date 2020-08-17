@@ -721,7 +721,7 @@ def norm(p, arg, dd=None):
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
-                prim.fabs(arg * MassOperator()(arg)))
+                arg * MassOperator()(arg))
 
         if isinstance(norm_squared, np.ndarray):
             if len(norm_squared.shape) != 1:
