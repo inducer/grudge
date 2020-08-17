@@ -182,10 +182,10 @@ class ExecutionMapper(mappers.Evaluator,
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
 
-        if isinstance(bool_crit,  DOFArray):
+        if isinstance(bool_crit, DOFArray):
             # continues below
             pass
-        elif isinstance(bool_crit,  np.number):
+        elif isinstance(bool_crit, (np.bool_, np.bool, np.number)):
             if bool_crit:
                 return self.rec(expr.then)
             else:
@@ -194,7 +194,7 @@ class ExecutionMapper(mappers.Evaluator,
             raise TypeError(
                 "Expected criterion to be of type np.number or DOFArray")
 
-        assert isinstance(bool_crit,  DOFArray)
+        assert isinstance(bool_crit, DOFArray)
         ngroups = len(bool_crit)
 
         from pymbolic import var
@@ -208,7 +208,7 @@ class ExecutionMapper(mappers.Evaluator,
         import pymbolic.primitives as p
         var = p.Variable
 
-        if isinstance(then,  DOFArray):
+        if isinstance(then, DOFArray):
             sym_then = var("a")[subscript]
 
             def get_then(igrp):
@@ -222,12 +222,12 @@ class ExecutionMapper(mappers.Evaluator,
             raise TypeError(
                 "Expected 'then' to be of type np.number or DOFArray")
 
-        if isinstance(else_,  DOFArray):
+        if isinstance(else_, DOFArray):
             sym_else = var("b")[subscript]
 
             def get_else(igrp):
                 return else_[igrp]
-        elif isinstance(else_,  np.number):
+        elif isinstance(else_, np.number):
             sym_else = var("b")
 
             def get_else(igrp):

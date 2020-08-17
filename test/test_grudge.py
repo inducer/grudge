@@ -613,6 +613,8 @@ def test_external_call(ctx_factory):
 
 @pytest.mark.parametrize("array_type", ["scalar", "vector"])
 def test_function_symbol_array(ctx_factory, array_type):
+    """Test if `FunctionSymbol` distributed properly over object arrays."""
+
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -683,6 +685,26 @@ def test_norm_obj_array(ctx_factory, p):
     assert abs(norm - norm_exact) < 1.0e-14
 
     # }}}
+
+
+def test_map_if(ctx_factory):
+    """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
+    of scalar conditions.
+    """
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue)
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    dim = 2
+    mesh = generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            n=(8,)*dim, order=4)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
+
+    sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
+    bind(discr, sym_if)(actx)
 
 
 # You can test individual routines by typing
