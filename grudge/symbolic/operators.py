@@ -721,9 +721,12 @@ def norm(p, arg, dd=None):
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
-                prim.fabs(arg * MassOperator()(arg)))
+                arg * MassOperator()(arg))
 
         if isinstance(norm_squared, np.ndarray):
+            if len(norm_squared.shape) != 1:
+                raise NotImplementedError("can only take the norm of vectors")
+
             norm_squared = norm_squared.sum()
 
         return prim.sqrt(norm_squared)
@@ -732,9 +735,11 @@ def norm(p, arg, dd=None):
         result = NodalMax(dd_in=dd)(prim.fabs(arg))
 
         if isinstance(result, np.ndarray):
+            if len(result.shape) != 1:
+                raise NotImplementedError("can only take the norm of vectors")
+
             from pymbolic.primitives import Max
-            from functools import reduce
-            result = reduce(Max, result)
+            result = Max(result)
 
         return result
 
