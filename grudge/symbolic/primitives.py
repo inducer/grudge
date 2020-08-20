@@ -104,10 +104,18 @@ Geometry data
 .. autofunction:: inverse_metric_derivative
 .. autofunction:: forward_metric_derivative_mat
 .. autofunction:: inverse_metric_derivative_mat
+.. autofunction:: first_fundamental_form
+.. autofunction:: inverse_first_fundamental_form
+.. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: second_fundamental_form
+.. autofunction:: shape_operator
 .. autofunction:: pseudoscalar
 .. autofunction:: area_element
 .. autofunction:: mv_normal
 .. autofunction:: normal
+.. autofunction:: surface_normal
+.. autofunction:: summed_curvature
+.. autofunction:: mean_curvature
 """
 
 
