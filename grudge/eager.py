@@ -54,6 +54,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     .. automethod:: normal
     .. automethod:: inverse_mass
     .. automethod:: face_mass
+
+    .. automethod:: norm
+    .. automethod:: nodal_sum
+    .. automethod:: nodal_min
+    .. automethod:: nodal_max
     """
 
     def interp(self, src, tgt, vec):
