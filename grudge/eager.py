@@ -97,6 +97,8 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         else:
             return self.discr_from_dd(dd).nodes()
 
+    # {{{ derivatives
+
     @memoize_method
     def _bound_grad(self):
         return bind(self, sym.nabla(self.dim) * sym.Variable("u"), local_only=True)
@@ -173,6 +175,8 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         return sum(
                 self.weak_grad(dd, vec_i)[i] for i, vec_i in enumerate(vecs))
+
+    # }}}
 
     @memoize_method
     def normal(self, dd):
@@ -280,6 +284,8 @@ def interior_trace_pair(discrwb, vec):
     return TracePair("int_faces", i, e)
 
 
+# {{{ distributed-memory functionality
+
 class _RankBoundaryCommunication:
     base_tag = 1273
 
@@ -353,6 +359,8 @@ def cross_rank_trace_pairs(discrwb, vec, tag=None):
             for remote_rank in discrwb.connected_ranks()]
     else:
         return _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=tag)
+
+# }}}
 
 
 # vim: foldmethod=marker
