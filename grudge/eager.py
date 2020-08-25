@@ -69,6 +69,14 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self.project(src, tgt, vec)
 
     def project(self, src, tgt, vec):
+        """Project from one discretization to another, e.g. from the
+        volume to the boundary, or from the base to the an overintegrated
+        quadrature discretization.
+
+        :arg src: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
+        :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        """
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
@@ -94,11 +102,25 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return bind(self, sym.nabla(self.dim) * sym.Variable("u"), local_only=True)
 
     def grad(self, vec):
+        r"""Return the gradient of the volume function represented by *vec*.
+
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
         return self._bound_grad()(u=vec)
 
     def div(self, vecs):
         return sum(
                 self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
+        r"""Return the divergence of the vector volume function
+        represented by *vecs*.
+
+        :arg vec: an object array of
+            a :class:`~meshmode.dof_array.DOFArray`\ s,
+            where the last axis of the array must have length
+            matching the volume dimension.
+        :returns: a :class:`~meshmode.dof_array.DOFArray`
+        """
 
     @memoize_method
     def _bound_weak_grad(self, dd):
@@ -107,6 +129,16 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                 local_only=True)
 
     def weak_grad(self, *args):
+        r"""Return the "weak gradient" of the volume function represented by
+        *vec*.
+
+        May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization if not provided.
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
         if len(args) == 1:
             vec, = args
             dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -118,6 +150,19 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self._bound_weak_grad(dd)(u=vec)
 
     def weak_div(self, *args):
+        r"""Return the "weak divergence" of the vector volume function
+        represented by *vecs*.
+
+        May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization if not provided.
+        :arg vec: a object array of
+            a :class:`~meshmode.dof_array.DOFArray`\ s,
+            where the last axis of the array must have length
+            matching the volume dimension.
+        :returns: a :class:`~meshmode.dof_array.DOFArray`
+        """
         if len(args) == 1:
             vecs, = args
             dd = sym.DOFDesc("vol", sym.QTAG_NONE)
