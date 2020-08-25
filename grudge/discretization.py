@@ -390,7 +390,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     def order(self):
         from warnings import warn
         warn("DGDiscretizationWithBoundaries.order is deprecated, "
-                "consider the orders of element groups instead. "
+                "consider using the orders of element groups instead. "
                 "'order' will go away in 2021.",
                 DeprecationWarning, stacklevel=2)
 
