@@ -77,8 +77,17 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         return self.connection_from_dds(src, tgt)(vec)
 
-    def nodes(self):
-        return self._volume_discr.nodes()
+    def nodes(self, dd=None):
+        r"""Return the nodes of a discretization.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization.
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        if dd is None:
+            return self._volume_discr.nodes()
+        else:
+            return self.discr_from_dd(dd).nodes()
 
     @memoize_method
     def _bound_grad(self):
