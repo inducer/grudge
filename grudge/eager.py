@@ -47,10 +47,15 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     """
     .. automethod:: project
     .. automethod:: nodes
+
     .. automethod:: grad
+    .. automethod:: d_dx
     .. automethod:: div
+
     .. automethod:: weak_grad
+    .. automethod:: weak_d_dx
     .. automethod:: weak_div
+
     .. automethod:: normal
     .. automethod:: inverse_mass
     .. automethod:: face_mass
@@ -111,9 +116,41 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         """
         return self._bound_grad()(u=vec)
 
+    @memoize_method
+    def _bound_d_dx(self, xyz_axis):
+        return bind(self, sym.nabla(self.dim)[xyz_axis] * sym.Variable("u"),
+                local_only=True)
+
+    def d_dx(self, xyz_axis, vec):
+        r"""Return the derivative along axis *xyz_axis* of the volume function
+        represented by *vec*.
+
+        :arg xyz_axis: an integer indicating the axis along which the derivative
+            is taken
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        return self._bound_d_dx(xyz_axis)(u=vec)
+
+    def _div_helper(self, diff_func, vecs):
+        if not isinstance(vecs, np.ndarray):
+            raise TypeError("argument must be an object array")
+        assert vecs.dtype == np.object
+
+        if vecs.shape[-1] != self.ambient_dim:
+            raise ValueError("last dimension of *vecs* argument must match "
+                    "ambient dimension")
+
+        if len(vecs.shape) == 1:
+            return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
+        else:
+            result = np.zeros(vecs.shape[:-1], dtype=object)
+            for idx in np.ndindex(vecs.shape[:-1]):
+                result[idx] = sum(
+                        diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
+            return result
+
     def div(self, vecs):
-        return sum(
-                self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
         r"""Return the divergence of the vector volume function
         represented by *vecs*.
 
@@ -123,6 +160,10 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
             matching the volume dimension.
         :returns: a :class:`~meshmode.dof_array.DOFArray`
         """
+
+        return self._div_helper(
+                lambda i, subvec: self.d_dx(i, subvec),
+                vecs)
 
     @memoize_method
     def _bound_weak_grad(self, dd):
@@ -151,6 +192,34 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         return self._bound_weak_grad(dd)(u=vec)
 
+    @memoize_method
+    def _bound_weak_d_dx(self, dd, xyz_axis):
+        return bind(self,
+                sym.stiffness_t(self.dim, dd_in=dd)[xyz_axis]
+                * sym.Variable("u", dd),
+                local_only=True)
+
+    def weak_d_dx(self, *args):
+        r"""Return the derivative along axis *xyz_axis* of the volume function
+        represented by *vec*.
+
+        May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
+
+        :arg xyz_axis: an integer indicating the axis along which the derivative
+            is taken
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        if len(args) == 2:
+            xyz_axis, vec = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 3:
+            dd, xyz_axis, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
+
+        return self._bound_weak_d_dx(dd, xyz_axis)(u=vec)
+
     def weak_div(self, *args):
         r"""Return the "weak divergence" of the vector volume function
         represented by *vecs*.
@@ -173,8 +242,9 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         else:
             raise TypeError("invalid number of arguments")
 
-        return sum(
-                self.weak_grad(dd, vec_i)[i] for i, vec_i in enumerate(vecs))
+        return self._div_helper(
+                lambda i, subvec: self.weak_d_dx(dd, i, subvec),
+                vecs)
 
     # }}}
 
