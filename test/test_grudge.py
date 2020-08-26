@@ -34,8 +34,10 @@ import pyopencl as cl
 from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import unflatten, flatten, flat_norm
 
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+from meshmode.array_context import (  # noqa
+        pytest_generate_tests_for_pyopencl_array_context
+        as pytest_generate_tests)
+
 
 import logging
 
@@ -47,10 +49,8 @@ from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 
 @pytest.mark.parametrize("dim", [2, 3])
-def test_inverse_metric(ctx_factory, dim):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_inverse_metric(actx_factory, dim):
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
@@ -94,13 +94,11 @@ def test_inverse_metric(ctx_factory, dim):
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
-def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
+def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     nelements = 17
     order = 4
@@ -160,15 +158,13 @@ def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-def test_tri_diff_mat(ctx_factory, dim, order=4):
+def test_tri_diff_mat(actx_factory, dim, order=4):
     """Check differentiation matrix along the coordinate axes on a disk
 
     Uses sines as the function to differentiate.
     """
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
@@ -200,7 +196,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
         assert eoc_rec.order_estimate() >= order
 
 
-def test_2d_gauss_theorem(ctx_factory):
+def test_2d_gauss_theorem(actx_factory):
     """Verify Gauss's theorem explicitly on a mesh"""
 
     pytest.importorskip("meshpy")
@@ -218,9 +214,7 @@ def test_2d_gauss_theorem(ctx_factory):
     from meshmode.mesh.io import from_meshpy
     mesh = from_meshpy(mesh_info, order=1)
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=2)
 
@@ -253,13 +247,11 @@ def test_2d_gauss_theorem(ctx_factory):
 @pytest.mark.parametrize("flux_type", ["central"])
 @pytest.mark.parametrize("order", [3, 4, 5])
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
-def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
+def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
     """Test whether 2D advection actually converges"""
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -381,12 +373,10 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 
 
 @pytest.mark.parametrize("order", [3, 4, 5])
-def test_convergence_maxwell(ctx_factory,  order):
+def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -452,16 +442,14 @@ def test_convergence_maxwell(ctx_factory,  order):
 
 
 @pytest.mark.parametrize("order", [2, 3, 4])
-def test_improvement_quadrature(ctx_factory, order):
+def test_improvement_quadrature(actx_factory, order):
     """Test whether quadrature improves things and converges"""
     from meshmode.mesh.generation import generate_regular_rect_mesh
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     dims = 2
     sym_nds = sym.nodes(dims)
@@ -546,10 +534,8 @@ def test_op_collector_order_determinism():
     assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
 
 
-def test_bessel(ctx_factory):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_bessel(actx_factory):
+    actx = actx_factory()
 
     dims = 2
 
@@ -576,10 +562,8 @@ def test_bessel(ctx_factory):
     assert z < 1e-15
 
 
-def test_external_call(ctx_factory):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_external_call(actx_factory):
+    actx = actx_factory()
 
     def double(queue, x):
         return 2 * x
