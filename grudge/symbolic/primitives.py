@@ -690,7 +690,7 @@ class TracePair:
         an expression representing the exterior value to
         be used for the flux.
     """
-    def __init__(self, dd, interior, exterior):
+    def __init__(self, dd, *, interior, exterior):
         """
         """
 
@@ -734,7 +734,7 @@ def int_tpair(expression, qtag=None):
     else:
         q_dd = "int_faces"
 
-    return TracePair(q_dd, i, e)
+    return TracePair(q_dd, interior=i, exterior=e)
 
 
 def bdry_tpair(dd, interior, exterior):
@@ -746,7 +746,7 @@ def bdry_tpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    return TracePair(dd, interior, exterior)
+    return TracePair(dd, interior=interior, exterior=exterior)
 
 
 def bv_tpair(dd, interior, exterior):
@@ -760,7 +760,7 @@ def bv_tpair(dd, interior, exterior):
     """
     from grudge.symbolic.operators import project
     interior = cse(project("vol", dd)(interior))
-    return TracePair(dd, interior, exterior)
+    return TracePair(dd, interior=interior, exterior=exterior)
 
 # }}}
 

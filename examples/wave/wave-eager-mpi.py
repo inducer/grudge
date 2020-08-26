@@ -87,7 +87,7 @@ def wave_operator(discr, c, w):
                 discr.face_mass(
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(
-                        BTAG_ALL, dir_bval, dir_bc))
+                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     + sum(
                         wave_flux(discr, c=c, w_tpair=tpair)
                         for tpair in cross_rank_trace_pairs(discr, w))

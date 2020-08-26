@@ -354,7 +354,7 @@ def interior_trace_pair(discrwb, vec):
                 lambda el: discrwb.opposite_face_connection()(el),
                 i)
 
-    return TracePair("int_faces", i, e)
+    return TracePair("int_faces", interior=i, exterior=e)
 
 
 # {{{ distributed-memory functionality
