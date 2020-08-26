@@ -701,8 +701,8 @@ class TracePair:
     def __getitem__(self, index):
         return TracePair(
                 self.dd,
-                self.exterior[index],
-                self.interior[index])
+                interior=self.interior[index],
+                exterior=self.exterior[index])
 
     def __len__(self):
         assert len(self.exterior) == len(self.interior)
