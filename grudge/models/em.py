@@ -38,7 +38,7 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 
 
 class MaxwellOperator(HyperbolicOperator):
-    """A 3D Maxwell operator which supports fixed or variable
+    """A strong-form 3D Maxwell operator which supports fixed or variable
     isotropic, non-dispersive, positive epsilon and mu.
 
     Field order is [Ex Ey Ez Hx Hy Hz].
@@ -107,7 +107,7 @@ class MaxwellOperator(HyperbolicOperator):
         self.incident_bc_data = incident_bc
 
     def flux(self, w):
-        """The template for the numerical flux for variable coefficients.
+        """The numerical flux for variable coefficients.
 
         :param flux_type: can be in [0,1] for anything between central and upwind,
           or "lf" for Lax-Friedrichs.
