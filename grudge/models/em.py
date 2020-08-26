@@ -134,13 +134,13 @@ class MaxwellOperator(HyperbolicOperator):
             return flat_obj_array(
                     # flux e,
                     1/2*(
-                        -self.space_cross_h(normal, h.int-h.ext)
+                        -self.space_cross_h(normal, h.ext-h.int)
                         # multiplication by epsilon undoes material divisor below
                         #-max_c*(epsilon*e.int - epsilon*e.ext)
                     ),
                     # flux h
                     1/2*(
-                        self.space_cross_e(normal, e.int-e.ext)
+                        self.space_cross_e(normal, e.ext-e.int)
                         # multiplication by mu undoes material divisor below
                         #-max_c*(mu*h.int - mu*h.ext)
                     ))
@@ -150,14 +150,14 @@ class MaxwellOperator(HyperbolicOperator):
                     # flux e,
                     (
                         -1/(Z_int+Z_ext)*self.space_cross_h(normal,
-                            Z_ext*(h.int-h.ext)
-                            - self.flux_type*self.space_cross_e(normal, e.int-e.ext))
+                            Z_ext*(h.ext-h.int)
+                            - self.flux_type*self.space_cross_e(normal, e.ext-e.int))
                         ),
                     # flux h
                     (
                         1/(Y_int + Y_ext)*self.space_cross_e(normal,
-                            Y_ext*(e.int-e.ext)
-                            + self.flux_type*self.space_cross_h(normal, h.int-h.ext))
+                            Y_ext*(e.ext-e.int)
+                            + self.flux_type*self.space_cross_h(normal, h.ext-h.int))
                         ),
                     )
         else:
