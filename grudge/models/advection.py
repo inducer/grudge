@@ -199,7 +199,9 @@ def v_dot_n_tpair(velocity, dd=None):
 
 def surface_advection_weak_flux(flux_type, u, velocity):
     v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
-    v_dot_n = sym.cse(0.5 * v_dot_n.jump, "v_dot_normal")
+    # NOTE: the normals in v_dot_n point to the exterior of their respective
+    # elements, so this is actually just an average
+    v_dot_n = sym.cse(0.5 * (v_dot_n.int - v_dot_n.ext), "v_dot_normal")
 
     flux_type = flux_type.lower()
     if flux_type == "central":
@@ -208,16 +210,6 @@ def surface_advection_weak_flux(flux_type, u, velocity):
         return u.avg * v_dot_n + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
     else:
         raise ValueError("flux `{}` is not implemented".format(flux_type))
-
-
-def surface_penalty_flux(u, velocity, tau=1.0):
-    if abs(tau) < 1.0e-14:
-        return 0.0
-
-    v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
-    return sym.If(sym.Comparison(v_dot_n.avg, ">", 0),
-            0.5 * tau * u.avg * v_dot_n.int,
-            0.0)
 
 
 class SurfaceAdvectionOperator(AdvectionOperatorBase):
@@ -230,18 +222,11 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         surf_v = sym.project(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
         return surface_advection_weak_flux(self.flux_type, u, surf_v)
 
-    def penalty(self, u):
-        surf_v = sym.project(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
-        return surface_penalty_flux(u, surf_v, tau=0.0)
-
     def sym_operator(self):
         u = sym.var("u")
 
         def flux(pair):
             return sym.project(pair.dd, face_dd)(self.flux(pair))
-
-        def penalty(pair):
-            return sym.project(pair.dd, face_dd)(self.penalty(pair))
 
         face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
         quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
@@ -258,7 +243,6 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                     for n in range(self.ambient_dim))
                 - sym.FaceMassOperator(face_dd, sym.DD_VOLUME)(
                     flux(sym.int_tpair(u, self.quad_tag))
-                    + penalty(sym.int_tpair(u, self.quad_tag))
                     )
                 )
 
