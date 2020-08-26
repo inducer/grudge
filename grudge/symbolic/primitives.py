@@ -503,11 +503,24 @@ def mv_nodes(ambient_dim, dd=None):
 
 def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
     r"""
-    Pointwise metric derivatives representing
+    Pointwise metric derivatives representing repeated derivatives
 
     .. math::
 
-        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}} }
+        \frac{\partial^n x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{ref\_axes}}}
+
+    where *ref_axes* is a multi-index description.
+
+    :arg ref_axes: a :class:`tuple` of tuples indicating indices of
+        coordinate axes of the reference element to the number of derivatives
+        which will be taken. For example, the value ``((0, 2), (1, 1))``
+        indicates taking the second derivative with respect to the first
+        axis and the first derivative with respect to the second
+        axis. Each axis must occur only once and the tuple must be sorted
+        by the axis index.
+
+        May also be a singile integer *i*, which is viewed as equivalent
+        to ``((i, 1),)``.
     """
 
     if isinstance(ref_axes, int):
@@ -546,6 +559,14 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
 
 
 def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
+    r"""
+    Pointwise metric derivatives representing
+
+    .. math::
+
+        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}}}
+    """
+
     return forward_metric_nth_derivative(xyz_axis, rst_axis, dd=dd)
 
 
@@ -800,6 +821,8 @@ def normal(dd, ambient_dim, dim=None):
 
 
 def summed_curvature(ambient_dim, dim=None, dd=None):
+    """Sum of the principal curvatures"""
+
     if dim is None:
         dim = ambient_dim - 1
 
@@ -814,6 +837,7 @@ def summed_curvature(ambient_dim, dim=None, dd=None):
 
 
 def mean_curvature(ambient_dim, dim=None, dd=None):
+    """Averaged (by dimension) sum of the principal curvatures."""
     return 1.0 / (ambient_dim-1.0) * summed_curvature(ambient_dim, dim=dim, dd=dd)
 
 # }}}
