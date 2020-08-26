@@ -703,6 +703,7 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
     ("disk", [0.1, 0.05]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
+    ("warped2", [4, 8]),
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["central"])
@@ -746,10 +747,21 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
             dim = 2
             dt_factor = 4
         elif mesh_name.startswith("rect"):
-            dim = int(mesh_name[4:])
+            dim = int(mesh_name[-1:])
             from meshmode.mesh.generation import generate_regular_rect_mesh
             mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                     n=(mesh_par,)*dim, order=4)
+
+            if dim == 2:
+                dt_factor = 4
+            elif dim == 3:
+                dt_factor = 2
+            else:
+                raise ValueError("dt_factor not known for %dd" % dim)
+        elif mesh_name.startswith("warped"):
+            dim = int(mesh_name[-1:])
+            from meshmode.mesh.generation import generate_warped_rect_mesh
+            mesh = generate_warped_rect_mesh(dim, order=order, n=mesh_par)
 
             if dim == 2:
                 dt_factor = 4
@@ -831,7 +843,11 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
         abscissa_label="h",
         error_label="L2 Error"))
 
-    assert eoc_rec.order_estimate() > order
+    if mesh_name.startswith("warped"):
+        # NOTE: curvilinear meshes are hard
+        assert eoc_rec.order_estimate() > order - 0.25
+    else:
+        assert eoc_rec.order_estimate() > order
 
 # }}}
 
