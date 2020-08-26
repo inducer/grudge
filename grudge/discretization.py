@@ -53,10 +53,11 @@ class DGDiscretizationWithBoundaries(object):
         """
         :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
             strings--but may be any hashable/comparable object) to a
-            :class:`~meshmode.discretization.poly_element.ElementGroupFactory` indicating with
-            which quadrature discretization the operations are to be carried out,
-            or *None* to indicate that operations with this quadrature tag should
-            be carried out with the standard volume discretization.
+            :class:`~meshmode.discretization.poly_element.ElementGroupFactory`
+            indicating with which quadrature discretization the operations are
+            to be carried out, or *None* to indicate that operations with this
+            quadrature tag should be carried out with the standard volume
+            discretization.
         """
 
         self._setup_actx = array_context
