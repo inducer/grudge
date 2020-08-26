@@ -180,8 +180,6 @@ def main():
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
 
-    rank = comm.Get_rank()
-
     t = 0
     t_final = 3
     istep = 0
@@ -190,7 +188,9 @@ def main():
 
         if istep % 10 == 0:
             print(istep, t, discr.norm(fields[0]))
-            vis.write_vtk_file("fld-wave-eager-mpi-%03d-%04d.vtu" % (rank, istep),
+            vis.write_parallel_vtk_file(
+                    comm,
+                    f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
