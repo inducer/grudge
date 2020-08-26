@@ -41,7 +41,6 @@ from pyopencl.tools import (  # noqa
 import logging
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 # {{{ inverse metric
