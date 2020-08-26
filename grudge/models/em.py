@@ -36,8 +36,6 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-# TODO: Check PML
-
 
 class MaxwellOperator(HyperbolicOperator):
     """A 3D Maxwell operator which supports fixed or variable
