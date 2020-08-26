@@ -643,7 +643,6 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 
         elif isinstance(expr.op, op.InverseMassOperator):
             if self.use_wadg:
-                # TODO: this is also required for flat curvilinear elements
                 # based on https://arxiv.org/pdf/1608.03836.pdf
                 return op.RefInverseMassOperator(dd_in, dd_out)(
                     op.RefMassOperator(dd_in, dd_out)(
