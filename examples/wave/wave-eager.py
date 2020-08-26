@@ -57,10 +57,9 @@ def wave_flux(discr, c, w_tpair):
             )
 
     # upwind
-    v_jump = np.dot(normal, v.int-v.ext)
     flux_weak += flat_obj_array(
-            0.5*(u.int-u.ext),
-            0.5*normal*scalar(v_jump),
+            0.5*(u.ext-u.int),
+            0.5*normal*scalar(np.dot(normal, v.ext-v.int)),
             )
 
     return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
