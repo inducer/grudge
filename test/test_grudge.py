@@ -322,8 +322,9 @@ def test_surface_mass_operator_inverse(ctx_factory, name):
 
     logger.info("inverse mass error\n%s", str(eoc))
 
-    assert eoc.max_error() < 5.0e-09 \
-            or eoc.order_estimate() > builder.order
+    # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
+    # safe side, choose a slightly larger tolerance
+    assert eoc.max_error() < 1.0e-14
 
 # }}}
 
