@@ -397,8 +397,9 @@ class _RankBoundaryCommunication:
 
         self.send_req.Wait()
 
-        return TracePair(self.remote_btag, self.local_dof_array,
-                swapped_remote_dof_array)
+        return TracePair(self.remote_btag,
+                interior=self.local_dof_array,
+                exterior=swapped_remote_dof_array)
 
 
 def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
