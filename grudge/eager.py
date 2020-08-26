@@ -354,7 +354,7 @@ def interior_trace_pair(discrwb, vec):
                 lambda el: discrwb.opposite_face_connection()(el),
                 i)
 
-    return TracePair("int_faces", i, e)
+    return TracePair("int_faces", interior=i, exterior=e)
 
 
 # {{{ distributed-memory functionality
@@ -397,8 +397,9 @@ class _RankBoundaryCommunication:
 
         self.send_req.Wait()
 
-        return TracePair(self.remote_btag, self.local_dof_array,
-                swapped_remote_dof_array)
+        return TracePair(self.remote_btag,
+                interior=self.local_dof_array,
+                exterior=swapped_remote_dof_array)
 
 
 def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):

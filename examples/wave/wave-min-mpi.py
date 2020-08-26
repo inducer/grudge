@@ -79,9 +79,9 @@ def main(write_output=True, order=4):
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
 
-    from grudge.models.wave import StrongWaveOperator
+    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = StrongWaveOperator(-0.1, discr.dim,
+    op = WeakWaveOperator(0.1, discr.dim,
             source_f=(
                 sym.sin(source_omega*sym_t)
                 * sym.exp(
@@ -124,8 +124,6 @@ def main(write_output=True, order=4):
     from time import time
     t_last_step = time()
 
-    rank = comm.Get_rank()
-
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
             assert event.component_id == "w"
@@ -135,11 +133,9 @@ def main(write_output=True, order=4):
             print(step, event.t, norm(u=event.state_component[0]),
                     time()-t_last_step)
             if step % 10 == 0:
-                vis.write_vtk_file(
-                        "fld-wave-min-mpi-%03d-%04d.vtu" % (
-                            rank,
-                            step,
-                            ),
+                vis.write_parallel_vtk_file(
+                        comm,
+                        f"fld-wave-min-mpi-{{rank:03d}}-{step:04d}.vtu",
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),

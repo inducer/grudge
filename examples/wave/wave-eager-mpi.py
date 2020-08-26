@@ -59,9 +59,9 @@ def wave_flux(discr, c, w_tpair):
             )
 
     # upwind
-    v_jump = np.dot(normal, v.int-v.ext)
+    v_jump = np.dot(normal, v.ext-v.int)
     flux_weak += flat_obj_array(
-            0.5*(u.int-u.ext),
+            0.5*(u.ext-u.int),
             0.5*normal*scalar(v_jump),
             )
 
@@ -87,7 +87,7 @@ def wave_operator(discr, c, w):
                 discr.face_mass(
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(
-                        BTAG_ALL, dir_bval, dir_bc))
+                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     + sum(
                         wave_flux(discr, c=c, w_tpair=tpair)
                         for tpair in cross_rank_trace_pairs(discr, w))
@@ -180,8 +180,6 @@ def main():
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
 
-    rank = comm.Get_rank()
-
     t = 0
     t_final = 3
     istep = 0
@@ -190,7 +188,9 @@ def main():
 
         if istep % 10 == 0:
             print(istep, t, discr.norm(fields[0]))
-            vis.write_vtk_file("fld-wave-eager-mpi-%03d-%04d.vtu" % (rank, istep),
+            vis.write_parallel_vtk_file(
+                    comm,
+                    f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
