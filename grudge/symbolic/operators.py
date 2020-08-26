@@ -94,12 +94,12 @@ class Operator(pymbolic.primitives.Expression):
     """
     .. attribute:: dd_in
 
-        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
+        an instance of :class:`~grudge.sym.DOFDesc` describing the
         input discretization.
 
     .. attribute:: dd_out
 
-        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
+        an instance of :class:`~grudge.sym.DOFDesc` describing the
         output discretization.
     """
 
@@ -477,7 +477,10 @@ class VandermondeOperator(ElementwiseLinearOperator):
 
 class MassOperatorBase(Operator):
     """
-    :attr:`dd_in` and :attr:`dd_out` may be surface or volume discretizations.
+    Inherits from :class:`Operator`.
+
+    :attr:`~Operator.dd_in` and :attr:`~Operator.dd_out` may be surface or volume
+    discretizations.
     """
 
     def __init__(self, dd_in=None, dd_out=None):

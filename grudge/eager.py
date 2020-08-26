@@ -45,15 +45,28 @@ __doc__ = """
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     """
+    Inherits from :class:`~grudge.discretization.DGDiscretizationWithBoundaries`.
+
+    .. automethod:: __init__
     .. automethod:: project
     .. automethod:: nodes
+
     .. automethod:: grad
+    .. automethod:: d_dx
     .. automethod:: div
+
     .. automethod:: weak_grad
+    .. automethod:: weak_d_dx
     .. automethod:: weak_div
+
     .. automethod:: normal
     .. automethod:: inverse_mass
     .. automethod:: face_mass
+
+    .. automethod:: norm
+    .. automethod:: nodal_sum
+    .. automethod:: nodal_min
+    .. automethod:: nodal_max
     """
 
     def interp(self, src, tgt, vec):
@@ -64,6 +77,14 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return self.project(src, tgt, vec)
 
     def project(self, src, tgt, vec):
+        """Project from one discretization to another, e.g. from the
+        volume to the boundary, or from the base to the an overintegrated
+        quadrature discretization.
+
+        :arg src: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
+        :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        """
         if (isinstance(vec, np.ndarray)
                 and vec.dtype.char == "O"
                 and not isinstance(vec, DOFArray)):
@@ -72,19 +93,80 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         return self.connection_from_dds(src, tgt)(vec)
 
-    def nodes(self):
-        return self._volume_discr.nodes()
+    def nodes(self, dd=None):
+        r"""Return the nodes of a discretization.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization.
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        if dd is None:
+            return self._volume_discr.nodes()
+        else:
+            return self.discr_from_dd(dd).nodes()
+
+    # {{{ derivatives
 
     @memoize_method
     def _bound_grad(self):
         return bind(self, sym.nabla(self.dim) * sym.Variable("u"), local_only=True)
 
     def grad(self, vec):
+        r"""Return the gradient of the volume function represented by *vec*.
+
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
         return self._bound_grad()(u=vec)
 
+    @memoize_method
+    def _bound_d_dx(self, xyz_axis):
+        return bind(self, sym.nabla(self.dim)[xyz_axis] * sym.Variable("u"),
+                local_only=True)
+
+    def d_dx(self, xyz_axis, vec):
+        r"""Return the derivative along axis *xyz_axis* of the volume function
+        represented by *vec*.
+
+        :arg xyz_axis: an integer indicating the axis along which the derivative
+            is taken
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        return self._bound_d_dx(xyz_axis)(u=vec)
+
+    def _div_helper(self, diff_func, vecs):
+        if not isinstance(vecs, np.ndarray):
+            raise TypeError("argument must be an object array")
+        assert vecs.dtype == np.object
+
+        if vecs.shape[-1] != self.ambient_dim:
+            raise ValueError("last dimension of *vecs* argument must match "
+                    "ambient dimension")
+
+        if len(vecs.shape) == 1:
+            return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
+        else:
+            result = np.zeros(vecs.shape[:-1], dtype=object)
+            for idx in np.ndindex(vecs.shape[:-1]):
+                result[idx] = sum(
+                        diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
+            return result
+
     def div(self, vecs):
-        return sum(
-                self.grad(vec_i)[i] for i, vec_i in enumerate(vecs))
+        r"""Return the divergence of the vector volume function
+        represented by *vecs*.
+
+        :arg vec: an object array of
+            a :class:`~meshmode.dof_array.DOFArray`\ s,
+            where the last axis of the array must have length
+            matching the volume dimension.
+        :returns: a :class:`~meshmode.dof_array.DOFArray`
+        """
+
+        return self._div_helper(
+                lambda i, subvec: self.d_dx(i, subvec),
+                vecs)
 
     @memoize_method
     def _bound_weak_grad(self, dd):
@@ -93,6 +175,16 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                 local_only=True)
 
     def weak_grad(self, *args):
+        r"""Return the "weak gradient" of the volume function represented by
+        *vec*.
+
+        May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization if not provided.
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        """
         if len(args) == 1:
             vec, = args
             dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -103,7 +195,48 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         return self._bound_weak_grad(dd)(u=vec)
 
+    @memoize_method
+    def _bound_weak_d_dx(self, dd, xyz_axis):
+        return bind(self,
+                sym.stiffness_t(self.dim, dd_in=dd)[xyz_axis]
+                * sym.Variable("u", dd),
+                local_only=True)
+
+    def weak_d_dx(self, *args):
+        r"""Return the derivative along axis *xyz_axis* of the volume function
+        represented by *vec*.
+
+        May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
+
+        :arg xyz_axis: an integer indicating the axis along which the derivative
+            is taken
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        if len(args) == 2:
+            xyz_axis, vec = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 3:
+            dd, xyz_axis, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
+
+        return self._bound_weak_d_dx(dd, xyz_axis)(u=vec)
+
     def weak_div(self, *args):
+        r"""Return the "weak divergence" of the vector volume function
+        represented by *vecs*.
+
+        May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization if not provided.
+        :arg vec: a object array of
+            a :class:`~meshmode.dof_array.DOFArray`\ s,
+            where the last axis of the array must have length
+            matching the volume dimension.
+        :returns: a :class:`~meshmode.dof_array.DOFArray`
+        """
         if len(args) == 1:
             vecs, = args
             dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -112,8 +245,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         else:
             raise TypeError("invalid number of arguments")
 
-        return sum(
-                self.weak_grad(dd, vec_i)[i] for i, vec_i in enumerate(vecs))
+        return self._div_helper(
+                lambda i, subvec: self.weak_d_dx(dd, i, subvec),
+                vecs)
+
+    # }}}
 
     @memoize_method
     def normal(self, dd):
@@ -221,6 +357,8 @@ def interior_trace_pair(discrwb, vec):
     return TracePair("int_faces", i, e)
 
 
+# {{{ distributed-memory functionality
+
 class _RankBoundaryCommunication:
     base_tag = 1273
 
@@ -294,6 +432,8 @@ def cross_rank_trace_pairs(discrwb, vec, tag=None):
             for remote_rank in discrwb.connected_ranks()]
     else:
         return _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=tag)
+
+# }}}
 
 
 # vim: foldmethod=marker

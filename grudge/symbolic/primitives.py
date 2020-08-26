@@ -55,6 +55,8 @@ class ExpressionBase(prim.Expression):
 
 __doc__ = """
 
+.. currentmodule:: grudge.sym
+
 DOF description
 ^^^^^^^^^^^^^^^
 
