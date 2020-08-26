@@ -45,6 +45,9 @@ __doc__ = """
 
 class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     """
+    Inherits from :class:`~grudge.discretization.DGDiscretizationWithBoundaries`.
+
+    .. automethod:: __init__
     .. automethod:: project
     .. automethod:: nodes
 

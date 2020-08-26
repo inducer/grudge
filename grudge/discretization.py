@@ -30,12 +30,12 @@ import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
 
 
-# FIXME Naming not ideal
-class DiscretizationBase(object):
-    pass
+__doc__ = """
+.. autoclass:: DGDiscretizationWithBoundaries
+"""
 
 
-class DGDiscretizationWithBoundaries(DiscretizationBase):
+class DGDiscretizationWithBoundaries(object):
     """
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
@@ -53,7 +53,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         """
         :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
             strings--but may be any hashable/comparable object) to a
-            :class:`meshmode.discretization.ElementGroupFactory` indicating with
+            :class:`~meshmode.discretization.poly_element.ElementGroupFactory` indicating with
             which quadrature discretization the operations are to be carried out,
             or *None* to indicate that operations with this quadrature tag should
             be carried out with the standard volume discretization.
