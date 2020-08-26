@@ -370,18 +370,18 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         v = w[2:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
+        flux_central_weak = -0.5 * flat_obj_array(
+            np.dot(v.int*c.int + v.ext*c.ext, normal),
+            (u.int * c.int + u.ext*c.ext) * normal)
+
         if self.flux_type == "central":
-            return -0.5 * flat_obj_array(
-                np.dot(v.int*c.int + v.ext*c.ext, normal),
-                (u.int * c.int + u.ext*c.ext) * normal)
+            return flux_central_weak
 
         elif self.flux_type == "upwind":
-            return -0.5 * flat_obj_array(
-                    np.dot(normal, c.ext * v.ext + c.int * v.int)
-                    + c.ext*u.ext - c.int * u.int,
+            return flux_central_weak - 0.5 * flat_obj_array(
+                    c.ext*u.ext - c.int * u.int,
 
-                    normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)
-                    + c.ext*u.ext + c.int * u.int))
+                    normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)))
 
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
@@ -442,7 +442,6 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
-
 
                 - sym.FaceMassOperator()(flux(sym.int_tpair(flux_w))
                     + flux(sym.bv_tpair(self.dirichlet_tag, flux_w, dir_bc))
