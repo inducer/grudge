@@ -35,153 +35,6 @@ from pytools.obj_array import flat_obj_array
 
 # {{{ constant-velocity
 
-class StrongWaveOperator(HyperbolicOperator):
-    r"""This operator discretizes the wave equation
-    :math:`\partial_t^2 u = c^2 \Delta u`.
-
-    To be precise, we discretize the hyperbolic system
-
-    .. math::
-
-        \partial_t u - c \\nabla \\cdot v = 0
-
-        \partial_t v - c \\nabla u = 0
-
-    The sign of :math:`v` determines whether we discretize the forward or the
-    backward wave equation.
-
-    :math:`c` is assumed to be constant across all space.
-    """
-
-    def __init__(self, c, ambient_dim, source_f=0,
-            flux_type="upwind",
-            dirichlet_tag=BTAG_ALL,
-            dirichlet_bc_f=0,
-            neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_NONE):
-        assert isinstance(ambient_dim, int)
-
-        self.c = c
-        self.ambient_dim = ambient_dim
-        self.source_f = source_f
-
-        if self.c > 0:
-            self.sign = 1
-        else:
-            self.sign = -1
-
-        self.dirichlet_tag = dirichlet_tag
-        self.neumann_tag = neumann_tag
-        self.radiation_tag = radiation_tag
-
-        self.dirichlet_bc_f = dirichlet_bc_f
-
-        self.flux_type = flux_type
-
-    def flux(self, w):
-        u = w[0]
-        v = w[1:]
-        normal = sym.normal(w.dd, self.ambient_dim)
-
-        flux_weak = flat_obj_array(
-                np.dot(v.avg, normal),
-                u.avg * normal)
-
-        if self.flux_type == "central":
-            pass
-        elif self.flux_type == "upwind":
-            # see doc/notes/grudge-notes.tm
-            flux_weak -= self.sign*flat_obj_array(
-                    0.5*(u.int-u.ext),
-                    0.5*(normal * np.dot(normal, v.int-v.ext)))
-        else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
-
-        flux_strong = flat_obj_array(
-                np.dot(v.int, normal),
-                u.int * normal) - flux_weak
-
-        return self.c*flux_strong
-
-    def sym_operator(self):
-        d = self.ambient_dim
-
-        w = sym.make_sym_array("w", d+1)
-        u = w[0]
-        v = w[1:]
-
-        # boundary conditions -------------------------------------------------
-
-        # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
-        if self.dirichlet_bc_f:
-            # FIXME
-            from warnings import warn
-            warn("Inhomogeneous Dirichlet conditions on the wave equation "
-                    "are still having issues.")
-
-            dir_g = sym.Field("dir_bc_u")
-            dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
-        else:
-            dir_bc = flat_obj_array(-dir_u, dir_v)
-
-        dir_bc = sym.cse(dir_bc, "dir_bc")
-
-        # neumann BCs ---------------------------------------------------------
-        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
-
-        # radiation BCs -------------------------------------------------------
-        rad_normal = sym.normal(self.radiation_tag, d)
-
-        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
-
-        rad_bc = sym.cse(flat_obj_array(
-                0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
-                0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
-                ), "rad_bc")
-
-        # entire operator -----------------------------------------------------
-        nabla = sym.nabla(d)
-
-        def flux(pair):
-            return sym.project(pair.dd, "all_faces")(
-                    self.flux(pair))
-
-        result = (
-                - flat_obj_array(
-                    -self.c*np.dot(nabla, v),
-                    -self.c*(nabla*u)
-                    )
-                +  # noqa: W504
-                sym.InverseMassOperator()(
-                    sym.FaceMassOperator()(
-                        flux(sym.int_tpair(w))
-                        + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
-                        + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
-                        + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
-                        )
-                    )
-                )
-
-        result[0] += self.source_f
-
-        return result
-
-    def check_bc_coverage(self, mesh):
-        from meshmode.mesh import check_bc_coverage
-        check_bc_coverage(mesh, [
-            self.dirichlet_tag,
-            self.neumann_tag,
-            self.radiation_tag])
-
-    def max_eigenvalue(self, t, fields=None, discr=None):
-        return abs(self.c)
-
-
 class WeakWaveOperator(HyperbolicOperator):
     r"""This operator discretizes the wave equation
     :math:`\partial_t^2 u = c^2 \Delta u`.
@@ -230,16 +83,16 @@ class WeakWaveOperator(HyperbolicOperator):
         v = w[1:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
-        flux_weak = flat_obj_array(
+        central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
                 u.avg * normal)
 
         if self.flux_type == "central":
-            return -self.c*flux_weak
+            return central_flux_weak
         elif self.flux_type == "upwind":
-            return -self.c*(flux_weak + self.sign*flat_obj_array(
-                    0.5*(u.int-u.ext),
-                    0.5*(normal * np.dot(normal, v.int-v.ext))))
+            return central_flux_weak - self.c*self.sign*flat_obj_array(
+                    0.5*(u.ext-u.int),
+                    0.5*(normal * np.dot(normal, v.ext-v.int)))
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
@@ -293,7 +146,6 @@ class WeakWaveOperator(HyperbolicOperator):
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
-
 
                 - sym.FaceMassOperator()(flux(sym.int_tpair(w))
                     + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
@@ -370,18 +222,18 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         v = w[2:]
         normal = sym.normal(w.dd, self.ambient_dim)
 
+        flux_central_weak = -0.5 * flat_obj_array(
+            np.dot(v.int*c.int + v.ext*c.ext, normal),
+            (u.int * c.int + u.ext*c.ext) * normal)
+
         if self.flux_type == "central":
-            return -0.5 * flat_obj_array(
-                np.dot(v.int*c.int + v.ext*c.ext, normal),
-                (u.int * c.int + u.ext*c.ext) * normal)
+            return flux_central_weak
 
         elif self.flux_type == "upwind":
-            return -0.5 * flat_obj_array(
-                    np.dot(normal, c.ext * v.ext + c.int * v.int)
-                    + c.ext*u.ext - c.int * u.int,
+            return flux_central_weak - 0.5 * flat_obj_array(
+                    c.ext*u.ext - c.int * u.int,
 
-                    normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)
-                    + c.ext*u.ext + c.int * u.int))
+                    normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)))
 
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
@@ -442,7 +294,6 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
                     -self.c*(sym.stiffness_t(self.ambient_dim)*u)
                     )
-
 
                 - sym.FaceMassOperator()(flux(sym.int_tpair(flux_w))
                     + flux(sym.bv_tpair(self.dirichlet_tag, flux_w, dir_bc))

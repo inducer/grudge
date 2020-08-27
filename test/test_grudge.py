@@ -34,8 +34,8 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 import pytest
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl
+from meshmode.array_context import (  # noqa
+        pytest_generate_tests_for_pyopencl_array_context
         as pytest_generate_tests)
 
 import logging
@@ -46,10 +46,8 @@ logger = logging.getLogger(__name__)
 # {{{ inverse metric
 
 @pytest.mark.parametrize("dim", [2, 3])
-def test_inverse_metric(ctx_factory, dim):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_inverse_metric(actx_factory, dim):
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
@@ -97,13 +95,11 @@ def test_inverse_metric(ctx_factory, dim):
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
-def test_mass_mat_trig(ctx_factory, ambient_dim, quad_tag):
+def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     nelements = 17
     order = 4
@@ -196,10 +192,8 @@ def _spheroid_surface_area(radius, aspect_ratio):
 @pytest.mark.parametrize("name", [
     "2-1-ellipse", "spheroid", "box2d", "box3d"
     ])
-def test_mass_surface_area(ctx_factory, name):
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_mass_surface_area(actx_factory, name):
+    actx = actx_factory()
 
     # {{{ cases
 
@@ -266,7 +260,7 @@ def test_mass_surface_area(ctx_factory, name):
 # {{{ surface mass inverse
 
 @pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
-def test_surface_mass_operator_inverse(ctx_factory, name):
+def test_surface_mass_operator_inverse(actx_factory, name):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -339,12 +333,9 @@ def _avg_face_normal(x, side=-1):
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
-def test_face_normal_surface(ctx_factory, mesh_name):
+def test_face_normal_surface(actx_factory, mesh_name):
     """Check that face normals are orthogonal to the surface normal"""
-
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     # {{{ geometry
 
@@ -453,15 +444,13 @@ def test_face_normal_surface(ctx_factory, mesh_name):
 # {{{ diff operator
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-def test_tri_diff_mat(ctx_factory, dim, order=4):
+def test_tri_diff_mat(actx_factory, dim, order=4):
     """Check differentiation matrix along the coordinate axes on a disk
 
     Uses sines as the function to differentiate.
     """
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
@@ -497,7 +486,7 @@ def test_tri_diff_mat(ctx_factory, dim, order=4):
 
 # {{{ divergence theorem
 
-def test_2d_gauss_theorem(ctx_factory):
+def test_2d_gauss_theorem(actx_factory):
     """Verify Gauss's theorem explicitly on a mesh"""
 
     pytest.importorskip("meshpy")
@@ -515,9 +504,7 @@ def test_2d_gauss_theorem(ctx_factory):
     from meshmode.mesh.io import from_meshpy
     mesh = from_meshpy(mesh_info, order=1)
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=2)
 
@@ -541,7 +528,7 @@ def test_2d_gauss_theorem(ctx_factory):
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
-def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
+def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     r"""Check the surface divergence theorem.
 
         .. math::
@@ -555,10 +542,7 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
         face normal (which should be orthogonal to both the surface normal
         and the face tangent).
     """
-
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     # {{{ cases
 
@@ -709,13 +693,11 @@ def test_surface_divergence_theorem(ctx_factory, mesh_name, visualize=False):
 @pytest.mark.parametrize("flux_type", ["central"])
 @pytest.mark.parametrize("order", [3, 4, 5])
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
-def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type,
+def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_type,
         order, visualize=False):
     """Test whether 2D advection actually converges"""
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -855,12 +837,10 @@ def test_convergence_advec(ctx_factory, mesh_name, mesh_pars, op_type, flux_type
 # {{{ models: maxwell
 
 @pytest.mark.parametrize("order", [3, 4, 5])
-def test_convergence_maxwell(ctx_factory,  order):
+def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -930,16 +910,14 @@ def test_convergence_maxwell(ctx_factory,  order):
 # {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
-def test_improvement_quadrature(ctx_factory, order):
+def test_improvement_quadrature(actx_factory, order):
     """Test whether quadrature improves things and converges"""
     from meshmode.mesh.generation import generate_regular_rect_mesh
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     dims = 2
     sym_nds = sym.nodes(dims)
@@ -1032,10 +1010,8 @@ def test_op_collector_order_determinism():
 
 # {{{ bessel
 
-def test_bessel(ctx_factory):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_bessel(actx_factory):
+    actx = actx_factory()
 
     dims = 2
 
@@ -1066,10 +1042,8 @@ def test_bessel(ctx_factory):
 
 # {{{ function symbol
 
-def test_external_call(ctx_factory):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def test_external_call(actx_factory):
+    actx = actx_factory()
 
     def double(queue, x):
         return 2 * x

@@ -6,9 +6,9 @@ Contents:
 .. toctree::
     :maxdepth: 2
 
-    misc
+    discretization
     symbolic
-    eager
+    misc
 
 
 Indices and Tables

@@ -29,6 +29,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+# FIXME:
+# Results before https://github.com/inducer/grudge/pull/15 were better:
+#
+# Operator     | \parbox{1in}{\centering \% Memory Ops. Due to Scalar Assignments}
+# -------------+-------------------------------------------------------------------
+# 2D: Baseline | 51.1
+# 2D: Inlined  | 48.9
+# 3D: Baseline | 50.1
+# 3D: Inlined  | 48.6
+# INFO:__main__:Wrote '<stdout>'
+# ==== Scalar Assigment Inlining Impact ====
+# Operator     | Bytes Read | Bytes Written | Total      | \% of Baseline
+# -------------+------------+---------------+------------+----------------
+# 2D: Baseline | 9489600    | 3348000       | 12837600   | 100
+# 2D: Inlined  | 8949600    | 2808000       | 11757600   | 91.6
+# 3D: Baseline | 1745280000 | 505440000     | 2250720000 | 100
+# 3D: Inlined  | 1680480000 | 440640000     | 2121120000 | 94.2
+# INFO:__main__:Wrote '<stdout>'
+
 
 import contextlib
 import logging
@@ -413,7 +432,23 @@ class FusedRK4TimeStepper(RK4TimeStepperBase):
 
 # {{{ problem setup code
 
-def get_strong_wave_op_with_discr(actx, dims=2, order=4):
+def _get_source_term(dims):
+    source_center = np.array([0.1, 0.22, 0.33])[:dims]
+    source_width = 0.05
+    source_omega = 3
+
+    sym_x = sym.nodes(dims)
+    sym_source_center_dist = sym_x - source_center
+    sym_t = sym.ScalarVariable("t")
+
+    return (
+                sym.sin(source_omega*sym_t)
+                * sym.exp(
+                    -np.dot(sym_source_center_dist, sym_source_center_dist)
+                    / source_width**2))
+
+
+def get_wave_op_with_discr(actx, dims=2, order=4):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -424,22 +459,10 @@ def get_strong_wave_op_with_discr(actx, dims=2, order=4):
 
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
 
-    source_center = np.array([0.1, 0.22, 0.33])[:dims]
-    source_width = 0.05
-    source_omega = 3
-
-    sym_x = sym.nodes(mesh.dim)
-    sym_source_center_dist = sym_x - source_center
-    sym_t = sym.ScalarVariable("t")
-
-    from grudge.models.wave import StrongWaveOperator
+    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = StrongWaveOperator(-0.1, dims,
-            source_f=(
-                sym.sin(source_omega*sym_t)
-                * sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2)),
+    op = WeakWaveOperator(0.1, dims,
+            source_f=_get_source_term(dims),
             dirichlet_tag=BTAG_NONE,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_ALL,
@@ -450,87 +473,7 @@ def get_strong_wave_op_with_discr(actx, dims=2, order=4):
     return (op.sym_operator(), discr)
 
 
-def dg_flux(c, tpair):
-    u = tpair[0]
-    v = tpair[1:]
-
-    dims = len(v)
-
-    normal = sym.normal(tpair.dd, dims)
-    flux_weak = flat_obj_array(
-            np.dot(v.avg, normal),
-            u.avg * normal)
-
-    flux_weak -= (1 if c > 0 else -1)*flat_obj_array(
-            0.5*(u.int-u.ext),
-            0.5*(normal * np.dot(normal, v.int-v.ext)))
-
-    flux_strong = flat_obj_array(
-            np.dot(v.int, normal),
-            u.int * normal) - flux_weak
-
-    return sym.project(tpair.dd, "all_faces")(c*flux_strong)
-
-
-def get_strong_wave_op_with_discr_direct(actx, dims=2, order=4):
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*dims,
-            b=(0.5,)*dims,
-            n=(16,)*dims)
-
-    logger.debug("%d elements", mesh.nelements)
-
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
-
-    source_center = np.array([0.1, 0.22, 0.33])[:dims]
-    source_width = 0.05
-    source_omega = 3
-
-    sym_x = sym.nodes(mesh.dim)
-    sym_source_center_dist = sym_x - source_center
-    sym_t = sym.ScalarVariable("t")
-
-    from meshmode.mesh import BTAG_ALL
-
-    c = -0.1
-    sign = -1
-
-    w = sym.make_sym_array("w", dims+1)
-    u = w[0]
-    v = w[1:]
-
-    source_f = (
-                sym.sin(source_omega*sym_t)
-                * sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2))
-
-    rad_normal = sym.normal(BTAG_ALL, dims)
-
-    rad_u = sym.cse(sym.project("vol", BTAG_ALL)(u))
-    rad_v = sym.cse(sym.project("vol", BTAG_ALL)(v))
-
-    rad_bc = sym.cse(flat_obj_array(
-            0.5*(rad_u - sign*np.dot(rad_normal, rad_v)),
-            0.5*rad_normal*(np.dot(rad_normal, rad_v) - sign*rad_u)
-            ), "rad_bc")
-
-    sym_operator = (
-            - flat_obj_array(
-                -c*np.dot(sym.nabla(dims), v) - source_f,
-                -c*(sym.nabla(dims)*u)
-                )
-            + sym.InverseMassOperator()(
-                sym.FaceMassOperator()(
-                    dg_flux(c, sym.int_tpair(w))
-                    + dg_flux(c, sym.bv_tpair(BTAG_ALL, w, rad_bc))
-                    )))
-
-    return (sym_operator, discr)
-
-
-def get_strong_wave_component(state_component):
+def get_wave_component(state_component):
     return (state_component[0], state_component[1:])
 
 # }}}
@@ -545,10 +488,10 @@ def test_stepper_equivalence(ctx_factory, order=4):
 
     dims = 2
 
-    sym_operator, _ = get_strong_wave_op_with_discr(
+    sym_operator, discr = get_wave_op_with_discr(
             actx, dims=dims, order=order)
-    sym_operator_direct, discr = get_strong_wave_op_with_discr_direct(
-            actx, dims=dims, order=order)
+    #sym_operator_direct, discr = get_wave_op_with_discr_direct(
+    #        actx, dims=dims, order=order)
 
     if dims == 2:
         dt = 0.04
@@ -561,11 +504,11 @@ def test_stepper_equivalence(ctx_factory, order=4):
     bound_op = bind(discr, sym_operator)
 
     stepper = RK4TimeStepper(
-            discr, "w", bound_op, 1 + discr.dim, get_strong_wave_component)
+            discr, "w", bound_op, 1 + discr.dim, get_wave_component)
 
     fused_stepper = FusedRK4TimeStepper(
-            discr, "w", sym_operator_direct, 1 + discr.dim,
-            get_strong_wave_component)
+            discr, "w", sym_operator, 1 + discr.dim,
+            get_wave_component)
 
     t_start = 0
     t_end = 0.5
@@ -808,7 +751,7 @@ def test_assignment_memory_model(ctx_factory):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
 
-    _, discr = get_strong_wave_op_with_discr_direct(actx, dims=2, order=3)
+    _, discr = get_wave_op_with_discr(actx, dims=2, order=3)
 
     # Assignment instruction
     bound_op = bind(
@@ -838,7 +781,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
 
     dims = 2
 
-    sym_operator, discr = get_strong_wave_op_with_discr_direct(
+    sym_operator, discr = get_wave_op_with_discr(
             actx, dims=dims, order=3)
 
     t_start = 0
@@ -855,13 +798,13 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
 
         stepper = RK4TimeStepper(
                 discr, "w", bound_op, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     else:
         stepper = FusedRK4TimeStepper(
                 discr, "w", sym_operator, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     step = 0
@@ -1009,7 +952,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
 
     dims = 3
 
-    sym_operator, discr = get_strong_wave_op_with_discr_direct(
+    sym_operator, discr = get_wave_op_with_discr(
             actx, dims=dims, order=3)
 
     t_start = 0
@@ -1026,13 +969,13 @@ def test_stepper_timing(ctx_factory, use_fusion):
 
         stepper = RK4TimeStepper(
                 discr, "w", bound_op, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=ExecutionMapperWithTiming)
 
     else:
         stepper = FusedRK4TimeStepper(
                 discr, "w", sym_operator, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=ExecutionMapperWithTiming)
 
     step = 0
@@ -1060,7 +1003,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
 def get_example_stepper(actx, dims=2, order=3, use_fusion=True,
                         exec_mapper_factory=ExecutionMapper,
                         return_ic=False):
-    sym_operator, discr = get_strong_wave_op_with_discr_direct(
+    sym_operator, discr = get_wave_op_with_discr(
             actx, dims=dims, order=3)
 
     if not use_fusion:
@@ -1070,13 +1013,13 @@ def get_example_stepper(actx, dims=2, order=3, use_fusion=True,
 
         stepper = RK4TimeStepper(
                 discr, "w", bound_op, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=exec_mapper_factory)
 
     else:
         stepper = FusedRK4TimeStepper(
                 discr, "w", sym_operator, 1 + discr.dim,
-                get_strong_wave_component,
+                get_wave_component,
                 exec_mapper_factory=exec_mapper_factory)
 
     if return_ic:
@@ -1131,7 +1074,7 @@ def problem_stats(order=3):
     actx = PyOpenCLArrayContext(queue)
 
     with open_output_file("grudge-problem-stats.txt") as outf:
-        _, dg_discr_2d = get_strong_wave_op_with_discr_direct(
+        _, dg_discr_2d = get_wave_op_with_discr(
             actx, dims=2, order=order)
         print("Number of 2D elements:", dg_discr_2d.mesh.nelements, file=outf)
         vol_discr_2d = dg_discr_2d.discr_from_dd("vol")
@@ -1139,7 +1082,7 @@ def problem_stats(order=3):
         from pytools import one
         print("Number of DOFs per 2D element:", one(dofs_2d), file=outf)
 
-        _, dg_discr_3d = get_strong_wave_op_with_discr_direct(
+        _, dg_discr_3d = get_wave_op_with_discr(
             actx, dims=3, order=order)
         print("Number of 3D elements:", dg_discr_3d.mesh.nelements, file=outf)
         vol_discr_3d = dg_discr_3d.discr_from_dd("vol")

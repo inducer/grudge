@@ -55,6 +55,8 @@ class ExpressionBase(prim.Expression):
 
 __doc__ = """
 
+.. currentmodule:: grudge.sym
+
 DOF description
 ^^^^^^^^^^^^^^^
 
@@ -863,7 +865,7 @@ class TracePair:
         an expression representing the exterior value to
         be used for the flux.
     """
-    def __init__(self, dd, interior, exterior):
+    def __init__(self, dd, *, interior, exterior):
         """
         """
 
@@ -874,8 +876,8 @@ class TracePair:
     def __getitem__(self, index):
         return TracePair(
                 self.dd,
-                self.exterior[index],
-                self.interior[index])
+                interior=self.interior[index],
+                exterior=self.exterior[index])
 
     def __len__(self):
         assert len(self.exterior) == len(self.interior)
@@ -912,7 +914,7 @@ def int_tpair(expression, qtag=None, from_dd=None):
         i = cse(project(trace_dd.with_qtag(None), trace_dd)(i))
         e = cse(project(trace_dd.with_qtag(None), trace_dd)(e))
 
-    return TracePair(trace_dd, i, e)
+    return TracePair(trace_dd, interior=i, exterior=e)
 
 
 def bdry_tpair(dd, interior, exterior):
@@ -924,7 +926,7 @@ def bdry_tpair(dd, interior, exterior):
         representing the exterior value to be used
         for the flux.
     """
-    return TracePair(dd, interior, exterior)
+    return TracePair(dd, interior=interior, exterior=exterior)
 
 
 def bv_tpair(dd, interior, exterior):
@@ -938,7 +940,7 @@ def bv_tpair(dd, interior, exterior):
     """
     from grudge.symbolic.operators import project
     interior = cse(project("vol", dd)(interior))
-    return TracePair(dd, interior, exterior)
+    return TracePair(dd, interior=interior, exterior=exterior)
 
 # }}}
 

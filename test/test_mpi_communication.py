@@ -140,9 +140,9 @@ def mpi_communication_entrypoint():
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
 
-    from grudge.models.wave import StrongWaveOperator
+    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = StrongWaveOperator(-0.1, vol_discr.dim,
+    op = WeakWaveOperator(0.1, vol_discr.dim,
             source_f=(
                 sym.sin(source_omega*sym_t)
                 * sym.exp(
