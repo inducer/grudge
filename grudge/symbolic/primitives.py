@@ -799,7 +799,7 @@ def mv_normal(dd, ambient_dim, dim=None):
     # "normal plane")
     #
     # The trick done here is that we take the surface normal, move it to the
-    # face and then take a cross product with the face normal to get the
+    # face and then take a cross product with the face tangent to get the
     # correct exterior face normal vector.
     assert dim == ambient_dim - 2
 
