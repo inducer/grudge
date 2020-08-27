@@ -157,7 +157,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     # {{{ symbolic operators
 
-    def f_gaussian(x):
+    def f_initial_condition(x):
         return x[0]
 
     from grudge.models.advection import SurfaceAdvectionOperator
@@ -166,7 +166,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
         quad_tag=product_tag)
 
     bound_op = bind(discr, op.sym_operator())
-    u = bind(discr, f_gaussian(sym_x))(actx, t=0)
+    u0 = bind(discr, f_initial_condition(sym_x))(actx, t=0)
 
     def rhs(t, u):
         return bound_op(actx, t=t, u=u)
@@ -191,15 +191,15 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     logger.info("nsteps:    %d", nsteps)
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u, rhs)
+    dt_stepper = set_up_rk4("u", dt, u0, rhs)
     plot = Plotter(actx, discr, order, visualize=visualize)
 
     norm = bind(discr, sym.norm(2, sym.var("u")))
-    norm_u = norm(actx, u=u)
+    norm_u = norm(actx, u=u0)
 
     step = 0
 
-    event = dt_stepper.StateComputed(0.0, 0, 0, u)
+    event = dt_stepper.StateComputed(0.0, 0, 0, u0)
     plot(event, "fld-surface-%04d" % 0)
 
     if visualize and dim == 3:
