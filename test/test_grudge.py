@@ -324,14 +324,6 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
 # {{{ surface face normal orthogonality
 
-def _avg_face_normal(x, side=-1):
-    x_i = x
-    x_e = sym.OppositeInteriorFaceSwap()(x_i)
-    x_avg = (x_i + side * x_e) / 2.0
-
-    return x_avg / sym.sqrt(x_avg.dot(x_avg))
-
-
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
 def test_face_normal_surface(actx_factory, mesh_name):
     """Check that face normals are orthogonal to the surface normal"""
@@ -370,13 +362,8 @@ def test_face_normal_surface(actx_factory, mesh_name):
             )
     sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
 
-    sym_surf_normal_avg = _avg_face_normal(sym_surf_normal, side=1.0)
-
     sym_face_normal_i = sym.normal(df, ambient_dim, dim=dim - 1)
     sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
-
-    sym_face_normal_avg = _avg_face_normal(sym_face_normal_i)
-    sym_face_normal_op = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_avg)
 
     if mesh.ambient_dim == 3:
         # NOTE: there's only one face tangent in 3d
@@ -394,46 +381,26 @@ def test_face_normal_surface(actx_factory, mesh_name):
     rtol = 1.0e-14
 
     surf_normal = bind(discr, sym_surf_normal)(actx)
-    surf_normal_avg = bind(discr, sym_surf_normal_avg)(actx)
 
     face_normal_i = bind(discr, sym_face_normal_i)(actx)
     face_normal_e = bind(discr, sym_face_normal_e)(actx)
-
-    face_normal_avg = bind(discr, sym_face_normal_avg)(actx)
-    face_normal_op = bind(discr, sym_face_normal_op)(actx)
 
     # check interpolated surface normal is orthogonal to face normal
     error = _eval_error(surf_normal.dot(face_normal_i))
     logger.info("error[n_dot_i]:    %.5e", error)
     assert error < rtol
 
-    # check averaged ones are also orthogonal
-    error = _eval_error(surf_normal_avg.dot(face_normal_avg))
-    logger.info("error[a_dot_a]:    %.5e", error)
-    assert error < rtol
-
-    # check averaged face normal and interpolated face normal
-    error = _eval_error(surf_normal.dot(face_normal_avg))
-    logger.info("error[n_dot_a]:    %.5e", error)
-    assert error > rtol
-
     # check angle between two neighboring elements
     error = _eval_error(face_normal_i.dot(face_normal_e) + 1.0)
     logger.info("error[i_dot_e]:    %.5e", error)
     assert error > rtol
 
-    # check uniqueness of normal on the two sides
-    face_normal_sum = face_normal_avg + face_normal_op
-    error = _eval_error(face_normal_sum.dot(face_normal_sum))
-    logger.info("error[a_plus_o]:   %.5e", error)
-    assert error < rtol
-
     # check orthogonality with face tangent
     if ambient_dim == 3:
         face_tangent = bind(discr, sym_face_tangent)(actx)
 
-        error = _eval_error(face_tangent.dot(face_normal_avg))
-        logger.info("error[t_dot_avg]:  %.5e", error)
+        error = _eval_error(face_tangent.dot(face_normal_i))
+        logger.info("error[t_dot_i]:  %.5e", error)
         assert error < 5 * rtol
 
     # }}}
