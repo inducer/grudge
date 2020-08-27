@@ -134,15 +134,19 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     if product_tag == "none":
         product_tag = None
 
+    from meshmode.discretization.poly_element import \
+            PolynomialWarpAndBlendGroupFactory, \
+            QuadratureSimplexGroupFactory
+
+    quad_tag_to_group_factory[sym.QTAG_NONE] = \
+            PolynomialWarpAndBlendGroupFactory(order)
+
     if product_tag:
-        from meshmode.discretization.poly_element import \
-                QuadratureSimplexGroupFactory
-        quad_tag_to_group_factory = {
-                product_tag: QuadratureSimplexGroupFactory(order=4*order)
-                }
+        quad_tag_to_group_factory[product_tag] = \
+                QuadratureSimplexGroupFactory(order=4*order)
 
     from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
+    discr = DGDiscretizationWithBoundaries(actx, mesh,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
     volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
