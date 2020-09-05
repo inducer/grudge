@@ -104,9 +104,9 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     resolution = 64 if dim == 2 else 1
 
     # cfl
-    dt_factor = 1.0
+    dt_factor = 2.0
     # final time
-    final_time = 2.0 * np.pi
+    final_time = np.pi
 
     # velocity field
     sym_x = sym.nodes(dim)
