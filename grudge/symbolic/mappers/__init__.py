@@ -587,15 +587,15 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
     reference elements, together with explicit multiplication by geometric factors.
     """
 
-    def __init__(self, ambient_dim, dim=None):
+    def __init__(self, discrwb):
         CSECachingMapperMixin.__init__(self)
         IdentityMapper.__init__(self)
 
-        if dim is None:
-            dim = ambient_dim
+        self.ambient_dim = discrwb.ambient_dim
+        self.dim = discrwb.dim
 
-        self.ambient_dim = ambient_dim
-        self.dim = dim
+        volume_discr = discrwb.discr_from_dd(sym.DD_VOLUME)
+        self.use_wadg = not all(grp.is_affine for grp in volume_discr.groups)
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
@@ -605,44 +605,63 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         # if we encounter non-quadrature operators here, we know they
         # must be nodal.
 
-        if expr.op.dd_in.is_volume():
+        dd_in = expr.op.dd_in
+        dd_out = expr.op.dd_out
+
+        if dd_in.is_volume():
             dim = self.dim
         else:
             dim = self.dim - 1
 
-        jac_in = sym.area_element(self.ambient_dim, dim, dd=expr.op.dd_in)
+        jac_in = sym.area_element(self.ambient_dim, dim, dd=dd_in)
         jac_noquad = sym.area_element(self.ambient_dim, dim,
-                dd=expr.op.dd_in.with_qtag(sym.QTAG_NONE))
+                dd=dd_in.with_qtag(sym.QTAG_NONE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
-            jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
+            def imd(rst):
+                return sym.inverse_surface_metric_derivative(
+                        rst, expr.op.xyz_axis,
+                        ambient_dim=self.ambient_dim, dim=self.dim,
+                        dd=dd_in)
 
             rec_field = self.rec(field)
             if with_jacobian:
+                jac_tag = sym.area_element(self.ambient_dim, self.dim, dd=dd_in)
                 rec_field = jac_tag * rec_field
-            return sum(
-                    sym.inverse_metric_derivative(
-                        rst_axis, expr.op.xyz_axis,
-                        ambient_dim=self.ambient_dim, dim=self.dim)
-                    * ref_class(rst_axis, dd_in=dd_in)(rec_field)
-                    for rst_axis in range(self.dim))
+
+                return sum(
+                        ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
+                        for rst_axis in range(self.dim))
+            else:
+                return sum(
+                        ref_class(rst_axis, dd_in=dd_in)(rec_field) * imd(rst_axis)
+                        for rst_axis in range(self.dim))
 
         if isinstance(expr.op, op.MassOperator):
-            return op.RefMassOperator(expr.op.dd_in, expr.op.dd_out)(
+            return op.RefMassOperator(dd_in, dd_out)(
                     jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.InverseMassOperator):
-            return op.RefInverseMassOperator(expr.op.dd_in, expr.op.dd_out)(
-                1/jac_in * self.rec(expr.field))
+            if self.use_wadg:
+                # based on https://arxiv.org/pdf/1608.03836.pdf
+                return op.RefInverseMassOperator(dd_in, dd_out)(
+                    op.RefMassOperator(dd_in, dd_out)(
+                        1.0/jac_in * op.RefInverseMassOperator(dd_in, dd_out)(
+                            self.rec(expr.field))
+                            )
+                    )
+            else:
+                return op.RefInverseMassOperator(dd_in, dd_out)(
+                        1/jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.FaceMassOperator):
-            jac_in_surf = sym.area_element(self.ambient_dim, self.dim - 1,
-                    dd=expr.op.dd_in)
-            return op.RefFaceMassOperator(expr.op.dd_in, expr.op.dd_out)(
+            jac_in_surf = sym.area_element(
+                    self.ambient_dim, self.dim - 1, dd=dd_in)
+            return op.RefFaceMassOperator(dd_in, dd_out)(
                     jac_in_surf * self.rec(expr.field))
 
         elif isinstance(expr.op, op.StiffnessOperator):
-            return op.RefMassOperator()(
+            return op.RefMassOperator(dd_in=dd_in, dd_out=dd_out)(
                     jac_noquad
                     * self.rec(
                         op.DiffOperator(expr.op.xyz_axis)(expr.field)))
@@ -650,12 +669,12 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         elif isinstance(expr.op, op.DiffOperator):
             return rewrite_derivative(
                     op.RefDiffOperator,
-                    expr.field, dd_in=expr.op.dd_in, with_jacobian=False)
+                    expr.field, dd_in=dd_in, with_jacobian=False)
 
         elif isinstance(expr.op, op.StiffnessTOperator):
             return rewrite_derivative(
                     op.RefStiffnessTOperator,
-                    expr.field, dd_in=expr.op.dd_in)
+                    expr.field, dd_in=dd_in)
 
         elif isinstance(expr.op, op.MInvSTOperator):
             return self.rec(
@@ -804,6 +823,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_ones(self, expr, enclosing_prec):
         return "Ones:" + self._format_dd(expr.dd)
+
+    def map_signed_face_ones(self, expr, enclosing_prec):
+        return "SignedOnes:" + self._format_dd(expr.dd)
 
     # {{{ geometry data
 
@@ -1174,7 +1196,7 @@ class ErrorChecker(CSECachingMapperMixin, IdentityMapper):
     def map_operator_binding(self, expr):
         if isinstance(expr.op, op.DiffOperatorBase):
             if (self.mesh is not None
-                    and expr.op.xyz_axis >= self.mesh.dim):
+                    and expr.op.xyz_axis >= self.mesh.ambient_dim):
                 raise ValueError("optemplate tries to differentiate along a "
                         "non-existent axis (e.g. Z in 2D)")
 

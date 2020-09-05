@@ -182,4 +182,70 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
                 ))
 # }}}
 
+
+# {{{ closed surface advection
+
+def v_dot_n_tpair(velocity, dd=None):
+    if dd is None:
+        dd = sym.DOFDesc(sym.FACE_RESTR_INTERIOR)
+
+    ambient_dim = len(velocity)
+    normal = sym.normal(dd.with_qtag(None), ambient_dim, dim=ambient_dim - 2)
+
+    return sym.int_tpair(velocity.dot(normal),
+            qtag=dd.quadrature_tag,
+            from_dd=dd.with_qtag(None))
+
+
+def surface_advection_weak_flux(flux_type, u, velocity):
+    v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
+    # NOTE: the normals in v_dot_n point to the exterior of their respective
+    # elements, so this is actually just an average
+    v_dot_n = sym.cse(0.5 * (v_dot_n.int - v_dot_n.ext), "v_dot_normal")
+
+    flux_type = flux_type.lower()
+    if flux_type == "central":
+        return u.avg * v_dot_n
+    elif flux_type == "lf":
+        return u.avg * v_dot_n + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
+    else:
+        raise ValueError("flux `{}` is not implemented".format(flux_type))
+
+
+class SurfaceAdvectionOperator(AdvectionOperatorBase):
+    def __init__(self, v, flux_type="central", quad_tag=None):
+        super(SurfaceAdvectionOperator, self).__init__(
+                v, inflow_u=None, flux_type=flux_type)
+        self.quad_tag = quad_tag
+
+    def flux(self, u):
+        surf_v = sym.project(sym.DD_VOLUME, u.dd.with_qtag(None))(self.v)
+        return surface_advection_weak_flux(self.flux_type, u, surf_v)
+
+    def sym_operator(self):
+        u = sym.var("u")
+
+        def flux(pair):
+            return sym.project(pair.dd, face_dd)(self.flux(pair))
+
+        face_dd = sym.DOFDesc(sym.FACE_RESTR_ALL, self.quad_tag)
+        quad_dd = sym.DOFDesc(sym.DTAG_VOLUME_ALL, self.quad_tag)
+
+        to_quad = sym.project(sym.DD_VOLUME, quad_dd)
+        stiff_t_op = sym.stiffness_t(self.ambient_dim,
+                dd_in=quad_dd, dd_out=sym.DD_VOLUME)
+
+        quad_v = to_quad(self.v)
+        quad_u = to_quad(u)
+
+        return sym.InverseMassOperator()(
+                sum(stiff_t_op[n](quad_u * quad_v[n])
+                    for n in range(self.ambient_dim))
+                - sym.FaceMassOperator(face_dd, sym.DD_VOLUME)(
+                    flux(sym.int_tpair(u, self.quad_tag))
+                    )
+                )
+
+# }}}
+
 # vim: foldmethod=marker

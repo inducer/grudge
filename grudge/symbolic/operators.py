@@ -734,7 +734,7 @@ def norm(p, arg, dd=None):
 
         return prim.sqrt(norm_squared)
 
-    elif p == np.Inf:
+    elif p == np.inf:
         result = NodalMax(dd_in=dd)(prim.fabs(arg))
 
         if isinstance(result, np.ndarray):
@@ -765,6 +765,27 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     return NodalMax(dd_in=dd)(
+            ElementwiseSumOperator(dd)(
+                MassOperator(dd_in=dd)(prim.Ones(dd))
+                )
+            )**(1.0/dim)
+
+
+def h_min_from_volume(ambient_dim, dim=None, dd=None):
+    """Defines a characteristic length based on the volume of the elements.
+    This length may not be representative if the elements have very high
+    aspect ratios.
+    """
+
+    import grudge.symbolic.primitives as prim
+    if dd is None:
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
+
+    if dim is None:
+        dim = ambient_dim
+
+    return NodalMin(dd_in=dd)(
             ElementwiseSumOperator(dd)(
                 MassOperator(dd_in=dd)(prim.Ones(dd))
                 )

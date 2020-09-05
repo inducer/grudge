@@ -918,7 +918,7 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
                     % expr.function)
 
     def map_ones(self, expr):
-        return 1
+        return 1.0
 
     def map_node_coordinate_component(self, expr):
         return self.map_variable_ref_expr(

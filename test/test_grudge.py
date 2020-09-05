@@ -22,31 +22,28 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
 import numpy as np
 import numpy.linalg as la
-import pytest  # noqa
-
-from pytools.obj_array import flat_obj_array, make_obj_array
 
 import pyopencl as cl
-
 from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import unflatten, flatten, flat_norm
 
+from pytools.obj_array import flat_obj_array, make_obj_array
+
+from grudge import sym, bind, DGDiscretizationWithBoundaries
+
+import pytest
 from meshmode.array_context import (  # noqa
         pytest_generate_tests_for_pyopencl_array_context
         as pytest_generate_tests)
 
-
 import logging
 
 logger = logging.getLogger(__name__)
-logging.basicConfig()
-logger.setLevel(logging.INFO)
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
 
+# {{{ inverse metric
 
 @pytest.mark.parametrize("dim", [2, 3])
 def test_inverse_metric(actx_factory, dim):
@@ -91,6 +88,10 @@ def test_inverse_metric(actx_factory, dim):
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
+# }}}
+
+
+# {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
@@ -156,6 +157,258 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
 
+# }}}
+
+
+# {{{ mass operator surface area
+
+def _ellipse_surface_area(radius, aspect_ratio):
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
+    eccentricity = 1.0 - (1/aspect_ratio)**2
+
+    if abs(aspect_ratio - 2.0) < 1.0e-14:
+        # NOTE: hardcoded value so we don't need scipy for the test
+        ellip_e = 1.2110560275684594
+    else:
+        from scipy.special import ellipe
+        ellip_e = ellipe(eccentricity)
+
+    return 4.0 * radius * ellip_e
+
+
+def _spheroid_surface_area(radius, aspect_ratio):
+    # https://en.wikipedia.org/wiki/Ellipsoid#Surface_area
+    a = 1.0
+    c = aspect_ratio
+
+    if a < c:
+        e = np.sqrt(1.0 - (a/c)**2)
+        return 2.0 * np.pi * radius**2 * (1.0 + (c/a) / e * np.arcsin(e))
+    else:
+        e = np.sqrt(1.0 - (c/a)**2)
+        return 2.0 * np.pi * radius**2 * (1 + (c/a)**2 / e * np.arctanh(e))
+
+
+@pytest.mark.parametrize("name", [
+    "2-1-ellipse", "spheroid", "box2d", "box3d"
+    ])
+def test_mass_surface_area(actx_factory, name):
+    actx = actx_factory()
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+        surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "box2d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=2)
+        surface_area = 1.0
+    elif name == "box3d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=3)
+        surface_area = 1.0
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=builder.order)
+        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+        logger.info("ndofs:     %d", volume_discr.ndofs)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+
+        # {{{ compute surface area
+
+        dd = sym.DD_VOLUME
+        sym_op = sym.NodalSum(dd)(sym.MassOperator(dd, dd)(sym.Ones(dd)))
+        approx_surface_area = bind(discr, sym_op)(actx)
+
+        logger.info("surface: got {:.5e} / expected {:.5e}".format(
+            approx_surface_area, surface_area))
+        area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
+
+        # }}}
+
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        eoc.add_data_point(h_max, area_error)
+
+    # }}}
+
+    logger.info("surface area error\n%s", str(eoc))
+
+    assert eoc.max_error() < 1.0e-14 \
+            or eoc.order_estimate() > builder.order
+
+# }}}
+
+
+# {{{ surface mass inverse
+
+@pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
+def test_surface_mass_operator_inverse(actx_factory, name):
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=builder.order)
+        volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+
+        logger.info("ndofs:     %d", volume_discr.ndofs)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+
+        # {{{ compute inverse mass
+
+        dd = sym.DD_VOLUME
+        sym_f = sym.cos(4.0 * sym.nodes(mesh.ambient_dim, dd)[0])
+        sym_op = sym.InverseMassOperator(dd, dd)(
+                sym.MassOperator(dd, dd)(sym.var("f")))
+
+        f = bind(discr, sym_f)(actx)
+        f_inv = bind(discr, sym_op)(actx, f=f)
+
+        inv_error = bind(discr,
+                sym.norm(2, sym.var("x") - sym.var("y"))
+                / sym.norm(2, sym.var("y")))(actx, x=f_inv, y=f)
+
+        # }}}
+
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        eoc.add_data_point(h_max, inv_error)
+
+    # }}}
+
+    logger.info("inverse mass error\n%s", str(eoc))
+
+    # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
+    # safe side, choose a slightly larger tolerance
+    assert eoc.max_error() < 1.0e-14
+
+# }}}
+
+
+# {{{ surface face normal orthogonality
+
+@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
+def test_face_normal_surface(actx_factory, mesh_name):
+    """Check that face normals are orthogonal to the surface normal"""
+    actx = actx_factory()
+
+    # {{{ geometry
+
+    if mesh_name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif mesh_name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    else:
+        raise ValueError("unknown mesh name: %s" % mesh_name)
+
+    mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=builder.order)
+
+    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    logger.info("ndofs:    %d", volume_discr.ndofs)
+    logger.info("nelements: %d", volume_discr.mesh.nelements)
+
+    # }}}
+
+    # {{{ symbolic
+
+    dv = sym.DD_VOLUME
+    df = sym.as_dofdesc(sym.FACE_RESTR_INTERIOR)
+
+    ambient_dim = mesh.ambient_dim
+    dim = mesh.dim
+
+    sym_surf_normal = sym.project(dv, df)(
+            sym.surface_normal(ambient_dim, dim=dim, dd=dv).as_vector()
+            )
+    sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
+
+    sym_face_normal_i = sym.normal(df, ambient_dim, dim=dim - 1)
+    sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
+
+    if mesh.ambient_dim == 3:
+        # NOTE: there's only one face tangent in 3d
+        sym_face_tangent = (
+                sym.pseudoscalar(ambient_dim, dim - 1, dd=df)
+                / sym.area_element(ambient_dim, dim - 1, dd=df)).as_vector()
+
+    # }}}
+
+    # {{{ checks
+
+    def _eval_error(x):
+        return bind(discr, sym.norm(np.inf, sym.var("x", dd=df), dd=df))(actx, x=x)
+
+    rtol = 1.0e-14
+
+    surf_normal = bind(discr, sym_surf_normal)(actx)
+
+    face_normal_i = bind(discr, sym_face_normal_i)(actx)
+    face_normal_e = bind(discr, sym_face_normal_e)(actx)
+
+    # check interpolated surface normal is orthogonal to face normal
+    error = _eval_error(surf_normal.dot(face_normal_i))
+    logger.info("error[n_dot_i]:    %.5e", error)
+    assert error < rtol
+
+    # check angle between two neighboring elements
+    error = _eval_error(face_normal_i.dot(face_normal_e) + 1.0)
+    logger.info("error[i_dot_e]:    %.5e", error)
+    assert error > rtol
+
+    # check orthogonality with face tangent
+    if ambient_dim == 3:
+        face_tangent = bind(discr, sym_face_tangent)(actx)
+
+        error = _eval_error(face_tangent.dot(face_normal_i))
+        logger.info("error[t_dot_i]:  %.5e", error)
+        assert error < 5 * rtol
+
+    # }}}
+
+# }}}
+
+
+# {{{ diff operator
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 def test_tri_diff_mat(actx_factory, dim, order=4):
@@ -171,7 +424,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
     from pytools.convergence import EOCRecorder
     axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
 
-    for n in [10, 20]:
+    for n in [4, 8, 16]:
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
@@ -193,8 +446,12 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
         logger.info("axis %d\n%s", axis, eoc_rec)
-        assert eoc_rec.order_estimate() >= order
+        assert eoc_rec.order_estimate() > order
 
+# }}}
+
+
+# {{{ divergence theorem
 
 def test_2d_gauss_theorem(actx_factory):
     """Verify Gauss's theorem explicitly on a mesh"""
@@ -237,11 +494,167 @@ def test_2d_gauss_theorem(actx_factory):
     assert abs(gauss_err) < 1e-13
 
 
+@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
+def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
+    r"""Check the surface divergence theorem.
+
+        .. math::
+
+            \int_Sigma \phi \nabla_i f_i =
+            \int_\Sigma \nabla_i \phi f_i +
+            \int_\Sigma \kappa \phi f_i n_i +
+            \int_{\partial \Sigma} \phi f_i m_i
+
+        where :math:`n_i` is the surface normal and :class:`m_i` is the
+        face normal (which should be orthogonal to both the surface normal
+        and the face tangent).
+    """
+    actx = actx_factory()
+
+    # {{{ cases
+
+    if mesh_name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif mesh_name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    elif mesh_name == "circle":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
+    elif mesh_name == "starfish":
+        from mesh_data import StarfishMeshBuilder
+        builder = StarfishMeshBuilder()
+    elif mesh_name == "sphere":
+        from mesh_data import SphereMeshBuilder
+        builder = SphereMeshBuilder(radius=1.0, mesh_order=16)
+    else:
+        raise ValueError("unknown mesh name: %s" % mesh_name)
+
+    # }}}
+
+    # {{{ convergene
+
+    def f(x):
+        return flat_obj_array(
+                sym.sin(3*x[1]) + sym.cos(3*x[0]) + 1.0,
+                sym.sin(2*x[0]) + sym.cos(x[1]),
+                3.0 * sym.cos(x[0] / 2) + sym.cos(x[1]),
+                )[:ambient_dim]
+
+    from pytools.convergence import EOCRecorder
+    eoc_global = EOCRecorder()
+    eoc_local = EOCRecorder()
+
+    theta = np.pi / 3.33
+    ambient_dim = builder.ambient_dim
+    if ambient_dim == 2:
+        mesh_rotation = np.array([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta), np.cos(theta)],
+            ])
+    else:
+        mesh_rotation = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, np.cos(theta), -np.sin(theta)],
+            [0.0, np.sin(theta), np.cos(theta)],
+            ])
+
+    mesh_offset = np.array([0.33, -0.21, 0.0])[:ambient_dim]
+
+    for i, resolution in enumerate(builder.resolutions):
+        from meshmode.mesh.processing import affine_map
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
+
+        from meshmode.discretization.poly_element import \
+                QuadratureSimplexGroupFactory
+        discr = DGDiscretizationWithBoundaries(actx, mesh, order=builder.order,
+                quad_tag_to_group_factory={
+                    "product": QuadratureSimplexGroupFactory(2 * builder.order)
+                    })
+
+        volume = discr.discr_from_dd(sym.DD_VOLUME)
+        logger.info("ndofs:     %d", volume.ndofs)
+        logger.info("nelements: %d", volume.mesh.nelements)
+
+        dd = sym.DD_VOLUME
+        dq = dd.with_qtag("product")
+        df = sym.as_dofdesc(sym.FACE_RESTR_ALL)
+        ambient_dim = discr.ambient_dim
+        dim = discr.dim
+
+        # variables
+        sym_f = f(sym.nodes(ambient_dim, dd=dd))
+        sym_f_quad = f(sym.nodes(ambient_dim, dd=dq))
+        sym_kappa = sym.summed_curvature(ambient_dim, dim=dim, dd=dq)
+        sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
+
+        sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
+        sym_face_f = sym.project(dd, df)(sym_f)
+
+        # operators
+        sym_stiff = sum(
+                sym.StiffnessOperator(d)(f) for d, f in enumerate(sym_f)
+                )
+        sym_stiff_t = sum(
+                sym.StiffnessTOperator(d)(f) for d, f in enumerate(sym_f)
+                )
+        sym_k = sym.MassOperator(dq, dd)(sym_kappa * sym_f_quad.dot(sym_normal))
+        sym_flux = sym.FaceMassOperator()(sym_face_f.dot(sym_face_normal))
+
+        # sum everything up
+        sym_op_global = sym.NodalSum(dd)(
+                sym_stiff - (sym_stiff_t + sym_k))
+        sym_op_local = sym.ElementwiseSumOperator(dd)(
+                sym_stiff - (sym_stiff_t + sym_k + sym_flux))
+
+        # evaluate
+        op_global = bind(discr, sym_op_global)(actx)
+        op_local = bind(discr, sym_op_local)(actx)
+
+        err_global = abs(op_global)
+        err_local = bind(discr, sym.norm(np.inf, sym.var("x")))(actx, x=op_local)
+        logger.info("errors: global %.5e local %.5e", err_global, err_local)
+
+        # compute max element size
+        h_max = bind(discr, sym.h_max_from_volume(
+            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        eoc_global.add_data_point(h_max, err_global)
+        eoc_local.add_data_point(h_max, err_local)
+
+        if visualize:
+            from grudge.shortcuts import make_visualizer
+            vis = make_visualizer(discr, vis_order=builder.order)
+
+            filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
+            vis.write_vtk_file(filename, [
+                ("r", actx.np.log10(op_local))
+                ], overwrite=True)
+
+    # }}}
+
+    order = min(builder.order, builder.mesh_order) - 0.5
+    logger.info("\n%s", str(eoc_global))
+    logger.info("\n%s", str(eoc_local))
+
+    assert eoc_global.max_error() < 1.0e-12 \
+            or eoc_global.order_estimate() > order - 0.5
+
+    assert eoc_local.max_error() < 1.0e-12 \
+            or eoc_local.order_estimate() > order - 0.5
+
+# }}}
+
+
+# {{{ models: advection
+
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
     ("disk", [0.1, 0.05]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
+    ("warped2", [4, 8]),
     ])
 @pytest.mark.parametrize("op_type", ["strong", "weak"])
 @pytest.mark.parametrize("flux_type", ["central"])
@@ -283,7 +696,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             dim = 2
             dt_factor = 4
         elif mesh_name.startswith("rect"):
-            dim = int(mesh_name[4:])
+            dim = int(mesh_name[-1:])
             from meshmode.mesh.generation import generate_regular_rect_mesh
             mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                     n=(mesh_par,)*dim, order=4)
@@ -294,7 +707,17 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                 dt_factor = 2
             else:
                 raise ValueError("dt_factor not known for %dd" % dim)
+        elif mesh_name.startswith("warped"):
+            dim = int(mesh_name[-1:])
+            from meshmode.mesh.generation import generate_warped_rect_mesh
+            mesh = generate_warped_rect_mesh(dim, order=order, n=mesh_par)
 
+            if dim == 2:
+                dt_factor = 4
+            elif dim == 3:
+                dt_factor = 2
+            else:
+                raise ValueError("dt_factor not known for %dd" % dim)
         else:
             raise ValueError("invalid mesh name: " + mesh_name)
 
@@ -369,8 +792,16 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         abscissa_label="h",
         error_label="L2 Error"))
 
-    assert eoc_rec.order_estimate() > order
+    if mesh_name.startswith("warped"):
+        # NOTE: curvilinear meshes are hard
+        assert eoc_rec.order_estimate() > order - 0.25
+    else:
+        assert eoc_rec.order_estimate() > order
 
+# }}}
+
+
+# {{{ models: maxwell
 
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(actx_factory,  order):
@@ -440,6 +871,10 @@ def test_convergence_maxwell(actx_factory,  order):
 
     assert eoc_rec.order_estimate() > order
 
+# }}}
+
+
+# {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
@@ -508,6 +943,10 @@ def test_improvement_quadrature(actx_factory, order):
     assert (q_errs < errs).all()
     assert q_eoc > order
 
+# }}}
+
+
+# {{{ operator collector determinism
 
 def test_op_collector_order_determinism():
     class TestOperator(sym.Operator):
@@ -533,6 +972,10 @@ def test_op_collector_order_determinism():
     # The output order isn't significant, but it should always be the same.
     assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
 
+# }}}
+
+
+# {{{ bessel
 
 def test_bessel(actx_factory):
     actx = actx_factory()
@@ -561,6 +1004,10 @@ def test_bessel(actx_factory):
 
     assert z < 1e-15
 
+# }}}
+
+
+# {{{ function symbol
 
 def test_external_call(actx_factory):
     actx = actx_factory()
@@ -629,6 +1076,8 @@ def test_function_symbol_array(ctx_factory, array_type):
 
     norm = bind(discr, sym.norm(2, sym_x))(x=x)
     assert isinstance(norm, float)
+
+# }}}
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
@@ -699,7 +1148,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        from pytest import main
-        main([__file__])
+        pytest.main([__file__])
 
 # vim: fdm=marker

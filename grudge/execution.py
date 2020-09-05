@@ -74,7 +74,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         result = discr.empty(self.array_context)
         for grp_ary in result:
-            grp_ary.fill(1)
+            grp_ary.fill(1.0)
         return result
 
     def map_node_coordinate_component(self, expr):
@@ -755,7 +755,7 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
             )(sym_operator)
 
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(discrwb)(sym_operator)
 
     dumper("before-distributed", sym_operator)
 

@@ -106,10 +106,18 @@ Geometry data
 .. autofunction:: inverse_metric_derivative
 .. autofunction:: forward_metric_derivative_mat
 .. autofunction:: inverse_metric_derivative_mat
+.. autofunction:: first_fundamental_form
+.. autofunction:: inverse_first_fundamental_form
+.. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: second_fundamental_form
+.. autofunction:: shape_operator
 .. autofunction:: pseudoscalar
 .. autofunction:: area_element
 .. autofunction:: mv_normal
 .. autofunction:: normal
+.. autofunction:: surface_normal
+.. autofunction:: summed_curvature
+.. autofunction:: mean_curvature
 """
 
 
@@ -495,32 +503,73 @@ def mv_nodes(ambient_dim, dd=None):
     return MultiVector(nodes(ambient_dim, dd))
 
 
+def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
+    r"""
+    Pointwise metric derivatives representing repeated derivatives
+
+    .. math::
+
+        \frac{\partial^n x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{ref\_axes}}}
+
+    where *ref_axes* is a multi-index description.
+
+    :arg ref_axes: a :class:`tuple` of tuples indicating indices of
+        coordinate axes of the reference element to the number of derivatives
+        which will be taken. For example, the value ``((0, 2), (1, 1))``
+        indicates taking the second derivative with respect to the first
+        axis and the first derivative with respect to the second
+        axis. Each axis must occur only once and the tuple must be sorted
+        by the axis index.
+
+        May also be a singile integer *i*, which is viewed as equivalent
+        to ``((i, 1),)``.
+    """
+
+    if isinstance(ref_axes, int):
+        ref_axes = ((ref_axes, 1),)
+
+    if not isinstance(ref_axes, tuple):
+        raise ValueError("ref_axes must be a tuple")
+
+    if tuple(sorted(ref_axes)) != ref_axes:
+        raise ValueError("ref_axes must be sorted")
+
+    if len(dict(ref_axes)) != len(ref_axes):
+        raise ValueError("ref_axes must not contain an axis more than once")
+
+    if dd is None:
+        dd = DD_VOLUME
+    inner_dd = dd.with_qtag(QTAG_NONE)
+
+    from pytools import flatten
+    flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
+
+    from grudge.symbolic.operators import RefDiffOperator
+    result = NodeCoordinateComponent(xyz_axis, inner_dd)
+    for rst_axis in flat_ref_axes:
+        result = RefDiffOperator(rst_axis, inner_dd)(result)
+
+    if dd.uses_quadrature():
+        from grudge.symbolic.operators import project
+        result = project(inner_dd, dd)(result)
+
+    prefix = "dx%d_%s" % (
+            xyz_axis,
+            "_".join("%sr%d" % ("d" * n, rst_axis) for rst_axis, n in ref_axes))
+
+    return cse(result, prefix, cse_scope.DISCRETIZATION)
+
+
 def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
     r"""
     Pointwise metric derivatives representing
 
     .. math::
 
-        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}} }
+        \frac{\partial x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{rst\_axis}}}
     """
-    if dd is None:
-        dd = DD_VOLUME
 
-    inner_dd = dd.with_qtag(QTAG_NONE)
-
-    from grudge.symbolic.operators import RefDiffOperator
-    diff_op = RefDiffOperator(rst_axis, inner_dd)
-
-    result = diff_op(NodeCoordinateComponent(xyz_axis, inner_dd))
-
-    if dd.uses_quadrature():
-        from grudge.symbolic.operators import project
-        result = project(inner_dd, dd)(result)
-
-    return cse(
-            result,
-            prefix="dx%d_dr%d" % (xyz_axis, rst_axis),
-            scope=cse_scope.DISCRETIZATION)
+    return forward_metric_nth_derivative(xyz_axis, rst_axis, dd=dd)
 
 
 def forward_metric_derivative_vector(ambient_dim, rst_axis, dd=None):
@@ -539,7 +588,9 @@ def parametrization_derivative(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     if dim == 0:
-        return MultiVector(np.array([_SignedFaceOnes(dd)]))
+        from pymbolic.geometric_algebra import get_euclidean_space
+        return MultiVector(_SignedFaceOnes(dd),
+                space=get_euclidean_space(ambient_dim))
 
     from pytools import product
     return product(
@@ -593,6 +644,7 @@ def forward_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     result = np.zeros((ambient_dim, dim), dtype=np.object)
     for j in range(dim):
         result[:, j] = forward_metric_derivative_vector(ambient_dim, j, dd=dd)
+
     return result
 
 
@@ -607,6 +659,91 @@ def inverse_metric_derivative_mat(ambient_dim, dim=None, dd=None):
                     i, j, ambient_dim, dim, dd=dd)
 
     return result
+
+
+def first_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    mder = forward_metric_derivative_mat(ambient_dim, dim=dim, dd=dd)
+    return cse(mder.T.dot(mder), "form1_mat", cse_scope.DISCRETIZATION)
+
+
+def inverse_first_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == dim:
+        inv_mder = inverse_metric_derivative_mat(ambient_dim, dim=dim, dd=dd)
+        inv_form1 = inv_mder.dot(inv_mder.T)
+    else:
+        form1 = first_fundamental_form(ambient_dim, dim, dd)
+
+        if dim == 1:
+            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=np.object)
+        elif dim == 2:
+            (E, F), (_, G) = form1      # noqa: N806
+            inv_form1 = 1.0 / (E * G - F * F) * np.array([
+                [G, -F], [-F, E]
+                ], dtype=np.object)
+        else:
+            raise ValueError("%dD surfaces not supported" % dim)
+
+    return cse(inv_form1, "inv_form1_mat", cse_scope.DISCRETIZATION)
+
+
+def inverse_surface_metric_derivative(rst_axis, xyz_axis,
+        ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == dim:
+        return inverse_metric_derivative(rst_axis, xyz_axis,
+                ambient_dim, dim=dim, dd=dd)
+    else:
+        inv_form1 = inverse_first_fundamental_form(ambient_dim, dim=dim, dd=dd)
+        imd = sum(
+                inv_form1[rst_axis, d]*forward_metric_derivative(xyz_axis, d, dd=dd)
+                for d in range(dim))
+
+        return cse(imd,
+                prefix="ds%d_dx%d" % (rst_axis, xyz_axis),
+                scope=cse_scope.DISCRETIZATION)
+
+
+def second_fundamental_form(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    normal = surface_normal(ambient_dim, dim=dim, dd=dd).as_vector()
+    if dim == 1:
+        second_ref_axes = [((0, 2),)]
+    elif dim == 2:
+        second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
+    else:
+        raise ValueError("%dD surfaces not supported" % dim)
+
+    from pytools import flatten
+    form2 = np.empty((dim, dim), dtype=np.object)
+    for ref_axes in second_ref_axes:
+        i, j = flatten([rst_axis] * n for rst_axis, n in ref_axes)
+
+        ruv = np.array([
+            forward_metric_nth_derivative(xyz_axis, ref_axes, dd=dd)
+            for xyz_axis in range(ambient_dim)])
+        form2[i, j] = form2[j, i] = normal.dot(ruv)
+
+    return cse(form2, "form2_mat", cse_scope.DISCRETIZATION)
+
+
+def shape_operator(ambient_dim, dim=None, dd=None):
+    if dim is None:
+        dim = ambient_dim - 1
+
+    inv_form1 = inverse_first_fundamental_form(ambient_dim, dim=dim, dd=dd)
+    form2 = second_fundamental_form(ambient_dim, dim=dim, dd=dd)
+
+    return cse(-form2.dot(inv_form1), "shape_operator", cse_scope.DISCRETIZATION)
 
 
 def pseudoscalar(ambient_dim, dim=None, dd=None):
@@ -627,14 +764,8 @@ def area_element(ambient_dim, dim=None, dd=None):
             "area_element", cse_scope.DISCRETIZATION)
 
 
-def mv_normal(dd, ambient_dim, dim=None):
-    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
-
+def surface_normal(ambient_dim, dim=None, dd=None):
     dd = as_dofdesc(dd)
-
-    if not dd.is_trace():
-        raise ValueError("may only request normals on boundaries")
-
     if dim is None:
         dim = ambient_dim - 1
 
@@ -645,27 +776,71 @@ def mv_normal(dd, ambient_dim, dim=None):
             / area_element(ambient_dim, dim, dd=dd)
 
     # Dorst Section 3.7.2
-    mv = pder << pder.I.inv()
+    return cse(pder << pder.I.inv(),
+            "surface_normal",
+            cse_scope.DISCRETIZATION)
 
-    if dim == 0:
-        # NOTE: when the mesh is 0D, we do not have a clear notion of
-        # `exterior normal`, so we just take the tangent of the 1D element,
-        # project it to the element faces and make it signed
-        tangent = parametrization_derivative(
-                ambient_dim, dim=1, dd=DD_VOLUME)
-        tangent = tangent / sqrt(tangent.norm_squared())
 
-        from grudge.symbolic.operators import project
-        project = project(DD_VOLUME, dd)
-        mv = MultiVector(np.array([
-            mv.as_scalar() * project(t) for t in tangent.as_vector()
-            ]))
+def mv_normal(dd, ambient_dim, dim=None):
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
+    dd = as_dofdesc(dd)
+    if not dd.is_trace():
+        raise ValueError("may only request normals on boundaries")
 
-    return cse(mv, "normal", cse_scope.DISCRETIZATION)
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if dim == ambient_dim - 1:
+        return surface_normal(ambient_dim, dim=dim, dd=dd)
+
+    # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
+    # enough information on the face to decide what an "exterior face normal"
+    # is (e.g the "normal" to a 1D curve in 3D space is actually a
+    # "normal plane")
+    #
+    # The trick done here is that we take the surface normal, move it to the
+    # face and then take a cross product with the face tangent to get the
+    # correct exterior face normal vector.
+    assert dim == ambient_dim - 2
+
+    from grudge.symbolic.operators import project
+    volm_normal = (
+            surface_normal(ambient_dim, dim=dim + 1, dd=DD_VOLUME)
+            .map(project(DD_VOLUME, dd)))
+    pder = pseudoscalar(ambient_dim, dim, dd=dd)
+
+    mv = cse(-(volm_normal ^ pder) << volm_normal.I.inv(),
+            "face_normal",
+            cse_scope.DISCRETIZATION)
+
+    return cse(mv / sqrt(mv.norm_squared()),
+            "unit_face_normal",
+            cse_scope.DISCRETIZATION)
 
 
 def normal(dd, ambient_dim, dim=None):
     return mv_normal(dd, ambient_dim, dim).as_vector()
+
+
+def summed_curvature(ambient_dim, dim=None, dd=None):
+    """Sum of the principal curvatures"""
+
+    if dim is None:
+        dim = ambient_dim - 1
+
+    if ambient_dim == 1:
+        return 0.0
+
+    if ambient_dim == dim:
+        return 0.0
+
+    op = shape_operator(ambient_dim, dim=dim, dd=dd)
+    return cse(np.trace(op), "summed_curvature", cse_scope.DISCRETIZATION)
+
+
+def mean_curvature(ambient_dim, dim=None, dd=None):
+    """Averaged (by dimension) sum of the principal curvatures."""
+    return 1.0 / (ambient_dim-1.0) * summed_curvature(ambient_dim, dim=dim, dd=dd)
 
 # }}}
 
@@ -721,20 +896,25 @@ class TracePair:
         return 0.5*(self.int + self.ext)
 
 
-def int_tpair(expression, qtag=None):
+def int_tpair(expression, qtag=None, from_dd=None):
     from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
 
-    i = project("vol", "int_faces")(expression)
+    if from_dd is None:
+        from_dd = DD_VOLUME
+    assert not from_dd.uses_quadrature()
+
+    trace_dd = DOFDesc(FACE_RESTR_INTERIOR, qtag)
+    if from_dd.domain_tag == trace_dd.domain_tag:
+        i = expression
+    else:
+        i = project(from_dd, trace_dd.with_qtag(None))(expression)
     e = cse(OppositeInteriorFaceSwap()(i))
 
-    if qtag is not None and qtag != QTAG_NONE:
-        q_dd = DOFDesc("int_faces", qtag)
-        i = cse(project("int_faces", q_dd)(i))
-        e = cse(project("int_faces", q_dd)(e))
-    else:
-        q_dd = "int_faces"
+    if trace_dd.uses_quadrature():
+        i = cse(project(trace_dd.with_qtag(None), trace_dd)(i))
+        e = cse(project(trace_dd.with_qtag(None), trace_dd)(e))
 
-    return TracePair(q_dd, interior=i, exterior=e)
+    return TracePair(trace_dd, interior=i, exterior=e)
 
 
 def bdry_tpair(dd, interior, exterior):
