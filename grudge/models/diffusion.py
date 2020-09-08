@@ -1,8 +1,5 @@
-# -*- coding: utf8 -*-
 """Operators modeling diffusive phenomena."""
 
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -69,7 +66,7 @@ class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
     def estimate_timestep(self, discr, 
             stepper=None, stepper_class=None, stepper_args=None,
             t=None, fields=None):
-        u"""Estimate the largest stable timestep, given a time stepper
+        """Estimate the largest stable timestep, given a time stepper
         `stepper_class`. If none is given, RK4 is assumed.
         """
 

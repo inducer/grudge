@@ -1,8 +1,5 @@
-# -*- coding: utf8 -*-
 """Operators for Poisson problems."""
 
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -35,7 +32,7 @@ import grudge.data
 import grudge.iterative
 
 
-class LaplacianOperatorBase(object):
+class LaplacianOperatorBase:
     def sym_operator(self, apply_minv, u=None, dir_bc=None, neu_bc=None):
         """
         :param apply_minv: :class:`bool` specifying whether to compute a complete

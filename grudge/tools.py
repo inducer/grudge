@@ -1,6 +1,5 @@
 """Miscellaneous helper facilities."""
 
-from __future__ import division
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -192,8 +191,8 @@ class OrderedSet(MutableSet):
 
     def __repr__(self):
         if not self:
-            return '%s()' % (self.__class__.__name__,)
-        return '%s(%r)' % (self.__class__.__name__, list(self))
+            return f'{self.__class__.__name__}()'
+        return '{}({!r})'.format(self.__class__.__name__, list(self))
 
     def __eq__(self, other):
         if isinstance(other, OrderedSet):

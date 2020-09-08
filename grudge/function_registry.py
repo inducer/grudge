@@ -1,5 +1,3 @@
-from __future__ import division, with_statement
-
 __copyright__ = """
 Copyright (C) 2013 Andreas Kloeckner
 Copyright (C) 2019 Matt Wala
@@ -65,7 +63,7 @@ class Function(RecordWithoutPickling):
     """
 
     def __init__(self, identifier, **kwargs):
-        super(Function, self).__init__(identifier=identifier, **kwargs)
+        super().__init__(identifier=identifier, **kwargs)
 
     def __call__(self, queue, *args, **kwargs):
         """Call the function implementation, if available."""
@@ -120,7 +118,7 @@ class FixedDOFDescExternalFunction(Function):
     supports_codegen = False
 
     def __init__(self, identifier, implementation, dd):
-        super(FixedDOFDescExternalFunction, self).__init__(
+        super().__init__(
                 identifier,
                 implementation=implementation,
                 dd=dd)
@@ -141,7 +139,7 @@ class FunctionRegistry(RecordWithoutPickling):
         if id_to_function is None:
             id_to_function = {}
 
-        super(FunctionRegistry, self).__init__(
+        super().__init__(
                 id_to_function=id_to_function)
 
     def register(self, function):

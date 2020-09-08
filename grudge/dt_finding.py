@@ -1,6 +1,5 @@
 """Helpers for estimating a stable time step."""
 
-from __future__ import division, print_function
 
 __copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
@@ -29,7 +28,7 @@ from meshmode.discretization.poly_element import PolynomialWarpAndBlendElementGr
 import numpy.linalg as la
 
 
-class WarpAndBlendTimestepInfo(object):
+class WarpAndBlendTimestepInfo:
     @staticmethod
     def dt_non_geometric_factor(discr, grp):
         if grp.dim == 1:

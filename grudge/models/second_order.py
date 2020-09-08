@@ -1,7 +1,5 @@
-# -*- coding: utf8 -*-
 """Schemes for second-order derivatives."""
 
-from __future__ import division
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -35,10 +33,10 @@ from grudge import sym
 
 class StabilizationTermGenerator(mappers.IdentityMapper):
     def __init__(self, flux_args):
-        super(StabilizationTermGenerator, self).__init__()
+        super().__init__()
         self.flux_args = flux_args
-        self.flux_arg_lookup = dict(
-                (flux_arg, i) for i, flux_arg in enumerate(flux_args))
+        self.flux_arg_lookup = {
+                flux_arg: i for i, flux_arg in enumerate(flux_args)}
 
     def get_flux_arg_idx(self, expr, quad_above):
         from grudge.symbolic.mappers import QuadratureDetector
@@ -138,7 +136,7 @@ class StabilizationTermGenerator(mappers.IdentityMapper):
 
 class NeumannBCGenerator(mappers.IdentityMapper):
     def __init__(self, tag, bc):
-        super(NeumannBCGenerator, self).__init__()
+        super().__init__()
         self.tag = tag
         self.bc = bc
 
@@ -194,7 +192,7 @@ class IPDGDerivativeGenerator(mappers.IdentityMapper):
             return self.rec(expr.field)
         elif isinstance(expr.op,
                 sym.QuadratureInteriorFacesGridUpsampler):
-            return super(IPDGDerivativeGenerator, self).map_operator_binding(expr)
+            return super().map_operator_binding(expr)
         else:
             from grudge.symbolic.tools import pretty
             raise ValueError("IPDG derivative generator doesn't know "
@@ -203,7 +201,7 @@ class IPDGDerivativeGenerator(mappers.IdentityMapper):
 
 # {{{ second derivative target
 
-class SecondDerivativeTarget(object):
+class SecondDerivativeTarget:
     def __init__(self, dimensions, strong_form, operand,
             int_flux_operand=None,
             bdry_flux_int_operand=None):
@@ -319,7 +317,7 @@ class SecondDerivativeTarget(object):
 
 # {{{ second derivative schemes
 
-class SecondDerivativeBase(object):
+class SecondDerivativeBase:
     def grad(self, tgt, bc_getter, dirichlet_tags, neumann_tags):
         """
         :param bc_getter: a function (tag, volume_expr) -> boundary expr.

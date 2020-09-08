@@ -1,7 +1,5 @@
-# -*- coding: utf8 -*-
 """grudge operators modelling electromagnetic phenomena."""
 
-from __future__ import division, absolute_import
 
 __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner

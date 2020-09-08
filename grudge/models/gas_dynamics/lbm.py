@@ -1,10 +1,5 @@
-# -*- coding: utf8 -*-
 """Lattice-Boltzmann operator."""
 
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
 
 __copyright__ = "Copyright (C) 2011 Andreas Kloeckner"
 
@@ -37,7 +32,7 @@ from pytools.obj_array import make_obj_array
 
 
 
-class LBMMethodBase(object):
+class LBMMethodBase:
     def __len__(self):
         return len(self.direction_vectors)
 
@@ -197,9 +192,9 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
         from grudge.symbolic.mappers.type_inference import (
                 type_info, NodalRepresentation)
 
-        type_hints = dict(
-                (f_bar_i, type_info.VolumeVector(NodalRepresentation()))
-                for f_bar_i in f_bar_sym)
+        type_hints = {
+                f_bar_i: type_info.VolumeVector(NodalRepresentation())
+                for f_bar_i in f_bar_sym}
 
         compiled_sym_operator = discr.compile(what(f_bar_sym), type_hints=type_hints)
 

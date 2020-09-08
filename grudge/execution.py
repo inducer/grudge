@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -58,7 +56,7 @@ class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
     def __init__(self, array_context, context, bound_op):
-        super(ExecutionMapper, self).__init__(context)
+        super().__init__(context)
         self.discrwb = bound_op.discrwb
         self.bound_op = bound_op
         self.function_registry = bound_op.function_registry
@@ -95,7 +93,7 @@ class ExecutionMapper(mappers.Evaluator,
         return value
 
     def map_subscript(self, expr):
-        value = super(ExecutionMapper, self).map_subscript(expr)
+        value = super().map_subscript(expr)
 
         if isinstance(expr.aggregate, sym.Variable):
             dd = expr.aggregate.dd
@@ -556,7 +554,7 @@ class ExecutionMapper(mappers.Evaluator,
 
 # {{{ futures
 
-class MPIRecvFuture(object):
+class MPIRecvFuture:
     def __init__(self, array_context, bdry_discr, recv_req, insn_name,
             remote_data_host):
         self.array_context = array_context
@@ -576,7 +574,7 @@ class MPIRecvFuture(object):
         return [(self.insn_name, remote_data)], []
 
 
-class MPISendFuture(object):
+class MPISendFuture:
     def __init__(self, send_request):
         self.send_request = send_request
 
@@ -592,7 +590,7 @@ class MPISendFuture(object):
 
 # {{{ bound operator
 
-class BoundOperator(object):
+class BoundOperator:
     def __init__(self, discrwb, discr_code, eval_code, debug_flags,
             function_registry, exec_mapper_factory):
         self.discrwb = discrwb

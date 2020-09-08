@@ -1,7 +1,5 @@
-# -*- coding: utf8 -*-
 """Operators modeling advective phenomena."""
 
-from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache"
 
@@ -53,7 +51,7 @@ def advection_weak_flux(flux_type, u, velocity):
                 )
         return u_upwind * v_dot_n
     else:
-        raise ValueError("flux `{}` is not implemented".format(flux_type))
+        raise ValueError(f"flux `{flux_type}` is not implemented")
 
 # }}}
 
@@ -74,7 +72,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
         self.flux_type = flux_type
 
         if flux_type not in self.flux_types:
-            raise ValueError("unknown flux type: {}".format(flux_type))
+            raise ValueError(f"unknown flux type: {flux_type}")
 
     def weak_flux(self, u):
         return advection_weak_flux(self.flux_type, u, self.v)
@@ -143,7 +141,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
 class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
     def __init__(self, v, inflow_u, flux_type="central", quad_tag="product"):
-        super(VariableCoefficientAdvectionOperator, self).__init__(
+        super().__init__(
                 v, inflow_u, flux_type=flux_type)
 
         self.quad_tag = quad_tag
@@ -209,12 +207,12 @@ def surface_advection_weak_flux(flux_type, u, velocity):
     elif flux_type == "lf":
         return u.avg * v_dot_n + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
     else:
-        raise ValueError("flux `{}` is not implemented".format(flux_type))
+        raise ValueError(f"flux `{flux_type}` is not implemented")
 
 
 class SurfaceAdvectionOperator(AdvectionOperatorBase):
     def __init__(self, v, flux_type="central", quad_tag=None):
-        super(SurfaceAdvectionOperator, self).__init__(
+        super().__init__(
                 v, inflow_u=None, flux_type=flux_type)
         self.quad_tag = quad_tag
 

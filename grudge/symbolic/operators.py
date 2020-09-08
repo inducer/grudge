@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -150,7 +148,7 @@ class ElementwiseLinearOperator(Operator):
 
 class ProjectionOperator(Operator):
     def __init__(self, dd_in, dd_out):
-        super(ProjectionOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
     def __call__(self, expr):
         from pytools.obj_array import obj_array_vectorize
@@ -181,7 +179,7 @@ class InterpolationOperator(ProjectionOperator):
                 "use 'ProjectionOperator' instead.",
                 DeprecationWarning, stacklevel=2)
 
-        super(InterpolationOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 def interp(dd_in, dd_out):
@@ -196,7 +194,7 @@ def interp(dd_in, dd_out):
 
 class ElementwiseReductionOperator(Operator):
     def __init__(self, dd):
-        super(ElementwiseReductionOperator, self).__init__(dd_in=dd, dd_out=dd)
+        super().__init__(dd_in=dd, dd_out=dd)
 
 
 class ElementwiseSumOperator(ElementwiseReductionOperator):
@@ -235,7 +233,7 @@ class NodalReductionOperator(Operator):
 
         assert dd_out.is_scalar()
 
-        super(NodalReductionOperator, self).__init__(dd_out=dd_out, dd_in=dd_in)
+        super().__init__(dd_out=dd_out, dd_in=dd_in)
 
 
 class NodalSum(NodalReductionOperator):
@@ -271,7 +269,7 @@ class DiffOperatorBase(Operator):
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
 
-        super(DiffOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.xyz_axis = xyz_axis
 
@@ -327,7 +325,7 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
 
-        super(RefDiffOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.rst_axis = rst_axis
 
@@ -402,7 +400,7 @@ class FilterOperator(ElementwiseLinearOperator):
         if dd_in != dd_out:
             raise ValueError("dd_in and dd_out must be identical")
 
-        super(FilterOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.mode_response_func = mode_response_func
 
@@ -490,7 +488,7 @@ class MassOperatorBase(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        super(MassOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 class MassOperator(MassOperatorBase):
@@ -557,7 +555,7 @@ class OppositeInteriorFaceSwap(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
         if self.dd_in.domain_tag is not prim.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
@@ -592,7 +590,7 @@ class OppositePartitionFaceSwap(Operator):
         elif dd_out is None:
             dd_out = dd_in
 
-        super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
         if not (isinstance(self.dd_in.domain_tag, prim.DTAG_BOUNDARY)
                 and isinstance(self.dd_in.domain_tag.tag, prim.BTAG_PARTITION)):
             raise ValueError(
@@ -632,7 +630,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
         if dd_in.domain_tag is not prim.FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
-        super(FaceMassOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 class FaceMassOperator(FaceMassOperatorBase):

@@ -1,6 +1,5 @@
 """Operator templates: extra bits of functionality."""
 
-from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -25,7 +24,6 @@ THE SOFTWARE.
 """
 
 
-from six.moves import range
 import numpy as np
 
 

@@ -1,7 +1,5 @@
 """Base classes for operators."""
 
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -26,7 +24,7 @@ THE SOFTWARE.
 """
 
 
-class Operator(object):
+class Operator:
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present
@@ -52,7 +50,7 @@ class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
     def estimate_rk4_timestep(self, discr, t=None, fields=None):
-        u"""Estimate the largest stable timestep for an RK4 method.
+        """Estimate the largest stable timestep for an RK4 method.
         """
 
         from grudge.dt_finding import (

@@ -1,10 +1,5 @@
-# -*- coding: utf8 -*-
 """Models describing absorbing boundary layers."""
 
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -68,8 +63,8 @@ class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):
 
         def map(self, f):
             return self.__class__(
-                    **dict((name, f(getattr(self, name)))
-                        for name in self.fields))
+                    **{name: f(getattr(self, name))
+                        for name in self.fields})
 
     def __init__(self, *args, **kwargs):
         self.add_decay = kwargs.pop("add_decay", True)

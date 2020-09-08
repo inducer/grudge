@@ -1,6 +1,5 @@
 """Operator template language: primitives."""
 
-from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
@@ -24,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from six.moves import range, intern
+from six.moves import intern
 
 import numpy as np
 from pytools.obj_array import make_obj_array
@@ -145,14 +144,14 @@ class DTAG_BOUNDARY:        # noqa: N801
         return hash(type(self)) ^ hash(self.tag)
 
     def __repr__(self):
-        return "<%s(%s)>" % (type(self).__name__, repr(self.tag))
+        return "<{}({})>".format(type(self).__name__, repr(self.tag))
 
 
 class QTAG_NONE:            # noqa: N801
     pass
 
 
-class DOFDesc(object):
+class DOFDesc:
     """Describes the meaning of degrees of freedom.
 
     .. attribute:: domain_tag
@@ -275,7 +274,7 @@ class DOFDesc(object):
             else:
                 return repr(s)
 
-        return "DOFDesc(%s, %s)" % (fmt(self.domain_tag), fmt(self.quadrature_tag))
+        return "DOFDesc({}, {})".format(fmt(self.domain_tag), fmt(self.quadrature_tag))
 
 
 DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
@@ -293,7 +292,7 @@ def as_dofdesc(dd):
 
 # {{{ has-dof-desc mix-in
 
-class HasDOFDesc(object):
+class HasDOFDesc:
     """
     .. attribute:: dd
 
@@ -310,7 +309,7 @@ class HasDOFDesc(object):
             dd = args[-1]
             args = args[:-1]
 
-        super(HasDOFDesc, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.dd = dd
 
     def __getinitargs__(self):
@@ -339,7 +338,7 @@ class Variable(HasDOFDesc, ExpressionBase, VariableBase):
         if dd is None:
             dd = DD_VOLUME
 
-        super(Variable, self).__init__(name, dd)
+        super().__init__(name, dd)
 
     def __getinitargs__(self):
         return (self.name, self.dd,)
@@ -352,7 +351,7 @@ var = Variable
 
 class ScalarVariable(Variable):
     def __init__(self, name):
-        super(ScalarVariable, self).__init__(name, DD_SCALAR)
+        super().__init__(name, DD_SCALAR)
 
 
 def make_sym_array(name, shape, dd=None):
@@ -375,7 +374,7 @@ class FunctionSymbol(ExpressionBase, VariableBase):
     def __call__(self, *exprs):
         from pytools.obj_array import obj_array_vectorize_n_args
         return obj_array_vectorize_n_args(
-                super(FunctionSymbol, self).__call__, *exprs)
+                super().__call__, *exprs)
 
     mapper_method = "map_function_symbol"
 
@@ -426,7 +425,7 @@ class PrioritizedSubexpression(CommonSubexpressionBase):
     """
 
     def __init__(self, child, priority=0):
-        super(PrioritizedSubexpression, self).__init__(child)
+        super().__init__(child)
         self.priority = priority
 
     def __getinitargs__(self):
@@ -459,7 +458,7 @@ class _SignedFaceOnes(HasDOFDesc, ExpressionBase):
     def __init__(self, dd):
         dd = as_dofdesc(dd)
         assert dd.is_trace()
-        super(_SignedFaceOnes, self).__init__(dd)
+        super().__init__(dd)
 
     mapper_method = intern("map_signed_face_ones")
 
@@ -476,7 +475,7 @@ class NodeCoordinateComponent(DiscretizationProperty):
             raise ValueError("dd must be a discretization for "
                     "NodeCoordinateComponent")
 
-        super(NodeCoordinateComponent, self).__init__(dd)
+        super().__init__(dd)
         self.axis = axis
 
         assert dd.domain_tag is not None

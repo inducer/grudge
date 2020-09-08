@@ -1,9 +1,6 @@
 """Operator for compressible Navier-Stokes and Euler equations."""
 
-from __future__ import division
-from __future__ import absolute_import
 import six
-from six.moves import range
 
 __copyright__ = "Copyright (C) 2007 Hendrik Riedmann, Andreas Kloeckner"
 
@@ -65,7 +62,7 @@ to_bdry_quad = QuadratureGridUpsampler("gasdyn_face")
 
 
 # {{{ equations of state
-class EquationOfState(object):
+class EquationOfState:
     def q_to_p(self, op, q):
         raise NotImplementedError
 
@@ -264,7 +261,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         return cse(self.temperature(q), "temperature")
 
     def get_mu(self, q, to_quad_op):
-        """
+        r"""
         :param to_quad_op: If not *None*, represents an operator which transforms
           nodal values onto a quadrature grid on which the returned :math:`\mu` 
           needs to be represented. In that case, *q* is assumed to already be on the
@@ -602,7 +599,7 @@ class GasDynamicsOperator(TimeDependentOperator):
                 make_sym_vector("bc_q_supersonic_in", self.dimensions+2),
                 self.supersonic_outflow_tag:
                 RestrictToBoundary(self.supersonic_outflow_tag)(
-                            (state)),
+                            state),
                 self.wall_tag: self.wall_state(state),
                 }
 
@@ -758,10 +755,10 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         from grudge.symbolic.tools import make_stiffness_t
 
-        primitive_bcs_as_quad_conservative = dict(
-                (tag, self.primitive_to_conservative(to_bdry_quad(bc)))
+        primitive_bcs_as_quad_conservative = {
+                tag: self.primitive_to_conservative(to_bdry_quad(bc))
                 for tag, bc in 
-                six.iteritems(self.get_primitive_boundary_conditions()))
+                self.get_primitive_boundary_conditions().items()}
 
         def get_bc_tuple(tag):
             state = self.state()
@@ -861,7 +858,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     def estimate_timestep(self, discr, 
             stepper=None, stepper_class=None, stepper_args=None,
             t=None, max_eigenvalue=None):
-        u"""Estimate the largest stable timestep, given a time stepper
+        """Estimate the largest stable timestep, given a time stepper
         `stepper_class`. If none is given, RK4 is assumed.
         """
 

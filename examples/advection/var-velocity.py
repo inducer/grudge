@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2017 Bogdan Enache"
 
 __license__ = """
@@ -79,7 +77,7 @@ class Plotter:
 
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
-            ax.set_title("t = {:.2f}".format(evt.t))
+            ax.set_title(f"t = {evt.t:.2f}")
             self.fig.savefig(filename)
             self.fig.clf()
         else:

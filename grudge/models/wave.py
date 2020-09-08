@@ -1,7 +1,5 @@
-# -*- coding: utf8 -*-
 """Wave equation operators."""
 
-from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 

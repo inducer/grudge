@@ -1,6 +1,5 @@
 """Mappers to transform symbolic operators."""
 
-from __future__ import division
 
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
@@ -45,7 +44,7 @@ from grudge.tools import OrderedSet
 
 # {{{ mixins
 
-class LocalOpReducerMixin(object):
+class LocalOpReducerMixin:
     """Reduces calls to mapper methods for all local differentiation
     operators to a single mapper method, and likewise for mass
     operators.
@@ -107,7 +106,7 @@ class LocalOpReducerMixin(object):
     # }}}
 
 
-class FluxOpReducerMixin(object):
+class FluxOpReducerMixin:
     """Reduces calls to mapper methods for all flux
     operators to a smaller number of mapper methods.
     """
@@ -159,7 +158,7 @@ class OperatorReducerMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     map_ref_face_mass_operator = _map_op_base
 
 
-class CombineMapperMixin(object):
+class CombineMapperMixin:
     def map_operator_binding(self, expr):
         return self.combine([self.rec(expr.op), self.rec(expr.field)])
 
@@ -227,7 +226,7 @@ class IdentityMapperMixin(LocalOpReducerMixin, FluxOpReducerMixin):
     # }}}
 
 
-class BoundOpMapperMixin(object):
+class BoundOpMapperMixin:
     def map_operator_binding(self, expr, *args, **kwargs):
         return getattr(self, expr.op.mapper_method)(
                 expr.op, expr.field, *args, **kwargs)
@@ -261,7 +260,7 @@ class DependencyMapper(
 
     def map_operator_binding(self, expr):
         if self.include_operator_bindings:
-            return set([expr])
+            return {expr}
         else:
             return CombineMapperMixin.map_operator_binding(self, expr)
 
@@ -269,7 +268,7 @@ class DependencyMapper(
         return set()
 
     def map_grudge_variable(self, expr):
-        return set([expr])
+        return {expr}
 
     def _map_leaf(self, expr):
         return set()
@@ -383,7 +382,7 @@ class OppositeInteriorFaceSwapUniqueIDAssigner(
     map_common_subexpression_uncached = IdentityMapper.map_common_subexpression
 
     def __init__(self):
-        super(OppositeInteriorFaceSwapUniqueIDAssigner, self).__init__()
+        super().__init__()
         self._next_id = 0
         self.seen_ids = set()
 
@@ -726,7 +725,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return result
 
     def _format_op_dd(self, op):
-        return ":%s->%s" % (self._format_dd(op.dd_in), self._format_dd(op.dd_out))
+        return ":{}->{}".format(self._format_dd(op.dd_in), self._format_dd(op.dd_out))
 
     # {{{ elementwise ops
 
@@ -801,7 +800,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     # }}}
 
     def map_elementwise_linear(self, expr, enclosing_prec):
-        return "ElWLin:%s%s" % (
+        return "ElWLin:{}{}".format(
                 expr.__class__.__name__,
                 self._format_op_dd(expr))
 
@@ -836,12 +835,12 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_operator_binding(self, expr, enclosing_prec):
         from pymbolic.mapper.stringifier import PREC_NONE
-        return "<%s>(%s)" % (
+        return "<{}>({})".format(
                 self.rec(expr.op, PREC_NONE),
                 self.rec(expr.field, PREC_NONE))
 
     def map_grudge_variable(self, expr, enclosing_prec):
-        return "%s:%s" % (expr.name, self._format_dd(expr.dd))
+        return "{}:{}".format(expr.name, self._format_dd(expr.dd))
 
     def map_function_symbol(self, expr, enclosing_prec):
         return expr.name
@@ -1022,7 +1021,7 @@ class _InnerDerivativeJoiner(pymbolic.mapper.RecursiveMapper):
                 else:
                     return self.rec(expr, derivatives)
 
-            for operator, operands in six.iteritems(sub_derivatives):
+            for operator, operands in sub_derivatives.items():
                 for operand in operands:
                     derivatives.setdefault(operator, []).append(
                             factor*operand)
@@ -1072,7 +1071,7 @@ class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
             if not sub_derivatives:
                 return expr
             else:
-                for operator, operands in six.iteritems(sub_derivatives):
+                for operator, operands in sub_derivatives.items():
                     derivatives.setdefault(operator, []).extend(operands)
 
                 return result
@@ -1081,7 +1080,7 @@ class DerivativeJoiner(CSECachingMapperMixin, IdentityMapper):
         new_children = [invoke_idj(child)
                 for child in expr.children]
 
-        for operator, operands in six.iteritems(derivatives):
+        for operator, operands in derivatives.items():
             new_children.insert(0, operator(
                 sum(self.rec(operand) for operand in operands)))
 
@@ -1295,9 +1294,9 @@ class SymbolicEvaluator(pymbolic.mapper.evaluator.EvaluationMapper):
                 expr.function,
                 tuple(self.rec(child, *args, **kwargs)
                     for child in expr.parameters),
-                dict(
-                    (key, self.rec(val, *args, **kwargs))
-                    for key, val in six.iteritems(expr.kw_parameters))
+                {
+                    key: self.rec(val, *args, **kwargs)
+                    for key, val in expr.kw_parameters.items()}
                     )
 
     def map_common_subexpression(self, expr):
