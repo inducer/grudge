@@ -1,6 +1,5 @@
 """Lattice-Boltzmann operator."""
 
-
 __copyright__ = "Copyright (C) 2011 Andreas Kloeckner"
 
 __license__ = """
@@ -29,9 +28,6 @@ from grudge.models import HyperbolicOperator
 from pytools.obj_array import make_obj_array
 
 
-
-
-
 class LBMMethodBase:
     def __len__(self):
         return len(self.direction_vectors)
@@ -46,7 +42,7 @@ class LBMMethodBase:
             found = False
             for alpha_2 in range(alpha, len(self)):
                 if la.norm(
-                        self.direction_vectors[alpha] 
+                        self.direction_vectors[alpha]
                         + self.direction_vectors[alpha_2]) < 1e-12:
                     self.opposites[alpha] = alpha_2
                     self.opposites[alpha_2] = alpha
@@ -54,7 +50,7 @@ class LBMMethodBase:
 
             if not found:
                 raise RuntimeError(
-                        "direction %s had no opposite" 
+                        "direction %s had no opposite"
                         % self.direction_vectors[alpha])
 
 

@@ -2,7 +2,6 @@
 """Study of operator fusion (inlining) for time integration operators in Grudge.
 """
 
-
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2019 Matt Wala

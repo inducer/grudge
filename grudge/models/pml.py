@@ -1,6 +1,5 @@
 """Models describing absorbing boundary layers."""
 
-
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """
@@ -23,9 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-
-
 import numpy
 
 from pytools import memoize_method, Record
@@ -33,8 +29,6 @@ from grudge.models.em import \
         MaxwellOperator, \
         TMMaxwellOperator, \
         TEMaxwellOperator
-
-
 
 
 class AbarbanelGottliebPMLMaxwellOperator(MaxwellOperator):

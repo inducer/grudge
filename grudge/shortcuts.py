@@ -1,6 +1,5 @@
 """Minimal example of a grudge driver."""
 
-
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
 __license__ = """

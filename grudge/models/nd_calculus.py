@@ -1,6 +1,5 @@
 """Canned operators for multivariable calculus."""
 
-
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
 __license__ = """
@@ -23,12 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-
-
 from grudge.models import Operator
-
-
 
 
 class GradientOperator(Operator):

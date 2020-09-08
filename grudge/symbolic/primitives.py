@@ -1,6 +1,5 @@
 """Operator template language: primitives."""
 
-
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -23,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from six.moves import intern
+from sys import intern
 
 import numpy as np
 from pytools.obj_array import make_obj_array

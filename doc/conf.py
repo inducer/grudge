@@ -1,4 +1,3 @@
-#
 # grudge documentation build configuration file, created by
 # sphinx-quickstart on Sun Sep 27 13:08:30 2015.
 #
@@ -324,6 +323,6 @@ intersphinx_mapping = {
     "https://documen.tician.de/modepy/": None,
     "https://documen.tician.de/pymbolic/": None,
     "https://documen.tician.de/meshmode/": None,
-    "http://documen.tician.de/loopy/": None,
+    "https://documen.tician.de/loopy/": None,
     }
 autoclass_content = "class"

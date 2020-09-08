@@ -1,6 +1,5 @@
 """Base classes for operators."""
 
-
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """

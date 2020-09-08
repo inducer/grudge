@@ -1,6 +1,5 @@
 """Miscellaneous helper facilities."""
 
-
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """

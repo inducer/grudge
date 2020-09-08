@@ -1,6 +1,5 @@
 """Compiler to turn operator expression tree into (imperative) bytecode."""
 
-
 __copyright__ = "Copyright (C) 2008-15 Andreas Kloeckner"
 
 __license__ = """
@@ -25,16 +24,14 @@ THE SOFTWARE.
 
 import numpy as np
 
-import six  # noqa
-from six.moves import reduce
-
 from pytools import Record, memoize_method, memoize
 from pytools.obj_array import obj_array_vectorize
 
 from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
-from six.moves import intern
+from sys import intern
+from functools import reduce
 
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
@@ -101,9 +98,7 @@ class LoopyKernelInstruction(Instruction):
 
     @memoize_method
     def get_assignees(self):
-        return {
-                k
-                for k in self.kernel_descriptor.output_mappings.keys()}
+        return {k for k in self.kernel_descriptor.output_mappings.keys()}
 
     @memoize_method
     def get_dependencies(self):
@@ -227,7 +222,7 @@ class RankDataSwapAssign(Instruction):
         self.dd_out = op.dd_out
         self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
         self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
-        self.comment = "Swap data with rank %02d" % self.i_remote_rank
+        self.comment = f"Swap data with rank {self.i_remote_rank:02d}"
 
     @memoize_method
     def get_assignees(self):
@@ -239,9 +234,9 @@ class RankDataSwapAssign(Instruction):
 
     def __str__(self):
         return ("{\n"
-              + "   /* %s */\n" % self.comment
-              + "   send_tag = %s\n" % self.send_tag
-              + "   recv_tag = %s\n" % self.recv_tag
+              + f"   /* {self.comment} */\n"
+              + f"   send_tag = {self.send_tag}\n"
+              + f"   recv_tag = {self.recv_tag}\n"
               + f"   {self.name} <- {self.field}\n"
               + "}")
 
@@ -344,8 +339,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
 
         node_label = node_label.replace("\n", "\\l") + "\\l"
 
-        result.append('%s [ label="p%d: %s" shape=box ];' % (
-            node_name, insn.priority, node_label))
+        result.append(f"{node_name} [ "
+                f'label="p{insn.priority}: {node_label}" shape=box ];')
 
         for assignee in insn.get_assignees():
             origins[assignee] = node_name
@@ -358,8 +353,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
             return "initial"
 
     def gen_expr_arrow(expr, target_node):
-        result.append('%s -> %s [label="%s"];'
-                % (get_orig_node(expr), target_node, expr))
+        orig_node = get_orig_node(expr)
+        result.append(f'{orig_node} -> {target_node} [label="{expr}"];')
 
     for insn in code.instructions:
         for dep in insn.get_dependencies():
@@ -641,8 +636,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
         try:
             return var_assignees_cache[insn]
         except KeyError:
-            result = {Variable(assignee)
-                    for assignee in insn.get_assignees()}
+            result = {Variable(assignee) for assignee in insn.get_assignees()}
             var_assignees_cache[insn] = result
             return result
 

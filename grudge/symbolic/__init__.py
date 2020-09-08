@@ -1,6 +1,5 @@
 """Building blocks and mappers for operator expression trees."""
 
-
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
 __license__ = """

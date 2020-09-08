@@ -1,6 +1,5 @@
 """Helpers for estimating a stable time step."""
 
-
 __copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
 __license__ = """

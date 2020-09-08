@@ -139,8 +139,7 @@ class FunctionRegistry(RecordWithoutPickling):
         if id_to_function is None:
             id_to_function = {}
 
-        super().__init__(
-                id_to_function=id_to_function)
+        super().__init__(id_to_function=id_to_function)
 
     def register(self, function):
         """Return a copy of *self* with *function* registered."""

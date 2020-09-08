@@ -1,7 +1,5 @@
 """Operator for compressible Navier-Stokes and Euler equations."""
 
-import six
-
 __copyright__ = "Copyright (C) 2007 Hendrik Riedmann, Andreas Kloeckner"
 
 __license__ = """
@@ -23,8 +21,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
-
 
 
 import numpy
@@ -263,7 +259,7 @@ class GasDynamicsOperator(TimeDependentOperator):
     def get_mu(self, q, to_quad_op):
         r"""
         :param to_quad_op: If not *None*, represents an operator which transforms
-          nodal values onto a quadrature grid on which the returned :math:`\mu` 
+          nodal values onto a quadrature grid on which the returned :math:`\mu`
           needs to be represented. In that case, *q* is assumed to already be on the
           same quadrature grid.
         """
@@ -277,7 +273,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             t_s = 110.4
             mu_inf = 1.735e-5
             result = cse(
-                    mu_inf * self.cse_temperature(q) ** 1.5 * (1 + t_s) 
+                    mu_inf * self.cse_temperature(q) ** 1.5 * (1 + t_s)
                     / (self.cse_temperature(q) + t_s),
                     "sutherland_mu")
         else:
@@ -468,7 +464,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
                     # flux rho_u
                     make_obj_array([
-                        self.rho_u(q)[i]*self.cse_u(q)[j] 
+                        self.rho_u(q)[i]*self.cse_u(q)[j]
                         + delta(i,j) * self.cse_p(q)
                         for j in range(self.dimensions)
                         ])
@@ -505,11 +501,11 @@ class GasDynamicsOperator(TimeDependentOperator):
             rho0=rho0, p0=p0, u0=u0, c0=c0,
 
             # notation: suffix "m" for "minus", i.e. "interior"
-            drhom=cse(self.rho(cse(to_bdry_quad(bdrize_op(state)))) 
+            drhom=cse(self.rho(cse(to_bdry_quad(bdrize_op(state))))
                 - rho0, "drhom"),
-            dumvec=cse(self.cse_u(cse(to_bdry_quad(bdrize_op(state)))) 
+            dumvec=cse(self.cse_u(cse(to_bdry_quad(bdrize_op(state))))
                 - u0, "dumvec"),
-            dpm=cse(self.cse_p(cse(to_bdry_quad(bdrize_op(state)))) 
+            dpm=cse(self.cse_p(cse(to_bdry_quad(bdrize_op(state))))
                 - p0, "dpm"))
 
     def outflow_state(self, state):
@@ -656,7 +652,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             from pymbolic.primitives import Subscript, Variable
 
             if isinstance(expr, Subscript):
-                assert (isinstance(expr.aggregate, Variable) 
+                assert (isinstance(expr.aggregate, Variable)
                         and expr.aggregate.name == "q")
 
                 return cbstate[expr.index]
@@ -694,7 +690,7 @@ class GasDynamicsOperator(TimeDependentOperator):
         faceq_tau_mat = self.tau(to_int_face_quad, state)
 
         return join_fields(
-                0, 
+                0,
                 self.div(
                     numpy.sum(volq_tau_mat*self.cse_u(volq_state), axis=1)
                     + self.heat_conduction_grad(to_vol_quad)
@@ -731,7 +727,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             return make_obj_array([
                 self.div(
                     to_vol_quad(self.sensor())*to_vol_quad(dq[i]),
-                    to_int_face_quad(self.sensor())*to_int_face_quad(dq[i])) 
+                    to_int_face_quad(self.sensor())*to_int_face_quad(dq[i]))
                 for i in range(dq.shape[0])])
         # }}}
 
@@ -757,7 +753,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
         primitive_bcs_as_quad_conservative = {
                 tag: self.primitive_to_conservative(to_bdry_quad(bc))
-                for tag, bc in 
+                for tag, bc in
                 self.get_primitive_boundary_conditions().items()}
 
         def get_bc_tuple(tag):
@@ -780,7 +776,7 @@ class GasDynamicsOperator(TimeDependentOperator):
             first_order_part = 0*first_order_part
 
         result = join_fields(
-                first_order_part 
+                first_order_part
                 + self.make_second_order_part()
                 + make_artificial_diffusion()
                 + self.make_extra_terms(),
@@ -800,7 +796,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     # {{{ operator binding ----------------------------------------------------
     def bind(self, discr, sensor=None, sensor_scaling=None, viscosity_only=False):
-        if (sensor is None and 
+        if (sensor is None and
                 self.artificial_viscosity_mode is not None):
             raise ValueError("must specify a sensor if using "
                     "artificial viscosity")
@@ -840,7 +836,7 @@ class GasDynamicsOperator(TimeDependentOperator):
                     bc_q_noslip=self.bc_noslip.boundary_interpolant(
                         t, discr, self.noslip_tag),
                     bc_q_supersonic_in=self.bc_supersonic_inflow
-                    .boundary_interpolant(t, discr, 
+                    .boundary_interpolant(t, discr,
                         self.supersonic_inflow_tag),
                     **extra_kwargs
                     )
@@ -855,7 +851,7 @@ class GasDynamicsOperator(TimeDependentOperator):
 
     # {{{ timestep estimation -------------------------------------------------
 
-    def estimate_timestep(self, discr, 
+    def estimate_timestep(self, discr,
             stepper=None, stepper_class=None, stepper_args=None,
             t=None, max_eigenvalue=None):
         """Estimate the largest stable timestep, given a time stepper
