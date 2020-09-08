@@ -70,8 +70,8 @@ class Plotter:
                 raise FileExistsError("output file '%s' already exists" % filename)
 
             ax = self.fig.gca()
-            ax.plot(self.x, u, '-')
-            ax.plot(self.x, u, 'k.')
+            ax.plot(self.x, u, "-")
+            ax.plot(self.x, u, "k.")
             if self.ylim is not None:
                 ax.set_ylim(self.ylim)
 

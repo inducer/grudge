@@ -168,7 +168,7 @@ def mpi_communication_entrypoint():
             IntervalTimer, EventCounter
     log_filename = None
     # NOTE: LogManager hangs when using a file on a shared directory.
-    # log_filename = 'grudge_log.dat'
+    # log_filename = "grudge_log.dat"
     logmgr = LogManager(log_filename, "w", comm)
     add_run_info(logmgr)
     add_general_quantities(logmgr)
@@ -241,10 +241,10 @@ def mpi_communication_entrypoint():
             \tBusy Wait: %g\n
             \tTotal: %g seconds""",
             i_local_rank,
-            data['insn_eval_time'] / data['total_time'] * 100,
-            data['future_eval_time'] / data['total_time'] * 100,
-            data['busy_wait_time'] / data['total_time'] * 100,
-            data['total_time'])
+            data["insn_eval_time"] / data["total_time"] * 100,
+            data["future_eval_time"] / data["total_time"] * 100,
+            data["busy_wait_time"] / data["total_time"] * 100,
+            data["total_time"])
 
     print_profile_data(rhs.profile_data)
     logmgr.close()

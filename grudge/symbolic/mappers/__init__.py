@@ -1,6 +1,5 @@
 """Mappers to transform symbolic operators."""
 
-
 __copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
 __license__ = """
@@ -22,9 +21,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
-
-import six
 
 import numpy as np
 import pymbolic.primitives
@@ -725,7 +721,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         return result
 
     def _format_op_dd(self, op):
-        return ":{}->{}".format(self._format_dd(op.dd_in), self._format_dd(op.dd_out))
+        return ":{}->{}".format(
+                self._format_dd(op.dd_in),
+                self._format_dd(op.dd_out))
 
     # {{{ elementwise ops
 

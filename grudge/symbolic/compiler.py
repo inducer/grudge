@@ -325,8 +325,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
     node_names = {}
 
     result = [
-            "initial [label=\"initial\"]"
-            "result [label=\"result\"]"]
+            'initial [label="initial"]'
+            'result [label="result"]']
 
     for num, insn in enumerate(code.instructions):
         node_name = "node%d" % num
@@ -344,7 +344,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
 
         node_label = node_label.replace("\n", "\\l") + "\\l"
 
-        result.append("%s [ label=\"p%d: %s\" shape=box ];" % (
+        result.append('%s [ label="p%d: %s" shape=box ];' % (
             node_name, insn.priority, node_label))
 
         for assignee in insn.get_assignees():
@@ -358,7 +358,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
             return "initial"
 
     def gen_expr_arrow(expr, target_node):
-        result.append("%s -> %s [label=\"%s\"];"
+        result.append('%s -> %s [label="%s"];'
                 % (get_orig_node(expr), target_node, expr))
 
     for insn in code.instructions:
@@ -493,10 +493,10 @@ class Code:
             from time import time
             start_time = time()
             if profile_data == {}:
-                profile_data['insn_eval_time'] = 0
-                profile_data['future_eval_time'] = 0
-                profile_data['busy_wait_time'] = 0
-                profile_data['total_time'] = 0
+                profile_data["insn_eval_time"] = 0
+                profile_data["future_eval_time"] = 0
+                profile_data["busy_wait_time"] = 0
+                profile_data["total_time"] = 0
         if log_quantities is not None:
             exec_sub_timer = log_quantities["exec_timer"].start_sub_timer()
         context = exec_mapper.context
@@ -538,7 +538,7 @@ class Code:
 
                 futures.extend(new_futures)
                 if profile_data is not None:
-                    profile_data['insn_eval_time'] += time() - insn_start_time
+                    profile_data["insn_eval_time"] += time() - insn_start_time
                 if log_quantities is not None:
                     insn_sub_timer.stop().submit()
             except self.NoInstructionAvailable:
@@ -558,7 +558,7 @@ class Code:
                     for i in range(len(futures)):
                         if futures[i].is_ready():
                             if profile_data is not None:
-                                profile_data['busy_wait_time'] +=\
+                                profile_data["busy_wait_time"] +=\
                                         time() - busy_wait_start_time
                                 future_start_time = time()
                             if log_quantities is not None:
@@ -579,7 +579,7 @@ class Code:
                             did_eval_future = True
 
                             if profile_data is not None:
-                                profile_data['future_eval_time'] +=\
+                                profile_data["future_eval_time"] +=\
                                         time() - future_start_time
                             if log_quantities is not None:
                                 future_sub_timer.stop().submit()
@@ -592,7 +592,7 @@ class Code:
         if log_quantities is not None:
             exec_sub_timer.stop().submit()
         if profile_data is not None:
-            profile_data['total_time'] = time() - start_time
+            profile_data["total_time"] = time() - start_time
             return (obj_array_vectorize(exec_mapper, self.result),
                     profile_data)
         return obj_array_vectorize(exec_mapper, self.result)

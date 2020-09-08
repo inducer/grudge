@@ -73,8 +73,8 @@ class Plotter:
 
             ax = self.fig.gca()
             ax.grid()
-            ax.plot(self.x, u, '-')
-            ax.plot(self.x, u, 'k.')
+            ax.plot(self.x, u, "-")
+            ax.plot(self.x, u, "k.")
             ax.set_xlabel(r"$\theta$")
             ax.set_ylabel("$u$")
             ax.set_title(f"t = {evt.t:.2f}")

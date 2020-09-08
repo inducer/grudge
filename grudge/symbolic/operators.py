@@ -369,7 +369,7 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
             grad_vand = (grad_vand,)
 
         weights = in_elem_grp.weights
-        return np.einsum('c,bz,acz->abc', weights, vand_inv_t, grad_vand)
+        return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
 # }}}
@@ -515,7 +515,7 @@ class RefMassOperator(RefMassOperatorBase):
         vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_element_group.weights
-        return np.einsum('j,ik,jk->ij', weights, vand_inv_t, o_vand)
+        return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
     mapper_method = intern("map_ref_mass")
 

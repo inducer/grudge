@@ -28,7 +28,7 @@ from pytools import levi_civita
 
 
 def is_zero(x):
-    # DO NOT try to replace this with an attempted '== 0' comparison.
+    # DO NOT try to replace this with an attempted "== 0" comparison.
     # This will become an elementwise numpy operation and not do what
     # you want.
 
@@ -184,15 +184,15 @@ class OrderedSet(MutableSet):
 
     def pop(self, last=True):
         if not self:
-            raise KeyError('set is empty')
+            raise KeyError("set is empty")
         key = self.end[1][0] if last else self.end[2][0]
         self.discard(key)
         return key
 
     def __repr__(self):
         if not self:
-            return f'{self.__class__.__name__}()'
-        return '{}({!r})'.format(self.__class__.__name__, list(self))
+            return f"{self.__class__.__name__}()"
+        return "{}({!r})".format(self.__class__.__name__, list(self))
 
     def __eq__(self, other):
         if isinstance(other, OrderedSet):

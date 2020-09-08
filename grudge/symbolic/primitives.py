@@ -274,7 +274,9 @@ class DOFDesc:
             else:
                 return repr(s)
 
-        return "DOFDesc({}, {})".format(fmt(self.domain_tag), fmt(self.quadrature_tag))
+        return "DOFDesc({}, {})".format(
+                fmt(self.domain_tag),
+                fmt(self.quadrature_tag))
 
 
 DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
