@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """
@@ -72,14 +70,14 @@ class Plotter:
                 raise FileExistsError("output file '%s' already exists" % filename)
 
             ax = self.fig.gca()
-            ax.plot(self.x, u, '-')
-            ax.plot(self.x, u, 'k.')
+            ax.plot(self.x, u, "-")
+            ax.plot(self.x, u, "k.")
             if self.ylim is not None:
                 ax.set_ylim(self.ylim)
 
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
-            ax.set_title("t = {:.2f}".format(evt.t))
+            ax.set_title(f"t = {evt.t:.2f}")
 
             self.fig.savefig(filename)
             self.fig.clf()

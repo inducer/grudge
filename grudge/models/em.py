@@ -1,7 +1,4 @@
-# -*- coding: utf8 -*-
 """grudge operators modelling electromagnetic phenomena."""
-
-from __future__ import division, absolute_import
 
 __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner
@@ -186,7 +183,8 @@ class MaxwellOperator(HyperbolicOperator):
                 )
 
     def pec_bc(self, w):
-        "Construct part of the flux operator template for PEC boundary conditions"
+        """Construct part of the flux operator template for PEC boundary conditions
+        """
         e, h = self.split_eh(w)
 
         pec_e = sym.cse(sym.project("vol", self.pec_tag)(e))
@@ -195,7 +193,8 @@ class MaxwellOperator(HyperbolicOperator):
         return flat_obj_array(-pec_e, pec_h)
 
     def pmc_bc(self, w):
-        "Construct part of the flux operator template for PMC boundary conditions"
+        """Construct part of the flux operator template for PMC boundary conditions
+        """
         e, h = self.split_eh(w)
 
         pmc_e = sym.cse(sym.project("vol", self.pmc_tag)(e))
@@ -234,7 +233,7 @@ class MaxwellOperator(HyperbolicOperator):
         return bc
 
     def incident_bc(self, w):
-        "Flux terms for incident boundary conditions"
+        """Flux terms for incident boundary conditions"""
         # NOTE: Untested for inhomogeneous materials, but would usually be
         # physically meaningless anyway (are there exceptions to this?)
 
@@ -302,7 +301,7 @@ class MaxwellOperator(HyperbolicOperator):
             [e_subset, h_subset]))
 
     def split_eh(self, w):
-        "Splits an array into E and H components"
+        """Splits an array into E and H components"""
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
 

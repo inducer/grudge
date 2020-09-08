@@ -1,7 +1,5 @@
 """Minimal example of a grudge driver."""
 
-from __future__ import division, print_function
-
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
 __license__ = """

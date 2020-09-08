@@ -1,4 +1,3 @@
-import six
 import numpy as np
 
 
@@ -7,7 +6,7 @@ class MeshBuilder:
     mesh_order = None
 
     def __init__(self, **kwargs):
-        for k, v in six.iteritems(kwargs):
+        for k, v in kwargs.items():
             setattr(self, k, v)
 
         if self.mesh_order is None:

@@ -2,8 +2,6 @@
 """Study of operator fusion (inlining) for time integration operators in Grudge.
 """
 
-from __future__ import division, print_function
-
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2019 Matt Wala
@@ -270,7 +268,7 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
 
 # {{{ time integrator implementations
 
-class RK4TimeStepperBase(object):
+class RK4TimeStepperBase:
 
     def __init__(self, component_getter):
         self.component_getter = component_getter
@@ -829,7 +827,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
 SECONDS_PER_NANOSECOND = 10**9
 
 
-class TimingFuture(object):
+class TimingFuture:
 
     def __init__(self, start_event, stop_event):
         self.start_event = start_event

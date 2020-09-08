@@ -1,7 +1,5 @@
 """Compiler to turn operator expression tree into (imperative) bytecode."""
 
-from __future__ import division, absolute_import, print_function
-
 __copyright__ = "Copyright (C) 2008-15 Andreas Kloeckner"
 
 __license__ = """
@@ -26,16 +24,14 @@ THE SOFTWARE.
 
 import numpy as np
 
-import six  # noqa
-from six.moves import zip, reduce
-
 from pytools import Record, memoize_method, memoize
 from pytools.obj_array import obj_array_vectorize
 
 from grudge import sym
 import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
-from six.moves import intern
+from sys import intern
+from functools import reduce
 
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
@@ -75,7 +71,7 @@ def _make_dep_mapper(include_subscripts):
 
 # {{{ loopy kernel instruction
 
-class LoopyKernelDescriptor(object):
+class LoopyKernelDescriptor:
     def __init__(self, loopy_kernel, input_mappings, output_mappings,
             fixed_arguments, governing_dd):
         self.loopy_kernel = loopy_kernel
@@ -97,14 +93,12 @@ class LoopyKernelInstruction(Instruction):
     scope_indicator = ""
 
     def __init__(self, kernel_descriptor):
-        super(LoopyKernelInstruction, self).__init__()
+        super().__init__()
         self.kernel_descriptor = kernel_descriptor
 
     @memoize_method
     def get_assignees(self):
-        return set(
-                k
-                for k in self.kernel_descriptor.output_mappings.keys())
+        return {k for k in self.kernel_descriptor.output_mappings.keys()}
 
     @memoize_method
     def get_dependencies(self):
@@ -119,7 +113,7 @@ class LoopyKernelInstruction(Instruction):
 
     def __str__(self):
         knl_str = "\n".join(
-                "%s = %s" % (insn.assignee, insn.expression)
+                f"{insn.assignee} = {insn.expression}"
                 for insn in self.kernel_descriptor.loopy_kernel.instructions)
 
         knl_str = knl_str.replace("grdg_", "")
@@ -141,7 +135,7 @@ class AssignBase(Instruction):
             if comment:
                 comment = "/* %s */ " % comment
 
-            return "%s <-%s %s%s" % (
+            return "{} <-{} {}{}".format(
                     self.names[0], self.scope_indicator, comment,
                     self.exprs[0])
         else:
@@ -156,7 +150,7 @@ class AssignBase(Instruction):
                 else:
                     dnr_indicator = ""
 
-                lines.append("  %s <%s-%s %s" % (
+                lines.append("  {} <{}-{} {}".format(
                     n, dnr_indicator, self.scope_indicator, e))
             lines.append("}")
             return "\n".join(lines)
@@ -197,7 +191,7 @@ class Assign(AssignBase):
                 for expr in self.exprs))
 
         from pymbolic.primitives import Variable
-        deps -= set(Variable(name) for name in self.names)
+        deps -= {Variable(name) for name in self.names}
 
         if not each_vector:
             self._dependencies = deps
@@ -228,11 +222,11 @@ class RankDataSwapAssign(Instruction):
         self.dd_out = op.dd_out
         self.send_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
         self.recv_tag = self.MPI_TAG_GRUDGE_DATA_BASE + op.unique_id
-        self.comment = "Swap data with rank %02d" % self.i_remote_rank
+        self.comment = f"Swap data with rank {self.i_remote_rank:02d}"
 
     @memoize_method
     def get_assignees(self):
-        return set([self.name])
+        return {self.name}
 
     @memoize_method
     def get_dependencies(self):
@@ -240,10 +234,10 @@ class RankDataSwapAssign(Instruction):
 
     def __str__(self):
         return ("{\n"
-              + "   /* %s */\n" % self.comment
-              + "   send_tag = %s\n" % self.send_tag
-              + "   recv_tag = %s\n" % self.recv_tag
-              + "   %s <- %s\n" % (self.name, self.field)
+              + f"   /* {self.comment} */\n"
+              + f"   send_tag = {self.send_tag}\n"
+              + f"   recv_tag = {self.recv_tag}\n"
+              + f"   {self.name} <- {self.field}\n"
               + "}")
 
     mapper_method = intern("map_insn_rank_data_swap")
@@ -260,7 +254,7 @@ class FromDiscretizationScopedAssign(AssignBase):
     neglect_for_dofdesc_inference = True
 
     def __init__(self, name, **kwargs):
-        super(FromDiscretizationScopedAssign, self).__init__(name=name, **kwargs)
+        super().__init__(name=name, **kwargs)
 
     @memoize_method
     def flop_count(self):
@@ -305,11 +299,11 @@ class DiffBatchAssign(Instruction):
         if len(self.names) > 1:
             lines.append("{")
             for n, d in zip(self.names, self.operators):
-                lines.append("  %s <- %s(%s)" % (n, d, self.field))
+                lines.append(f"  {n} <- {d}({self.field})")
             lines.append("}")
         else:
             for n, d in zip(self.names, self.operators):
-                lines.append("%s <- %s(%s)" % (n, d, self.field))
+                lines.append(f"{n} <- {d}({self.field})")
 
         return "\n".join(lines)
 
@@ -326,8 +320,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
     node_names = {}
 
     result = [
-            "initial [label=\"initial\"]"
-            "result [label=\"result\"]"]
+            'initial [label="initial"]'
+            'result [label="result"]']
 
     for num, insn in enumerate(code.instructions):
         node_name = "node%d" % num
@@ -345,8 +339,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
 
         node_label = node_label.replace("\n", "\\l") + "\\l"
 
-        result.append("%s [ label=\"p%d: %s\" shape=box ];" % (
-            node_name, insn.priority, node_label))
+        result.append(f"{node_name} [ "
+                f'label="p{insn.priority}: {node_label}" shape=box ];')
 
         for assignee in insn.get_assignees():
             origins[assignee] = node_name
@@ -359,8 +353,8 @@ def dot_dataflow_graph(code, max_node_label_length=30,
             return "initial"
 
     def gen_expr_arrow(expr, target_node):
-        result.append("%s -> %s [label=\"%s\"];"
-                % (get_orig_node(expr), target_node, expr))
+        orig_node = get_orig_node(expr)
+        result.append(f'{orig_node} -> {target_node} [label="{expr}"];')
 
     for insn in code.instructions:
         for dep in insn.get_dependencies():
@@ -379,7 +373,7 @@ def dot_dataflow_graph(code, max_node_label_length=30,
 
 # {{{ code representation
 
-class Code(object):
+class Code:
     def __init__(self, instructions, result):
         self.instructions = instructions
         self.result = result
@@ -399,10 +393,10 @@ class Code(object):
             outf.write(dot_dataflow_graph(self, max_node_label_length=None))
 
     def __str__(self):
-        var_to_writer = dict(
-                (var_name, insn)
+        var_to_writer = {
+                var_name: insn
                 for insn in self.instructions
-                for var_name in insn.get_assignees())
+                for var_name in insn.get_assignees()}
 
         # {{{ topological sort
 
@@ -494,10 +488,10 @@ class Code(object):
             from time import time
             start_time = time()
             if profile_data == {}:
-                profile_data['insn_eval_time'] = 0
-                profile_data['future_eval_time'] = 0
-                profile_data['busy_wait_time'] = 0
-                profile_data['total_time'] = 0
+                profile_data["insn_eval_time"] = 0
+                profile_data["future_eval_time"] = 0
+                profile_data["busy_wait_time"] = 0
+                profile_data["total_time"] = 0
         if log_quantities is not None:
             exec_sub_timer = log_quantities["exec_timer"].start_sub_timer()
         context = exec_mapper.context
@@ -539,7 +533,7 @@ class Code(object):
 
                 futures.extend(new_futures)
                 if profile_data is not None:
-                    profile_data['insn_eval_time'] += time() - insn_start_time
+                    profile_data["insn_eval_time"] += time() - insn_start_time
                 if log_quantities is not None:
                     insn_sub_timer.stop().submit()
             except self.NoInstructionAvailable:
@@ -559,7 +553,7 @@ class Code(object):
                     for i in range(len(futures)):
                         if futures[i].is_ready():
                             if profile_data is not None:
-                                profile_data['busy_wait_time'] +=\
+                                profile_data["busy_wait_time"] +=\
                                         time() - busy_wait_start_time
                                 future_start_time = time()
                             if log_quantities is not None:
@@ -580,7 +574,7 @@ class Code(object):
                             did_eval_future = True
 
                             if profile_data is not None:
-                                profile_data['future_eval_time'] +=\
+                                profile_data["future_eval_time"] +=\
                                         time() - future_start_time
                             if log_quantities is not None:
                                 future_sub_timer.stop().submit()
@@ -593,7 +587,7 @@ class Code(object):
         if log_quantities is not None:
             exec_sub_timer.stop().submit()
         if profile_data is not None:
-            profile_data['total_time'] = time() - start_time
+            profile_data["total_time"] = time() - start_time
             return (obj_array_vectorize(exec_mapper, self.result),
                     profile_data)
         return obj_array_vectorize(exec_mapper, self.result)
@@ -642,8 +636,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
         try:
             return var_assignees_cache[insn]
         except KeyError:
-            result = set(Variable(assignee)
-                    for assignee in insn.get_assignees())
+            result = {Variable(assignee) for assignee in insn.get_assignees()}
             var_assignees_cache[insn] = result
             return result
 
@@ -652,7 +645,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
 
         from pymbolic.primitives import Variable
         deps = (ass_1.get_dependencies() | ass_2.get_dependencies()) \
-                - set(Variable(name) for name in names)
+                - {Variable(name) for name in names}
 
         return Assign(
                 names=names, exprs=ass_1.exprs + ass_2.exprs,
@@ -665,10 +658,10 @@ def aggregate_assignments(inf_mapper, instructions, result,
 
     insn_to_origins_cache = {}
 
-    origins_map = dict(
-                (assignee, insn)
+    origins_map = {
+                assignee: insn
                 for insn in instructions
-                for assignee in insn.get_assignees())
+                for assignee in insn.get_assignees()}
 
     from pytools import partition
     from grudge.symbolic.primitives import DTAG_SCALAR
@@ -760,26 +753,26 @@ def aggregate_assignments(inf_mapper, instructions, result,
         if not did_work:
             processed_assigns.append(my_assign)
 
-    externally_used_names = set(
+    externally_used_names = {
             expr
             for insn in processed_assigns + other_insns
-            for expr in insn.get_dependencies())
+            for expr in insn.get_dependencies()}
 
     if isinstance(result, np.ndarray) and result.dtype.char == "O":
-        externally_used_names |= set(expr for expr in result)
+        externally_used_names |= {expr for expr in result}
     else:
-        externally_used_names |= set([result])
+        externally_used_names |= {result}
 
     def schedule_and_finalize_assignment(ass):
         dep_mapper = _make_dep_mapper(include_subscripts=False)
 
         names_exprs = list(zip(ass.names, ass.exprs))
 
-        my_assignees = set(name for name, expr in names_exprs)
+        my_assignees = {name for name, expr in names_exprs}
         names_exprs_deps = [
                 (name, expr,
-                    set(dep.name for dep in dep_mapper(expr) if
-                        isinstance(dep, Variable)) & my_assignees)
+                    {dep.name for dep in dep_mapper(expr) if
+                        isinstance(dep, Variable)} & my_assignees)
                 for name, expr in names_exprs]
 
         ordered_names_exprs = []
@@ -855,7 +848,7 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
     def map_name(self, name):
         dot_idx = name.find(".")
         if dot_idx != -1:
-            return "grdg_sub_%s_%s" % (name[:dot_idx], name[dot_idx+1:])
+            return "grdg_sub_{}_{}".format(name[:dot_idx], name[dot_idx+1:])
         else:
             return name
 
@@ -871,7 +864,7 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
 
             suffix_nr = 0
             while name in self.used_names:
-                name = "%s_%s" % (name_prefix, suffix_nr)
+                name = f"{name_prefix}_{suffix_nr}"
                 suffix_nr += 1
             self.used_names.add(name)
 
@@ -982,7 +975,7 @@ def bessel_function_mangler(kernel, name, arg_dtypes):
 # }}}
 
 
-class ToLoopyInstructionMapper(object):
+class ToLoopyInstructionMapper:
     def __init__(self, dd_inference_mapper):
         self.dd_inference_mapper = dd_inference_mapper
         self.function_registry = dd_inference_mapper.function_registry
@@ -1065,7 +1058,7 @@ class ToLoopyInstructionMapper(object):
         from grudge.symbolic.mappers import DependencyMapper
         dep_mapper = DependencyMapper(composite_leaves=False)
 
-        for expr, name in six.iteritems(expr_mapper.expr_to_name):
+        for expr, name in expr_mapper.expr_to_name.items():
             deps = dep_mapper(expr)
             assert len(deps) <= 1
             if not deps:
@@ -1130,7 +1123,7 @@ class CodeGenerationState(Record):
 class OperatorCompiler(mappers.IdentityMapper):
     def __init__(self, discr, function_registry,
             prefix="_expr", max_vectors_in_batch_expr=None):
-        super(OperatorCompiler, self).__init__()
+        super().__init__()
         self.prefix = prefix
 
         self.max_vectors_in_batch_expr = max_vectors_in_batch_expr
@@ -1171,7 +1164,7 @@ class OperatorCompiler(mappers.IdentityMapper):
 
         codegen_state = CodeGenerationState(generating_discr_code=False)
         # Finally, walk the expression and build the code.
-        result = super(OperatorCompiler, self).__call__(expr, codegen_state)
+        result = super().__call__(expr, codegen_state)
 
         eval_code = self.eval_code
         del self.eval_code
@@ -1301,7 +1294,7 @@ class OperatorCompiler(mappers.IdentityMapper):
 
     def map_call(self, expr, codegen_state):
         if is_function_loopyable(expr.function, self.function_registry):
-            return super(OperatorCompiler, self).map_call(expr, codegen_state)
+            return super().map_call(expr, codegen_state)
         else:
             # If it's not a C-level function, it shouldn't get muddled up into
             # a vector math expression.

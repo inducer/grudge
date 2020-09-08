@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -22,8 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-import six
 from pytools import memoize_method
 from grudge import sym
 import numpy as np  # noqa: F401
@@ -35,7 +31,7 @@ __doc__ = """
 """
 
 
-class DGDiscretizationWithBoundaries(object):
+class DGDiscretizationWithBoundaries:
     """
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
@@ -141,7 +137,7 @@ class DGDiscretizationWithBoundaries(object):
                     i_remote_part, grp_factory)
             setup_helper.post_sends()
 
-        for i_remote_part, setup_helper in six.iteritems(setup_helpers):
+        for i_remote_part, setup_helper in setup_helpers.items():
             boundary_connections[i_remote_part] = setup_helper.complete_setup()
 
         return boundary_connections

@@ -1,7 +1,4 @@
-# -*- coding: utf8 -*-
 """Wave equation operators."""
-
-from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -24,7 +21,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
 
 import numpy as np
 from grudge.models import HyperbolicOperator

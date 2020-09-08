@@ -1,10 +1,4 @@
-# -*- coding: utf8 -*-
 """Lattice-Boltzmann operator."""
-
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
 
 __copyright__ = "Copyright (C) 2011 Andreas Kloeckner"
 
@@ -34,10 +28,7 @@ from grudge.models import HyperbolicOperator
 from pytools.obj_array import make_obj_array
 
 
-
-
-
-class LBMMethodBase(object):
+class LBMMethodBase:
     def __len__(self):
         return len(self.direction_vectors)
 
@@ -51,7 +42,7 @@ class LBMMethodBase(object):
             found = False
             for alpha_2 in range(alpha, len(self)):
                 if la.norm(
-                        self.direction_vectors[alpha] 
+                        self.direction_vectors[alpha]
                         + self.direction_vectors[alpha_2]) < 1e-12:
                     self.opposites[alpha] = alpha_2
                     self.opposites[alpha_2] = alpha
@@ -59,7 +50,7 @@ class LBMMethodBase(object):
 
             if not found:
                 raise RuntimeError(
-                        "direction %s had no opposite" 
+                        "direction %s had no opposite"
                         % self.direction_vectors[alpha])
 
 
@@ -197,9 +188,9 @@ class LatticeBoltzmannOperator(HyperbolicOperator):
         from grudge.symbolic.mappers.type_inference import (
                 type_info, NodalRepresentation)
 
-        type_hints = dict(
-                (f_bar_i, type_info.VolumeVector(NodalRepresentation()))
-                for f_bar_i in f_bar_sym)
+        type_hints = {
+                f_bar_i: type_info.VolumeVector(NodalRepresentation())
+                for f_bar_i in f_bar_sym}
 
         compiled_sym_operator = discr.compile(what(f_bar_sym), type_hints=type_hints)
 
