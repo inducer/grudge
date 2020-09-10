@@ -22,34 +22,36 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
             # Create input array
             cq = vec.queue
-            shape = vec.shape
             dtp = vec.dtype
+
+            # Esto no deberia hacerse aqui.
             _,(inArg,) = ctof_knl(cq, input=vec)
             
             # Treat as c array, can do this to use c-format diff function
-            #inArg.shape = (inArg.shape[1], inArg.shape[0])
-            #inArg.strides = pyopencl.array._make_strides(vec.dtype.itemsize, inArg.shape, "c")
+            # np.array(A, format="F").flatten() == np.array(A.T, format="C").flatten()
+            inArg.shape = (inArg.shape[1], inArg.shape[0])
+            inArg.strides = pyopencl.array._make_strides(vec.dtype.itemsize, inArg.shape, "c")
+            outShape = inArg.shape #(inArg.shape[1], inArg.shape[0])
 
-            argDict = { "result1": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
-                        "result2": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
-                        "result3": pyopencl.array.Array(cq, inArg.shape, dtp, order="f"),
+            argDict = { "result1": pyopencl.array.Array(cq, outShape, dtp, order="c"),
+                        "result2": pyopencl.array.Array(cq, outShape, dtp, order="c"),
+                        "result3": pyopencl.array.Array(cq, outShape, dtp, order="c"),
                         "vec": inArg,
                         "mat1": diff_mat[0],
                         "mat2": diff_mat[1],
                         "mat3": diff_mat[2] }
-            
+              
             super().call_loopy(program, **argDict)
 
             result = kwargs["result"]
 
-            # Change order of result back to c ordering
+            # Treat as fortran style array again
             for i, entry in enumerate(["result1", "result2", "result3"]):
-                # Treat as fortran array
-                #argDict[entry].shape = (argDict[entry].shape[1], argDict[entry].shape[0])
-                #argDict[entry].strides = pyopencl.array._make_strides(argDict[entry].dtype.itemsize, argDict[entry].shape, "f")
+                argDict[entry].shape = (argDict[entry].shape[1], argDict[entry].shape[0])
+                argDict[entry].strides = pyopencl.array._make_strides(argDict[entry].dtype.itemsize, argDict[entry].shape, "f")
+                # This should be unnecessary
+                # Il est necessaire pour le moment a cause du "ctof" d'ici. 
                 ftoc_knl(cq, input=argDict[entry], output=result[i])
-
-            return result            
 
         else:
             result = super().call_loopy(program,**kwargs)
@@ -59,9 +61,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     #@memoize_method
     def transform_loopy_program(self, program):
         if program.name == "opt_diff":
+            # TODO: Dynamically determine device id, don't hardcode path to transform.hjson.
+            # Also get pn from program
             filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
             deviceID = "NVIDIA Titan V"
             pn = 3
+
             transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
             program = dgk.applyTransformationList(program, transformations)
         else:

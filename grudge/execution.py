@@ -551,7 +551,7 @@ class ExecutionMapper(mappers.Evaluator,
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
                 print(field.entry_dtype)
-                program = dgk.gen_diff_knl_fortran(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
+                program = dgk.gen_diff_knl(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
 
