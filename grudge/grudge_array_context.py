@@ -3,7 +3,7 @@ import loopy as lp
 import pyopencl
 import pyopencl.array
 import loopy_dg_kernels as dgk
-#import numpy as np
+import numpy as np
 
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
@@ -12,6 +12,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def __init__(self, queue, allocator=None):
         super().__init__(queue, allocator=allocator)
+
+    def from_numpy(self, np_array: np.ndarray):
+        # Should intercept this for the dof array
+        # and make it return a fortran style array
+        return super().from_numpy(np_array)
+        
 
     def call_loopy(self, program, **kwargs):
 
@@ -71,29 +77,5 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = dgk.applyTransformationList(program, transformations)
         else:
             program = super().transform_loopy_program(program)
-
-        '''
-        # Broken currently
-        ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
-        #ctof_knl = lp.rename_argument(ctof_knl, "input", "input_ctof")
-        ctof_knl = lp.rename_argument(ctof_knl, "output", "vec")
-        ctof_knl = lp.rename_iname(ctof_knl, "i0", "i0_ctof")
-        ctof_knl = lp.rename_iname(ctof_knl, "i1", "i1_ctof")
-
-        ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
-        ftoc_knl = lp.rename_argument(ftoc_knl, "input", "result")
-        ftoc_knl = lp.rename_argument(ftoc_knl, "n0", "nelements", existing_ok=True)
-        ftoc_knl = lp.rename_argument(ftoc_knl, "n1", "ndiscr_nodes", existing_ok=True)
-        #ftoc_knl = lp.rename_argument(ftoc_knl, "output", "output_ftoc")
-        ftoc_knl = lp.rename_iname(ftoc_knl, "i0", "i0_ftoc")
-        ftoc_knl = lp.rename_iname(ftoc_knl, "i1", "i1_ftoc")
-
-        #dependencies = [("vec", ctof_knl, program), ("result", program, ctof_knl)] 
-        dependencies =  [("vec", ctof_knl, program)]
-        program = lp.fuse_kernels([ctof_knl, program], data_flow=dependencies)
-        #program = lp.fuse_kernels([ctof_knl, program, ftoc_knl], data_flow=dependencies)
-        '''
-
-        #print(program)
 
         return program
