@@ -8,6 +8,7 @@ import numpy as np
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
+# Really this is more of an Nvidia array context probably
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def __init__(self, queue, allocator=None):
@@ -15,9 +16,15 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def from_numpy(self, np_array: np.ndarray):
         # Should intercept this for the dof array
-        # and make it return a fortran style array
-        return super().from_numpy(np_array)
-        
+        # and make it return a fortran style array 
+        # Creation of the field seems to not pass
+        # through here though.
+        cl_array_c = super().from_numpy(np_array)
+        #print(cl_array_c.shape)
+        return cl_array_c
+        #cq = cl_arry.queue # Is this necessary?
+        #_,(cl_array_f,) = ctof_knl(cq, input=cl_array_c)
+        #return cl_array_f 
 
     def call_loopy(self, program, **kwargs):
 

@@ -279,8 +279,6 @@ class ExecutionMapper(mappers.Evaluator,
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
                 name="elwise_linear")
 
-            #result = lp.tag_array_axes(result, "result", "f,f")
-            #result = lp.tag_array_axes(result, "vec", "f,f")
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
             return result
 
@@ -493,6 +491,7 @@ class ExecutionMapper(mappers.Evaluator,
             self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_diff_batch_assign(self, insn, profile_data=None):
+        # Whence comes the field?
         field = self.rec(insn.field)
         repr_op = insn.operators[0]
         # FIXME: There's no real reason why differentiation is special,
@@ -536,21 +535,25 @@ class ExecutionMapper(mappers.Evaluator,
             if in_grp.nelements == 0:
                 continue
 
-            matrices = repr_op.matrices(out_grp, in_grp)
+            # Cache operator
+            cache_key = "diff_batch", in_grp, out_grp, repr_op, field.dtype
+            try:
+                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrices = repr_op.matrices(out_grp, in_grp)
+                matrices_ary = np.empty((
+                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
+                for i, op in enumerate(insn.operators):
+                    matrices_ary[i] = matrices[op.rst_axis]
+                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
-            # FIXME: Should transfer matrices to device and cache them
-            matrices_ary = np.empty((
-                noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
-            for i, op in enumerate(insn.operators):
-                matrices_ary[i] = matrices[op.rst_axis]
-            matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
-            
-            # Breaks on complex data types
-            if noperators == 3 and field.entry_dtype == np.float64:
+            # Breaks on complex data types without check
+            if noperators == 3 and field.entry_dtype == np.float64 or field.entry_dtype == np.float32:
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
-                print(field.entry_dtype)
+                #print(field.entry_dtype)
                 program = dgk.gen_diff_knl(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
