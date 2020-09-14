@@ -492,7 +492,10 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_insn_diff_batch_assign(self, insn, profile_data=None):
         # Whence comes the field?
-        field = self.rec(insn.field)
+        ifield = insn.field
+        #import pdb
+        #pdb.set_trace()
+        field = self.rec(ifield)
         repr_op = insn.operators[0]
         # FIXME: There's no real reason why differentiation is special,
         # execution-wise.
@@ -520,7 +523,6 @@ class ExecutionMapper(mappers.Evaluator,
             result = lp.tag_inames(result, "imatrix: unr")
             result = lp.tag_array_axes(result, "result", "sep,c,c")
             return result
-
 
         noperators = len(insn.operators)
 

@@ -14,6 +14,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     def __init__(self, queue, allocator=None):
         super().__init__(queue, allocator=allocator)
 
+    '''
     def from_numpy(self, np_array: np.ndarray):
         # Should intercept this for the dof array
         # and make it return a fortran style array 
@@ -25,6 +26,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         #cq = cl_arry.queue # Is this necessary?
         #_,(cl_array_f,) = ctof_knl(cq, input=cl_array_c)
         #return cl_array_f 
+    '''
 
     def call_loopy(self, program, **kwargs):
 
@@ -70,6 +72,18 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             result = super().call_loopy(program,**kwargs)
 
         return result
+    
+    # May need to define this and have it return dof array in Fortran format?
+    # Side note: the meaning of thawed and frozen seem counterintuitive to me.
+    def thaw(self, array):
+        thawed = super().thaw(array)
+        # This will only work on the maxwell case
+        if False:#thawed.shape == (384, 35):
+            print("THAWING THE DOF ARRAY") 
+            cq = thawed.queue
+            _, (out,) = ctof_knl(cq, input=thawed)
+            thawed = out
+        return thawed
 
     #@memoize_method
     def transform_loopy_program(self, program):
