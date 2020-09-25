@@ -30,6 +30,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
+        print("Program: " + program.name)
         if program.name == "opt_diff":
             diff_mat = kwargs["diff_mat"]
             result = kwargs["result"]
@@ -40,7 +41,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             dtp = vec.dtype
 
             # Esto no deberia hacerse aqui.
-            _,(inArg,) = ctof_knl(cq, input=vec)
+            #_,(inArg,) = ctof_knl(cq, input=vec)
             
             # Treat as c array, can do this to use c-format diff function
             # np.array(A, format="F").flatten() == np.array(A.T, format="C").flatten()
@@ -66,7 +67,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 argDict[entry].strides = pyopencl.array._make_strides(argDict[entry].dtype.itemsize, argDict[entry].shape, "f")
                 # This should be unnecessary
                 # Il est necessaire pour le moment a cause du "ctof" d'ici. 
-                ftoc_knl(cq, input=argDict[entry], output=result[i])
+                #ftoc_knl(cq, input=argDict[entry], output=result[i])
 
         else:
             result = super().call_loopy(program,**kwargs)
@@ -78,7 +79,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     def thaw(self, array):
         thawed = super().thaw(array)
         # This will only work on the maxwell case
-        if False:#thawed.shape == (384, 35):
+        if thawed.shape == (384, 35):
             print("THAWING THE DOF ARRAY") 
             cq = thawed.queue
             _, (out,) = ctof_knl(cq, input=thawed)
@@ -96,6 +97,16 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
             transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
             program = dgk.applyTransformationList(program, transformations)
+        elif program.name in ("grudge_assign_0"):
+            names = []
+            for arg in program.args:
+                if type(arg) == lp.ArrayArg:
+                    names.append(arg.name)
+            if len(names) > 0:
+                program = lp.tag_array_axes(program, names, "f,f") 
+        elif program.name == "flatten":
+            program = lp.tag_array_axes(program, "grp_ary", "f,f")           
+
         else:
             program = super().transform_loopy_program(program)
 
