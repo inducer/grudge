@@ -537,7 +537,7 @@ class ExecutionMapper(mappers.Evaluator,
                 matrices_ary = np.empty((
                     noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
                 for i, op in enumerate(insn.operators):
-                    matrices_ary[i] = matrices[op.rst_axis]
+                    matrices_ary[i,:,:] = matrices[op.rst_axis][:,:]
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
