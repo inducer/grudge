@@ -529,7 +529,7 @@ class ExecutionMapper(mappers.Evaluator,
                 continue
 
             # Cache operator
-            cache_key = "diff_batch", in_grp, out_grp, repr_op, field.dtype
+            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators), field.dtype
             try:
                 matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
@@ -537,10 +537,10 @@ class ExecutionMapper(mappers.Evaluator,
                 matrices_ary = np.empty((
                     noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
                 for i, op in enumerate(insn.operators):
-                    matrices_ary[i,:,:] = matrices[op.rst_axis][:,:]
+                    matrices_ary[i] = matrices[op.rst_axis]
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
-
+            
             self.array_context.call_loopy(
                     prg(noperators),
                     diff_mat=matrices_ary_dev,
