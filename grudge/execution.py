@@ -530,6 +530,21 @@ class ExecutionMapper(mappers.Evaluator,
             if in_grp.nelements == 0:
                 continue
 
+            # Cache operator
+            cache_key = ("diff_batch", in_grp, out_grp, repr_op, field.dtype)
+            print(cache_key)
+            try:
+                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrices = repr_op.matrices(out_grp, in_grp)
+                matrices_ary = np.empty((
+                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
+                for i, op in enumerate(insn.operators):
+                    matrices_ary[i] = matrices[op.rst_axis]
+                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
+            cached = matrices_ary_dev.get()
+             
             matrices = repr_op.matrices(out_grp, in_grp)
 
             # FIXME: Should transfer matrices to device and cache them
@@ -537,7 +552,11 @@ class ExecutionMapper(mappers.Evaluator,
                 noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
             for i, op in enumerate(insn.operators):
                 matrices_ary[i] = matrices[op.rst_axis]
-            matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+            matrices_ary_dev2 = self.array_context.from_numpy(matrices_ary)
+            uncached = matrices_ary_dev2.get()
+    
+            from numpy.linalg import norm
+            print(norm(cached - uncached)/norm(uncached))
 
             self.array_context.call_loopy(
                     prg(noperators),
