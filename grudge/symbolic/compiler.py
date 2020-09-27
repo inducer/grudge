@@ -212,8 +212,7 @@ class RankDataSwapAssign(Instruction):
     .. attribute:: dd_out
     .. attribute:: comment
     """
-    # TODO: We need to be sure this does not conflict with some other tag.
-    MPI_TAG_GRUDGE_DATA_BASE = 0x3700d3e
+    MPI_TAG_GRUDGE_DATA_BASE = 15165
 
     def __init__(self, name, field, op):
         self.name = name
