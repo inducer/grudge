@@ -34,10 +34,6 @@ jobs:
                 sudo apt-get update
                 sudo apt-get install openmpi-bin libopenmpi-dev
                 CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-                
-                # https://github.com/inducer/grudge/pull/19
-                CISUPPORT_PARALLEL_PYTEST=no
-                
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
                 . ./build-and-test-py-project-within-miniconda.sh
 
