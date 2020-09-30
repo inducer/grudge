@@ -152,7 +152,7 @@ def main(write_output=True, flux_type_arg="upwind",
     u = discr.interpolate_volume_function(lambda x, el: case.u0(x[0]))
 
     # diagnostics setup -------------------------------------------------------
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_simulation_quantities, \
             add_run_info

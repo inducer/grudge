@@ -12,3 +12,4 @@ git+https://github.com/inducer/modepy.git#egg=modepy
 git+https://github.com/inducer/meshmode.git#egg=meshmode
 git+https://github.com/inducer/pyvisfile.git#egg=pyvisfile
 git+https://github.com/inducer/pymetis.git#egg=pymetis
+git+https://github.com/illinois-ceesd/logpyle.git#egg=logpyle

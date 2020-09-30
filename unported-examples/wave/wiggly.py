@@ -85,7 +85,7 @@ def main(write_output=True,
             [discr.volume_zeros(dtype=dtype) for i in range(discr.dimensions)])
 
     # diagnostics setup -------------------------------------------------------
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_simulation_quantities, \
             add_run_info

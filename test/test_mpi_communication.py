@@ -162,7 +162,7 @@ def mpi_communication_entrypoint():
     #           Fails because: "found faces without boundary conditions"
     # op.check_bc_coverage(local_mesh)
 
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_run_info, \
             IntervalTimer, EventCounter

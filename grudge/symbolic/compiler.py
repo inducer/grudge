@@ -517,7 +517,7 @@ class Code:
                 mapper_method = getattr(exec_mapper, insn.mapper_method)
                 if log_quantities is not None:
                     if isinstance(insn, RankDataSwapAssign):
-                        from pytools.log import time_and_count_function
+                        from logpyle import time_and_count_function
                         mapper_method = time_and_count_function(
                                 mapper_method,
                                 log_quantities["rank_data_swap_timer"],
