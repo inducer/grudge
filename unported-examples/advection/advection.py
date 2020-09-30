@@ -108,7 +108,7 @@ def main(write_output=True, flux_type_arg="upwind"):
         print("%d elements" % len(discr.mesh.elements))
 
     # diagnostics setup -------------------------------------------------------
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_simulation_quantities, \
             add_run_info

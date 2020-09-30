@@ -159,7 +159,7 @@ def main():
         stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
-        from pytools.log import LogManager, add_general_quantities, \
+        from logpyle import LogManager, add_general_quantities, \
                 add_simulation_quantities, add_run_info
 
         logmgr = LogManager("navierstokes-%d.dat" % order, "w", rcon.communicator)
@@ -171,7 +171,7 @@ def main():
 
         logmgr.add_watches(["step.max", "t_sim.max", "t_step.max"])
 
-        from pytools.log import LogQuantity
+        from logpyle import LogQuantity
 
         class ChangeSinceLastStep(LogQuantity):
             """Records the change of a variable between a time step and the previous

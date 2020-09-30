@@ -102,7 +102,7 @@ def main(write_output=True) :
     u = discr.interpolate_volume_function(u0)
 
     # diagnostics setup -------------------------------------------------------
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_simulation_quantities, \
             add_run_info

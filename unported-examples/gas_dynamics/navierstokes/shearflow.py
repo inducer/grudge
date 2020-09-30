@@ -132,7 +132,7 @@ def main():
         stepper = RK4TimeStepper()
 
         # diagnostics setup ---------------------------------------------------
-        from pytools.log import LogManager, add_general_quantities, \
+        from logpyle import LogManager, add_general_quantities, \
                 add_simulation_quantities, add_run_info
 
         logmgr = LogManager("navierstokes-cpu-%d-%d.dat" % (order, refine),

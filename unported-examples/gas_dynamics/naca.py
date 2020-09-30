@@ -181,7 +181,7 @@ def main():
         #stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type)
 
         # diagnostics setup ---------------------------------------------------
-        from pytools.log import LogManager, add_general_quantities, \
+        from logpyle import LogManager, add_general_quantities, \
                 add_simulation_quantities, add_run_info
 
         logmgr = LogManager("cns-naca-%d.dat" % order, "w", rcon.communicator)
@@ -192,7 +192,7 @@ def main():
         discr.add_instrumentation(logmgr)
         stepper.add_instrumentation(logmgr)
 
-        from pytools.log import LogQuantity
+        from logpyle import LogQuantity
         class ChangeSinceLastStep(LogQuantity):
             """Records the change of a variable between a time step and the previous
                one"""
