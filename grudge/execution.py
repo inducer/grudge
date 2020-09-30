@@ -525,19 +525,14 @@ class ExecutionMapper(mappers.Evaluator,
             if in_grp.nelements == 0:
                 continue
 
-            # Cache operator
-            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
-                field.dtype
-            try:
-                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
-            except KeyError:
-                matrices = repr_op.matrices(out_grp, in_grp)
-                matrices_ary = np.empty((
-                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
-                for i, op in enumerate(insn.operators):
-                    matrices_ary[i] = matrices[op.rst_axis]
-                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
-                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
+            matrices = repr_op.matrices(out_grp, in_grp)
+
+            # FIXME: Should transfer matrices to device and cache them
+            matrices_ary = np.empty((
+                noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
+            for i, op in enumerate(insn.operators):
+                matrices_ary[i] = matrices[op.rst_axis]
+            matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
 
             self.array_context.call_loopy(
                     prg(noperators),
