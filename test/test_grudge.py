@@ -805,10 +805,6 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
-    import os
-    if os.environ.get("GITHUB_ACTIONS") == "true" and order >= 4:
-        pytest.skip("not enough memory on Github CI")
-
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
