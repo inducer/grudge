@@ -533,7 +533,8 @@ class ExecutionMapper(mappers.Evaluator,
             except KeyError:
                 matrices = repr_op.matrices(out_grp, in_grp)
                 matrices_ary = np.empty((
-                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs), dtype=field.entry_dtype)
+                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),\
+                        dtype=field.entry_dtype)
                 for i, op in enumerate(insn.operators):
                     matrices_ary[i] = matrices[op.rst_axis]
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
