@@ -37,7 +37,7 @@ import grudge.symbolic.mappers as mappers
 from pymbolic.primitives import Variable, Subscript
 from six.moves import intern
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
+#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 
 
 # {{{ instructions
@@ -1030,6 +1030,11 @@ class ToLoopyInstructionMapper(object):
         if not expr_mapper.non_scalar_vars:
             return insn
 
+        kdata = []
+        #for name in insn.names:
+        # Make all global args
+        #    Global
+
         knl = lp.make_kernel(
                 "{[%(iel)s, %(idof)s]: "
                 "0 <= %(iel)s < nelements and 0 <= %(idof)s < nunit_dofs}"
@@ -1046,6 +1051,9 @@ class ToLoopyInstructionMapper(object):
                     no_numpy=True,
                     )
                 )
+        for arg in knl.args:
+            if type(arg) == lp.ArrayArg:
+                arg.tags = "dof_array"
 
         self.insn_count += 1
 

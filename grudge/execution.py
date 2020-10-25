@@ -45,7 +45,7 @@ import loopy_dg_kernels as dgk
 import logging
 logger = logging.getLogger(__name__)
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
+#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 
 
 MPI_TAG_SEND_TAGS = 1729
@@ -277,6 +277,11 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=idof<ndiscr_nodes_out and
                     0<=j<ndiscr_nodes_in}""",
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
+                kernel_data=[
+                    lp.GlobalArg("result", None, shape=lp.auto, tags="dof_array"),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags="dof_array"),
+                    ...
+                ],
                 name="elwise_linear")
 
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
@@ -344,6 +349,11 @@ class ExecutionMapper(mappers.Evaluator,
                 """
                 result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
                 """,
+                kernel_data = [
+                    lp.GlobalArg("result", None, shape=lp.auto, tags="dof_array"),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags="face_dof_array"),
+                    "..."
+                ],
                 name="face_mass")
 
         all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
@@ -517,9 +527,19 @@ class ExecutionMapper(mappers.Evaluator,
                 result[imatrix, iel, idof] = sum(
                         j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
+                kernel_data=[
+                    lp.GlobalArg("result", None, shape=lp.auto, tags="mult_dof_array"),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags="dof_array"),
+                    lp.GlobalArg("diff_mat", None, shape=lp.auto),
+                    lp.ValueArg("nmatrices", None),
+                    lp.ValueArg("nelements", None),
+                    lp.ValueArg("nunit_nodes_out", None),
+                    lp.ValueArg("nunit_nodes_in", None)
+                ],
                 name="diff")
 
             result = lp.fix_parameters(result, nmatrices=nmatrices)
+            # Why is this doing kernel transformations?
             result = lp.tag_inames(result, "imatrix: unr")
             result = lp.tag_array_axes(result, "result", "sep,c,c")
             return result
@@ -556,7 +576,7 @@ class ExecutionMapper(mappers.Evaluator,
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
                 #print(field.entry_dtype)
-                program = dgk.gen_diff_knl(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
+                program = dgk.gen_diff_knl_fortran(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
 

@@ -1,7 +1,7 @@
-from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.array_context import PyOpenCLArrayContext, make_loopy_program
 import loopy as lp
 import pyopencl
-import pyopencl.array
+import pyopencl.array as cla
 import loopy_dg_kernels as dgk
 import numpy as np
 
@@ -13,6 +13,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def __init__(self, queue, allocator=None):
         super().__init__(queue, allocator=allocator)
+
+    def empty(self, shape, dtype):
+        return cla.empty(self.queue, shape=shape, dtype=dtype,
+                allocator=self.allocator, order='F')
+
+    def zeros(self, shape, dtype):
+        return cla.zeros(self.queue, shape=shape, dtype=dtype,
+                allocator=self.allocator, order='F')
 
     '''
     def from_numpy(self, np_array: np.ndarray):
@@ -30,7 +38,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
-        print("Program: " + program.name)
+        #print("Program: " + program.name)
         if program.name == "opt_diff":
             diff_mat = kwargs["diff_mat"]
             result = kwargs["result"]
@@ -45,14 +53,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             
             # Treat as c array, can do this to use c-format diff function
             # np.array(A, format="F").flatten() == np.array(A.T, format="C").flatten()
-            inArg.shape = (inArg.shape[1], inArg.shape[0])
-            inArg.strides = pyopencl.array._make_strides(vec.dtype.itemsize, inArg.shape, "c")
-            outShape = inArg.shape #(inArg.shape[1], inArg.shape[0])
+            #inArg.shape = (inArg.shape[1], inArg.shape[0])
+            #inArg.strides = cla._make_strides(vec.dtype.itemsize, inArg.shape, "c")
+            #outShape = inArg.shape #(inArg.shape[1], inArg.shape[0])
 
-            argDict = { "result1": pyopencl.array.Array(cq, outShape, dtp, order="c"),
-                        "result2": pyopencl.array.Array(cq, outShape, dtp, order="c"),
-                        "result3": pyopencl.array.Array(cq, outShape, dtp, order="c"),
-                        "vec": inArg,
+            argDict = { "result1": cla.Array(cq, vec.shape, dtp, order="f"),
+                        "result2": cla.Array(cq, vec.shape, dtp, order="f"),
+                        "result3": cla.Array(cq, vec.shape, dtp, order="f"),
+                        "vec": vec,
                         "mat1": diff_mat[0],
                         "mat2": diff_mat[1],
                         "mat3": diff_mat[2] }
@@ -62,9 +70,9 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             result = kwargs["result"]
 
             # Treat as fortran style array again
-            for i, entry in enumerate(["result1", "result2", "result3"]):
-                argDict[entry].shape = (argDict[entry].shape[1], argDict[entry].shape[0])
-                argDict[entry].strides = pyopencl.array._make_strides(argDict[entry].dtype.itemsize, argDict[entry].shape, "f")
+            #for i, entry in enumerate(["result1", "result2", "result3"]):
+            #    argDict[entry].shape = (argDict[entry].shape[1], argDict[entry].shape[0])
+            #    argDict[entry].strides = cla._make_strides(argDict[entry].dtype.itemsize, argDict[entry].shape, "f")
                 # This should be unnecessary
                 # Il est necessaire pour le moment a cause du "ctof" d'ici. 
                 #ftoc_knl(cq, input=argDict[entry], output=result[i])
@@ -73,21 +81,39 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             result = super().call_loopy(program,**kwargs)
 
         return result
+
+    #memoize_method
+    def _get_scalar_func_loopy_program(self, name, nargs, naxes):
+        prog = super()._get_scalar_func_loopy_program(name, nargs, naxes)
+        for arg in prog.args:
+            if type(arg) == lp.ArrayArg:
+                arg.tags = "dof_array"
+        return prog
+
     
-    # May need to define this and have it return dof array in Fortran format?
     # Side note: the meaning of thawed and frozen seem counterintuitive to me.
     def thaw(self, array):
         thawed = super().thaw(array)
-        # This will only work on the maxwell case
-        if thawed.shape == (384, 35):
-            print("THAWING THE DOF ARRAY") 
+        if getattr(array, "tags", None) == "dof_array":           
             cq = thawed.queue
             _, (out,) = ctof_knl(cq, input=thawed)
             thawed = out
+            # May or may not be needed
+            thawed.tags = "dof_array"
         return thawed
 
     #@memoize_method
     def transform_loopy_program(self, program):
+
+        #print(program.name)
+        for arg in program.args:
+            if arg.tags == "dof_array":
+                program = lp.tag_array_axes(program, arg.name, "f,f")
+            elif arg.tags == "mult_dof_array":
+                program = lp.tag_array_axes(program, arg.name, "sep,f,f")        
+            elif arg.tags == "face_dof_array":
+                program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")        
+
         if program.name == "opt_diff":
             # TODO: Dynamically determine device id, don't hardcode path to transform.hjson.
             # Also get pn from program
@@ -97,16 +123,6 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
             transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
             program = dgk.applyTransformationList(program, transformations)
-        elif program.name in ("grudge_assign_0"):
-            names = []
-            for arg in program.args:
-                if type(arg) == lp.ArrayArg:
-                    names.append(arg.name)
-            if len(names) > 0:
-                program = lp.tag_array_axes(program, names, "f,f") 
-        elif program.name == "flatten":
-            program = lp.tag_array_axes(program, "grp_ary", "f,f")           
-
         else:
             program = super().transform_loopy_program(program)
 

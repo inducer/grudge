@@ -28,7 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
+#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa
 from pytools import RecordWithoutPickling
 
 
@@ -103,6 +103,8 @@ class CElementwiseFunction(Function):
             func_name = "abs"
 
         sfunc = getattr(array_context.np, func_name)
+        #print("ICH BIN HIER")
+        #print(sfunc.domains)
         return sfunc(*args)
 
 
