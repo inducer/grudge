@@ -251,6 +251,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def normal(self, dd):
+        """Get unit normal to specified surface discretization, *dd*.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
+        :returns: surface normal as :class:`~pymbolic.geometric_algebra.MultiVector`.
+        """
         surface_discr = self.discr_from_dd(dd)
         actx = surface_discr._setup_actx
         return freeze(
