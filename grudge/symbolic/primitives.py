@@ -819,6 +819,7 @@ def mv_normal(dd, ambient_dim, dim=None):
 
 
 def normal(dd, ambient_dim, dim=None):
+    """Get exterior unit normal vector to specified discretization restriction.""" 
     return mv_normal(dd, ambient_dim, dim).as_vector()
 
 
