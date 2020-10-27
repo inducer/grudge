@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2017 Bogdan Enache"
 
 __license__ = """
@@ -28,6 +26,7 @@ import numpy as np
 import pyopencl as cl
 
 from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import thaw, flatten
 
 from grudge import bind, sym
 from pytools.obj_array import flat_obj_array
@@ -39,8 +38,8 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `weak.py`)
 
 class Plotter:
-    def __init__(self, queue, discr, order, visualize=True, ylim=None):
-        self.queue = queue
+    def __init__(self, actx, discr, order, visualize=True, ylim=None):
+        self.actx = actx
         self.dim = discr.ambient_dim
 
         self.visualize = visualize
@@ -53,7 +52,7 @@ class Plotter:
             self.ylim = ylim
 
             volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-            self.x = volume_discr.nodes().get(self.queue)
+            self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(discr, vis_order=order)
@@ -63,7 +62,7 @@ class Plotter:
             return
 
         if self.dim == 1:
-            u = evt.state_component.get(self.queue)
+            u = self.actx.to_numpy(flatten(evt.state_component))
 
             filename = "%s.png" % basename
             if not overwrite and os.path.exists(filename):
@@ -71,14 +70,14 @@ class Plotter:
                 raise FileExistsError("output file '%s' already exists" % filename)
 
             ax = self.fig.gca()
-            ax.plot(self.x[0], u, '-')
-            ax.plot(self.x[0], u, 'k.')
+            ax.plot(self.x, u, "-")
+            ax.plot(self.x, u, "k.")
             if self.ylim is not None:
                 ax.set_ylim(self.ylim)
 
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
-            ax.set_title("t = {:.2f}".format(evt.t))
+            ax.set_title(f"t = {evt.t:.2f}")
             self.fig.savefig(filename)
             self.fig.clf()
         else:
@@ -89,7 +88,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
+def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -188,7 +187,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=True):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-    plot = Plotter(queue, discr, order, visualize=visualize,
+    plot = Plotter(actx, discr, order, visualize=visualize,
             ylim=[-0.1, 1.1])
 
     step = 0

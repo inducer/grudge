@@ -1,5 +1,3 @@
-from __future__ import division, print_function
-
 __copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
 
 __license__ = """
@@ -59,9 +57,9 @@ def wave_flux(discr, c, w_tpair):
             )
 
     # upwind
-    v_jump = np.dot(normal, v.int-v.ext)
-    flux_weak -= flat_obj_array(
-            0.5*(u.int-u.ext),
+    v_jump = np.dot(normal, v.ext-v.int)
+    flux_weak += flat_obj_array(
+            0.5*(u.ext-u.int),
             0.5*normal*scalar(v_jump),
             )
 
@@ -80,14 +78,14 @@ def wave_operator(discr, c, w):
     return (
             discr.inverse_mass(
                 flat_obj_array(
-                    c*discr.weak_div(v),
-                    c*discr.weak_grad(u)
+                    -c*discr.weak_div(v),
+                    -c*discr.weak_grad(u)
                     )
-                -  # noqa: W504
+                +  # noqa: W504
                 discr.face_mass(
                     wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
                     + wave_flux(discr, c=c, w_tpair=TracePair(
-                        BTAG_ALL, dir_bval, dir_bc))
+                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     + sum(
                         wave_flux(discr, c=c, w_tpair=tpair)
                         for tpair in cross_rank_trace_pairs(discr, w))
@@ -106,7 +104,7 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(discr, actx, t=0):
+def bump(actx, discr, t=0):
     source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
     source_width = 0.05
     source_omega = 3
@@ -171,7 +169,7 @@ def main():
         raise ValueError("don't have a stable time step guesstimate")
 
     fields = flat_obj_array(
-            bump(discr, actx),
+            bump(actx, discr),
             [discr.zeros(actx) for i in range(discr.dim)]
             )
 
@@ -179,8 +177,6 @@ def main():
 
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
-
-    rank = comm.Get_rank()
 
     t = 0
     t_final = 3
@@ -190,7 +186,9 @@ def main():
 
         if istep % 10 == 0:
             print(istep, t, discr.norm(fields[0]))
-            vis.write_vtk_file("fld-wave-eager-mpi-%03d-%04d.vtu" % (rank, istep),
+            vis.write_parallel_vtk_file(
+                    comm,
+                    f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),

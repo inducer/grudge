@@ -1,8 +1,4 @@
-# -*- coding: utf8 -*-
 """Operators modeling diffusive phenomena."""
-
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -26,16 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-
 import numpy
 
 import grudge.data
 from grudge.models import TimeDependentOperator
 from grudge.models.poisson import LaplacianOperatorBase
 from grudge.second_order import CentralSecondDerivative
-
-
 
 
 class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
@@ -66,10 +58,10 @@ class DiffusionOperator(TimeDependentOperator, LaplacianOperatorBase):
 
         return BoundDiffusionOperator(self, discr)
 
-    def estimate_timestep(self, discr, 
+    def estimate_timestep(self, discr,
             stepper=None, stepper_class=None, stepper_args=None,
             t=None, fields=None):
-        u"""Estimate the largest stable timestep, given a time stepper
+        """Estimate the largest stable timestep, given a time stepper
         `stepper_class`. If none is given, RK4 is assumed.
         """
 

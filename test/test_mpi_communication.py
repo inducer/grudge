@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import, print_function
-
 __copyright__ = """
 Copyright (C) 2017 Ellis Hoag
 Copyright (C) 2017 Andreas Kloeckner
@@ -140,9 +138,9 @@ def mpi_communication_entrypoint():
     sym_source_center_dist = sym_x - source_center
     sym_t = sym.ScalarVariable("t")
 
-    from grudge.models.wave import StrongWaveOperator
+    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = StrongWaveOperator(-0.1, vol_discr.dim,
+    op = WeakWaveOperator(0.1, vol_discr.dim,
             source_f=(
                 sym.sin(source_omega*sym_t)
                 * sym.exp(
@@ -164,13 +162,13 @@ def mpi_communication_entrypoint():
     #           Fails because: "found faces without boundary conditions"
     # op.check_bc_coverage(local_mesh)
 
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_run_info, \
             IntervalTimer, EventCounter
     log_filename = None
     # NOTE: LogManager hangs when using a file on a shared directory.
-    # log_filename = 'grudge_log.dat'
+    # log_filename = "grudge_log.dat"
     logmgr = LogManager(log_filename, "w", comm)
     add_run_info(logmgr)
     add_general_quantities(logmgr)
@@ -243,10 +241,10 @@ def mpi_communication_entrypoint():
             \tBusy Wait: %g\n
             \tTotal: %g seconds""",
             i_local_rank,
-            data['insn_eval_time'] / data['total_time'] * 100,
-            data['future_eval_time'] / data['total_time'] * 100,
-            data['busy_wait_time'] / data['total_time'] * 100,
-            data['total_time'])
+            data["insn_eval_time"] / data["total_time"] * 100,
+            data["future_eval_time"] / data["total_time"] * 100,
+            data["busy_wait_time"] / data["total_time"] * 100,
+            data["total_time"])
 
     print_profile_data(rhs.profile_data)
     logmgr.close()

@@ -1,18 +1,24 @@
-# Copyright (C) 2007 Andreas Kloeckner
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
 
 from __future__ import division
 from __future__ import absolute_import
@@ -88,7 +94,7 @@ def main(write_output=True, flux_type_arg="upwind"):
             TimeConstantGivenFunction, \
             TimeDependentGivenFunction
     from grudge.models.advection import StrongAdvectionOperator, WeakAdvectionOperator
-    op = WeakAdvectionOperator(v, 
+    op = WeakAdvectionOperator(v,
             inflow_u=TimeDependentGivenFunction(u_analytic),
             flux_type=flux_type_arg)
 
@@ -102,7 +108,7 @@ def main(write_output=True, flux_type_arg="upwind"):
         print("%d elements" % len(discr.mesh.elements))
 
     # diagnostics setup -------------------------------------------------------
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_simulation_quantities, \
             add_run_info
@@ -141,8 +147,8 @@ def main(write_output=True, flux_type_arg="upwind"):
         for step, t, dt in step_it:
             if step % 5 == 0 and write_output:
                 visf = vis.make_file("fld-%04d" % step)
-                vis.add_data(visf, [ 
-                    ("u", discr.convert_volume(u, kind="numpy")), 
+                vis.add_data(visf, [
+                    ("u", discr.convert_volume(u, kind="numpy")),
                     ], time=t, step=step)
                 visf.close()
 

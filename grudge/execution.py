@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -45,10 +43,8 @@ import loopy_dg_kernels as dgk
 import logging
 logger = logging.getLogger(__name__)
 
-#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
-
-
 MPI_TAG_SEND_TAGS = 1729
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 ResultType = Union[DOFArray, Number]
@@ -60,7 +56,7 @@ class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
     def __init__(self, array_context, context, bound_op):
-        super(ExecutionMapper, self).__init__(context)
+        super().__init__(context)
         self.discrwb = bound_op.discrwb
         self.bound_op = bound_op
         self.function_registry = bound_op.function_registry
@@ -76,7 +72,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         result = discr.empty(self.array_context)
         for grp_ary in result:
-            grp_ary.fill(1)
+            grp_ary.fill(1.0)
         return result
 
     def map_node_coordinate_component(self, expr):
@@ -97,7 +93,7 @@ class ExecutionMapper(mappers.Evaluator,
         return value
 
     def map_subscript(self, expr):
-        value = super(ExecutionMapper, self).map_subscript(expr)
+        value = super().map_subscript(expr)
 
         if isinstance(expr.aggregate, sym.Variable):
             dd = expr.aggregate.dd
@@ -184,10 +180,10 @@ class ExecutionMapper(mappers.Evaluator,
     def map_if(self, expr):
         bool_crit = self.rec(expr.condition)
 
-        if isinstance(bool_crit,  DOFArray):
+        if isinstance(bool_crit, DOFArray):
             # continues below
             pass
-        elif isinstance(bool_crit,  np.number):
+        elif isinstance(bool_crit, (np.bool_, np.bool, np.number)):
             if bool_crit:
                 return self.rec(expr.then)
             else:
@@ -196,7 +192,7 @@ class ExecutionMapper(mappers.Evaluator,
             raise TypeError(
                 "Expected criterion to be of type np.number or DOFArray")
 
-        assert isinstance(bool_crit,  DOFArray)
+        assert isinstance(bool_crit, DOFArray)
         ngroups = len(bool_crit)
 
         from pymbolic import var
@@ -210,7 +206,7 @@ class ExecutionMapper(mappers.Evaluator,
         import pymbolic.primitives as p
         var = p.Variable
 
-        if isinstance(then,  DOFArray):
+        if isinstance(then, DOFArray):
             sym_then = var("a")[subscript]
 
             def get_then(igrp):
@@ -224,12 +220,12 @@ class ExecutionMapper(mappers.Evaluator,
             raise TypeError(
                 "Expected 'then' to be of type np.number or DOFArray")
 
-        if isinstance(else_,  DOFArray):
+        if isinstance(else_, DOFArray):
             sym_else = var("b")[subscript]
 
             def get_else(igrp):
                 return else_[igrp]
-        elif isinstance(else_,  np.number):
+        elif isinstance(else_, np.number):
             sym_else = var("b")
 
             def get_else(igrp):
@@ -524,23 +520,19 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=idof<nunit_nodes_out and
                     0<=j<nunit_nodes_in}""",
                 """
-                result[imatrix, iel, idof] = sum(
+                result[imatrix, iel, idof] = simul_reduce(sum,
                         j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags="mult_dof_array"),
                     lp.GlobalArg("vec", None, shape=lp.auto, tags="dof_array"),
                     lp.GlobalArg("diff_mat", None, shape=lp.auto),
-                    lp.ValueArg("nmatrices", None),
-                    lp.ValueArg("nelements", None),
-                    lp.ValueArg("nunit_nodes_out", None),
-                    lp.ValueArg("nunit_nodes_in", None)
+                    ...
                 ],
                 name="diff")
 
             result = lp.fix_parameters(result, nmatrices=nmatrices)
-            # Why is this doing kernel transformations?
-            result = lp.tag_inames(result, "imatrix: unr")
+            result = lp.tag_inames(result, "imatrix: ilp")
             result = lp.tag_array_axes(result, "result", "sep,c,c")
             return result
 
@@ -558,35 +550,36 @@ class ExecutionMapper(mappers.Evaluator,
                 continue
 
             # Cache operator
-            cache_key = "diff_batch", in_grp, out_grp, repr_op, field.dtype
+            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                field.entry_dtype
             try:
                 matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
                 matrices = repr_op.matrices(out_grp, in_grp)
-                matrices_ary = np.empty((
-                    noperators, out_grp.nunit_dofs, in_grp.nunit_dofs))
+                matrices_ary = np.empty(
+                    (noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),
+                    dtype=field.entry_dtype)
                 for i, op in enumerate(insn.operators):
                     matrices_ary[i] = matrices[op.rst_axis]
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
             # Breaks on complex data types without check
-            if noperators == 3 and field.entry_dtype == np.float64 or field.entry_dtype == np.float32:
+            # TODO Add fallback transformations to hjson file
+            # TODO Use the above kernel rather than the one in loopy_dg_kernels
+            if noperators == 3 and (field.entry_dtype == np.float64 or field.entry_dtype == np.float32):
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
-                #print(field.entry_dtype)
-                program = dgk.gen_diff_knl_fortran(n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
+                program = dgk.gen_diff_knl_fortran2(noperators, n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
 
             self.array_context.call_loopy(
                     program,
                     diff_mat=matrices_ary_dev,
-                    result=make_obj_array([
-                        result[iop][out_grp.index]
-                        for iop in range(noperators)
-                        ]), vec=field[in_grp.index])
+                    result=make_obj_array([result[iop][out_grp.index] for iop in range(noperators)]),
+                    vec=field[in_grp.index])
 
         return [(name, result[i]) for i, name in enumerate(insn.names)], []
 
@@ -597,7 +590,7 @@ class ExecutionMapper(mappers.Evaluator,
 
 # {{{ futures
 
-class MPIRecvFuture(object):
+class MPIRecvFuture:
     def __init__(self, array_context, bdry_discr, recv_req, insn_name,
             remote_data_host):
         self.array_context = array_context
@@ -617,7 +610,7 @@ class MPIRecvFuture(object):
         return [(self.insn_name, remote_data)], []
 
 
-class MPISendFuture(object):
+class MPISendFuture:
     def __init__(self, send_request):
         self.send_request = send_request
 
@@ -633,7 +626,7 @@ class MPISendFuture(object):
 
 # {{{ bound operator
 
-class BoundOperator(object):
+class BoundOperator:
     def __init__(self, discrwb, discr_code, eval_code, debug_flags,
             function_registry, exec_mapper_factory):
         self.discrwb = discrwb
@@ -796,7 +789,7 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
             )(sym_operator)
 
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = mappers.GlobalToReferenceMapper(discrwb.ambient_dim)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(discrwb)(sym_operator)
 
     dumper("before-distributed", sym_operator)
 

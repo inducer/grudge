@@ -1,8 +1,4 @@
-# -*- coding: utf8 -*-
 """Burgers operator."""
-
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -26,18 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-
-
 from grudge.models import HyperbolicOperator
 import numpy
 from grudge.second_order import CentralSecondDerivative
 
 
-
-
 class BurgersOperator(HyperbolicOperator):
-    def __init__(self, dimensions, viscosity=None, 
+    def __init__(self, dimensions, viscosity=None,
             viscosity_scheme=CentralSecondDerivative()):
         # yes, you read that right--no BCs, 1D only.
         # (well--you can run the operator on a 2D grid. If you must.)
@@ -95,8 +86,8 @@ class BurgersOperator(HyperbolicOperator):
         num_flux = make_lax_friedrichs_flux(
                 #u0,
                 to_if_quad(emax_u),
-                make_obj_array([to_if_quad(u)]), 
-                [make_obj_array([flux(to_if_quad(u))])], 
+                make_obj_array([to_if_quad(u)]),
+                [make_obj_array([flux(to_if_quad(u))])],
                 [], strong=False)[0]
 
         from grudge.second_order import SecondDerivativeTarget

@@ -63,7 +63,7 @@ def simple_wave_entrypoint(dim=2, num_elems=256, order=4, num_steps=30,
     fields = join_fields(vol_discr.zeros(queue),
             [vol_discr.zeros(queue) for i in range(vol_discr.dim)])
 
-    from pytools.log import LogManager, \
+    from logpyle import LogManager, \
             add_general_quantities, \
             add_run_info, \
             IntervalTimer, EventCounter

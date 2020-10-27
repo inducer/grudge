@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2008-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -22,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from six.moves import intern
+from sys import intern
 
 import numpy as np
 import pymbolic.primitives
@@ -94,12 +92,12 @@ class Operator(pymbolic.primitives.Expression):
     """
     .. attribute:: dd_in
 
-        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
+        an instance of :class:`~grudge.sym.DOFDesc` describing the
         input discretization.
 
     .. attribute:: dd_out
 
-        an instance of :class:`~grudge.symbolic.primitives.DOFDesc` describing the
+        an instance of :class:`~grudge.sym.DOFDesc` describing the
         output discretization.
     """
 
@@ -150,7 +148,7 @@ class ElementwiseLinearOperator(Operator):
 
 class ProjectionOperator(Operator):
     def __init__(self, dd_in, dd_out):
-        super(ProjectionOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
     def __call__(self, expr):
         from pytools.obj_array import obj_array_vectorize
@@ -181,7 +179,7 @@ class InterpolationOperator(ProjectionOperator):
                 "use 'ProjectionOperator' instead.",
                 DeprecationWarning, stacklevel=2)
 
-        super(InterpolationOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 def interp(dd_in, dd_out):
@@ -196,7 +194,7 @@ def interp(dd_in, dd_out):
 
 class ElementwiseReductionOperator(Operator):
     def __init__(self, dd):
-        super(ElementwiseReductionOperator, self).__init__(dd_in=dd, dd_out=dd)
+        super().__init__(dd_in=dd, dd_out=dd)
 
 
 class ElementwiseSumOperator(ElementwiseReductionOperator):
@@ -235,7 +233,7 @@ class NodalReductionOperator(Operator):
 
         assert dd_out.is_scalar()
 
-        super(NodalReductionOperator, self).__init__(dd_out=dd_out, dd_in=dd_in)
+        super().__init__(dd_out=dd_out, dd_in=dd_in)
 
 
 class NodalSum(NodalReductionOperator):
@@ -271,7 +269,7 @@ class DiffOperatorBase(Operator):
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
 
-        super(DiffOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.xyz_axis = xyz_axis
 
@@ -327,7 +325,7 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
             raise ValueError("differentiation outputs are not on "
                     "quadrature grids")
 
-        super(RefDiffOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.rst_axis = rst_axis
 
@@ -371,7 +369,7 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
             grad_vand = (grad_vand,)
 
         weights = in_elem_grp.weights
-        return np.einsum('c,bz,acz->abc', weights, vand_inv_t, grad_vand)
+        return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
 # }}}
@@ -402,7 +400,7 @@ class FilterOperator(ElementwiseLinearOperator):
         if dd_in != dd_out:
             raise ValueError("dd_in and dd_out must be identical")
 
-        super(FilterOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
         self.mode_response_func = mode_response_func
 
@@ -477,7 +475,10 @@ class VandermondeOperator(ElementwiseLinearOperator):
 
 class MassOperatorBase(Operator):
     """
-    :attr:`dd_in` and :attr:`dd_out` may be surface or volume discretizations.
+    Inherits from :class:`Operator`.
+
+    :attr:`~Operator.dd_in` and :attr:`~Operator.dd_out` may be surface or volume
+    discretizations.
     """
 
     def __init__(self, dd_in=None, dd_out=None):
@@ -487,7 +488,7 @@ class MassOperatorBase(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        super(MassOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 class MassOperator(MassOperatorBase):
@@ -514,7 +515,7 @@ class RefMassOperator(RefMassOperatorBase):
         vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_element_group.weights
-        return np.einsum('j,ik,jk->ij', weights, vand_inv_t, o_vand)
+        return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
     mapper_method = intern("map_ref_mass")
 
@@ -554,7 +555,7 @@ class OppositeInteriorFaceSwap(Operator):
         if dd_out is None:
             dd_out = dd_in
 
-        super(OppositeInteriorFaceSwap, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
         if self.dd_in.domain_tag is not prim.FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
@@ -589,7 +590,7 @@ class OppositePartitionFaceSwap(Operator):
         elif dd_out is None:
             dd_out = dd_in
 
-        super(OppositePartitionFaceSwap, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
         if not (isinstance(self.dd_in.domain_tag, prim.DTAG_BOUNDARY)
                 and isinstance(self.dd_in.domain_tag.tag, prim.BTAG_PARTITION)):
             raise ValueError(
@@ -629,7 +630,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
         if dd_in.domain_tag is not prim.FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
-        super(FaceMassOperatorBase, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
 
 class FaceMassOperator(FaceMassOperatorBase):
@@ -721,20 +722,25 @@ def norm(p, arg, dd=None):
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
-                prim.fabs(arg * MassOperator()(arg)))
+                arg * MassOperator()(arg))
 
         if isinstance(norm_squared, np.ndarray):
+            if len(norm_squared.shape) != 1:
+                raise NotImplementedError("can only take the norm of vectors")
+
             norm_squared = norm_squared.sum()
 
         return prim.sqrt(norm_squared)
 
-    elif p == np.Inf:
+    elif p == np.inf:
         result = NodalMax(dd_in=dd)(prim.fabs(arg))
-        from pymbolic.primitives import Max
 
         if isinstance(result, np.ndarray):
-            from functools import reduce
-            result = reduce(Max, result)
+            if len(result.shape) != 1:
+                raise NotImplementedError("can only take the norm of vectors")
+
+            from pymbolic.primitives import Max
+            result = Max(result)
 
         return result
 
@@ -757,6 +763,27 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
         dim = ambient_dim
 
     return NodalMax(dd_in=dd)(
+            ElementwiseSumOperator(dd)(
+                MassOperator(dd_in=dd)(prim.Ones(dd))
+                )
+            )**(1.0/dim)
+
+
+def h_min_from_volume(ambient_dim, dim=None, dd=None):
+    """Defines a characteristic length based on the volume of the elements.
+    This length may not be representative if the elements have very high
+    aspect ratios.
+    """
+
+    import grudge.symbolic.primitives as prim
+    if dd is None:
+        dd = prim.DD_VOLUME
+    dd = prim.as_dofdesc(dd)
+
+    if dim is None:
+        dim = ambient_dim
+
+    return NodalMin(dd_in=dd)(
             ElementwiseSumOperator(dd)(
                 MassOperator(dd_in=dd)(prim.Ones(dd))
                 )

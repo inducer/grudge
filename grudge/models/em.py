@@ -1,7 +1,4 @@
-# -*- coding: utf8 -*-
 """grudge operators modelling electromagnetic phenomena."""
-
-from __future__ import division, absolute_import
 
 __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner
@@ -36,11 +33,9 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from grudge import sym
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-# TODO: Check PML
-
 
 class MaxwellOperator(HyperbolicOperator):
-    """A 3D Maxwell operator which supports fixed or variable
+    """A strong-form 3D Maxwell operator which supports fixed or variable
     isotropic, non-dispersive, positive epsilon and mu.
 
     Field order is [Ex Ey Ez Hx Hy Hz].
@@ -109,7 +104,7 @@ class MaxwellOperator(HyperbolicOperator):
         self.incident_bc_data = incident_bc
 
     def flux(self, w):
-        """The template for the numerical flux for variable coefficients.
+        """The numerical flux for variable coefficients.
 
         :param flux_type: can be in [0,1] for anything between central and upwind,
           or "lf" for Lax-Friedrichs.
@@ -136,13 +131,13 @@ class MaxwellOperator(HyperbolicOperator):
             return flat_obj_array(
                     # flux e,
                     1/2*(
-                        -self.space_cross_h(normal, h.int-h.ext)
+                        -self.space_cross_h(normal, h.ext-h.int)
                         # multiplication by epsilon undoes material divisor below
                         #-max_c*(epsilon*e.int - epsilon*e.ext)
                     ),
                     # flux h
                     1/2*(
-                        self.space_cross_e(normal, e.int-e.ext)
+                        self.space_cross_e(normal, e.ext-e.int)
                         # multiplication by mu undoes material divisor below
                         #-max_c*(mu*h.int - mu*h.ext)
                     ))
@@ -152,14 +147,14 @@ class MaxwellOperator(HyperbolicOperator):
                     # flux e,
                     (
                         -1/(Z_int+Z_ext)*self.space_cross_h(normal,
-                            Z_ext*(h.int-h.ext)
-                            - self.flux_type*self.space_cross_e(normal, e.int-e.ext))
+                            Z_ext*(h.ext-h.int)
+                            - self.flux_type*self.space_cross_e(normal, e.ext-e.int))
                         ),
                     # flux h
                     (
                         1/(Y_int + Y_ext)*self.space_cross_e(normal,
-                            Y_ext*(e.int-e.ext)
-                            + self.flux_type*self.space_cross_h(normal, h.int-h.ext))
+                            Y_ext*(e.ext-e.int)
+                            + self.flux_type*self.space_cross_h(normal, h.ext-h.int))
                         ),
                     )
         else:
@@ -188,7 +183,8 @@ class MaxwellOperator(HyperbolicOperator):
                 )
 
     def pec_bc(self, w):
-        "Construct part of the flux operator template for PEC boundary conditions"
+        """Construct part of the flux operator template for PEC boundary conditions
+        """
         e, h = self.split_eh(w)
 
         pec_e = sym.cse(sym.project("vol", self.pec_tag)(e))
@@ -197,7 +193,8 @@ class MaxwellOperator(HyperbolicOperator):
         return flat_obj_array(-pec_e, pec_h)
 
     def pmc_bc(self, w):
-        "Construct part of the flux operator template for PMC boundary conditions"
+        """Construct part of the flux operator template for PMC boundary conditions
+        """
         e, h = self.split_eh(w)
 
         pmc_e = sym.cse(sym.project("vol", self.pmc_tag)(e))
@@ -236,7 +233,7 @@ class MaxwellOperator(HyperbolicOperator):
         return bc
 
     def incident_bc(self, w):
-        "Flux terms for incident boundary conditions"
+        """Flux terms for incident boundary conditions"""
         # NOTE: Untested for inhomogeneous materials, but would usually be
         # physically meaningless anyway (are there exceptions to this?)
 
@@ -304,7 +301,7 @@ class MaxwellOperator(HyperbolicOperator):
             [e_subset, h_subset]))
 
     def split_eh(self, w):
-        "Splits an array into E and H components"
+        """Splits an array into E and H components"""
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
 

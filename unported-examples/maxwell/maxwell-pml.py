@@ -146,7 +146,7 @@ def main(write_output=True):
         print("#elements=", len(mesh.elements))
 
     # diagnostics setup ---------------------------------------------------
-    from pytools.log import LogManager, add_general_quantities, \
+    from logpyle import LogManager, add_general_quantities, \
             add_simulation_quantities, add_run_info
 
     if write_output:
@@ -161,7 +161,7 @@ def main(write_output=True):
     discr.add_instrumentation(logmgr)
     stepper.add_instrumentation(logmgr)
 
-    from pytools.log import IntervalTimer
+    from logpyle import IntervalTimer
     vis_timer = IntervalTimer("t_vis", "Time spent visualizing")
     logmgr.add_quantity(vis_timer)
 

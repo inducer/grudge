@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
 
 __license__ = """
@@ -22,20 +20,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-import six
 from pytools import memoize_method
 from grudge import sym
 import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
 
 
-# FIXME Naming not ideal
-class DiscretizationBase(object):
-    pass
+__doc__ = """
+.. autoclass:: DGDiscretizationWithBoundaries
+"""
 
 
-class DGDiscretizationWithBoundaries(DiscretizationBase):
+class DGDiscretizationWithBoundaries:
     """
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
@@ -53,10 +49,11 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
         """
         :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
             strings--but may be any hashable/comparable object) to a
-            :class:`meshmode.discretization.ElementGroupFactory` indicating with
-            which quadrature discretization the operations are to be carried out,
-            or *None* to indicate that operations with this quadrature tag should
-            be carried out with the standard volume discretization.
+            :class:`~meshmode.discretization.poly_element.ElementGroupFactory`
+            indicating with which quadrature discretization the operations are
+            to be carried out, or *None* to indicate that operations with this
+            quadrature tag should be carried out with the standard volume
+            discretization.
         """
 
         self._setup_actx = array_context
@@ -140,7 +137,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
                     i_remote_part, grp_factory)
             setup_helper.post_sends()
 
-        for i_remote_part, setup_helper in six.iteritems(setup_helpers):
+        for i_remote_part, setup_helper in setup_helpers.items():
             boundary_connections[i_remote_part] = setup_helper.complete_setup()
 
         return boundary_connections
@@ -390,7 +387,7 @@ class DGDiscretizationWithBoundaries(DiscretizationBase):
     def order(self):
         from warnings import warn
         warn("DGDiscretizationWithBoundaries.order is deprecated, "
-                "consider the orders of element groups instead. "
+                "consider using the orders of element groups instead. "
                 "'order' will go away in 2021.",
                 DeprecationWarning, stacklevel=2)
 

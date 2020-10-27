@@ -1,19 +1,24 @@
-# Copyright (C) 2008 Andreas Kloeckner
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+__copyright__ = "Copyright (C) 2008 Andreas Kloeckner"
 
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
 
 
 from __future__ import division
@@ -130,7 +135,7 @@ def main():
 
         from grudge.models.gas_dynamics import GasDynamicsOperator, GammaLawEOS
         op = GasDynamicsOperator(dimensions=2,
-                equation_of_state=GammaLawEOS(uniform_flow.gamma), 
+                equation_of_state=GammaLawEOS(uniform_flow.gamma),
                 prandtl=uniform_flow.prandtl,
                 spec_gas_const=uniform_flow.spec_gas_const, mu=uniform_flow.mu,
                 bc_inflow=uniform_flow, bc_outflow=uniform_flow, bc_noslip=uniform_flow,
@@ -176,7 +181,7 @@ def main():
         #stepper = LSRK4TimeStepper(dtype=discr.default_scalar_type)
 
         # diagnostics setup ---------------------------------------------------
-        from pytools.log import LogManager, add_general_quantities, \
+        from logpyle import LogManager, add_general_quantities, \
                 add_simulation_quantities, add_run_info
 
         logmgr = LogManager("cns-naca-%d.dat" % order, "w", rcon.communicator)
@@ -187,7 +192,7 @@ def main():
         discr.add_instrumentation(logmgr)
         stepper.add_instrumentation(logmgr)
 
-        from pytools.log import LogQuantity
+        from logpyle import LogQuantity
         class ChangeSinceLastStep(LogQuantity):
             """Records the change of a variable between a time step and the previous
                one"""
@@ -223,7 +228,7 @@ def main():
 
             model_stepper = LSRK4TimeStepper()
             next_dt = op.estimate_timestep(discr,
-                    stepper=model_stepper, t=0, 
+                    stepper=model_stepper, t=0,
                     max_eigenvalue=max_eigval[0])
 
             for step, t, dt in step_it:

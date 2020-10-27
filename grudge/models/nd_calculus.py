@@ -1,8 +1,4 @@
-# -*- coding: utf8 -*-
 """Canned operators for multivariable calculus."""
-
-from __future__ import division
-from __future__ import absolute_import
 
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
@@ -26,12 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-
-
 from grudge.models import Operator
-
-
 
 
 class GradientOperator(Operator):

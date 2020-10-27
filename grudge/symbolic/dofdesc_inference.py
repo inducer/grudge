@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2017 Andreas Kloeckner"
 
 __license__ = """
@@ -57,7 +55,7 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
     return dd_a
 
 
-class InferrableMultiAssignment(object):
+class InferrableMultiAssignment:
     """An assignemnt 'instruction' which may be used as part of type
     inference.
 
@@ -86,11 +84,11 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
 
         self.check = check
 
-        self.name_to_assignment = dict(
-                (name, a)
+        self.name_to_assignment = {
+                name: a
                 for a in assignments
                 if not a.neglect_for_dofdesc_inference
-                for name in a.get_assignees())
+                for name in a.get_assignees()}
 
         if name_to_dofdesc is None:
             name_to_dofdesc = {}
@@ -144,6 +142,8 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
         return self.map_multi_child(expr, expr.children)
 
     map_product = map_sum
+    map_max = map_sum
+    map_min = map_sum
 
     def map_quotient(self, expr):
         return self.map_multi_child(expr, (expr.numerator, expr.denominator))

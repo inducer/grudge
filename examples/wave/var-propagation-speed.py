@@ -1,7 +1,5 @@
 """Minimal example of a grudge driver."""
 
-from __future__ import division, print_function
-
 __copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
 
 __license__ = """
@@ -56,7 +54,7 @@ def main(write_output=True, order=4):
     sym_t = sym.ScalarVariable("t")
     c = sym.If(sym.Comparison(
                 np.dot(sym_x, sym_x), "<", 0.15),
-                np.float32(-0.1), np.float32(-0.2))
+                np.float32(0.1), np.float32(0.2))
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE

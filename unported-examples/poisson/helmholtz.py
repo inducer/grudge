@@ -1,19 +1,24 @@
-# Copyright (C) 2007 Andreas Kloeckner
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
 
 
 from __future__ import division
@@ -67,7 +72,7 @@ def main(write_output=True):
     if dim == 2:
         if rcon.is_head_rank:
             from grudge.mesh.generator import make_disk_mesh
-            mesh = make_disk_mesh(r=0.5, 
+            mesh = make_disk_mesh(r=0.5,
                     boundary_tagger=dirichlet_boundary_tagger,
                     max_area=1e-3)
     elif dim == 3:
@@ -85,7 +90,7 @@ def main(write_output=True):
     else:
         mesh_data = rcon.receive_mesh()
 
-    discr = rcon.make_discretization(mesh_data, order=5, 
+    discr = rcon.make_discretization(mesh_data, order=5,
             debug=[])
 
     def dirichlet_bc(x, el):
@@ -114,17 +119,17 @@ def main(write_output=True):
         k = 1
 
         from grudge.mesh import BTAG_NONE, BTAG_ALL
-        op = HelmholtzOperator(k, discr.dimensions, 
+        op = HelmholtzOperator(k, discr.dimensions,
                 #diffusion_tensor=my_diff_tensor(),
 
                 #dirichlet_tag="dirichlet",
-                #neumann_tag="neumann", 
+                #neumann_tag="neumann",
 
                 dirichlet_tag=BTAG_ALL,
-                neumann_tag=BTAG_NONE, 
+                neumann_tag=BTAG_NONE,
 
                 #dirichlet_tag=BTAG_ALL,
-                #neumann_tag=BTAG_NONE, 
+                #neumann_tag=BTAG_NONE,
 
                 #dirichlet_bc=GivenFunction(dirichlet_bc),
                 dirichlet_bc=ConstantGivenFunction(0),
@@ -138,8 +143,8 @@ def main(write_output=True):
 
         if False:
             from grudge.iterative import parallel_cg
-            u = -parallel_cg(rcon, -bound_op, 
-                    bound_op.prepare_rhs(discr.interpolate_volume_function(rhs_c)), 
+            u = -parallel_cg(rcon, -bound_op,
+                    bound_op.prepare_rhs(discr.interpolate_volume_function(rhs_c)),
                     debug=20, tol=5e-4,
                     dot=discr.nodewise_dot_product,
                     x=discr.volume_zeros())

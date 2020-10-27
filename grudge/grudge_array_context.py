@@ -23,52 +23,47 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 allocator=self.allocator, order='F')
 
     '''
-    def from_numpy(self, np_array: np.ndarray):
-        # Should intercept this for the dof array
-        # and make it return a fortran style array 
-        # Creation of the field seems to not pass
-        # through here though.
-        cl_array_c = super().from_numpy(np_array)
-        #print(cl_array_c.shape)
-        return cl_array_c
-        #cq = cl_arry.queue # Is this necessary?
-        #_,(cl_array_f,) = ctof_knl(cq, input=cl_array_c)
-        #return cl_array_f 
-    '''
-
     def call_loopy(self, program, **kwargs):
 
         #print("Program: " + program.name)
         if program.name == "opt_diff":
-            diff_mat = kwargs["diff_mat"]
-            result = kwargs["result"]
-            vec = kwargs["vec"]
+            #diff_mat = kwargs["diff_mat"]
+            #result = kwargs["result"]
+            #vec = kwargs["vec"]
+            print(kwargs)
 
             # Create input array
-            cq = vec.queue
-            dtp = vec.dtype
+            #cq = vec.queue
+            #dtp = vec.dtype
 
             # Esto no deberia hacerse aqui.
             #_,(inArg,) = ctof_knl(cq, input=vec)
-            
+            #inArg = vec.copy()            
+
             # Treat as c array, can do this to use c-format diff function
             # np.array(A, format="F").flatten() == np.array(A.T, format="C").flatten()
             #inArg.shape = (inArg.shape[1], inArg.shape[0])
             #inArg.strides = cla._make_strides(vec.dtype.itemsize, inArg.shape, "c")
-            #outShape = inArg.shape #(inArg.shape[1], inArg.shape[0])
+            #outShape = inArg.shape
 
-            argDict = { "result1": cla.Array(cq, vec.shape, dtp, order="f"),
-                        "result2": cla.Array(cq, vec.shape, dtp, order="f"),
-                        "result3": cla.Array(cq, vec.shape, dtp, order="f"),
-                        "vec": vec,
-                        "mat1": diff_mat[0],
-                        "mat2": diff_mat[1],
-                        "mat3": diff_mat[2] }
+            # Really should be passed in rather than re-allocated each time
+            #... c'est avec kwargs["result"]
+            #argDict = { "result1": cla.Array(cq, vec.shape, dtp, order="f"),
+            #            "result2": cla.Array(cq, vec.shape, dtp, order="f"),
+            #            "result3": cla.Array(cq, vec.shape, dtp, order="f"),
+            #            "vec": vec,
+            #            "mat1": diff_mat[0],
+            #            "mat2": diff_mat[1],
+            #            "mat3": diff_mat[2] }
               
-            super().call_loopy(program, **argDict)
+            #super().call_loopy(program, **argDict)
 
-            result = kwargs["result"]
-
+            #result = [argDict["result1"], argDict["result2"], argDict["result3"]] 
+            #print(result)
+            #result = argDict["result1"] #kwargs["result"]
+            #print("HERE")
+            #print(result)
+            #exit()
             # Treat as fortran style array again
             #for i, entry in enumerate(["result1", "result2", "result3"]):
             #    argDict[entry].shape = (argDict[entry].shape[1], argDict[entry].shape[0])
@@ -76,13 +71,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 # This should be unnecessary
                 # Il est necessaire pour le moment a cause du "ctof" d'ici. 
                 #ftoc_knl(cq, input=argDict[entry], output=result[i])
-
-        else:
-            result = super().call_loopy(program,**kwargs)
+            result = super().call_loopy(program, **kwargs)
+        #else:
+        result = super().call_loopy(program,**kwargs)
 
         return result
+    '''
 
-    #memoize_method
+    #@memoize_method
     def _get_scalar_func_loopy_program(self, name, nargs, naxes):
         prog = super()._get_scalar_func_loopy_program(name, nargs, naxes)
         for arg in prog.args:
@@ -119,7 +115,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             # Also get pn from program
             filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
             deviceID = "NVIDIA Titan V"
-            pn = 3
+            pn = 4
 
             transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
             program = dgk.applyTransformationList(program, transformations)
