@@ -254,7 +254,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         """Get unit normal to specified surface discretization, *dd*.
 
         :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
-        :returns: surface normal as :class:`~pymbolic.geometric_algebra.MultiVector`.
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
         """
         surface_discr = self.discr_from_dd(dd)
         actx = surface_discr._setup_actx
