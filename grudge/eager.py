@@ -251,6 +251,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def normal(self, dd):
+        """Get unit normal to specified surface discretization, *dd*.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
+        """
         surface_discr = self.discr_from_dd(dd)
         actx = surface_discr._setup_actx
         return freeze(
