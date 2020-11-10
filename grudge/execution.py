@@ -26,12 +26,13 @@ import numpy as np
 
 from pytools import memoize_in
 from pytools.obj_array import make_obj_array
+from pytools.tag import Tag
 
 import loopy as lp
 import pyopencl as cl
 import pyopencl.array  # noqa
 
-from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
+from meshmode.dof_array import DOFArray, thaw, flatten, unflatten, DOFTag
 from meshmode.array_context import ArrayContext, make_loopy_program
 
 import grudge.symbolic.mappers as mappers
@@ -51,6 +52,12 @@ ResultType = Union[DOFArray, Number]
 
 
 # {{{ exec mapper
+
+class VecDOFTag(Tag):
+    pass
+
+class FaceDOFTag(Tag):
+    pass
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
@@ -274,8 +281,8 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=j<ndiscr_nodes_in}""",
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags="dof_array"),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags="dof_array"),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=DOFTag()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
                     ...
                 ],
                 name="elwise_linear")
@@ -346,8 +353,8 @@ class ExecutionMapper(mappers.Evaluator,
                 result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
                 """,
                 kernel_data = [
-                    lp.GlobalArg("result", None, shape=lp.auto, tags="dof_array"),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags="face_dof_array"),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=DOFTag()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=FaceDOFTag()),
                     "..."
                 ],
                 name="face_mass")
@@ -524,8 +531,8 @@ class ExecutionMapper(mappers.Evaluator,
                         j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags="mult_dof_array"),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags="dof_array"),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=VecDOFTag()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
                     lp.GlobalArg("diff_mat", None, shape=lp.auto),
                     ...
                 ],

@@ -1,4 +1,6 @@
 from meshmode.array_context import PyOpenCLArrayContext, make_loopy_program
+from meshmode.dof_array import DOFTag
+from grudge.execution import VecDOFTag, FaceDOFTag
 import loopy as lp
 import pyopencl
 import pyopencl.array as cla
@@ -9,6 +11,7 @@ ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
 # Really this is more of an Nvidia array context probably
+# Maybe not if loading from file?
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def __init__(self, queue, allocator=None):
@@ -22,6 +25,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         return cla.zeros(self.queue, shape=shape, dtype=dtype,
                 allocator=self.allocator, order='F')
 
+    # Probably can delete this
     '''
     def call_loopy(self, program, **kwargs):
 
@@ -83,19 +87,19 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         prog = super()._get_scalar_func_loopy_program(name, nargs, naxes)
         for arg in prog.args:
             if type(arg) == lp.ArrayArg:
-                arg.tags = "dof_array"
+                arg.tags = DOFTag()
         return prog
 
     
     # Side note: the meaning of thawed and frozen seem counterintuitive to me.
     def thaw(self, array):
         thawed = super().thaw(array)
-        if getattr(array, "tags", None) == "dof_array":           
+        if type(getattr(array, "tags", None)) == DOFTag:           
             cq = thawed.queue
             _, (out,) = ctof_knl(cq, input=thawed)
             thawed = out
             # May or may not be needed
-            thawed.tags = "dof_array"
+            #thawed.tags = "dof_array"
         return thawed
 
     #@memoize_method
@@ -103,11 +107,11 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         #print(program.name)
         for arg in program.args:
-            if arg.tags == "dof_array":
+            if type(arg.tags) == DOFTag:
                 program = lp.tag_array_axes(program, arg.name, "f,f")
-            elif arg.tags == "mult_dof_array":
+            elif type(arg.tags) == VecDOFTag:
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")        
-            elif arg.tags == "face_dof_array":
+            elif type(arg.tags) == FaceDOFTag:
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")        
 
         if program.name == "opt_diff":
