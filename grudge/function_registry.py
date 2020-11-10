@@ -100,8 +100,6 @@ class CElementwiseFunction(Function):
             func_name = "abs"
 
         sfunc = getattr(array_context.np, func_name)
-        #print("ICH BIN HIER")
-        #print(sfunc.domains)
         return sfunc(*args)
 
 
