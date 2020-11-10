@@ -1021,11 +1021,6 @@ class ToLoopyInstructionMapper:
         if not expr_mapper.non_scalar_vars:
             return insn
 
-        kdata = []
-        #for name in insn.names:
-        # Make all global args
-        #    Global
-
         knl = lp.make_kernel(
                 "{[%(iel)s, %(idof)s]: "
                 "0 <= %(iel)s < nelements and 0 <= %(idof)s < nunit_dofs}"
