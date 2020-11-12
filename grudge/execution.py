@@ -281,7 +281,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
 
-            cache_key = "elwise_linear", in_grp, out_grp, op, field.dtype
+            cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
@@ -347,7 +347,7 @@ class ExecutionMapper(mappers.Evaluator,
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
         for afgrp, volgrp in zip(all_faces_discr.groups, vol_discr.groups):
-            cache_key = "face_mass", afgrp, op, field.dtype
+            cache_key = "face_mass", afgrp, op, field.entry_dtype
 
             nfaces = volgrp.mesh_el_group.nfaces
 

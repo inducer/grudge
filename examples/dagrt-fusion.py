@@ -107,6 +107,8 @@ def dof_array_nbytes(ary: np.ndarray):
         return sum(
                 dof_array_nbytes(ary[idx])
                 for idx in np.ndindex(ary.shape))
+    elif isinstance(ary, DOFArray):
+        return sum(dof_array_nbytes(ary_i) for ary_i in ary)
     else:
         return ary.nbytes
 
