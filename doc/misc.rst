@@ -17,19 +17,17 @@ MacOS support is in the works.
     Everywhere else, just making sure you have the ``g++`` package should be
     enough.
 
-#.  Installing `miniconda for Python 3 on 64-bit Linux <https://conda.io/miniconda.html>`_.
+#.  Install `miniforge <https://github.com/conda-forge/miniforge>`__.
 
-#.  ``export CONDA=/WHERE/YOU/INSTALLED/miniconda3``
+#.  ``export CONDA=/WHERE/YOU/INSTALLED/miniforge3``
 
     If you accepted the default location, this should work:
 
-    ``export CONDA=$HOME/miniconda3``
+    ``export CONDA=$HOME/miniforge3``
 
 #.  ``$CONDA/bin/conda create -n dgfem``
 
 #.  ``source $CONDA/bin/activate dgfem``
-
-#.  ``conda config --add channels conda-forge``
 
 #.  ``conda install git pip pocl islpy pyopencl``
 
@@ -39,7 +37,7 @@ MacOS support is in the works.
 
 Next time you want to use `grudge`, just run the following command::
 
-    source /WHERE/YOU/INSTALLED/miniconda3/bin/activate dgfem
+    source /WHERE/YOU/INSTALLED/miniforge3/bin/activate dgfem
 
 You may also like to add this to a startup file (like :file:`$HOME/.bashrc`) or create an alias for it.
 
