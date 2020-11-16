@@ -59,6 +59,9 @@ class VecDOFTag(Tag):
 class FaceDOFTag(Tag):
     pass
 
+class VecOpDOFTag(Tag):
+    pass
+
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
         mappers.LocalOpReducerMixin):
@@ -533,7 +536,7 @@ class ExecutionMapper(mappers.Evaluator,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags=VecDOFTag()),
                     lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
-                    lp.GlobalArg("diff_mat", None, shape=lp.auto),
+                    lp.GlobalArg("diff_mat", None, shape=lp.auto, tags=VecOpDOFTag()),
                     ...
                 ],
                 name="diff")

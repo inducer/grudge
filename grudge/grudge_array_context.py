@@ -1,6 +1,6 @@
 from meshmode.array_context import PyOpenCLArrayContext, make_loopy_program
 from meshmode.dof_array import DOFTag
-from grudge.execution import VecDOFTag, FaceDOFTag
+from grudge.execution import VecDOFTag, VecOpDOFTag, FaceDOFTag
 import loopy as lp
 import pyopencl
 import pyopencl.array as cla
@@ -11,9 +11,6 @@ ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
 class GrudgeArrayContext(PyOpenCLArrayContext):
-
-    #def __init__(self, queue, allocator=None):
-    #    super().__init__(queue, allocator=allocator)
 
     def empty(self, shape, dtype):
         return cla.empty(self.queue, shape=shape, dtype=dtype,
@@ -45,11 +42,13 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     def transform_loopy_program(self, program):
 
         for arg in program.args:
-            if type(arg.tags) == DOFTag:
+            if isinstance(arg.tags, DOFTag):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
-            elif type(arg.tags) == VecDOFTag:
+            elif isinstance(arg.tags, VecDOFTag):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")        
-            elif type(arg.tags) == FaceDOFTag:
+            #elif isinstance(arg.tags, VecOpDOFTag):
+            #    program = lp.tag_array_axes(program, arg.name, "sep,c,c")
+            elif isinstance(arg.tags, FaceDOFTag):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")        
 
         if program.name == "opt_diff":
