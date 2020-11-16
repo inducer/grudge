@@ -297,7 +297,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
 
-            cache_key = "elwise_linear", in_grp, out_grp, op, field.dtype
+            cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
@@ -368,7 +368,7 @@ class ExecutionMapper(mappers.Evaluator,
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
         for afgrp, volgrp in zip(all_faces_discr.groups, vol_discr.groups):
-            cache_key = "face_mass", afgrp, op, field.dtype
+            cache_key = "face_mass", afgrp, op, field.entry_dtype
 
             nfaces = volgrp.mesh_el_group.nfaces
 
@@ -519,7 +519,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         @memoize_in(self.array_context,
                 (ExecutionMapper, "reference_derivative_prg"))
-        def prg(nmatrices):
+        def prg(n_mat):
             result = make_loopy_program(
                 """{[imatrix, iel, idof, j]:
                     0<=imatrix<nmatrices and
@@ -538,7 +538,7 @@ class ExecutionMapper(mappers.Evaluator,
                 ],
                 name="diff")
 
-            result = lp.fix_parameters(result, nmatrices=nmatrices)
+            result = lp.fix_parameters(result, nmatrices=n_mat)
             result = lp.tag_inames(result, "imatrix: ilp")
             result = lp.tag_array_axes(result, "result", "sep,c,c")
             return result
@@ -574,6 +574,7 @@ class ExecutionMapper(mappers.Evaluator,
             # Breaks on complex data types without check
             # TODO Add fallback transformations to hjson file
             # TODO Use the above kernel rather than the one in loopy_dg_kernels
+            print(field.entry_dtype)
             if noperators == 3 and (field.entry_dtype == np.float64 or field.entry_dtype == np.float32):
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
