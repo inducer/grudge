@@ -44,6 +44,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         for arg in program.args:
             if isinstance(arg.tags, DOFTag):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
+                
             elif isinstance(arg.tags, VecDOFTag):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")        
             #elif isinstance(arg.tags, VecOpDOFTag):
@@ -56,9 +57,31 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             # Also get pn from program
             filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
             deviceID = "NVIDIA Titan V"
-            pn = 4
 
-            transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn)            
+            pn = -1
+            fp_format = None
+            dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
+            # Is this a list or a dictionary?
+            for arg in program.args:
+                if arg.name=="diff_mat":
+                    pn = dofs_to_order[arg.shape[2]]
+                    fp_format = arg.dtype.numpy_dtype
+                    break;
+
+            #print(pn)
+            #print(fp_format)
+            #print(pn<=0)
+            #exit()
+            #print(type(fp_format) == None)
+            #print(type(None) == None)
+            # FP format is very specific. Could have integer arrays?
+            # What about mixed data types?
+            #if pn <= 0 or not isinstance(fp_format, :
+                #print("Need to specify a polynomial order and data type")
+                # Should throw an error
+                #exit()
+
+            transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn, fp_format=fp_format)            
             program = dgk.applyTransformationList(program, transformations)
         else:
             program = super().transform_loopy_program(program)
