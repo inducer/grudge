@@ -34,8 +34,12 @@ jobs:
                 sudo apt-get update
                 sudo apt-get install openmpi-bin libopenmpi-dev
                 CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
-                . ./build-and-test-py-project-within-miniconda.sh
+                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
+                . ./ci-support.sh
+                build_py_project_in_conda_env
+                with_echo python -m pip install mpi4py
+                test_py_project
+
 
     pyexamples3:
         name: Examples on Py3
@@ -50,6 +54,7 @@ jobs:
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
                 . ci-support.sh
                 build_py_project_in_conda_env
+                with_echo python -m pip install mpi4py
                 run_examples
 
     docs:
