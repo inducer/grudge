@@ -683,8 +683,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                 result.setdefault(name, []).append(val)
 
         result = {
-                name: DOFArray.from_list(
-                    self.inner_mapper.array_context, val)
+                name: DOFArray(self.inner_mapper.array_context, tuple(val))
                 for name, val in result.items()}
 
         for val in result.values():
