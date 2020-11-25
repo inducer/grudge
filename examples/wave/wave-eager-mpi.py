@@ -25,7 +25,7 @@ import numpy as np
 import numpy.linalg as la  # noqa
 import pyopencl as cl
 
-from pytools.obj_array import flat_obj_array, make_obj_array
+from pytools.obj_array import flat_obj_array
 
 from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import thaw
@@ -41,10 +41,6 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
-def scalar(arg):
-    return make_obj_array([arg])
-
-
 def wave_flux(discr, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
@@ -53,14 +49,14 @@ def wave_flux(discr, c, w_tpair):
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
-            normal*scalar(u.avg),
+            normal*u.avg,
             )
 
     # upwind
     v_jump = np.dot(normal, v.ext-v.int)
     flux_weak += flat_obj_array(
             0.5*(u.ext-u.int),
-            0.5*normal*scalar(v_jump),
+            0.5*normal*v_jump,
             )
 
     return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
