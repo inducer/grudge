@@ -33,6 +33,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
+    "sphinx_copybutton",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -122,23 +123,13 @@ todo_include_todos = False
 
 # -- Options for HTML output ----------------------------------------------
 
-html_theme = "alabaster"
+html_theme = "furo"
 
 html_theme_options = {
-        "extra_nav_links": {
-            "🚀 Github": "https://github.com/inducer/grudge",
-            "💾 Download Releases": "https://pypi.org/project/grudge",
-            }
         }
 
 html_sidebars = {
-    "**": [
-        "about.html",
-        "navigation.html",
-        "relations.html",
-        "searchbox.html",
-    ]
-}
+        }
 
 
 # Theme options are theme-specific and customize the look and feel of a theme
@@ -317,8 +308,8 @@ texinfo_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    "https://docs.python.org/": None,
-    "https://docs.scipy.org/doc/numpy/": None,
+    "https://docs.python.org/3/": None,
+    "https://numpy.org/doc/stable/": None,
     "https://documen.tician.de/pyopencl/": None,
     "https://documen.tician.de/modepy/": None,
     "https://documen.tician.de/pymbolic/": None,
