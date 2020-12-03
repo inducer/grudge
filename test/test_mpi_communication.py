@@ -30,7 +30,6 @@ import pyopencl as cl
 import logging
 
 from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import flat_norm
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
@@ -88,7 +87,7 @@ def simple_mpi_communication_entrypoint():
             )
 
     hopefully_zero = bound_face_swap(myfunc=myfunc)
-    error = flat_norm(hopefully_zero, np.inf)
+    error = actx.np.linalg.norm(hopefully_zero, ord=np.inf)
 
     print(__file__)
     with np.printoptions(threshold=100000000, suppress=True):
