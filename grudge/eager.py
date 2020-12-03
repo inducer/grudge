@@ -58,6 +58,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     .. automethod:: weak_div
 
     .. automethod:: normal
+    .. automethod:: mass
     .. automethod:: inverse_mass
     .. automethod:: face_mass
 
@@ -264,6 +265,26 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                     sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim),
                     local_only=True)
                 (array_context=actx))
+
+    @memoize_method
+    def _bound_mass(self, dd):
+        return bind(self, sym.MassOperator(dd_in=dd)(sym.Variable("u", dd)),
+                local_only=True)
+
+    def mass(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
+
+        if isinstance(vec, np.ndarray):
+            return obj_array_vectorize(
+                    lambda el: self.mass(dd, el), vec)
+
+        return self._bound_mass(dd)(u=vec)
 
     @memoize_method
     def _bound_inverse_mass(self):
