@@ -40,12 +40,15 @@ def main():
               'Topic :: Utilities',
               ],
 
+          package_data={
+              "loopy_dg_kernels": ["*.hjson"]
+          },
           packages=find_packages(),
 
           python_requires="~=3.6",
           install_requires=[
               "pytest>=2.3",
-              "pytools>=2020.3",
+              "pytools>=2020.4.5",
               "modepy>=2013.3",
               "meshmode>=2020.2",
               "pyopencl>=2013.1",
@@ -54,6 +57,7 @@ def main():
               "cgen>=2013.1.2",
               "leap>=2019.1",
               "dagrt>=2019.1",
+              "import_resources; python_version<'3.7'"
               ])
 
 

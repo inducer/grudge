@@ -4,8 +4,13 @@ from grudge.execution import VecDOFTag, VecOpDOFTag, FaceDOFTag
 import loopy as lp
 import pyopencl
 import pyopencl.array as cla
-import loopy_dg_kernels as dgk
+import grudge.loopy_dg_kernels as dgk
 import numpy as np
+try:
+    import importlib.resources as pkg_resources
+except ImportError:
+    # Use backported version for python < 3.7
+    import importlib_resources as pkg_resources
 
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
@@ -55,7 +60,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         if program.name == "opt_diff":
             # TODO: Dynamically determine device id, don't hardcode path to transform.hjson.
             # Also get pn from program
-            filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
+            hjson_file = pkg_resources.open_text(dgk, "transform.hjson")
+            #filename = "/home/njchris2/Workspace/nick/loopy_dg_kernels/transform.hjson"
             deviceID = "NVIDIA Titan V"
 
             pn = -1
@@ -81,7 +87,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 # Should throw an error
                 #exit()
 
-            transformations = dgk.loadTransformationsFromFile(filename, deviceID, pn, fp_format=fp_format)            
+            transformations = dgk.loadTransformationsFromFile(hjson_file, deviceID, pn, fp_format=fp_format)            
             program = dgk.applyTransformationList(program, transformations)
         else:
             program = super().transform_loopy_program(program)

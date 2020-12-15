@@ -38,7 +38,7 @@ from grudge.models.em import get_rectangular_cavity_mode
 STEPS = 60
 
 
-def main(dims, write_output=True, order=4):
+def main(dims, write_output=True, order=2):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = GrudgeArrayContext(queue)
