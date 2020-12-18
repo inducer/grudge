@@ -83,6 +83,9 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
         :arg vec: a :class:`~meshmode.dof_array.DOFArray`
         """
+        if src == tgt:
+            return vec
+
         if isinstance(vec, np.ndarray):
             return obj_array_vectorize(
                     lambda el: self.project(src, tgt, el), vec)
