@@ -340,6 +340,9 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
 
 def interior_trace_pair(discrwb, vec):
+    """Return a :class:`grudge.sym.TracePair` for the interior faces of
+    *discrwb*.
+    """
     i = discrwb.project("vol", "int_faces", vec)
     e = obj_array_vectorize(lambda el: discrwb.opposite_face_connection()(el), i)
     return TracePair("int_faces", interior=i, exterior=e)
