@@ -84,6 +84,8 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
         :arg vec: a :class:`~meshmode.dof_array.DOFArray`
         """
+        src = sym.as_dofdesc(src)
+        tgt = sym.as_dofdesc(tgt)
         if src == tgt:
             return vec
 
