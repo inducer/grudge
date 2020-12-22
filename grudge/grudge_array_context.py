@@ -64,7 +64,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             # don't hardcode path to transform.hjson.
             # Also get pn from program
             hjson_file = pkg_resources.open_text(dgk, "transform.hjson")
-            deviceID = "NVIDIA Titan V"
+            device_id = "NVIDIA Titan V"
 
             pn = -1
             fp_format = None
@@ -90,7 +90,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 #exit()
 
             transformations = dgk.loadTransformationsFromFile(hjson_file,
-                deviceID, pn, fp_format=fp_format)
+                device_id, pn, fp_format=fp_format)
             program = dgk.applyTransformationList(program, transformations)
         else:
             program = super().transform_loopy_program(program)
