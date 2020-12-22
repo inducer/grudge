@@ -56,11 +56,14 @@ ResultType = Union[DOFArray, Number]
 class VecDOFTag(Tag):
     pass
 
+
 class FaceDOFTag(Tag):
     pass
 
+
 class VecOpDOFTag(Tag):
     pass
+
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
@@ -316,8 +319,8 @@ class ExecutionMapper(mappers.Evaluator,
                     prg(),
                     mat=matrix,
                     result=result[out_grp.index],
-                    vec=field[in_grp.index]) #inArg
-            
+                    vec=field[in_grp.index])  # inArg
+
         return result
 
     def map_projection(self, op, field_expr):
@@ -355,7 +358,7 @@ class ExecutionMapper(mappers.Evaluator,
                 """
                 result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
                 """,
-                kernel_data = [
+                kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags=DOFTag()),
                     lp.GlobalArg("vec", None, shape=lp.auto, tags=FaceDOFTag()),
                     "..."
@@ -536,7 +539,8 @@ class ExecutionMapper(mappers.Evaluator,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags=VecDOFTag()),
                     lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
-                    lp.GlobalArg("diff_mat", None, shape=lp.auto, tags=VecOpDOFTag()),
+                    lp.GlobalArg("diff_mat", None, shape=lp.auto,
+                        tags=VecOpDOFTag()),
                     ...
                 ],
                 name="diff")
@@ -578,18 +582,21 @@ class ExecutionMapper(mappers.Evaluator,
             # TODO Add fallback transformations to hjson file
             # TODO Use the above kernel rather than the one in loopy_dg_kernels
             print(field.entry_dtype)
-            if noperators == 3 and (field.entry_dtype == np.float64 or field.entry_dtype == np.float32):
+            if noperators == 3 and (field.entry_dtype == np.float64
+                    or field.entry_dtype == np.float32):
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)
-                program = dgk.gen_diff_knl_fortran2(noperators, n_elem, n_in, n_out,options=options, fp_format=field.entry_dtype)
+                program = dgk.gen_diff_knl_fortran2(noperators, n_elem, n_in,
+                    n_out, options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
 
             self.array_context.call_loopy(
                     program,
                     diff_mat=matrices_ary_dev,
-                    result=make_obj_array([result[iop][out_grp.index] for iop in range(noperators)]),
+                    result=make_obj_array([result[iop][out_grp.index]
+                        for iop in range(noperators)]),
                     vec=field[in_grp.index])
 
         return [(name, result[i]) for i, name in enumerate(insn.names)], []
