@@ -25,7 +25,7 @@ import numpy as np
 import numpy.linalg as la  # noqa
 import pyopencl as cl
 
-from pytools.obj_array import flat_obj_array, make_obj_array
+from pytools.obj_array import flat_obj_array
 
 from grudge.grudge_array_context import GrudgeArrayContext
 #from meshmode.array_context import PyOpenCLArrayContext
@@ -40,10 +40,6 @@ from grudge.symbolic.primitives import TracePair
 
 # {{{ wave equation bits
 
-def scalar(arg):
-    return make_obj_array([arg])
-
-
 def wave_flux(discr, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
@@ -52,13 +48,13 @@ def wave_flux(discr, c, w_tpair):
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
-            normal*scalar(u.avg),
+            normal*u.avg,
             )
 
     # upwind
     flux_weak += flat_obj_array(
             0.5*(u.ext-u.int),
-            0.5*normal*scalar(np.dot(normal, v.ext-v.int)),
+            0.5*normal*np.dot(normal, v.ext-v.int),
             )
 
     return discr.project(w_tpair.dd, "all_faces", c*flux_weak)

@@ -28,7 +28,7 @@ import pyopencl.array as cla  # noqa
 from grudge import sym, bind
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.dof_array import freeze, DOFArray, flatten, unflatten
+from meshmode.dof_array import freeze, flatten, unflatten
 
 from grudge.discretization import DGDiscretizationWithBoundaries
 from grudge.symbolic.primitives import TracePair
@@ -58,6 +58,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     .. automethod:: weak_div
 
     .. automethod:: normal
+    .. automethod:: mass
     .. automethod:: inverse_mass
     .. automethod:: face_mass
 
@@ -83,9 +84,12 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
         :arg vec: a :class:`~meshmode.dof_array.DOFArray`
         """
-        if (isinstance(vec, np.ndarray)
-                and vec.dtype.char == "O"
-                and not isinstance(vec, DOFArray)):
+        src = sym.as_dofdesc(src)
+        tgt = sym.as_dofdesc(tgt)
+        if src == tgt:
+            return vec
+
+        if isinstance(vec, np.ndarray):
             return obj_array_vectorize(
                     lambda el: self.project(src, tgt, el), vec)
 
@@ -251,6 +255,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
     @memoize_method
     def normal(self, dd):
+        """Get unit normal to specified surface discretization, *dd*.
+
+        :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
+        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
+        """
         surface_discr = self.discr_from_dd(dd)
         actx = surface_discr._setup_actx
         return freeze(
@@ -260,14 +269,32 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
                 (array_context=actx))
 
     @memoize_method
+    def _bound_mass(self, dd):
+        return bind(self, sym.MassOperator(dd_in=dd)(sym.Variable("u", dd)),
+                local_only=True)
+
+    def mass(self, *args):
+        if len(args) == 1:
+            vec, = args
+            dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        elif len(args) == 2:
+            dd, vec = args
+        else:
+            raise TypeError("invalid number of arguments")
+
+        if isinstance(vec, np.ndarray):
+            return obj_array_vectorize(
+                    lambda el: self.mass(dd, el), vec)
+
+        return self._bound_mass(dd)(u=vec)
+
+    @memoize_method
     def _bound_inverse_mass(self):
         return bind(self, sym.InverseMassOperator()(sym.Variable("u")),
                 local_only=True)
 
     def inverse_mass(self, vec):
-        if (isinstance(vec, np.ndarray)
-                and vec.dtype.char == "O"
-                and not isinstance(vec, DOFArray)):
+        if isinstance(vec, np.ndarray):
             return obj_array_vectorize(
                     lambda el: self.inverse_mass(el), vec)
 
@@ -287,9 +314,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         else:
             raise TypeError("invalid number of arguments")
 
-        if (isinstance(vec, np.ndarray)
-                and vec.dtype.char == "O"
-                and not isinstance(vec, DOFArray)):
+        if isinstance(vec, np.ndarray):
             return obj_array_vectorize(
                     lambda el: self.face_mass(dd, el), vec)
 
@@ -307,9 +332,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
         dd = sym.as_dofdesc(dd)
 
-        if (isinstance(vec, np.ndarray)
-                and vec.dtype.char == "O"
-                and not isinstance(vec, DOFArray)):
+        if isinstance(vec, np.ndarray):
             if p == 2:
                 return sum(
                         self.norm(vec[idx], dd=dd)**2
@@ -343,15 +366,11 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
 
 
 def interior_trace_pair(discrwb, vec):
+    """Return a :class:`grudge.sym.TracePair` for the interior faces of
+    *discrwb*.
+    """
     i = discrwb.project("vol", "int_faces", vec)
-
-    if (isinstance(vec, np.ndarray)
-            and vec.dtype.char == "O"
-            and not isinstance(vec, DOFArray)):
-        e = obj_array_vectorize(
-                lambda el: discrwb.opposite_face_connection()(el),
-                i)
-
+    e = obj_array_vectorize(lambda el: discrwb.opposite_face_connection()(el), i)
     return TracePair("int_faces", interior=i, exterior=e)
 
 
@@ -407,9 +426,7 @@ def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
 
 
 def cross_rank_trace_pairs(discrwb, vec, tag=None):
-    if (isinstance(vec, np.ndarray)
-            and vec.dtype.char == "O"
-            and not isinstance(vec, DOFArray)):
+    if isinstance(vec, np.ndarray):
 
         n, = vec.shape
         result = {}

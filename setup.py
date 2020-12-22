@@ -21,7 +21,7 @@ def main():
           author="Andreas Kloeckner",
           author_email="inform@tiker.net",
           license="MIT",
-          url="http://github.com/inducer/grudge",
+          url="https://github.com/inducer/grudge",
           classifiers=[
               'Development Status :: 3 - Alpha',
               'Intended Audience :: Developers',
@@ -53,7 +53,7 @@ def main():
               "meshmode>=2020.2",
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
-              "loo.py>=2013.1beta",
+              "loopy>=2020.2",
               "cgen>=2013.1.2",
               "leap>=2019.1",
               "dagrt>=2019.1",

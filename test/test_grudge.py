@@ -23,9 +23,8 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
-import pyopencl as cl
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import unflatten, flatten, flat_norm
+from meshmode import _acf       # noqa: F401
+from meshmode.dof_array import flatten, thaw
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
@@ -82,7 +81,7 @@ def test_inverse_metric(actx_factory, dim):
         for j in range(mesh.dim):
             tgt = 1 if i == j else 0
 
-            err = flat_norm(mat[i, j] - tgt, np.inf)
+            err = actx.np.linalg.norm(mat[i, j] - tgt, ord=np.inf)
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
@@ -259,9 +258,7 @@ def test_mass_surface_area(actx_factory, name):
 
 @pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
 def test_surface_mass_operator_inverse(actx_factory, name):
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     # {{{ cases
 
@@ -439,7 +436,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
             bound_op = bind(discr, sym_op)
             df_num = bound_op(f=f)
 
-            linf_error = flat_norm(df_num-df, np.Inf)
+            linf_error = actx.np.linalg.norm(df_num - df, ord=np.inf)
             axis_eoc_recs[axis].add_data_point(1/n, linf_error)
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
@@ -1041,12 +1038,10 @@ def test_external_call(actx_factory):
 
 
 @pytest.mark.parametrize("array_type", ["scalar", "vector"])
-def test_function_symbol_array(ctx_factory, array_type):
+def test_function_symbol_array(actx_factory, array_type):
     """Test if `FunctionSymbol` distributed properly over object arrays."""
 
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
@@ -1055,20 +1050,13 @@ def test_function_symbol_array(ctx_factory, array_type):
             n=(8,)*dim, order=4)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
     volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
-    ndofs = sum(grp.ndofs for grp in volume_discr.groups)
 
-    import pyopencl.clrandom        # noqa: F401
     if array_type == "scalar":
         sym_x = sym.var("x")
-        x = unflatten(actx, volume_discr,
-                cl.clrandom.rand(queue, ndofs, dtype=np.float))
+        x = thaw(actx, actx.np.cos(volume_discr.nodes()[0]))
     elif array_type == "vector":
         sym_x = sym.make_sym_array("x", dim)
-        x = make_obj_array([
-            unflatten(actx, volume_discr,
-                cl.clrandom.rand(queue, ndofs, dtype=np.float))
-            for _ in range(dim)
-            ])
+        x = thaw(actx, volume_discr.nodes())
     else:
         raise ValueError("unknown array type")
 
@@ -1079,12 +1067,10 @@ def test_function_symbol_array(ctx_factory, array_type):
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
-def test_norm_obj_array(ctx_factory, p):
+def test_norm_obj_array(actx_factory, p):
     """Test :func:`grudge.symbolic.operators.norm` for object arrays."""
 
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
@@ -1118,14 +1104,12 @@ def test_norm_obj_array(ctx_factory, p):
     # }}}
 
 
-def test_map_if(ctx_factory):
+def test_map_if(actx_factory):
     """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
     of scalar conditions.
     """
 
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2

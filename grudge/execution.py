@@ -256,13 +256,13 @@ class ExecutionMapper(mappers.Evaluator,
                         p.If(var("crit")[iel, idof], sym_then, sym_else))
                 ])
 
-        return DOFArray.from_list(self.array_context, [
+        return DOFArray(self.array_context, tuple(
             self.array_context.call_loopy(
                 knl(sym_then, sym_else),
                 crit=bool_crit[igrp],
                 a=get_then(igrp),
                 b=get_else(igrp))
-            for igrp in range(ngroups)])
+            for igrp in range(ngroups)))
 
     # {{{ elementwise linear operators
 
@@ -487,7 +487,7 @@ class ExecutionMapper(mappers.Evaluator,
                 result.setdefault(name, []).append(val)
 
         result = {
-                name: DOFArray.from_list(self.array_context, val)
+                name: DOFArray(self.array_context, tuple(val))
                 for name, val in result.items()}
 
         return list(result.items()), []

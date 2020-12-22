@@ -486,7 +486,7 @@ class MassOperatorBase(Operator):
         if dd_in is None:
             dd_in = prim.DD_VOLUME
         if dd_out is None:
-            dd_out = dd_in
+            dd_out = prim.DD_VOLUME
 
         super().__init__(dd_in, dd_out)
 
@@ -705,7 +705,7 @@ def integral(arg, dd=None):
 
     return NodalSum(dd)(
             arg * prim.cse(
-                MassOperator(dd_in=dd)(prim.Ones(dd)),
+                MassOperator(dd_in=dd, dd_out=dd)(prim.Ones(dd)),
                 "mass_quad_weights",
                 prim.cse_scope.DISCRETIZATION))
 
@@ -764,7 +764,7 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
 
     return NodalMax(dd_in=dd)(
             ElementwiseSumOperator(dd)(
-                MassOperator(dd_in=dd)(prim.Ones(dd))
+                MassOperator(dd_in=dd, dd_out=dd)(prim.Ones(dd))
                 )
             )**(1.0/dim)
 
@@ -785,7 +785,7 @@ def h_min_from_volume(ambient_dim, dim=None, dd=None):
 
     return NodalMin(dd_in=dd)(
             ElementwiseSumOperator(dd)(
-                MassOperator(dd_in=dd)(prim.Ones(dd))
+                MassOperator(dd_in=dd, dd_out=dd)(prim.Ones(dd))
                 )
             )**(1.0/dim)
 
