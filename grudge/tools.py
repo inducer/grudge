@@ -130,7 +130,7 @@ def partial_to_all_subset_indices(subsets, base=0):
 
 # {{{ OrderedSet
 
-# Source: http://code.activestate.com/recipes/576694-orderedset/
+# Source: https://code.activestate.com/recipes/576694-orderedset/
 # Author: Raymond Hettinger
 # License: MIT
 

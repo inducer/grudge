@@ -240,13 +240,13 @@ class ExecutionMapper(mappers.Evaluator,
                         p.If(var("crit")[iel, idof], sym_then, sym_else))
                 ])
 
-        return DOFArray.from_list(self.array_context, [
+        return DOFArray(self.array_context, tuple(
             self.array_context.call_loopy(
                 knl(sym_then, sym_else),
                 crit=bool_crit[igrp],
                 a=get_then(igrp),
                 b=get_else(igrp))
-            for igrp in range(ngroups)])
+            for igrp in range(ngroups)))
 
     # {{{ elementwise linear operators
 
@@ -281,7 +281,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
 
-            cache_key = "elwise_linear", in_grp, out_grp, op, field.dtype
+            cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
             except KeyError:
@@ -347,7 +347,7 @@ class ExecutionMapper(mappers.Evaluator,
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
         for afgrp, volgrp in zip(all_faces_discr.groups, vol_discr.groups):
-            cache_key = "face_mass", afgrp, op, field.dtype
+            cache_key = "face_mass", afgrp, op, field.entry_dtype
 
             nfaces = volgrp.mesh_el_group.nfaces
 
@@ -460,7 +460,7 @@ class ExecutionMapper(mappers.Evaluator,
                 result.setdefault(name, []).append(val)
 
         result = {
-                name: DOFArray.from_list(self.array_context, val)
+                name: DOFArray(self.array_context, tuple(val))
                 for name, val in result.items()}
 
         return list(result.items()), []

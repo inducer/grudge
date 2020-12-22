@@ -116,6 +116,14 @@ Geometry data
 .. autofunction:: surface_normal
 .. autofunction:: summed_curvature
 .. autofunction:: mean_curvature
+
+Trace Pair
+^^^^^^^^^^
+
+.. autoclass:: TracePair
+.. autofunction:: int_tpair
+.. autofunction:: bv_tpair
+.. autofunction:: bdry_tpair
 """
 
 
@@ -857,13 +865,20 @@ class TracePair:
 
     .. attribute:: interior
 
-        an expression representing the interior value to
+        a value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
+        or object array of either) representing the interior value to
         be used for the flux.
 
     .. attribute:: exterior
 
-        an expression representing the exterior value to
+        a value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
+        or object array of either) representing the exterior value to
         be used for the flux.
+
+    .. note::
+
+        :class:`TracePair` is used both by the symbolic and the eager interface,
+        with symbolic information or concrete data.
     """
     def __init__(self, dd, *, interior, exterior):
         """

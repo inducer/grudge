@@ -4,7 +4,7 @@ load("maxwellbase.mac");
 /*
 See
 S.G. Johnson, “Notes on Perfectly Matched Layers,” 2008;
-http://math.mit.edu/~stevenj/18.369/pml.pdf.
+https://math.mit.edu/~stevenj/18.369/pml.pdf.
 */
 
 coords:[x,y,z];

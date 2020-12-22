@@ -266,7 +266,8 @@ class DGDiscretizationWithBoundaries:
                         make_same_mesh_connection
                 to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
                 from_discr = self._volume_discr
-                return make_same_mesh_connection(to_discr, from_discr)
+                return make_same_mesh_connection(self._setup_actx, to_discr,
+                            from_discr)
 
             else:
                 raise ValueError("cannot interpolate from volume to: " + str(to_dd))

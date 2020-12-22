@@ -107,6 +107,8 @@ def dof_array_nbytes(ary: np.ndarray):
         return sum(
                 dof_array_nbytes(ary[idx])
                 for idx in np.ndindex(ary.shape))
+    elif isinstance(ary, DOFArray):
+        return sum(dof_array_nbytes(ary_i) for ary_i in ary)
     else:
         return ary.nbytes
 
@@ -681,8 +683,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                 result.setdefault(name, []).append(val)
 
         result = {
-                name: DOFArray.from_list(
-                    self.inner_mapper.array_context, val)
+                name: DOFArray(self.inner_mapper.array_context, tuple(val))
                 for name, val in result.items()}
 
         for val in result.values():

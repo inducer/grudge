@@ -1,5 +1,5 @@
 /* compare formulation in JSH/TW with 
- * http://en.wikipedia.org/wiki/Navier%E2%80%93Stokes_equations#Compressible_flow_of_Newtonian_fluids
+ * https://en.wikipedia.org/wiki/Navier%E2%80%93Stokes_equations#Compressible_flow_of_Newtonian_fluids
  */
 
 kill(all);
