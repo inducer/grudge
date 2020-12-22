@@ -21,11 +21,11 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def empty(self, shape, dtype):
         return cla.empty(self.queue, shape=shape, dtype=dtype,
-                allocator=self.allocator, order='F')
+                allocator=self.allocator, order="F")
 
     def zeros(self, shape, dtype):
         return cla.zeros(self.queue, shape=shape, dtype=dtype,
-                allocator=self.allocator, order='F')
+                allocator=self.allocator, order="F")
 
     #@memoize_method
     def _get_scalar_func_loopy_program(self, name, nargs, naxes):
