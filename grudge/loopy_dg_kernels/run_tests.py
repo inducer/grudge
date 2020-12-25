@@ -76,7 +76,7 @@ def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_ou
         #prog = cl.Program(ctx, code)
         #prog = prog.build()
         #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
-        #errors='ignore') #Breaks pocl
+        #errors="ignore") #Breaks pocl
         #dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
 
@@ -194,7 +194,7 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
         #prog = cl.Program(ctx, code)
         #prog = prog.build()
         #  Breaks pocl
-        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(errors='ignore')
+        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(errors="ignore")
         #dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
 
@@ -358,7 +358,7 @@ def j_inner_options(n_in, reverse=False):
     return sorted(factors, reverse=reverse)
 
 
-def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float('inf'),
+def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
                         fp_bytes=4, max_gflops=None, device_memory_bandwidth=None,
                         max_workitems=1024, gflops_cutoff=.95,
                         bandwidth_cutoff=0.95):
@@ -393,7 +393,7 @@ def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float('inf'),
     return result_saved
 
 
-def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float('inf'), fp_bytes=4,
+def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_bytes=4,
                     max_gflops=None, device_memory_bandwidth=None,
                     max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
     from random import choice
@@ -442,8 +442,8 @@ fp_format_dict = {np.float32: (4, "FP32"), np.float64: (8, "FP64"),
                     np.complex128: (16, "C128")}
 fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
 
-toTest = True
-if toTest:
+to_test = True
+if to_test:
     n_elem = 2**21
     pn = 2
     print(len(equidistant_nodes(pn, 3)[1]))
