@@ -1,5 +1,3 @@
- # flake8: noqa N806, N802, N803
-
 import numpy as np
 
 import pyopencl as cl
