@@ -37,6 +37,7 @@ from meshmode.dof_array import DOFTag
 
 # {{{ instructions
 
+
 class Instruction(Record):
     priority = 0
     neglect_for_dofdesc_inference = False

@@ -227,17 +227,17 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
 '''
 
 
-def loadTransformationsFromFile(hjson_file, device_id, pn, fp_format=np.float32):
+def load_transformations_from_file(hjson_file, device_id, pn, fp_format=np.float32):
     hjson_text = hjson_file.read()
     od = hjson.loads(hjson_text)
-    transformID = od["devices"][device_id]
+    transform_id = od["devices"][device_id]
     fp_string = "FP64" if fp_format == np.float64 else "FP32"
     hjson_file.close()
-    transformations = od["transformations"][transformID][fp_string][str(pn)]
+    transformations = od["transformations"][transform_id][fp_string][str(pn)]
     return transformations
 
 
-def generateTransformationListOld(k_inner_outer, k_inner_inner, i_inner_outer,
+def generate_transformation_list_old(k_inner_outer, k_inner_inner, i_inner_outer,
                                     i_inner_inner, j_inner):
     transformations = []
     # transformation name, list of args, dict of keyward args
@@ -262,7 +262,7 @@ def generateTransformationListOld(k_inner_outer, k_inner_inner, i_inner_outer,
     return transformations
 
 
-def generateTransformationList(k_inner_outer, k_inner_inner, i_inner_outer,
+def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
                                 i_inner_inner, j_inner):
     transformations = []
     # transformation name, list of args, dict of keyward args
@@ -286,8 +286,8 @@ def generateTransformationList(k_inner_outer, k_inner_inner, i_inner_outer,
     return transformations
 
 
-def applyTransformationList(knl, transformations):
-    functionMapping = {"split_iname": lp.split_iname,
+def apply_transformation_list(knl, transformations):
+    function_mapping = {"split_iname": lp.split_iname,
                         "add_prefetch": lp.add_prefetch,
                         "prioritize_loops": lp.prioritize_loops,
                         "rename_iname": lp.rename_iname,
@@ -298,7 +298,7 @@ def applyTransformationList(knl, transformations):
     # Maybe can do this based on tranformation name, loop variable, and loop variable
     # bounds
     for t in transformations:
-        func = functionMapping[t[0]]
+        func = function_mapping[t[0]]
         args = [knl] + t[1]
         kwargs = t[2] if len(t) > 2 else {}
         #print(t)
@@ -307,7 +307,7 @@ def applyTransformationList(knl, transformations):
     return knl
 
 #knl = gen_diff_knl_fortran2(3, 128, 10, 10)
-#trans = generateTransformationList(64, 32, 10, 10, 10)
-#knl = applyTransformationList(knl, trans)
+#trans = generate_transformation_list(64, 32, 10, 10, 10)
+#knl = apply_transformation_list(knl, trans)
 #code = lp.generate_code_v2(knl).device_code()
 #print(code)
