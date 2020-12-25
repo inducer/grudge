@@ -83,7 +83,7 @@ def wave_operator(discr, c, w):
                     ))
                 )
 
-# }}} 
+# }}}
 
 
 def rk4_step(y, t, h, f):
@@ -115,7 +115,7 @@ def bump(actx, discr, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = GrudgeArrayContext(queue)#PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)  # PyOpenCLArrayContext(queue)
 
     dim = 3
     nel_1d = 16
