@@ -20,9 +20,9 @@ max_flops_l1_unboosted_data = np.minimum(flops_per_byte_accessed
 fig = plt.figure()
 ax = fig.add_subplot(111)
 ax.loglog(flops_per_byte_accessed, max_flops_g_unboosted_data,
-    label='Device memory roofline')
+    label="Device memory roofline")
 ax.loglog(flops_per_byte_accessed, max_flops_l1_unboosted_data,
-    label='L1 cache/Local memory roofline')
+    label="L1 cache/Local memory roofline")
 
 theoretical_x_1 = 3*2*np.array([10, 20, 35, 56, 85, 120]) \
     / (4 + 12)  # Assumes one read and three stores
@@ -46,20 +46,20 @@ print(theoretical_y_1)
 print(theoretical_x_4)
 print(theoretical_y_4)
 
-pn_labels = ['2', '3', '4', '5', '6', '7']
+pn_labels = ["2", "3", "4", "5", "6", "7"]
 
 plt.title("Grudge elementwise differentiation kernel: FP32")
-ax.loglog(theoretical_x_1, theoretical_y_1, 'sy',
-    label='4 device memory accesses model (3 writes, 1 read)', markersize=8)
-ax.loglog(theoretical_x_4, theoretical_y_4, 'ob',
-    label='7 device memory accesses model, (3 writes, 4 reads)')
-#plt.loglog(theoretical_x_7, theoretical_y_7,'oy', label='13 accesses model')
-ax.loglog(theoretical_x_1, empirical_y, '.r',
-    label='Experimental results assuming 4 accesses')
+ax.loglog(theoretical_x_1, theoretical_y_1, "sy",
+    label="4 device memory accesses model (3 writes, 1 read)", markersize=8)
+ax.loglog(theoretical_x_4, theoretical_y_4, "ob",
+    label="7 device memory accesses model, (3 writes, 4 reads)")
+#plt.loglog(theoretical_x_7, theoretical_y_7,"oy", label="13 accesses model")
+ax.loglog(theoretical_x_1, empirical_y, ".r",
+    label="Experimental results assuming 4 accesses")
 for i in range(6):
     ax.annotate(pn_labels[i], x=(theoretical_x_1[i], empirical_y[i]))
-ax.loglog(theoretical_x_4, empirical_y, '.g',
-    label='Experimental results assuming 7 accesses')
+ax.loglog(theoretical_x_4, empirical_y, ".g",
+    label="Experimental results assuming 7 accesses")
 for i in range(6):
     ax.annotate(pn_labels[i], xy=(theoretical_x_4[i], empirical_y[i]))
 plt.ylabel("GFLOP/s")
