@@ -32,14 +32,14 @@ import loopy as lp
 import pyopencl as cl
 import pyopencl.array  # noqa
 
-from meshmode.dof_array import DOFArray, thaw, flatten, unflatten, DOFTag
-from meshmode.array_context import ArrayContext, make_loopy_program
+from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
+from meshmode.array_context import ArrayContext, make_loopy_program, IsDOFArray
 
 import grudge.symbolic.mappers as mappers
 from grudge import sym
 from grudge.function_registry import base_function_registry
 
-import loopy_dg_kernels as dgk
+import grudge.loopy_dg_kernels as dgk
 
 import logging
 logger = logging.getLogger(__name__)
@@ -51,19 +51,23 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 ResultType = Union[DOFArray, Number]
 
 
+class VecIsDOFArray(Tag):
+    pass
+
+
+class FaceIsDOFArray(Tag):
+    pass
+
+
+class VecOpIsDOFArray(Tag):
+    pass
+
+
+class IsOpArray(Tag):
+    pass
+
+
 # {{{ exec mapper
-
-class VecDOFTag(Tag):
-    pass
-
-
-class FaceDOFTag(Tag):
-    pass
-
-
-class VecOpDOFTag(Tag):
-    pass
-
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
@@ -137,9 +141,15 @@ class ExecutionMapper(mappers.Evaluator,
                 """
                 result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
+                kernel_data=[
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("operand", None, shape=lp.auto, tags=IsOpArray()),
+                    ...
+                ],                
                 name="grudge_elementwise_%s" % op_name)
 
         field = self.rec(field_expr)
+        
         discr = self.discrwb.discr_from_dd(dd)
         assert field.shape == (len(discr.groups),)
 
@@ -287,8 +297,8 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=j<ndiscr_nodes_in}""",
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=DOFTag()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=IsDOFArray()),
                     ...
                 ],
                 name="elwise_linear")
@@ -359,8 +369,8 @@ class ExecutionMapper(mappers.Evaluator,
                 result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
                 """,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=DOFTag()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=FaceDOFTag()),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=FaceIsDOFArray()),
                     "..."
                 ],
                 name="face_mass")
@@ -537,10 +547,11 @@ class ExecutionMapper(mappers.Evaluator,
                         j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=VecDOFTag()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=DOFTag()),
+                    lp.GlobalArg("result", None, shape=lp.auto,
+                                    tags=VecIsDOFArray()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=IsDOFArray()),
                     lp.GlobalArg("diff_mat", None, shape=lp.auto,
-                        tags=VecOpDOFTag()),
+                        tags=VecOpIsDOFArray()),
                     ...
                 ],
                 name="diff")

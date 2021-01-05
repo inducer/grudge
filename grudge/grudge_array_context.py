@@ -1,7 +1,8 @@
 from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import DOFTag
-#from grudge.execution import VecOpDOFTag
-from grudge.execution import VecDOFTag, FaceDOFTag
+from meshmode.dof_array import IsDOFArray
+#from grudge.execution import VecOpIsDOFArray
+from grudge.execution import (VecIsDOFArray, FaceIsDOFArray,
+    IsOpArray)
 import loopy as lp
 #import pyopencl
 import pyopencl.array as cla
@@ -32,12 +33,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         prog = super()._get_scalar_func_loopy_program(name, nargs, naxes)
         for arg in prog.args:
             if type(arg) == lp.ArrayArg:
-                arg.tags = DOFTag()
+                arg.tags = IsDOFArray()
         return prog
 
     def thaw(self, array):
         thawed = super().thaw(array)
-        if type(getattr(array, "tags", None)) == DOFTag:
+        if type(getattr(array, "tags", None)) == IsDOFArray:
             cq = thawed.queue
             _, (out,) = ctof_knl(cq, input=thawed)
             thawed = out
@@ -47,16 +48,18 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     #@memoize_method
     def transform_loopy_program(self, program):
+        print(program.name)
 
         for arg in program.args:
-            if isinstance(arg.tags, DOFTag):
+            if isinstance(arg.tags, IsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
-
-            elif isinstance(arg.tags, VecDOFTag):
+            elif isinstance(arg.tags, IsOpArray):
+                program = lp.tag_array_axes(program, arg.name, "f,f")
+            elif isinstance(arg.tags, VecIsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-            #elif isinstance(arg.tags, VecOpDOFTag):
+            #elif isinstance(arg.tags, VecOpIsDOFArray):
             #    program = lp.tag_array_axes(program, arg.name, "sep,c,c")
-            elif isinstance(arg.tags, FaceDOFTag):
+            elif isinstance(arg.tags, FaceIsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
 
         if program.name == "opt_diff":
@@ -89,10 +92,76 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 # Should throw an error
                 #exit()
 
-            transformations = dgk.loadTransformationsFromFile(hjson_file,
+            transformations = dgk.load_transformations_from_file(hjson_file,
                 device_id, pn, fp_format=fp_format)
-            program = dgk.applyTransformationList(program, transformations)
+            program = dgk.apply_transformation_list(program, transformations)
         else:
             program = super().transform_loopy_program(program)
 
         return program
+
+# {{{ pytest integration
+
+# Should this method just be modified to accept a class _ContextFactory
+# as an argument?
+def pytest_generate_tests_for_grudge_array_context(metafunc):
+    """Parametrize tests for pytest to use a :mod:`grudge` array context.
+
+    Performs device enumeration analogously to
+    :func:`pyopencl.tools.pytest_generate_tests_for_pyopencl`.
+
+    Using the line:
+
+    .. code-block:: python
+
+       from grudge.grudge_array_context import pytest_generate_tests_for_pyopencl \
+            as pytest_generate_tests
+
+    in your pytest test scripts allows you to use the arguments ctx_factory,
+    device, or platform in your test functions, and they will automatically be
+    run for each OpenCL device/platform in the system, as appropriate.
+
+    It also allows you to specify the ``PYOPENCL_TEST`` environment variable
+    for device selection.
+    """
+
+    import pyopencl as cl
+    from pyopencl.tools import _ContextFactory
+
+    class ArrayContextFactory(_ContextFactory):
+        def __call__(self):
+            ctx = super().__call__()
+            return GrudgeArrayContext(cl.CommandQueue(ctx))
+
+        def __str__(self):
+            return ("<array context factory for <pyopencl.Device '%s' on '%s'>" %
+                    (self.device.name.strip(),
+                     self.device.platform.name.strip()))
+
+    import pyopencl.tools as cl_tools
+    arg_names = cl_tools.get_pyopencl_fixture_arg_names(
+            metafunc, extra_arg_names=["actx_factory"])
+
+    if not arg_names:
+        return
+
+    arg_values, ids = cl_tools.get_pyopencl_fixture_arg_values()
+    if "actx_factory" in arg_names:
+        if "ctx_factory" in arg_names or "ctx_getter" in arg_names:
+            raise RuntimeError("Cannot use both an 'actx_factory' and a "
+                    "'ctx_factory' / 'ctx_getter' as arguments.")
+
+        for arg_dict in arg_values:
+            arg_dict["actx_factory"] = ArrayContextFactory(arg_dict["device"])
+
+    arg_values = [
+            tuple(arg_dict[name] for name in arg_names)
+            for arg_dict in arg_values
+            ]
+
+    metafunc.parametrize(arg_names, arg_values, ids=ids)
+
+# }}}
+
+
+# vim: foldmethod=marker

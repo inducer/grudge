@@ -110,32 +110,26 @@ def gen_diff_knl_fortran(n_elem, n_in, n_out, fp_format=np.float32, options=None
     return knl
 
 
-def gen_diff_knl(n_elem, n_in, n_out, fp_format=np.float32, options=None):
+def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None):
+    print(fp_format)
     knl = lp.make_kernel(
-        """{[k,i,j]:
+        """{[m,k,i,j]:
             0<=k<nelements and
             0<=i<ndiscr_nodes_out and
-            0<=j<ndiscr_nodes_in}""",
+            0<=j<ndiscr_nodes_in and 
+            0<=m<nmatrices}""",
         """
-        result1[i,k] = simul_reduce(sum, j, mat1[i, j] * vec[j, k])
-        result2[i,k] = simul_reduce(sum, j, mat2[i, j] * vec[j, k])
-        result3[i,k] = simul_reduce(sum, j, mat3[i, j] * vec[j, k])
+        result[m, i ,k] = simul_reduce(sum, j, diff_mat[m, i, j] * vec[j, k])
         """,
         kernel_data=[
-            lp.GlobalArg("result1", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("result2", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("result3", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("mat1", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("mat2", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("mat3", fp_format, shape=lp.auto, offset=lp.auto,
-                order="C"),
-            lp.GlobalArg("vec", fp_format, shape=lp.auto, offset=lp.auto, order="C")
+            lp.GlobalArg("result", fp_format, shape=(n_mat, n_out, n_elem),
+                offset=lp.auto),
+            lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
+                order="C", offset=lp.auto),
+            lp.GlobalArg("vec", fp_format, shape=(n_in, n_elem), order="C",
+                offset=lp.auto)
         ],
+ 
         #kernel_data = [
         #    lp.GlobalArg("result1", fp_format, shape=None, strides=(n_elem,1),
         #       dim_tags=None, offset=lp.auto, order="C"),
@@ -154,13 +148,18 @@ def gen_diff_knl(n_elem, n_in, n_out, fp_format=np.float32, options=None):
         #],
         assumptions="nelements > 0 \
                      and ndiscr_nodes_out > 0 \
-                     and ndiscr_nodes_in > 0",
+                     and ndiscr_nodes_in > 0 \
+                     and nmatrices > 0",
         options=options,
         name="opt_diff"
     )
+    knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
+    knl = lp.tag_array_axes(knl, "result", "sep,c,c")
+    knl = lp.tag_array_axes(knl, "vec", "c,c")
+ 
+    knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
+        ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
 
-    knl = lp.fix_parameters(knl, nelements=n_elem, ndiscr_nodes_in=n_in,
-        ndiscr_nodes_out=n_out)
     #mat_string = ["result1", "result2", "result3", "vec"]
     #for i in range(len(mat_string)):
     #   knl = lp.tag_array_axes(knl, mat_string, "stride:auto,stride:auto")
@@ -197,7 +196,7 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
                      and ndiscr_nodes_out > 0 \
                      and ndiscr_nodes_in > 0",
         default_offset=None,
-        name="diff"
+        name="opt_diff"
     )
 
     knl = lp.fix_parameters(knl, nelements=n_elem, ndiscr_nodes_in=n_in,
@@ -297,7 +296,10 @@ def apply_transformation_list(knl, transformations):
     # Maybe add some logic to add slabs=(0,0) if n_elem % k_inner_outer == 0
     # Maybe can do this based on tranformation name, loop variable, and loop variable
     # bounds
+    print(knl)
     for t in transformations:
+        print("HERE")
+        print(t)
         func = function_mapping[t[0]]
         args = [knl] + t[1]
         kwargs = t[2] if len(t) > 2 else {}

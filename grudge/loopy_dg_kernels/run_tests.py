@@ -29,9 +29,7 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
-from loopy_dg_kernels import gen_diff_knl
-from loopy_dg_kernels import generateTransformationList
-from loopy_dg_kernels import applyTransformationList
+from grudge.loopy_dg_kernels import gen_diff_knl, generate_transformation_list, apply_transformation_list
 
 
 def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
@@ -149,14 +147,21 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
                 i_inner_inner, j_inner, backend="CUDA", fp_format=np.float32,
                 nruns=10):
 
-    kern = gen_diff_knl(n_elem, n_in, n_out, fp_format=fp_format)
-    transformations = generateTransformationList(k_inner_outer, k_inner_inner,
+
+    n_mat = 3
+    print(fp_format)
+    kern = gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=fp_format)
+    print(kern)
+
+    transformations = generate_transformation_list(k_inner_outer, k_inner_inner,
                                                     i_inner_outer, i_inner_inner,
                                                     j_inner)
     print(transformations)
-    kern = applyTransformationList(kern, transformations)
+    kern = apply_transformation_list(kern, transformations)
 
     kern = lp.set_options(kern, "no_numpy")
+    # For some reason compyte will not install when using local pip
+    backend="OPENCL"
 
     CUDA = backend == "CUDA"
     OPENCL = not CUDA
@@ -169,13 +174,12 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
         code = lp.generate_code_v2(kern).device_code()
         mod = SourceModule(code, keep=True)
         diff_fn = mod.get_function("diff")
-        A_dev1 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
-        A_dev2 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
-        A_dev3 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
+        A_dev = curand((n_mat, n_out, n_in),  dtype=fp_format, stream=stream)
         X_dev = curand((n_in, n_elem), dtype=fp_format, stream=stream)
-        B_dev1 = cuarray.GPUArray((n_out, n_elem), fp_format)
-        B_dev2 = cuarray.GPUArray((n_out, n_elem), fp_format)
-        B_dev3 = cuarray.GPUArray((n_out, n_elem), fp_format)
+        B_dev = cuarray.GPUArray((n_mat, n_out, n_elem), fp_format)
+
+        #for i in range(3):
+        #    B_dev.append(cuarray.GPUArray((n_out, n_elem), fp_format)
         print(code)
     elif OPENCL:
 
@@ -202,13 +206,9 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
         #A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
         #X_dev = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
         #B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format)
-        A_dev1 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        A_dev2 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        A_dev3 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
+        A_dev = cl.clrandom.rand(queue, (n_mat, n_out, n_in), dtype=fp_format)
         X_dev = cl.clrandom.rand(queue, (n_in, n_elem), dtype=fp_format)
-        B_dev1 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
-        B_dev2 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
-        B_dev3 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
+        B_dev = cl.array.Array(queue, (n_mat, n_out, n_elem), dtype=fp_format)
         # Code for running binaries
         #device = queue.get_info(cl.command_queue_info.DEVICE)
         #with open("pocl_32x32.ptx","rb") as f:
@@ -226,16 +226,15 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, X_dev.shape, (32,32),
             #                                   None)
-            evt, (B_dev1, B_dev2, B_dev3) = kern(queue, mat1=A_dev1, mat2=A_dev2,
-                                                    mat3=A_dev3, vec=X_dev)
+            evt, B_dev = kern(queue, diff_mat=A_dev, vec=X_dev)
             events.append(evt)
         elif CUDA:
-            diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
-                    block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            diff_fn(B_dev, A_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
         cl.wait_for_events(events)
     elif CUDA:
         pycuda.autoinit.context.synchronize()
+    #exit()
 
     sum_time = 0.0
     events = []
@@ -245,12 +244,10 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, X_dev.shape, (32,32),
             #                                   None)
-            evt, (B_dev1, B_dev2, B_dev3) = kern(queue, mat1=A_dev1, mat2=A_dev2,
-                                                    mat3=A_dev3, vec=X_dev)
+            evt, B_dev = kern(queue, diff_mat=A_dev, vec=X_dev)
             events.append(evt)
         elif CUDA:
-            diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
-                    block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
         cl.wait_for_events(events)
     elif CUDA:
@@ -259,7 +256,7 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
     sum_time = time.time() - start
     avg_time = sum_time / nruns
 
-    return (B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev), avg_time
+    return (B_dev, A_dev, X_dev), avg_time
 
 
 def analyzeResult(n_out, n_in, n_elem, peak_gflops, device_memory_bandwidth,
@@ -393,9 +390,11 @@ def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
     return result_saved
 
 
-def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_bytes=4,
+def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_format=np.float32,
                     max_gflops=None, device_memory_bandwidth=None,
                     max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
+    # Should probably make this a function
+    fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
     from random import choice
     avg_time_saved = float("inf")
     result_saved = None
@@ -417,7 +416,8 @@ def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_bytes
         if choices not in tested:
             print(choices)
             dev_arrays, avg_time = runTest(int(n_elem), int(n_in), int(n_out),
-                int(kio), int(kii), int(iio), int(iii), int(ji))
+                int(kio), int(kii), int(iio), int(iii), int(ji), fp_format=fp_format)
+            #exit()
             tested.append(choices)
             if max_gflops is not None and device_memory_bandwidth is not None:
                 frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out, n_in, n_elem,
@@ -437,23 +437,23 @@ def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_bytes
 # Testing code
 file_name = "transform.hjson"
 device_id = "NVIDIA Titan V"
-fp_format = np.complex128
+fp_format = np.float64
 fp_format_dict = {np.float32: (4, "FP32"), np.float64: (8, "FP64"),
                     np.complex128: (16, "C128")}
 fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
 
 to_test = True
 if to_test:
-    n_elem = 2**21
-    pn = 2
+    n_elem = 2**15#2**21
+    pn = 6
     print(len(equidistant_nodes(pn, 3)[1]))
     n_out = len(equidistant_nodes(pn, 3)[1])
     n_in = len(equidistant_nodes(pn, 3)[1])
 
     #settings = exhaustiveSearch(n_in, n_out, n_elem, 4*12*1024, fp_bytes=fp_bytes,
     #               max_gflops=12288, device_memory_bandwidth=540)
-    settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,
-                    fp_bytes=fp_bytes, max_gflops=12288, device_memory_bandwidth=540)
+    settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=60,
+                    fp_format=fp_format, max_gflops=12288//2, device_memory_bandwidth=540)
     #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,
     #                       fp_bytes=fp_bytes, max_gflops=12288,
     #                       device_memory_bandwidth=540)
