@@ -57,6 +57,7 @@ def main():
               "cgen>=2013.1.2",
               "leap>=2019.1",
               "dagrt>=2019.1",
+              "hjson",
               "import_resources; python_version<'3.7'"
               ])
 
