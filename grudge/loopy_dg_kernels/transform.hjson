@@ -52,11 +52,11 @@
         ],
         5:[
             ["tag_inames", [[["m", "ilp"]]]],
-            ["split_iname", ["k", 80], {outer_tag: "g.0", slabs: [0,1]}],
+            ["split_iname", ["k", 192], {outer_tag: "g.0", slabs: [0,1]}],
             ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
             ["split_iname", ["i", 56], {outer_tag: "g.1", inner_tag: "l.1"}],
             ["split_iname", ["j", 8], {outer_tag: "for", inner_tag: "for"}],
-            ["add_prefetch", ["vec", "j_outer,j_inner,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+            #["add_prefetch", ["vec", "j_outer,j_inner,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
             ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "mat1fp", default_tag: "unr"}], 
         6:[
             ["tag_inames", [[["m", "ilp"]]]],
@@ -94,7 +94,7 @@
             # Format: [Transformation, args, kwargs]
             ["tag_inames", [[["m", "ilp"]]]],
             ["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
-            ["split_iname", ["k_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+            ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
             ["split_iname", ["i", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
             ["add_prefetch", ["vec", "j,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
             ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
@@ -102,7 +102,7 @@
         3:[
             ["tag_inames", [[["m", "ilp"]]]],
             ["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
-            ["split_iname", ["k_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+            ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
             ["split_iname", ["i", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
             ["add_prefetch", ["vec", "j,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
             ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
@@ -129,7 +129,7 @@
         ],
         5:[
             ["tag_inames", [[["m", "ilp"]]]],
-            ["split_iname", ["k", 192], {outer_tag: "g.0", slabs: [0,1]}],
+            ["split_iname", ["k", 64], {outer_tag: "g.0", slabs: [0,1]}],
             ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
             ["split_iname", ["i", 56], {outer_tag: "g.1", inner_tag: "l.1"}],
             ["split_iname", ["j", 8], {outer_tag: "for", inner_tag: "for"}],
