@@ -145,11 +145,10 @@ class ExecutionMapper(mappers.Evaluator,
                     lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
                     lp.GlobalArg("operand", None, shape=lp.auto, tags=IsOpArray()),
                     ...
-                ],                
+                ],
                 name="grudge_elementwise_%s" % op_name)
 
         field = self.rec(field_expr)
-        
         discr = self.discrwb.discr_from_dd(dd)
         assert field.shape == (len(discr.groups),)
 

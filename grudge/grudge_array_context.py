@@ -100,6 +100,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         return program
 
+
 # {{{ pytest integration
 
 # Should this method just be modified to accept a class _ContextFactory

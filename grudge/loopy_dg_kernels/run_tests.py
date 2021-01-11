@@ -29,7 +29,8 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
-from grudge.loopy_dg_kernels import gen_diff_knl, generate_transformation_list, apply_transformation_list
+from grudge.loopy_dg_kernels import (gen_diff_knl, generate_transformation_list,
+        apply_transformation_list)
 
 
 def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
@@ -147,7 +148,6 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
                 i_inner_inner, j_inner, backend="CUDA", fp_format=np.float32,
                 nruns=10):
 
-
     n_mat = 3
     print(fp_format)
     kern = gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=fp_format)
@@ -161,7 +161,7 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
 
     kern = lp.set_options(kern, "no_numpy")
     # For some reason compyte will not install when using local pip
-    backend="OPENCL"
+    backend = "OPENCL"
 
     CUDA = backend == "CUDA"
     OPENCL = not CUDA
@@ -390,7 +390,8 @@ def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
     return result_saved
 
 
-def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"), fp_format=np.float32,
+def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
+                    fp_format=np.float32,
                     max_gflops=None, device_memory_bandwidth=None,
                     max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
     # Should probably make this a function
@@ -444,7 +445,7 @@ fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
 
 to_test = True
 if to_test:
-    n_elem = 2**15#2**21
+    n_elem = 2**15  # 2**21
     pn = 6
     print(len(equidistant_nodes(pn, 3)[1]))
     n_out = len(equidistant_nodes(pn, 3)[1])
@@ -453,8 +454,9 @@ if to_test:
     #settings = exhaustiveSearch(n_in, n_out, n_elem, 4*12*1024, fp_bytes=fp_bytes,
     #               max_gflops=12288, device_memory_bandwidth=540)
     settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=60,
-                    fp_format=fp_format, max_gflops=12288//2, device_memory_bandwidth=540)
-    #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,
+                    fp_format=fp_format, max_gflops=12288//2,
+                    device_memory_bandwidth=540)
+    #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,1
     #                       fp_bytes=fp_bytes, max_gflops=12288,
     #                       device_memory_bandwidth=540)
     print("FINAL RESULTS")
