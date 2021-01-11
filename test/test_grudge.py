@@ -31,17 +31,19 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 from grudge import sym, bind, DGDiscretizationWithBoundaries
 
 import pytest
-from meshmode.array_context import (  # noqa
-        pytest_generate_tests_for_pyopencl_array_context
-        as pytest_generate_tests)
+#from grudge.grudge_array_context import (  # noqa
+#        pytest_generate_tests_for_grudge_array_context
+#        as pytest_generate_tests)
+from meshmode.array_context import generate_pytest_generate_tests
+from grudge.grudge_array_context import GrudgeArrayContext
+pytest_generate_tests = generate_pytest_generate_tests(GrudgeArrayContext)
+
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-# {{{ inverse metric
-
+# { {{ inverse metric
 @pytest.mark.parametrize("dim", [2, 3])
 def test_inverse_metric(actx_factory, dim):
     actx = actx_factory()
@@ -639,9 +641,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     assert eoc_local.max_error() < 1.0e-12 \
             or eoc_local.order_estimate() > order - 0.5
 
-# }}}
-
-
+ # }}}
 # {{{ models: advection
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
@@ -795,8 +795,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
 # }}}
 
-
 # {{{ models: maxwell
+
 
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(actx_factory,  order):
@@ -869,7 +869,7 @@ def test_convergence_maxwell(actx_factory,  order):
 # }}}
 
 
-# {{{ models: variable coefficient advection oversampling
+ # {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
@@ -940,7 +940,6 @@ def test_improvement_quadrature(actx_factory, order):
 
 # }}}
 
-
 # {{{ operator collector determinism
 
 def test_op_collector_order_determinism():
@@ -968,7 +967,6 @@ def test_op_collector_order_determinism():
     assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
 
 # }}}
-
 
 # {{{ bessel
 
@@ -1000,7 +998,6 @@ def test_bessel(actx_factory):
     assert z < 1e-15
 
 # }}}
-
 
 # {{{ function symbol
 
@@ -1103,7 +1100,6 @@ def test_norm_obj_array(actx_factory, p):
 
     # }}}
 
-
 def test_map_if(actx_factory):
     """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
     of scalar conditions.
@@ -1120,7 +1116,6 @@ def test_map_if(actx_factory):
 
     sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
     bind(discr, sym_if)(actx)
-
 
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
