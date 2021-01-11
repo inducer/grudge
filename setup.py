@@ -53,7 +53,7 @@ def main():
               "meshmode>=2020.2",
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
-              "loopy>=2020.2",
+              "loopy>=2020.2.2",
               "cgen>=2013.1.2",
               "leap>=2019.1",
               "dagrt>=2019.1",
