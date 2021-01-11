@@ -48,7 +48,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     #@memoize_method
     def transform_loopy_program(self, program):
-        print(program.name)
+        #print(program.name)
 
         for arg in program.args:
             if isinstance(arg.tags, IsDOFArray):

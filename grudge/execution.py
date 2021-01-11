@@ -591,7 +591,7 @@ class ExecutionMapper(mappers.Evaluator,
             # Breaks on complex data types without check
             # TODO Add fallback transformations to hjson file
             # TODO Use the above kernel rather than the one in loopy_dg_kernels
-            print(field.entry_dtype)
+            #print(field.entry_dtype)
             if noperators == 3 and (field.entry_dtype == np.float64
                     or field.entry_dtype == np.float32):
                 n_out, n_in = matrices_ary_dev[0].shape
