@@ -116,7 +116,7 @@ def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None)
         """{[m,k,i,j]:
             0<=k<nelements and
             0<=i<ndiscr_nodes_out and
-            0<=j<ndiscr_nodes_in and 
+            0<=j<ndiscr_nodes_in and
             0<=m<nmatrices}""",
         """
         result[m, i ,k] = simul_reduce(sum, j, diff_mat[m, i, j] * vec[j, k])
@@ -129,7 +129,6 @@ def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None)
             lp.GlobalArg("vec", fp_format, shape=(n_in, n_elem), order="C",
                 offset=lp.auto)
         ],
- 
         #kernel_data = [
         #    lp.GlobalArg("result1", fp_format, shape=None, strides=(n_elem,1),
         #       dim_tags=None, offset=lp.auto, order="C"),
@@ -156,7 +155,7 @@ def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None)
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,c,c")
     knl = lp.tag_array_axes(knl, "vec", "c,c")
- 
+
     knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
         ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
 
