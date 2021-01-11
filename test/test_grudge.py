@@ -43,7 +43,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 # { {{ inverse metric
+
 @pytest.mark.parametrize("dim", [2, 3])
 def test_inverse_metric(actx_factory, dim):
     actx = actx_factory()
@@ -641,8 +643,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     assert eoc_local.max_error() < 1.0e-12 \
             or eoc_local.order_estimate() > order - 0.5
 
- # }}}
+# }}}
 # {{{ models: advection
+
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
@@ -868,8 +871,8 @@ def test_convergence_maxwell(actx_factory,  order):
 
 # }}}
 
+# {{{ models: variable coefficient advection oversampling
 
- # {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
@@ -942,6 +945,7 @@ def test_improvement_quadrature(actx_factory, order):
 
 # {{{ operator collector determinism
 
+
 def test_op_collector_order_determinism():
     class TestOperator(sym.Operator):
 
@@ -969,6 +973,7 @@ def test_op_collector_order_determinism():
 # }}}
 
 # {{{ bessel
+
 
 def test_bessel(actx_factory):
     actx = actx_factory()
@@ -1000,6 +1005,7 @@ def test_bessel(actx_factory):
 # }}}
 
 # {{{ function symbol
+
 
 def test_external_call(actx_factory):
     actx = actx_factory()
@@ -1100,6 +1106,7 @@ def test_norm_obj_array(actx_factory, p):
 
     # }}}
 
+
 def test_map_if(actx_factory):
     """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
     of scalar conditions.
@@ -1119,6 +1126,7 @@ def test_map_if(actx_factory):
 
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
+
 
 if __name__ == "__main__":
     import sys
