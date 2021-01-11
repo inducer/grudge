@@ -48,7 +48,7 @@ def main():
           python_requires="~=3.6",
           install_requires=[
               "pytest>=2.3",
-              "pytools>=2020.4.5",
+              "pytools>=2021.1",
               "modepy>=2013.3",
               "meshmode>=2020.2",
               "pyopencl>=2013.1",
