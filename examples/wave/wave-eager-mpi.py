@@ -27,7 +27,7 @@ import pyopencl as cl
 
 from pytools.obj_array import flat_obj_array
 
-from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
@@ -121,7 +121,7 @@ def bump(actx, discr, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()

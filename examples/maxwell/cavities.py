@@ -27,7 +27,6 @@ import numpy as np
 import pyopencl as cl
 
 from grudge.grudge_array_context import GrudgeArrayContext
-#from meshmode.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DGDiscretizationWithBoundaries
@@ -42,7 +41,6 @@ def main(dims, write_output=True, order=2):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = GrudgeArrayContext(queue)
-    #actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(

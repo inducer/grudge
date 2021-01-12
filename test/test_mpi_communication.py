@@ -29,7 +29,7 @@ import numpy as np
 import pyopencl as cl
 import logging
 
-from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
@@ -42,7 +42,7 @@ from grudge.shortcuts import set_up_rk4
 def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
 
@@ -100,7 +100,7 @@ def simple_mpi_communication_entrypoint():
 def mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD

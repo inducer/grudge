@@ -297,7 +297,6 @@ def apply_transformation_list(knl, transformations):
     # bounds
     print(knl)
     for t in transformations:
-        print("HERE")
         print(t)
         func = function_mapping[t[0]]
         args = [knl] + t[1]

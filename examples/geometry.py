@@ -27,13 +27,13 @@ import numpy as np  # noqa
 import pyopencl as cl
 from grudge import sym, bind, DGDiscretizationWithBoundaries, shortcuts
 
-from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
 
 
 def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
     from meshmode.mesh.generation import generate_warped_rect_mesh
     mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
