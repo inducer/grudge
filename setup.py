@@ -41,7 +41,7 @@ def main():
               ],
 
           package_data={
-              "loopy_dg_kernels": ["*.hjson"]
+              "": ["*.hjson"]
           },
           packages=find_packages(),
 
