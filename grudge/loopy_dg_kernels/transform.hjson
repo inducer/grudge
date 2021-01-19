@@ -101,7 +101,9 @@
         ],
         3:[
             ["tag_inames", [[["m", "ilp"]]]],
-            ["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
+            #["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
+            # For tests
+            ["split_iname", ["k", 32], {outer_tag: "g.0", slabs:[0,1]}],
             ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
             ["split_iname", ["i", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
             #["add_prefetch", ["vec", "j,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
