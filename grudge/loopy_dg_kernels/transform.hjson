@@ -101,11 +101,11 @@
         ],
         3:[
             ["tag_inames", [[["m", "ilp"]]]],
-            ["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
-            ["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
-            ["split_iname", ["i", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
-            ["add_prefetch", ["vec", "j,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
-            ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+            #["split_iname", ["k", 64], {outer_tag: "g.0", slabs:[0,1]}],
+            #["split_iname", ["k_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+            #["split_iname", ["i", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
+            #["add_prefetch", ["vec", "j,k_inner_outer,k_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+            #["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
         ],
         4:[
             # Move this to array context?
