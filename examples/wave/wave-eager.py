@@ -152,7 +152,6 @@ def main():
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
 
-
     t = 0
     t_final = 3
     istep = 0
