@@ -27,7 +27,7 @@ import pyopencl as cl
 
 from pytools.obj_array import flat_obj_array
 
-from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.array_context import PyOpenCLArrayContext, PytatoArrayContext
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
@@ -114,7 +114,10 @@ def bump(actx, discr, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    if 0:
+        actx = PyOpenCLArrayContext(queue)
+    else:
+        actx = PytatoArrayContext(queue)
 
     dim = 2
     nel_1d = 16
@@ -149,13 +152,17 @@ def main():
     def rhs(t, w):
         return wave_operator(discr, c=1, w=w)
 
+
     t = 0
     t_final = 3
     istep = 0
-    while t < t_final:
-        fields = rk4_step(fields, t, dt, rhs)
 
-        if istep % 10 == 0:
+    # FIXME: t should not come in by capture
+    compiled_rhs = actx.compile(lambda w: rhs(t, w), fields)
+    while t < t_final:
+        fields = rk4_step(fields, t, dt, compiled_rhs)
+
+        if 0 and istep % 10 == 0:
             print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
                     f"sol max: {discr.nodal_max('vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
