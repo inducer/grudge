@@ -68,7 +68,6 @@ Python 3 Conda:
   - large-node
   script: |
     CONDA_ENVIRONMENT=.test-conda-env.yml
-    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
 
     # Shut up ibverbs about fork(), e.g. https://gitlab.tiker.net/inducer/grudge/-/jobs/220796
@@ -82,7 +81,6 @@ Python 3 Conda Examples:
   - large-node
   script: |
     CONDA_ENVIRONMENT=.test-conda-env.yml
-    grep -v libhwloc .test-conda-env-py3.yml > $CONDA_ENVIRONMENT
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
     . ci-support.sh
     build_py_project_in_conda_env
