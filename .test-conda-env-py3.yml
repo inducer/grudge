@@ -5,6 +5,7 @@ channels:
 dependencies:
 - git
 - numpy
+- libhwloc=2
 - pocl
 - islpy
 - pyopencl
