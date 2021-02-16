@@ -38,7 +38,7 @@ MacOS support is in the works.
 .. note::
 
     In each case, you may leave out the ``--editable`` flag if you would not like
-    a checkout of the source code.
+    an editable copy of the source code checked out in a subfolder.
 
 Next time you want to use `grudge`, just run the following command::
 
