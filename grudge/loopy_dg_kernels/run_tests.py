@@ -29,16 +29,72 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
-from grudge.loopy_dg_kernels import (gen_diff_knl, generate_transformation_list,
-        apply_transformation_list)
+from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
+    generate_transformation_list, apply_transformation_list)
+
+ctof = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
+
+def testBandwidth(fp_format=np.float64, nruns=1):
+
+    from pyopencl.array import sum as clsum
+    platform = cl.get_platforms()
+    my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+    ctx = cl.Context(devices=my_gpu_devices)
+    #ctx = cl.create_some_context(interactive=True)
+    queue = cl.CommandQueue(ctx)
+
+    from pyopencl.tools import ImmediateAllocator
+    allocator = ImmediateAllocator(queue)
 
 
-def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
-        i_inner_inner, j_inner, backend="CUDA", fp_format=np.float32, nruns=10):
+    knl = lp.make_copy_kernel("c,c", old_dim_tags="c,c")
+    knl = lp.add_dtypes(knl, {"input": fp_format, "output": fp_format})
+    knl = knl.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+    n0 = 20
+    #knl = lp.split_iname(knl, "i1", 1024//2, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "i1", 512, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    #knl = lp.split_iname(knl, "i1", 6*16, outer_tag="g.0") 
+    #knl = lp.split_iname(knl, "i1_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1)) 
 
-    kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
-        i_inner_outer, i_inner_inner, j_inner)
+    #knl = lp.split_iname(knl, "i0", n0, inner_tag="l.1", outer_tag="g.1", slabs=(0,0))
+
+    fp_bytes = 8 if fp_format == np.float64 else 4
+
+    for i in range(24):
+
+        n = 2**i
+        kern = lp.fix_parameters(knl, n0=n0, n1=n)
+        inpt = cl.clrandom.rand(queue, (n0, n), dtype=fp_format)
+        outpt = cl.array.Array(queue, (n0, n), dtype=fp_format, allocator=allocator)
+     
+        #kern = lp.set_options(kern, "write_code")  # Output code before editing it
+
+        for j in range(2):
+            kern(queue, input=inpt, output=outpt)
+        start = time.time()
+        for j in range(nruns):
+            kern(queue, input=inpt, output=outpt)
+        queue.finish()
+        dt = (time.time() - start)/nruns
+        bandwidth = 2*n*n0*fp_bytes / dt / 1e9
+        print("{} {}".format(i, bandwidth))
+
+        #print((inpt - outpt)) 
+        diff = (inpt - outpt)
+        if  clsum(inpt - outpt) != 0:
+            print("INCORRECT COPY")
+
+
+def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, nruns=10):
+#def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
+#        i_inner_inner, j_inner, backend="OPENCL", fp_format=np.float32, nruns=10):
+
+    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
+    #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
+    kern = lp.set_options(kern, "return_dict")
+
+    n_mat = 3
 
     CUDA = (backend == "CUDA")
     OPENCL = not CUDA
@@ -50,7 +106,7 @@ def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_ou
         #kern = lp.set_options(kern, edit_code=True)
         code = lp.generate_code_v2(kern).device_code()
         mod = SourceModule(code, keep=True)
-        diff_fn = mod.get_function("diff")
+        diff_fn = mod.get_function("opt_diff")
         A_dev1 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
         A_dev2 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
         A_dev3 = curand((n_out, n_in),  dtype=fp_format, stream=stream)
@@ -79,18 +135,20 @@ def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_ou
         #dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
 
-        #kern = lp.set_options(kern, "write_cl")
-        #A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        #X_dev = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
-        #B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format)
-        A_dev1 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        A_dev2 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        A_dev3 = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
-        X_dev = cl.clrandom.rand(queue, (n_in, n_elem), dtype=fp_format)
-        B_dev1 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
-        B_dev2 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
-        B_dev3 = cl.array.Array(queue, (n_out, n_elem), dtype=fp_format)
-        # Code for running binaries
+        from pyopencl.tools import ImmediateAllocator
+        allocator = ImmediateAllocator(queue)
+        X_dev_c = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
+        evt, (X_dev,) = ctof(queue, input=X_dev_c)
+        from pytools.obj_array import make_obj_array
+        B_dev = []
+        A_dev = []
+        for i in range(n_mat):
+            B_dev.append(cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F"))
+            A_dev.append(cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format))
+        B_dev = make_obj_array(B_dev)
+        A_dev = make_obj_array(A_dev)
+ 
+       # Code for running binaries
 
         #device = queue.get_info(cl.command_queue_info.DEVICE)
         #with open("pocl_32x32.ptx","rb") as f:
@@ -102,20 +160,18 @@ def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_ou
         #prg = prg.build()
         #diff_knl = prg.diff
 
-    events = []
+    #events = []
     for i in range(2):
         if OPENCL:
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl,
             #    X_dev.shape, (32,32),None)
-            evt, (B_dev1, B_dev2, B_dev3) = kern(queue, mat1=A_dev1, mat2=A_dev2,
-                mat3=A_dev3, vec=X_dev)
-            events.append(evt)
+            kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
         elif CUDA:
             diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
                 block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
-        cl.wait_for_events(events)
+        queue.finish()
     elif CUDA:
         pycuda.autoinit.context.synchronize()
 
@@ -127,41 +183,40 @@ def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_ou
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl,
             #    X_dev.shape, (32,32),None)
-            evt, (B_dev1, B_dev2, B_dev3) = kern(queue, mat1=A_dev1, mat2=A_dev2,
-                mat3=A_dev3, vec=X_dev)
-            events.append(evt)
+            kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
         elif CUDA:
             diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
                 block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
-        cl.wait_for_events(events)
+        queue.finish()
     elif CUDA:
         pycuda.autoinit.context.synchronize()
 
     sum_time = time.time() - start
     avg_time = sum_time / nruns
 
-    return (B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev), avg_time
+    return (B_dev, A_dev, X_dev), avg_time
 
 
-def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
-                i_inner_inner, j_inner, backend="CUDA", fp_format=np.float32,
-                nruns=10):
-
+#def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
+#                i_inner_inner, j_inner, backend="CUDA", fp_format=np.float32,
+#                nruns=10):
+def runTest(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, nruns=10):
     n_mat = 3
     print(fp_format)
-    kern = gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=fp_format)
+    #kern = gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=fp_format)
     print(kern)
 
-    transformations = generate_transformation_list(k_inner_outer, k_inner_inner,
-                                                    i_inner_outer, i_inner_inner,
-                                                    j_inner)
-    print(transformations)
-    kern = apply_transformation_list(kern, transformations)
+    #transformations = generate_transformation_list(k_inner_outer, k_inner_inner,
+    #                                                i_inner_outer, i_inner_inner,
+    #                                                j_inner)
+    #print(transformations)
+    #kern = apply_transformation_list(kern, transformations)
 
     kern = lp.set_options(kern, "no_numpy")
+    kern = lp.set_options(kern, "return_dict")
     # For some reason compyte will not install when using local pip
-    backend = "OPENCL"
+    #backend = "OPENCL"
 
     CUDA = backend == "CUDA"
     OPENCL = not CUDA
@@ -173,10 +228,11 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
         #kern = lp.set_options(kern, edit_code=True)
         code = lp.generate_code_v2(kern).device_code()
         mod = SourceModule(code, keep=True)
-        diff_fn = mod.get_function("diff")
+        diff_fn = mod.get_function("opt_diff")
         A_dev = curand((n_mat, n_out, n_in),  dtype=fp_format, stream=stream)
         X_dev = curand((n_in, n_elem), dtype=fp_format, stream=stream)
-        B_dev = cuarray.GPUArray((n_mat, n_out, n_elem), fp_format)
+        B_dev = cuarray.GPUArray((n_mat,n_out, n_elem), fp_format)
+        
 
         #for i in range(3):
         #    B_dev.append(cuarray.GPUArray((n_out, n_elem), fp_format)
@@ -206,9 +262,19 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
         #A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
         #X_dev = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
         #B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format)
-        A_dev = cl.clrandom.rand(queue, (n_mat, n_out, n_in), dtype=fp_format)
+        from pyopencl.tools import ImmediateAllocator
+        allocator = ImmediateAllocator(queue)
         X_dev = cl.clrandom.rand(queue, (n_in, n_elem), dtype=fp_format)
-        B_dev = cl.array.Array(queue, (n_mat, n_out, n_elem), dtype=fp_format)
+        #A_dev = cl.clrandom.rand(queue, (n_mat, n_out, n_in), dtype=fp_format)
+        #B_dev = cl.array.Array(queue, (n_mat, n_out, n_elem), dtype=fp_format, allocator=allocator)
+        from pytools.obj_array import make_obj_array
+        B_dev = []
+        A_dev = []
+        for i in range(n_mat):
+            B_dev.append(cl.array.Array(queue, (n_out, n_elem), dtype=fp_format, allocator=allocator))
+            A_dev.append(cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format))
+        B_dev = make_obj_array(B_dev)
+        A_dev = make_obj_array(A_dev)
         # Code for running binaries
         #device = queue.get_info(cl.command_queue_info.DEVICE)
         #with open("pocl_32x32.ptx","rb") as f:
@@ -226,15 +292,21 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, X_dev.shape, (32,32),
             #                                   None)
-            evt, B_dev = kern(queue, diff_mat=A_dev, vec=X_dev)
-            events.append(evt)
+            #print(B_dev)
+            kern(queue, diff_mat=A_dev, vec=X_dev, result=B_dev)
+            #print(B_dev)
+            #print(evt)
+            #exit()
+            #events.append(evt)
         elif CUDA:
-            diff_fn(B_dev, A_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            print(B_dev)
     if OPENCL:
-        cl.wait_for_events(events)
+        queue.finish()
+        #exit()
+        #cl.wait_for_events(events)
     elif CUDA:
         pycuda.autoinit.context.synchronize()
-    #exit()
 
     sum_time = 0.0
     events = []
@@ -244,12 +316,13 @@ def runTest(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, X_dev.shape, (32,32),
             #                                   None)
-            evt, B_dev = kern(queue, diff_mat=A_dev, vec=X_dev)
-            events.append(evt)
+            kern(queue, diff_mat=A_dev, vec=X_dev, result=B_dev)
+            #events.append(evt)
         elif CUDA:
             diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
-        cl.wait_for_events(events)
+        queue.finish()
+        #cl.wait_for_events(events)
     elif CUDA:
         pycuda.autoinit.context.synchronize()
 
@@ -443,17 +516,18 @@ fp_format_dict = {np.float32: (4, "FP32"), np.float64: (8, "FP64"),
                     np.complex128: (16, "C128")}
 fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
 
+"""
 to_test = True
 if to_test:
-    n_elem = 2**15  # 2**21
-    pn = 6
+    n_elem = 2**22#2**15  # 2**21
+    pn = 5
     print(len(equidistant_nodes(pn, 3)[1]))
     n_out = len(equidistant_nodes(pn, 3)[1])
     n_in = len(equidistant_nodes(pn, 3)[1])
 
     #settings = exhaustiveSearch(n_in, n_out, n_elem, 4*12*1024, fp_bytes=fp_bytes,
     #               max_gflops=12288, device_memory_bandwidth=540)
-    settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=60,
+    settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=120,
                     fp_format=fp_format, max_gflops=12288//2,
                     device_memory_bandwidth=540)
     #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,1
@@ -462,8 +536,28 @@ if to_test:
     print("FINAL RESULTS")
     print(settings)
 # Add functionality to write transformations to file
+"""
 
-#for i in range(10):
-#  dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
-#  analyzeResult(n_out, n_in, n_elem, 12288, 540, avg_time)
-#  verifyResult(*dev_arrays)
+# Test existing optimizations
+if __name__ == "__main__": 
+    from __init__ import gen_diff_knl, load_transformations_from_file, apply_transformation_list 
+
+    """
+    hjson_file = open(file_name)
+    #for i in range(2,8):
+    pn = 3
+    n_out = len(equidistant_nodes(pn, 3)[1])
+    n_in = len(equidistant_nodes(pn, 3)[1]) 
+    n_elem = 1500282#2**20
+    knl = gen_diff_knl_fortran2(3, n_elem, n_out, n_in, fp_format=fp_format)
+    trans =load_transformations_from_file(hjson_file, device_id, pn, fp_format=fp_format)
+    knl = apply_transformation_list(knl, trans)
+    print(lp.generate_code_v2(knl).device_code())
+    dev_arrays, avg_time = runTestFortran(knl, n_elem, n_in, n_out, fp_format=fp_format, nruns=1)
+    #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
+    analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
+    print(avg_time)
+    #verifyResult(*dev_arrays)
+    """
+
+    testBandwidth()

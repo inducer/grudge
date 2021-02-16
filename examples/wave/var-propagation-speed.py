@@ -36,7 +36,7 @@ def main(write_output=True, order=4):
     queue = cl.CommandQueue(cl_ctx)
     actx = GrudgeArrayContext(queue)
 
-    dims = 2
+    dims = 3
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,

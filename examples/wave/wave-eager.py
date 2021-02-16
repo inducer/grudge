@@ -28,6 +28,7 @@ import pyopencl as cl
 from pytools.obj_array import flat_obj_array
 
 from grudge.grudge_array_context import GrudgeArrayContext
+from meshmode.array_context import PyOpenCLArrayContext  # noqa F401
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
@@ -114,12 +115,14 @@ def bump(actx, discr, t=0):
 def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = GrudgeArrayContext(queue)
+    from pyopencl.tools import ImmediateAllocator
+    actx = GrudgeArrayContext(queue, allocator=ImmediateAllocator(queue))
 
     dim = 3
-    nel_1d = 16
+    nel_1d = 2**4
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
+            coord_dtype=np.float32,
             a=(-0.5,)*dim,
             b=(0.5,)*dim,
             n=(nel_1d,)*dim)

@@ -91,7 +91,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
+def main(ctx_factory, dim=2, order=3, product_tag=None, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = GrudgeArrayContext(queue)
@@ -245,7 +245,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", choices=[2, 3], default=2, type=int)
+    parser.add_argument("--dim", choices=[2, 3], default=3, type=int)
     parser.add_argument("--qtag", choices=["none", "product"], default="none")
     args = parser.parse_args()
 

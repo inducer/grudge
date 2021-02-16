@@ -26,7 +26,6 @@ import numpy as np
 
 from pytools import memoize_in
 from pytools.obj_array import make_obj_array
-from pytools.tag import Tag
 
 import loopy as lp
 import pyopencl as cl
@@ -36,10 +35,14 @@ from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
 from meshmode.array_context import ArrayContext, make_loopy_program, IsDOFArray
 
 import grudge.symbolic.mappers as mappers
+from grudge.symbolic.compiler import DiffBatchAssign
+from grudge.symbolic.operators import RefMassOperator, RefInverseMassOperator
 from grudge import sym
 from grudge.function_registry import base_function_registry
 
 import grudge.loopy_dg_kernels as dgk
+from grudge.grudge_array_context import (GrudgeArrayContext, VecIsDOFArray,
+    FaceIsDOFArray, VecOpIsDOFArray, IsOpArray)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -49,22 +52,6 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 ResultType = Union[DOFArray, Number]
-
-
-class VecIsDOFArray(Tag):
-    pass
-
-
-class FaceIsDOFArray(Tag):
-    pass
-
-
-class VecOpIsDOFArray(Tag):
-    pass
-
-
-class IsOpArray(Tag):
-    pass
 
 
 # {{{ exec mapper
@@ -270,7 +257,7 @@ class ExecutionMapper(mappers.Evaluator,
                 knl(sym_then, sym_else),
                 crit=bool_crit[igrp],
                 a=get_then(igrp),
-                b=get_else(igrp))
+                b=get_else(igrp))[1]
             for igrp in range(ngroups)))
 
     # {{{ elementwise linear operators
@@ -280,6 +267,12 @@ class ExecutionMapper(mappers.Evaluator,
                 "differentiation should be happening in batched form")
 
     def map_elementwise_linear(self, op, field_expr):
+        insn = DiffBatchAssign(names=("elwise_linear",), operators=(op,),
+                                 field=field_expr)
+        out, _ = self.map_insn_diff_batch_assign(insn)
+        return out[0][1]
+
+    def map_elementwise_linear_old(self, op, field_expr):
         field = self.rec(field_expr)
 
         from grudge.tools import is_zero
@@ -489,7 +482,7 @@ class ExecutionMapper(mappers.Evaluator,
             for name, ary in dof_array_kwargs.items():
                 kwargs[name] = ary[grp.index]
 
-            knl_result = self.array_context.call_loopy(
+            _, knl_result = self.array_context.call_loopy(
                     kdescr.loopy_kernel, **kwargs)
 
             for name, val in knl_result.items():
@@ -519,16 +512,15 @@ class ExecutionMapper(mappers.Evaluator,
             self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_diff_batch_assign(self, insn, profile_data=None):
-        # Whence comes the field?
         ifield = insn.field
-        #import pdb
-        #pdb.set_trace()
         field = self.rec(ifield)
         repr_op = insn.operators[0]
+
         # FIXME: There's no real reason why differentiation is special,
         # execution-wise.
         # This should be unified with map_elementwise_linear, which should
         # be extended to support batching.
+        # Note: This is now mostly done
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
@@ -583,17 +575,25 @@ class ExecutionMapper(mappers.Evaluator,
                 matrices_ary = np.empty(
                     (noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),
                     dtype=field.entry_dtype)
+
                 for i, op in enumerate(insn.operators):
-                    matrices_ary[i] = matrices[op.rst_axis]
+                    # Is there a more flexible way to do this?
+                    if isinstance(op, RefInverseMassOperator) or \
+                       isinstance(op, RefMassOperator):
+                        matrices_ary[i] = matrices[0]
+                    else:
+                        matrices_ary[i] = matrices[op.rst_axis]
+
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
             # Breaks on complex data types without check
             # TODO Add fallback transformations to hjson file
             # TODO Use the above kernel rather than the one in loopy_dg_kernels
-            #print(field.entry_dtype)
+            # TODO Add transformations for other numbers of operators
             if noperators == 3 and (field.entry_dtype == np.float64
-                    or field.entry_dtype == np.float32):
+                    or field.entry_dtype == np.float32) \
+                    and isinstance(self.array_context, GrudgeArrayContext):
                 n_out, n_in = matrices_ary_dev[0].shape
                 n_elem = field[in_grp.index].shape[0]
                 options = lp.Options(no_numpy=True, return_dict=True)

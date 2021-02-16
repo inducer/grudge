@@ -50,7 +50,7 @@ def main():
               "pytest>=2.3",
               "pytools>=2021.1",
               "modepy>=2013.3",
-              "meshmode>=2020.2.1",
+              "meshmode>=2021.1.1",
               "pyopencl>=2013.1",
               "pymbolic>=2013.2",
               "loopy>=2020.2.2",

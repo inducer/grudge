@@ -210,7 +210,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--dim", default=3, type=int)
     parser.add_argument("--qtag", default="product")
     args = parser.parse_args()
 

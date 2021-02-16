@@ -1,4 +1,5 @@
 import numpy as np
+from pytools import memoize_in
 
 #import pyopencl as cl
 #import pyopencl.array
@@ -31,9 +32,13 @@ loopy.options.ALLOW_TERMINAL_COLORS = False
 
 
 # Se podría usar el de Grudge.
+#@memoize_method
 def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
         options=None):
-    knl = lp.make_kernel(
+    
+    @memoize_in(gen_diff_knl_fortran2, "_gen_diff_knl")
+    def _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format):
+        knl = lp.make_kernel(
         """{[m,k,i,j]:
             0<=m<nmatrices and
             0<=k<nelements and
@@ -55,9 +60,13 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
                      and ndiscr_nodes_in > 0 and nmatrices > 0",
         options=options,
         name="opt_diff"
-    )
+        )
+        return knl
+
+    knl = _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format)
 
     # This should be in array context probably but need to avoid circular dependency
+    knl = lp.tag_inames(knl, "m: ilp")
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     knl = lp.tag_array_axes(knl, "vec", "f,f")
@@ -109,7 +118,7 @@ def gen_diff_knl_fortran(n_elem, n_in, n_out, fp_format=np.float32, options=None
 
     return knl
 
-
+#@memoize_method
 def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None):
     print(fp_format)
     knl = lp.make_kernel(
@@ -224,7 +233,6 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
     return knl
 '''
 
-
 def load_transformations_from_file(hjson_file, device_id, pn, fp_format=np.float32):
     hjson_text = hjson_file.read()
     od = hjson.loads(hjson_text)
@@ -233,7 +241,6 @@ def load_transformations_from_file(hjson_file, device_id, pn, fp_format=np.float
     hjson_file.close()
     transformations = od["transformations"][transform_id][fp_string][str(pn)]
     return transformations
-
 
 def generate_transformation_list_old(k_inner_outer, k_inner_inner, i_inner_outer,
                                     i_inner_inner, j_inner):
@@ -257,8 +264,7 @@ def generate_transformation_list_old(k_inner_outer, k_inner_inner, i_inner_outer
                             {"temporary_name": "mat2fp", "default_tag": "unr"}))
     transformations.append(("add_prefetch", ["mat3", "j_inner"],
                             {"temporary_name": "mat3fp", "default_tag": "unr"}))
-    return transformations
-
+    return tuple(transformations)
 
 def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
                                 i_inner_inner, j_inner):
@@ -281,9 +287,9 @@ def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
                             {"temporary_name": "vecf", "default_tag": "l.auto"}))
     transformations.append(("add_prefetch", ["diff_mat", "j_inner"],
                             {"temporary_name": "matfp", "default_tag": "unr"}))
-    return transformations
+    return tuple(transformations)
 
-
+#@memoize_method
 def apply_transformation_list(knl, transformations):
     function_mapping = {"split_iname": lp.split_iname,
                         "add_prefetch": lp.add_prefetch,
@@ -295,9 +301,9 @@ def apply_transformation_list(knl, transformations):
     # Maybe add some logic to add slabs=(0,0) if n_elem % k_inner_outer == 0
     # Maybe can do this based on tranformation name, loop variable, and loop variable
     # bounds
-    print(knl)
+    #print(knl)
     for t in transformations:
-        print(t)
+        #print(t)
         func = function_mapping[t[0]]
         args = [knl] + t[1]
         kwargs = t[2] if len(t) > 2 else {}
