@@ -541,11 +541,9 @@ class ExecutionMapper(mappers.Evaluator,
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
             self.array_context.call_loopy(
-                    prg(noperators),
+                    lp.fix_parameters(prg(noperators), nunit_nodes_in=in_grp.nunit_dofs, nunit_nodes_out=out_grp.nunit_dofs),
                     diff_mat=matrices_ary_dev,
                     nelements=in_grp.nelements,
-                    nunit_nodes_in=in_grp.nunit_dofs,
-                    nunit_nodes_out=out_grp.nunit_dofs,
                     result=make_obj_array([
                         result[iop][out_grp.index]
                         for iop in range(noperators)
