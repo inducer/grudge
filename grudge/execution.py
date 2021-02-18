@@ -517,7 +517,7 @@ class ExecutionMapper(mappers.Evaluator,
         in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
         out_discr = self.discrwb.discr_from_dd(repr_op.dd_out)
 
-        result = make_obj_array([
+        results = make_obj_array([
             out_discr.empty(self.array_context, dtype=field.entry_dtype)
             for idim in range(noperators)])
 
@@ -540,16 +540,19 @@ class ExecutionMapper(mappers.Evaluator,
                 matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
                 self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
 
+            result = make_obj_array([out_discr.empty(self.array_context, dtype=field.entry_dtype) for idim in range(noperators)])
             self.array_context.call_loopy(
                     lp.fix_parameters(prg(noperators), nunit_nodes_in=in_grp.nunit_dofs, nunit_nodes_out=out_grp.nunit_dofs),
                     diff_mat=matrices_ary_dev,
                     nelements=in_grp.nelements,
                     result=make_obj_array([
-                        result[iop][out_grp.index]
+                        result[iop]
                         for iop in range(noperators)
                         ]), vec=field[in_grp.index])
 
-        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+            results[out_grp.index] = result
+
+        return [(name, results[i]) for i, name in enumerate(insn.names)], []
 
     # }}}
 
