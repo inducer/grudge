@@ -39,13 +39,13 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
     @memoize_in(gen_diff_knl_fortran2, "_gen_diff_knl")
     def _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format):
         knl = lp.make_kernel(
-        """{[m,k,i,j]:
-            0<=m<nmatrices and
-            0<=k<nelements and
-            0<=i<ndiscr_nodes_out and
+        """{[imatrix,iel,idof,j]:
+            0<=imatrix<nmatrices and
+            0<=iel<nelements and
+            0<=idof<ndiscr_nodes_out and
             0<=j<ndiscr_nodes_in}""",
         """
-        result[m,k,i] = simul_reduce(sum, j, diff_mat[m, i, j] * vec[k, j])
+        result[imatrix,iel,idof] = simul_reduce(sum, j, diff_mat[imatrix, idof, j] * vec[iel, j])
         """,
         kernel_data=[
             lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
@@ -66,7 +66,7 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
     knl = _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format)
 
     # This should be in array context probably but need to avoid circular dependency
-    knl = lp.tag_inames(knl, "m: ilp")
+    knl = lp.tag_inames(knl, "imatrix: ilp")
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     knl = lp.tag_array_axes(knl, "vec", "f,f")
@@ -233,14 +233,13 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
     return knl
 '''
 
-def load_transformations_from_file(hjson_file, device_id, pn, fp_format=np.float32):
+
+def load_transformations_from_file(hjson_file, indices): 
     hjson_text = hjson_file.read()
     od = hjson.loads(hjson_text)
-    transform_id = od["devices"][device_id]
-    fp_string = "FP64" if fp_format == np.float64 else "FP32"
-    hjson_file.close()
-    transformations = od["transformations"][transform_id][fp_string][str(pn)]
-    return transformations
+    for index in indices:
+        od = od[index]
+    return od
 
 def generate_transformation_list_old(k_inner_outer, k_inner_inner, i_inner_outer,
                                     i_inner_inner, j_inner):

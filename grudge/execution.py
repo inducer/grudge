@@ -266,13 +266,13 @@ class ExecutionMapper(mappers.Evaluator,
         raise NotImplementedError(
                 "differentiation should be happening in batched form")
 
-    def map_elementwise_linear(self, op, field_expr):
+    def map_elementwise_linear_new(self, op, field_expr):
         insn = DiffBatchAssign(names=("elwise_linear",), operators=(op,),
                                  field=field_expr)
         out, _ = self.map_insn_diff_batch_assign(insn)
         return out[0][1]
 
-    def map_elementwise_linear_old(self, op, field_expr):
+    def map_elementwise_linear(self, op, field_expr):
         field = self.rec(field_expr)
 
         from grudge.tools import is_zero

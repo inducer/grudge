@@ -5,6 +5,9 @@ from pytools import memoize_method
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
+from numpy import prod
+import hjson
+import numpy as np
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
 
@@ -17,6 +20,12 @@ except ImportError:
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
+def get_transformation_id(device_id):
+    hjson_file = pkg_resources.open_text(dgk, "device_mappings.hjson") 
+    hjson_text = hjson_file.read()
+    hjson_file.close()
+    od = hjson.loads(hjson_text)
+    return od[device_id]
 
 class VecIsDOFArray(Tag):
     pass
@@ -72,10 +81,10 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         if program.name == "opt_diff":
             # TODO: Dynamically determine device id,
-            # don't hardcode path to transform.hjson.
-            # Also get pn from program
-            hjson_file = pkg_resources.open_text(dgk, "transform.hjson")
+            # Rename this file
+            hjson_file = pkg_resources.open_text(dgk, "diff.hjson")
             device_id = "NVIDIA Titan V"
+            transform_id = get_transformation_id(device_id)
 
             pn = -1
             fp_format = None
@@ -100,8 +109,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 # Should throw an error
                 #exit()
 
+            # Probably need to generalize this
+            fp_string = "FP64" if fp_format == np.float64 else "FP32"
+            indices = [transform_id, str(3), fp_string, str(pn)]
             transformations = dgk.load_transformations_from_file(hjson_file,
-                device_id, pn, fp_format=fp_format)
+                indices)#transform_id, fp_string, pn)
+            hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
         elif "actx_special" in program.name:
             program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
@@ -137,6 +150,22 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = super().transform_loopy_program(program)
 
         return program
+
+    def call_loopy(self, program, **kwargs):
+        evt, result = super().call_loopy(program, **kwargs)
+        evt.wait()
+        dt = (evt.profile.end - evt.profile.start) / 1e9
+        nbytes = 0
+        for val in kwargs.values():
+            if isinstance(val, lp.ArrayArg): 
+              nbytes += prod(val.shape)*8
+        for val in result.values():
+            nbytes += prod(val.shape)*8
+
+        bw = nbytes / dt / 1e9
+
+        print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.name, dt, nbytes, bw))
+        return evt, result
 
     '''
     def call_loopy(self, program, **kwargs):
