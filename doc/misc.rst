@@ -33,7 +33,12 @@ MacOS support is in the works.
 
 #.  Type the following command::
 
-        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy meshmode dagrt leap grudge; do python -m pip install git+https://gitlab.tiker.net/inducer/$i.git; done
+        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy meshmode dagrt leap grudge; do python -m pip install --editable "git+https://gitlab.tiker.net/inducer/$i.git#egg=$i"; done
+
+.. note::
+
+    In each case, you may leave out the ``--editable`` flag if you would not like
+    an editable copy of the source code checked out in a subfolder.
 
 Next time you want to use `grudge`, just run the following command::
 
