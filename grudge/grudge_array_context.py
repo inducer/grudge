@@ -42,6 +42,12 @@ class VecOpIsDOFArray(Tag):
 class IsOpArray(Tag):
     pass
 
+def get_fp_string(dtype):
+    return "FP64" if dtype == np.float64 else "FP32"
+
+def get_order_from_dofs(dofs):
+    dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
+    return dofs_to_order[dofs]
 
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
@@ -79,29 +85,22 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             elif isinstance(arg.tags, FaceIsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
 
+        device_id = "NVIDIA Titan V"
+        # This read could be slow
+        transform_id = get_transformation_id(device_id)
+
         if program.name == "opt_diff":
             # TODO: Dynamically determine device id,
             # Rename this file
             hjson_file = pkg_resources.open_text(dgk, "diff.hjson")
-            device_id = "NVIDIA Titan V"
-            transform_id = get_transformation_id(device_id)
-
             pn = -1
             fp_format = None
-            dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
-            # Is this a list or a dictionary?
             for arg in program.args:
                 if arg.name == "diff_mat":
-                    pn = dofs_to_order[arg.shape[2]]
+                    pn = get_order_from_dofs(arg.shape[2])                    
                     fp_format = arg.dtype.numpy_dtype
                     break
 
-            #print(pn)
-            #print(fp_format)
-            #print(pn<=0)
-            #exit()
-            #print(type(fp_format) == None)
-            #print(type(None) == None)
             # FP format is very specific. Could have integer arrays?
             # What about mixed data types?
             #if pn <= 0 or not isinstance(fp_format, :
@@ -110,12 +109,30 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 #exit()
 
             # Probably need to generalize this
-            fp_string = "FP64" if fp_format == np.float64 else "FP32"
+            fp_string = get_fp_string(fp_format)
             indices = [transform_id, str(3), fp_string, str(pn)]
             transformations = dgk.load_transformations_from_file(hjson_file,
                 indices)#transform_id, fp_string, pn)
             hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
+
+        elif "elwise_linear" in program.name:
+            hjson_file = pkg_resources.open_text(dgk, "elwise_linear_transform.hjson")
+            pn = -1
+            fp_format = None
+            for arg in program.args:
+                if arg.name == "mat":
+                    pn = get_order_from_dofs(arg.shape[1])                    
+                    fp_format = arg.dtype.numpy_dtype
+                    break
+
+            fp_string = get_fp_string(fp_format)
+            indices = [transform_id, fp_string, str(pn)]
+            transformations = dgk.load_transformations_from_file(hjson_file,
+                indices)
+            hjson_file.close()
+            program = dgk.apply_transformation_list(program, transformations)
+                      
         elif "actx_special" in program.name:
             program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
                                         inner_tag="l.0", slabs=(0, 1))
@@ -156,7 +173,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         evt.wait()
         dt = (evt.profile.end - evt.profile.start) / 1e9
         nbytes = 0
-        # Could probably just use program.args
+        # Could probably just use program.args but maybe all
+        # parameters are not set
         for val in kwargs.values():
             if isinstance(val, lp.ArrayArg): 
               nbytes += prod(val.shape)*8

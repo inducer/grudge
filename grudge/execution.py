@@ -280,7 +280,7 @@ class ExecutionMapper(mappers.Evaluator,
             return 0
 
         @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
-        def prg():
+        def prg(nelements, nnodes, fp_format):
 
             result = make_loopy_program(
                 """{[iel, idof, j]:
@@ -289,13 +289,17 @@ class ExecutionMapper(mappers.Evaluator,
                     0<=j<ndiscr_nodes_in}""",
                 "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=IsDOFArray()),
-                    ...
+                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("mat", fp_format, shape=lp.auto)
                 ],
                 name="elwise_linear")
 
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+            result = lp.fix_parameters(result, nelements=nelements, 
+                                             ndiscr_nodes_out=nnodes,
+                                             ndiscr_nodes_in=nnodes)
+            
             return result
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
@@ -316,9 +320,13 @@ class ExecutionMapper(mappers.Evaluator,
                                 dtype=field.entry_dtype)))
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
-
+            
+            nnodes, _ = matrix.shape
+            nelements, _ = field[in_grp.index].shape
+            fp_format = matrix.dtype
+            
             self.array_context.call_loopy(
-                    prg(),
+                    prg(nelements, nnodes, fp_format),
                     mat=matrix,
                     result=result[out_grp.index],
                     vec=field[in_grp.index])  # inArg
