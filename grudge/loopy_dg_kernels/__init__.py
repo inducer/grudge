@@ -30,6 +30,26 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
+def gen_elwise_linear_knl(n_elem, n_in, n_out, fp_format):
+
+    knl = lp.make_kernel(
+        """{[iel, idof, j]:
+            0<=iel<nelements and
+            0<=idof<ndiscr_nodes_out and
+            0<=j<ndiscr_nodes_in}""",
+        "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
+        kernel_data=[
+            lp.GlobalArg("result", fp_format, shape=(n_elem, n_out), order="F"),
+            lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in), order="F"),
+            lp.GlobalArg("mat", fp_format, shape=(n_out, n_in), order="C")    
+        ],
+        name="elwise_linear")
+    knl = lp.fix_parameters(knl, nelements=n_elem,
+        ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
+
+
+    #result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+    return knl
 
 # Se podría usar el de Grudge.
 #@memoize_method

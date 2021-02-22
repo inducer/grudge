@@ -18,7 +18,7 @@ from pycuda.curandom import rand as curand
 from modepy import equidistant_nodes
 
 #from bs4 import UnicodeDammit
-#import hjson
+import hjson
 import time
 #from math import ceil
 import sys
@@ -30,7 +30,7 @@ import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
-    generate_transformation_list, apply_transformation_list)
+    generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl)
 
 ctof = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 
@@ -83,6 +83,93 @@ def testBandwidth(fp_format=np.float64, nruns=1):
         diff = (inpt - outpt)
         if  clsum(inpt - outpt) != 0:
             print("INCORRECT COPY")
+
+def test_elwise_linear(kern, backend="OPENCL", nruns=10):
+#def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
+#        i_inner_inner, j_inner, backend="OPENCL", fp_format=np.float32, nruns=10):
+
+    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
+    #    i_inner_outer, i_inner_inner, j_inner)
+    kern = lp.set_options(kern, "no_numpy")
+    kern = lp.set_options(kern, "return_dict")
+    for arg in kern.args:
+        if arg.name == "vec":
+            fp_format = arg.dtype
+            n_elem, n_in = arg.shape
+        elif arg.name == "mat":
+            n_out, _ = arg.shape
+
+    CUDA = (backend == "CUDA")
+    OPENCL = not CUDA
+
+    if CUDA:
+        stream = drv.Stream()
+        (ygrid, xgrid), (yblk, xblk) = kern.get_grid_size_upper_bounds_as_exprs()
+        kern = kern.copy(target=lp.CudaTarget())
+        #kern = lp.set_options(kern, edit_code=True)
+        code = lp.generate_code_v2(kern).device_code()
+        mod = SourceModule(code, keep=True)
+        diff_fn = mod.get_function("elwise_linear")
+        A_dev = curand((n_out, n_in),  dtype=fp_format, stream=stream)
+        X_dev = curand((n_in, n_elem), dtype=fp_format, stream=stream)
+        B_dev = cuarray.GPUArray((n_out, n_elem), fp_format)
+        print(code)
+
+        for i in range(2):
+            diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+        pycuda.autoinit.context.synchronize()
+
+        start = time.time()
+        for i in range(nruns):
+            diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
+                    block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+
+        pycuda.autoinit.context.synchronize()
+
+
+    elif OPENCL:
+        platform = cl.get_platforms()
+        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        ctx = cl.Context(devices=my_gpu_devices)
+        #ctx = cl.create_some_context(interactive=True)
+        queue = cl.CommandQueue(ctx)
+
+        #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
+        kern = lp.set_options(kern, "write_code")  # Output code before editing it
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        #code = lp.generate_code_v2(kern).device_code()
+        # Print the Code
+        #prog = cl.Program(ctx, code)
+        #prog = prog.build()
+        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        #errors="ignore") #Breaks pocl
+        #dammit = UnicodeDammit(ptx)
+        #print(dammit.unicode_markup)
+
+        from pyopencl.tools import ImmediateAllocator
+        allocator = ImmediateAllocator(queue)
+
+        X_dev_c = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
+        evt, (X_dev,) = ctof(queue, input=X_dev_c)
+        B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F")
+        A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
+
+        for i in range(2):
+            kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+        queue.finish()
+
+        start = time.time()
+        for i in range(nruns):
+            kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+
+        queue.finish()
+
+    sum_time = time.time() - start
+    avg_time = sum_time / nruns
+
+    return (B_dev, A_dev, X_dev), avg_time
+
+
 
 
 def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, nruns=10):
@@ -332,6 +419,16 @@ def runTest(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, n
     return (B_dev, A_dev, X_dev), avg_time
 
 
+def analyze_knl_bandwidth(knl, avg_time):
+    nbytes = 0
+    for arg in knl.args:
+        print(arg.name)
+        entries = np.prod((arg.shape))
+        fp_bytes = 8 if arg.dtype == np.float64 else 4
+        nbytes += fp_bytes * entries
+    bw = nbytes / avg_time / 1e9
+    print("Bandwidth: {} GB/s".format(bw))
+
 def analyzeResult(n_out, n_in, n_elem, peak_gflops, device_memory_bandwidth,
                     avg_time, fp_bytes=4):
 
@@ -507,6 +604,12 @@ def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
     print("Time limit exceeded: returning current best result")
     return result_saved
 
+def get_transformation_id(device_id):
+    hjson_file = open("device_mappings.hjson") 
+    hjson_text = hjson_file.read()
+    hjson_file.close()
+    od = hjson.loads(hjson_text)
+    return od[device_id]
 
 # Testing code
 file_name = "transform.hjson"
@@ -560,4 +663,19 @@ if __name__ == "__main__":
     #verifyResult(*dev_arrays)
     """
 
-    testBandwidth()
+    #testBandwidth()
+
+    pn = 2
+    n_out = len(equidistant_nodes(pn,3)[1])
+    n_in = n_out
+    n_elem = 2**25 
+    knl = gen_elwise_linear_knl(n_elem, n_in, n_out, np.float64)
+
+    tid = get_transformation_id("NVIDIA Titan V")
+    hjson_file = open("elwise_linear_transform.hjson")
+    trans = load_transformations_from_file(hjson_file, [tid, "FP64", str(pn)])
+    knl = apply_transformation_list(knl, trans)
+    #print(knl)
+    _, avg_time = test_elwise_linear(knl)
+    print(avg_time)
+    analyze_knl_bandwidth(knl, avg_time)

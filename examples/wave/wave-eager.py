@@ -114,15 +114,15 @@ def bump(actx, discr, t=0):
 
 def main():
     cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
     from pyopencl.tools import ImmediateAllocator
     actx = GrudgeArrayContext(queue, allocator=ImmediateAllocator(queue))
 
     dim = 3
-    nel_1d = 2**4
+    nel_1d = 2**5
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            coord_dtype=np.float32,
+            coord_dtype=np.float64,
             a=(-0.5,)*dim,
             b=(0.5,)*dim,
             n=(nel_1d,)*dim)

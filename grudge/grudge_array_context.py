@@ -156,6 +156,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         evt.wait()
         dt = (evt.profile.end - evt.profile.start) / 1e9
         nbytes = 0
+        # Could probably just use program.args
         for val in kwargs.values():
             if isinstance(val, lp.ArrayArg): 
               nbytes += prod(val.shape)*8
