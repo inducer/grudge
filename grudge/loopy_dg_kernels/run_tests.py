@@ -85,9 +85,6 @@ def testBandwidth(fp_format=np.float64, nruns=1):
             print("INCORRECT COPY")
 
 def test_elwise_linear(kern, backend="OPENCL", nruns=10):
-#def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
-#        i_inner_inner, j_inner, backend="OPENCL", fp_format=np.float32, nruns=10):
-
     #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
     #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
@@ -121,8 +118,7 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10):
 
         start = time.time()
         for i in range(nruns):
-            diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
-                    block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
 
         pycuda.autoinit.context.synchronize()
 
@@ -130,8 +126,8 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10):
     elif OPENCL:
         platform = cl.get_platforms()
         my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-        ctx = cl.Context(devices=my_gpu_devices)
-        #ctx = cl.create_some_context(interactive=True)
+        #ctx = cl.Context(devices=my_gpu_devices)
+        ctx = cl.create_some_context(interactive=True)
         queue = cl.CommandQueue(ctx)
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
@@ -416,6 +412,7 @@ def runTest(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, n
     sum_time = time.time() - start
     avg_time = sum_time / nruns
 
+
     return (B_dev, A_dev, X_dev), avg_time
 
 
@@ -424,7 +421,8 @@ def analyze_knl_bandwidth(knl, avg_time):
     for arg in knl.args:
         print(arg.name)
         entries = np.prod((arg.shape))
-        fp_bytes = 8 if arg.dtype == np.float64 else 4
+        print(type(arg.dtype))
+        fp_bytes = 8 if arg.dtype.dtype == np.float64 else 4
         nbytes += fp_bytes * entries
     bw = nbytes / avg_time / 1e9
     print("Bandwidth: {} GB/s".format(bw))
@@ -665,17 +663,19 @@ if __name__ == "__main__":
 
     #testBandwidth()
 
-    pn = 2
+    pn = 7
     n_out = len(equidistant_nodes(pn,3)[1])
     n_in = n_out
-    n_elem = 2**25 
-    knl = gen_elwise_linear_knl(n_elem, n_in, n_out, np.float64)
+    n_elem = 2**15
+    fp_format = np.float64
+    fp_string = "FP64" if fp_format == np.float64 else "FP32" 
+    knl = gen_elwise_linear_knl(n_elem, n_in, n_out, fp_format)
 
     tid = get_transformation_id("NVIDIA Titan V")
     hjson_file = open("elwise_linear_transform.hjson")
-    trans = load_transformations_from_file(hjson_file, [tid, "FP64", str(pn)])
+    trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     #print(knl)
-    _, avg_time = test_elwise_linear(knl)
+    _, avg_time = test_elwise_linear(knl, backend="OPENCL")
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
