@@ -599,8 +599,7 @@ class ExecutionMapper(mappers.Evaluator,
             # TODO Add fallback transformations to hjson file
             # TODO Use the above kernel rather than the one in loopy_dg_kernels
             # TODO Add transformations for other numbers of operators
-            print(noperators)
-            if noperators == 3 and (field.entry_dtype == np.float64
+            if (field.entry_dtype == np.float64
                     or field.entry_dtype == np.float32) \
                     and isinstance(self.array_context, GrudgeArrayContext):
                 n_out, n_in = matrices_ary_dev[0].shape

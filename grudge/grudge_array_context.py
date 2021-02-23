@@ -89,17 +89,20 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         # This read could be slow
         transform_id = get_transformation_id(device_id)
 
-        if program.name == "opt_diff":
+        if "opt_diff" in program.name:
             # TODO: Dynamically determine device id,
             # Rename this file
-            hjson_file = pkg_resources.open_text(dgk, "diff_3d_transform.hjson")
             pn = -1
             fp_format = None
+            dim = -1
             for arg in program.args:
                 if arg.name == "diff_mat":
+                    dim = arg.shape[0]
                     pn = get_order_from_dofs(arg.shape[2])                    
                     fp_format = arg.dtype.numpy_dtype
                     break
+
+            hjson_file = pkg_resources.open_text(dgk, "diff_{}d_transform.hjson".format(dim))
 
             # FP format is very specific. Could have integer arrays?
             # What about mixed data types?
