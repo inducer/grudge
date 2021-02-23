@@ -504,9 +504,15 @@ class ExecutionMapper(mappers.Evaluator,
                 if in_grp.nelements == 0:
                     continue
 
-        results = make_obj_array([
-            out_discr.empty(self.array_context, dtype=field.entry_dtype)
-            for idim in range(noperators)])
+                # Cache operator
+                cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                    field.entry_dtype
+                try:
+                    matrices_dev = self.bound_op.operator_data_cache[cache_key]
+                except KeyError:
+                    matrices_dev = [self.array_context.from_numpy(mat)
+                            for mat in repr_op.matrices(out_grp, in_grp)]
+                    self.bound_op.operator_data_cache[cache_key] = matrices_dev
 
                 group_results.append(self.array_context.call_loopy(
                         prg,
