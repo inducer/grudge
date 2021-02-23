@@ -553,7 +553,7 @@ class ExecutionMapper(mappers.Evaluator,
                         tags=VecOpIsDOFArray()),
                     ...
                 ],
-                name="diff")
+                name="diff_{}d".format(n_mat))
 
             result = lp.fix_parameters(result, nmatrices=n_mat)
             result = lp.tag_inames(result, "imatrix: ilp")

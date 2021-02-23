@@ -648,23 +648,23 @@ if __name__ == "__main__":
     for dim in range(1,4):
         hjson_file = open(dim_to_file[dim])
         #for i in range(2,8):
-        pn = 4
+        pn = 3
         n_out = len(equidistant_nodes(pn, 3)[1])
         n_in = len(equidistant_nodes(pn, 3)[1]) 
-        n_elem = 2**20 #178746 # 2**20
-        knl = gen_diff_knl_fortran2(3, n_elem, n_out, n_in, fp_format=fp_format)
+        n_elem = 178746 # 2**20
+        knl = gen_diff_knl_fortran2(dim, n_elem, n_out, n_in, fp_format=fp_format)
         trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
         knl = apply_transformation_list(knl, trans)
         print(lp.generate_code_v2(knl).device_code())
 
         dev_arrays, avg_time = runTestFortran(knl, nruns=10, warmup=True)
         #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
-        analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
+        analyze_knl_bandwidth(knl, avg_time)
+        #analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
         print(avg_time)
         #verifyResult(*dev_arrays)
-
-    #testBandwidth()
     """
+    #testBandwidth()
     # Test elwise linear
     pn = 3
     n_out = len(equidistant_nodes(pn,3)[1])
@@ -678,7 +678,7 @@ if __name__ == "__main__":
     trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     #print(knl)
-    _, avg_time = test_elwise_linear(knl, backend="OPENCL", nruns=1, warmup=False)
+    _, avg_time = test_elwise_linear(knl, backend="OPENCL", nruns=10, warmup=True)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
     """
