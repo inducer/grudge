@@ -515,7 +515,8 @@ class ExecutionMapper(mappers.Evaluator,
                     self.bound_op.operator_data_cache[cache_key] = matrices_dev
 
                 group_results.append(self.array_context.call_loopy(
-                        prg,
+                        lp.fix_parameters(prg, ndiscr_nodes_in=in_grp.nunit_dofs, ndiscr_nodes_out=out_grp.nunit_dofs),
+                        nelements=in_grp.nelements,
                         mat=matrices_dev[op.rst_axis],
                         vec=field[in_grp.index])["result"])
 
