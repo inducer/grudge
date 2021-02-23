@@ -84,7 +84,7 @@ def testBandwidth(fp_format=np.float64, nruns=1):
         if  clsum(inpt - outpt) != 0:
             print("INCORRECT COPY")
 
-def test_elwise_linear(kern, backend="OPENCL", nruns=10):
+def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
     #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
     #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
@@ -112,9 +112,10 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10):
         B_dev = cuarray.GPUArray((n_out, n_elem), fp_format)
         print(code)
 
-        for i in range(2):
-            diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
-        pycuda.autoinit.context.synchronize()
+        if warmup:
+            for i in range(2):
+                diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+            pycuda.autoinit.context.synchronize()
 
         start = time.time()
         for i in range(nruns):
@@ -150,9 +151,10 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10):
         B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F")
         A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
 
-        for i in range(2):
-            kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
-        queue.finish()
+        if warmup:
+            for i in range(2):
+                kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            queue.finish()
 
         start = time.time()
         for i in range(nruns):
@@ -168,16 +170,16 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10):
 
 
 
-def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, nruns=10):
-#def runTestFortran(n_elem, n_in, n_out, k_inner_outer, k_inner_inner, i_inner_outer,
-#        i_inner_inner, j_inner, backend="OPENCL", fp_format=np.float32, nruns=10):
+def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
+    for arg in kern.args:
+        if arg.name == "diff_mat":
+            n_mat, n_out, n_in = arg.shape
+        elif arg.name == "vec":
+            n_elem, _ = arg.shape
+            fp_format = arg.dtype.dtype
 
-    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
-    #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
     kern = lp.set_options(kern, "return_dict")
-
-    n_mat = 3
 
     CUDA = (backend == "CUDA")
     OPENCL = not CUDA
@@ -202,9 +204,9 @@ def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.flo
 
         platform = cl.get_platforms()
         my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-        ctx = cl.Context(devices=my_gpu_devices)
-        #ctx = cl.create_some_context(interactive=True)
-        queue = cl.CommandQueue(ctx)
+        #ctx = cl.Context(devices=my_gpu_devices)
+        ctx = cl.create_some_context(interactive=True)
+        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
@@ -243,16 +245,14 @@ def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.flo
         #prg = prg.build()
         #diff_knl = prg.diff
 
-    #events = []
-    for i in range(2):
-        if OPENCL:
-            #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
-            #evt = cl.enqueue_nd_range_kernel(queue, diff_knl,
-            #    X_dev.shape, (32,32),None)
-            kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
-        elif CUDA:
-            diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
-                block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+    if warmup==True:
+        for i in range(2):
+            if OPENCL:
+                kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
+            elif CUDA:
+                diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
+                    block=(yblk, xblk, 1), grid=(ygrid, xgrid))
+
     if OPENCL:
         queue.finish()
     elif CUDA:
@@ -263,10 +263,9 @@ def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.flo
     start = time.time()
     for i in range(nruns):
         if OPENCL:
-            #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
-            #evt = cl.enqueue_nd_range_kernel(queue, diff_knl,
-            #    X_dev.shape, (32,32),None)
-            kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
+            evt, _ = kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
+            evt.wait()
+            sum_time += (evt.profile.end - evt.profile.start)/ 1e9
         elif CUDA:
             diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
                 block=(yblk, xblk, 1), grid=(ygrid, xgrid))
@@ -274,8 +273,8 @@ def runTestFortran(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.flo
         queue.finish()
     elif CUDA:
         pycuda.autoinit.context.synchronize()
+        sum_time = time.time() - start
 
-    sum_time = time.time() - start
     avg_time = sum_time / nruns
 
     return (B_dev, A_dev, X_dev), avg_time
@@ -609,52 +608,52 @@ def get_transformation_id(device_id):
     od = hjson.loads(hjson_text)
     return od[device_id]
 
-# Testing code
-file_name = "transform.hjson"
-device_id = "NVIDIA Titan V"
-fp_format = np.float64
-fp_format_dict = {np.float32: (4, "FP32"), np.float64: (8, "FP64"),
-                    np.complex128: (16, "C128")}
-fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
-
-"""
-to_test = True
-if to_test:
-    n_elem = 2**22#2**15  # 2**21
-    pn = 5
-    print(len(equidistant_nodes(pn, 3)[1]))
-    n_out = len(equidistant_nodes(pn, 3)[1])
-    n_in = len(equidistant_nodes(pn, 3)[1])
-
-    #settings = exhaustiveSearch(n_in, n_out, n_elem, 4*12*1024, fp_bytes=fp_bytes,
-    #               max_gflops=12288, device_memory_bandwidth=540)
-    settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=120,
-                    fp_format=fp_format, max_gflops=12288//2,
-                    device_memory_bandwidth=540)
-    #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,1
-    #                       fp_bytes=fp_bytes, max_gflops=12288,
-    #                       device_memory_bandwidth=540)
-    print("FINAL RESULTS")
-    print(settings)
-# Add functionality to write transformations to file
-"""
-
 # Test existing optimizations
 if __name__ == "__main__": 
     from __init__ import gen_diff_knl, load_transformations_from_file, apply_transformation_list 
+    
+    # Testing code
+    device_id = "NVIDIA Titan V"
+    tid = get_transformation_id("NVIDIA Titan V")
+    fp_format = np.float64
+    fp_format_dict = {np.float32: (4, "FP32"), np.float64: (8, "FP64"),
+                        np.complex128: (16, "C128")}
+    fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
 
     """
-    hjson_file = open(file_name)
+    to_test = True
+    if to_test:
+        n_elem = 2**22#2**15  # 2**21
+        pn = 5
+        print(len(equidistant_nodes(pn, 3)[1]))
+        n_out = len(equidistant_nodes(pn, 3)[1])
+        n_in = len(equidistant_nodes(pn, 3)[1])
+
+        #settings = exhaustiveSearch(n_in, n_out, n_elem, 4*12*1024, fp_bytes=fp_bytes,
+        #               max_gflops=12288, device_memory_bandwidth=540)
+        settings = randomSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=120,
+                        fp_format=fp_format, max_gflops=12288//2,
+                        device_memory_bandwidth=540)
+        #settings = noSearch(n_in, n_out, n_elem, 4*12*1024, time_limit=180,1
+        #                       fp_bytes=fp_bytes, max_gflops=12288,
+        #                       device_memory_bandwidth=540)
+        print("FINAL RESULTS")
+        print(settings)
+    # Add functionality to write transformations to file
+    """ 
+    """ 
+    hjson_file = open("diff.hjson")
     #for i in range(2,8):
     pn = 3
     n_out = len(equidistant_nodes(pn, 3)[1])
     n_in = len(equidistant_nodes(pn, 3)[1]) 
-    n_elem = 1500282#2**20
+    n_elem = 178746 # 2**20
     knl = gen_diff_knl_fortran2(3, n_elem, n_out, n_in, fp_format=fp_format)
-    trans =load_transformations_from_file(hjson_file, device_id, pn, fp_format=fp_format)
+    trans = load_transformations_from_file(hjson_file, [tid, str(3), fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     print(lp.generate_code_v2(knl).device_code())
-    dev_arrays, avg_time = runTestFortran(knl, n_elem, n_in, n_out, fp_format=fp_format, nruns=1)
+
+    dev_arrays, avg_time = runTestFortran(knl, nruns=10, warmup=True)
     #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
     analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
     print(avg_time)
@@ -663,19 +662,19 @@ if __name__ == "__main__":
 
     #testBandwidth()
 
-    pn = 7
+    # Test elwise linear
+    pn = 3
     n_out = len(equidistant_nodes(pn,3)[1])
     n_in = n_out
-    n_elem = 2**15
+    n_elem = 178746
     fp_format = np.float64
     fp_string = "FP64" if fp_format == np.float64 else "FP32" 
     knl = gen_elwise_linear_knl(n_elem, n_in, n_out, fp_format)
 
-    tid = get_transformation_id("NVIDIA Titan V")
     hjson_file = open("elwise_linear_transform.hjson")
     trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     #print(knl)
-    _, avg_time = test_elwise_linear(knl, backend="OPENCL")
+    _, avg_time = test_elwise_linear(knl, backend="OPENCL", nruns=1, warmup=False)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
