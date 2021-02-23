@@ -92,7 +92,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         if program.name == "opt_diff":
             # TODO: Dynamically determine device id,
             # Rename this file
-            hjson_file = pkg_resources.open_text(dgk, "diff.hjson")
+            hjson_file = pkg_resources.open_text(dgk, "diff_3d_transform.hjson")
             pn = -1
             fp_format = None
             for arg in program.args:
@@ -110,7 +110,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
             # Probably need to generalize this
             fp_string = get_fp_string(fp_format)
-            indices = [transform_id, str(3), fp_string, str(pn)]
+            indices = [transform_id, fp_string, str(pn)]
             transformations = dgk.load_transformations_from_file(hjson_file,
                 indices)#transform_id, fp_string, pn)
             hjson_file.close()

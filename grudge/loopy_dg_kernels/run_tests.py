@@ -642,14 +642,14 @@ if __name__ == "__main__":
     # Add functionality to write transformations to file
     """ 
     """ 
-    hjson_file = open("diff.hjson")
+    hjson_file = open("diff_3d_transform.hjson")
     #for i in range(2,8):
     pn = 3
     n_out = len(equidistant_nodes(pn, 3)[1])
     n_in = len(equidistant_nodes(pn, 3)[1]) 
     n_elem = 178746 # 2**20
     knl = gen_diff_knl_fortran2(3, n_elem, n_out, n_in, fp_format=fp_format)
-    trans = load_transformations_from_file(hjson_file, [tid, str(3), fp_string, str(pn)])
+    trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     print(lp.generate_code_v2(knl).device_code())
 

@@ -2,8 +2,6 @@
 {
 	  72a3ce98-5d21-48bf-b402-6ee96bafd1b6: {
       description: "Transformations for the NVIDIA Titan V"
-          # Number of dimensions
-          3: { 
         # 64-bit or 32-bit kernel
         FP32:{
           # Polynomial order
@@ -157,7 +155,6 @@
               #["rename_iname", ["mat3_dim_1", "mat1_dim_1"], {existing_ok: true}],
               #["rename_iname", ["mat2_dim_1", "mat1_dim_1"], {existing_ok: true}],
           ]
-      }
       }
     }
 	  1d7cab16-19bd-4474-95f2-44ed1c0e60df: {}
