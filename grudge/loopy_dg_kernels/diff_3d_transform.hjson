@@ -1,4 +1,4 @@
-# transform ID -> dimension -> fp format -> pn
+# transform ID -> fp format -> pn
 {
 	  72a3ce98-5d21-48bf-b402-6ee96bafd1b6: {
       description: "Transformations for the NVIDIA Titan V"
@@ -80,7 +80,6 @@
               #["rename_iname", ["mat2_dim_1", "mat1_dim_1"], {existing_ok: true}],
           ]
         }
-        # Not optimized, just copied from 32 bit version
         FP64: {
           2:[
               # Format: [Transformation, args, kwargs]
