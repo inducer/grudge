@@ -83,7 +83,16 @@ class LoopyKernelDescriptor:
     @memoize_method
     def scalar_args(self):
         import loopy as lp
-        return [arg.name for arg in self.loopy_kernel.args
+        if isinstance(self.loopy_kernel, lp.LoopKernel):
+            knl = self.loopy_kernel
+        elif isinstance(self.loopy_kernel, lp.Program):
+            entrypoint, = self.loopy_kernel.entrypoints
+            knl = self.loopy_kernel[entrypoint]
+        else:
+            raise NotImplementedError("Not implemented for "
+                    f"{type(self.loopy_kernel)}.")
+
+        return [arg.name for arg in knl.args
                 if isinstance(arg, lp.ValueArg)
                 and arg.name not in ["nelements", "nunit_dofs"]]
 
