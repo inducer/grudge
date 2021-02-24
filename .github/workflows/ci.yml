@@ -25,10 +25,14 @@ jobs:
     pytest3:
         name: Pytest on Py3
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                loopy-branch: [master, kernel_callables_v3-edit2]
         steps:
         -   uses: actions/checkout@v2
         -   name: "Main Script"
             run: |
+                sed -i "s/loopy.git/loopy.git@${{ matrix.loopy-branch }}/g" requirements.txt
                 sudo apt-get update
                 sudo apt-get install openmpi-bin libopenmpi-dev
                 CONDA_ENVIRONMENT=.test-conda-env-py3.yml
@@ -38,10 +42,14 @@ jobs:
     pyexamples3:
         name: Examples on Py3
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                loopy-branch: [master, kernel_callables_v3-edit2]
         steps:
         -   uses: actions/checkout@v2
         -   name: "Main Script"
             run: |
+                sed -i "s/loopy.git/loopy.git@${{ matrix.loopy-branch }}/g" requirements.txt
                 sudo apt-get update
                 sudo apt-get install openmpi-bin libopenmpi-dev
                 CONDA_ENVIRONMENT=.test-conda-env-py3.yml
