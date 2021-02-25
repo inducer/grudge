@@ -1,5 +1,6 @@
 Python 3 POCL:
   script:
+  - sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable:pthread
   - export EXTRA_INSTALL="pybind11 numpy mako"
@@ -14,9 +15,15 @@ Python 3 POCL:
   artifacts:
     reports:
       junit: test/pytest.xml
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
+
 
 Python 3 Intel:
   script:
+  - sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
   - export PY_EXE=python3
   - export EXTRA_INSTALL="pybind11 numpy mako"
   - source /opt/enable-intel-cl.sh
@@ -32,9 +39,14 @@ Python 3 Intel:
   artifacts:
     reports:
       junit: test/pytest.xml
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
 
 Python 3 POCL Examples:
   script:
+  - sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable:pthread
   - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile pymetis"
@@ -46,9 +58,14 @@ Python 3 POCL Examples:
   - large-node
   except:
   - tags
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
 
 Python 3 Intel Examples:
   script:
+  - sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
   - export PY_EXE=python3
   - source /opt/enable-intel-cl.sh
   - export PYOPENCL_TEST="intel(r):pu"
@@ -61,12 +78,17 @@ Python 3 Intel Examples:
   - large-node
   except:
   - tags
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
 
 Python 3 Conda:
   tags:
   - linux
   - large-node
   script: |
+    sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
     CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
 
@@ -74,12 +96,17 @@ Python 3 Conda:
     export RDMAV_FORK_SAFE=1
 
     . ./build-and-test-py-project-within-miniconda.sh
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
 
 Python 3 Conda Examples:
   tags:
   - linux
   - large-node
   script: |
+    sed -i "s/loopy.git/loopy.git@$LOOPY_BRANCH/g" requirements.txt
     CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
     . ci-support.sh
@@ -89,6 +116,10 @@ Python 3 Conda Examples:
     export RDMAV_FORK_SAFE=1
 
     run_examples
+  parallel:
+    matrix:
+      - LOOPY_BRANCH: master
+      - LOOPY_BRANCH: kernel_callables_v3-edit2
 
 Documentation:
   script:
