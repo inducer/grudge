@@ -1177,8 +1177,8 @@ class OperatorCompiler(mappers.IdentityMapper):
         eval_code = aggregate_assignments(
                 inf_mapper, eval_code, result, self.max_vectors_in_batch_expr)
 
-        discr_code = rewrite_insn_to_loopy_insns(inf_mapper, discr_code)
-        eval_code = rewrite_insn_to_loopy_insns(inf_mapper, eval_code)
+        # discr_code = rewrite_insn_to_loopy_insns(inf_mapper, discr_code)
+        # eval_code = rewrite_insn_to_loopy_insns(inf_mapper, eval_code)
 
         from pytools.obj_array import make_obj_array
         return (
