@@ -253,7 +253,7 @@ class ExecutionMapper(mappers.Evaluator,
         raise NotImplementedError(
                 "differentiation should be happening in batched form")
 
-    def _elwise_linear_loopy_prg(self):
+    def _elwise_linear_loopy_prg(self, ndiscr_nodes_out, ndiscr_nodes_in):
         @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
         def prg():
             result = make_loopy_program(
@@ -267,7 +267,13 @@ class ExecutionMapper(mappers.Evaluator,
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
             return result
 
-        return prg()
+        @memoize_in(self.array_context, (ExecutionMapper,
+                                         "elwise_linear_knl_fix_params"))
+        def fix_parameters(knl, ndiscr_nodes_out, ndiscr_nodes_in):
+            return lp.fix_parameters(knl, ndiscr_nodes_out=ndiscr_nodes_out,
+                    ndiscr_nodes_in=ndiscr_nodes_in)
+
+        return fix_parameters(prg(), ndiscr_nodes_in, ndiscr_nodes_out)
 
     def map_elementwise_linear(self, op, field_expr):
         field = self.rec(field_expr)
@@ -279,9 +285,8 @@ class ExecutionMapper(mappers.Evaluator,
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
         out_discr = self.discrwb.discr_from_dd(op.dd_out)
 
-        result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
+        grp_results = []
 
-        prg = self._elwise_linear_loopy_prg()
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
             cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
@@ -295,13 +300,16 @@ class ExecutionMapper(mappers.Evaluator,
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
 
-            self.array_context.call_loopy(
+            prg = self._elwise_linear_loopy_prg(out_grp.nunit_dofs,
+                                                in_grp.nunit_dofs)
+
+            grp_results.append(self.array_context.call_loopy(
                     prg,
                     mat=matrix,
-                    result=result[out_grp.index],
-                    vec=field[in_grp.index])
+                    nelements=in_grp.nelements,
+                    vec=field[in_grp.index])["result"])
 
-        return result
+        return DOFArray.from_list(self.array_context, grp_results)
 
     def map_projection(self, op, field_expr):
         conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
@@ -340,11 +348,18 @@ class ExecutionMapper(mappers.Evaluator,
                 """,
                 name="face_mass")
 
+        @memoize_in(self.array_context, (ExecutionMapper, "fix_params_face_mass"))
+        def fix_parameters(knl, nvol_nodes, nfaces, nface_nodes):
+            return lp.fix_parameters(knl,
+                    nvol_nodes=nvol_nodes,
+                    nface_nodes=nface_nodes,
+                    nfaces=nfaces)
+
         all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
         vol_discr = all_faces_conn.from_discr
 
-        result = vol_discr.empty(self.array_context, dtype=field.entry_dtype)
+        grp_results = []
 
         assert len(all_faces_discr.groups) == len(vol_discr.groups)
 
@@ -362,15 +377,16 @@ class ExecutionMapper(mappers.Evaluator,
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
 
-            input_view = field[afgrp.index].reshape(
-                    nfaces, volgrp.nelements, afgrp.nunit_dofs)
-            self.array_context.call_loopy(
-                    prg(),
-                    mat=matrix,
-                    result=result[volgrp.index],
-                    vec=input_view)
+            input_view = self.array_context.np.reshape(field[afgrp.index],
+                    (nfaces, volgrp.nelements, afgrp.nunit_dofs))
+            grp_results.append(self.array_context.call_loopy(
+                fix_parameters(prg(), matrix.shape[0], matrix.shape[1],
+                        matrix.shape[2]),
+                mat=matrix,
+                nelements=volgrp.nelements,
+                vec=input_view)["result"])
 
-        return result
+        return DOFArray.from_list(self.array_context, grp_results)
 
     def map_signed_face_ones(self, expr):
         assert expr.dd.is_trace()
@@ -493,8 +509,6 @@ class ExecutionMapper(mappers.Evaluator,
         in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
         out_discr = self.discrwb.discr_from_dd(repr_op.dd_out)
 
-        prg = self._elwise_linear_loopy_prg()
-
         result = []
         for name, op in zip(insn.names, insn.operators):
             group_results = []
@@ -514,8 +528,10 @@ class ExecutionMapper(mappers.Evaluator,
                             for mat in repr_op.matrices(out_grp, in_grp)]
                     self.bound_op.operator_data_cache[cache_key] = matrices_dev
 
+                prg = self._elwise_linear_loopy_prg(out_grp.nunit_dofs,
+                                                    in_grp.nunit_dofs)
                 group_results.append(self.array_context.call_loopy(
-                        lp.fix_parameters(prg, ndiscr_nodes_in=in_grp.nunit_dofs, ndiscr_nodes_out=out_grp.nunit_dofs),
+                        prg,
                         nelements=in_grp.nelements,
                         mat=matrices_dev[op.rst_axis],
                         vec=field[in_grp.index])["result"])

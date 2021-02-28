@@ -28,7 +28,7 @@ import pyopencl as cl
 from pytools.obj_array import flat_obj_array
 
 from meshmode.array_context import PyOpenCLArrayContext, PytatoArrayContext
-from meshmode.dof_array import thaw
+from meshmode.dof_array import thaw, freeze
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
@@ -142,10 +142,10 @@ def main():
 
     discr = EagerDGDiscretization(actx, mesh, order=order)
 
-    fields = flat_obj_array(
+    fields = thaw(actx, freeze(flat_obj_array(
             bump(actx, discr),
             [discr.zeros(actx) for i in range(discr.dim)]
-            )
+            )))
 
     vis = make_visualizer(discr, order+3 if dim == 2 else order)
 
@@ -159,7 +159,9 @@ def main():
     # FIXME: t should not come in by capture
     compiled_rhs = actx.compile(lambda w: rhs(t, w), fields)
     while t < t_final:
-        fields = rk4_step(fields, t, dt, compiled_rhs)
+        fields = compiled_rhs(fields)
+
+        print(istep)
 
         if 0 and istep % 10 == 0:
             print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
