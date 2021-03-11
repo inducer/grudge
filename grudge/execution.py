@@ -27,7 +27,6 @@ import numpy as np
 from pytools import memoize_in
 
 import loopy as lp
-import pyopencl as cl
 import pyopencl.array  # noqa
 
 from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
@@ -150,25 +149,22 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ nodal reductions
 
     def map_nodal_sum(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
+        actx = self.array_context
         return sum([
-                cl.array.sum(grp_ary).get()[()]
-                for grp_ary in self.rec(field_expr)
-                ])
+            actx.to_numpy(actx.np.sum(grp_ary))[()]
+            for grp_ary in self.rec(field_expr)
+            ])
 
     def map_nodal_max(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
+        actx = self.array_context
         return np.max([
-            cl.array.max(grp_ary).get()[()]
+            actx.to_numpy(actx.np.max(grp_ary))[()]
             for grp_ary in self.rec(field_expr)])
 
     def map_nodal_min(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
+        actx = self.array_context
         return np.min([
-            cl.array.min(grp_ary).get()[()]
+            actx.to_numpy(actx.np.min(grp_ary))[()]
             for grp_ary in self.rec(field_expr)])
 
     # }}}
