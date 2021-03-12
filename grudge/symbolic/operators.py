@@ -136,6 +136,9 @@ class Operator(pymbolic.primitives.Expression):
     def __getinitargs__(self):
         return (self.dd_in, self.dd_out,)
 
+    def make_stringifier(self, originating_stringifier=None):
+        from grudge.symbolic.mappers import StringifyMapper
+        return StringifyMapper()
 # }}}
 
 

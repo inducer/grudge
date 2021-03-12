@@ -33,6 +33,7 @@ from meshmode.dof_array import freeze, flatten, unflatten
 from grudge.discretization import DGDiscretizationWithBoundaries
 from grudge.symbolic.primitives import TracePair
 
+from numbers import Number
 
 __doc__ = """
 .. autoclass:: EagerDGDiscretization
@@ -92,6 +93,9 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         if isinstance(vec, np.ndarray):
             return obj_array_vectorize(
                     lambda el: self.project(src, tgt, el), vec)
+
+        if isinstance(vec, Number):
+            return vec
 
         return self.connection_from_dds(src, tgt)(vec)
 
