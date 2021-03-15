@@ -68,12 +68,7 @@ jobs:
     downstream_tests:
         strategy:
             matrix:
-                # Reinstate when
-                # https://github.com/illinois-ceesd/mirgecom/issues/212
-                # is fixed:
-                # downstream_project: [meshmode, pytential, pytato, mirgecom]
-
-                downstream_project: [meshmode, pytential, pytato]
+                downstream_project: [mirgecom]
         name: Tests for downstream project ${{ matrix.downstream_project }}
         runs-on: ubuntu-latest
         steps:
