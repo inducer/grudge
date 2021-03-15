@@ -47,8 +47,7 @@ logger = logging.getLogger(__name__)
 def test_inverse_metric(actx_factory, dim):
     actx = actx_factory()
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+    mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
             n=(6,)*dim, order=4)
 
     def m(x):
@@ -115,8 +114,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
                 quad_tag: QuadratureSimplexGroupFactory(order=2*order)
                 }
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
+    mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             n=(nelements,)*ambient_dim, order=1)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
@@ -415,13 +413,11 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
     actx = actx_factory()
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-
     from pytools.convergence import EOCRecorder
     axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
 
     for n in [4, 8, 16]:
-        mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+        mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 n=(n,)*dim, order=4)
 
         discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
@@ -667,8 +663,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
     for mesh_par in mesh_pars:
         if mesh_name == "segment":
-            from meshmode.mesh.generation import generate_box_mesh
-            mesh = generate_box_mesh(
+            mesh = mgen.generate_box_mesh(
                 [np.linspace(-1.0, 1.0, mesh_par)],
                 order=order)
 
@@ -693,8 +688,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             dt_factor = 4
         elif mesh_name.startswith("rect"):
             dim = int(mesh_name[-1:])
-            from meshmode.mesh.generation import generate_regular_rect_mesh
-            mesh = generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+            mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                     n=(mesh_par,)*dim, order=4)
 
             if dim == 2:
@@ -705,8 +699,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                 raise ValueError("dt_factor not known for %dd" % dim)
         elif mesh_name.startswith("warped"):
             dim = int(mesh_name[-1:])
-            from meshmode.mesh.generation import generate_warped_rect_mesh
-            mesh = generate_warped_rect_mesh(dim, order=order, n=mesh_par)
+            mesh = mgen.generate_warped_rect_mesh(dim, order=order, n=mesh_par)
 
             if dim == 2:
                 dt_factor = 4
@@ -811,8 +804,7 @@ def test_convergence_maxwell(actx_factory,  order):
     dims = 3
     ns = [4, 6, 8]
     for n in ns:
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(
+        mesh = mgen.generate_regular_rect_mesh(
                 a=(0.0,)*dims,
                 b=(1.0,)*dims,
                 n=(n,)*dims)
@@ -875,7 +867,6 @@ def test_convergence_maxwell(actx_factory,  order):
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
     """Test whether quadrature improves things and converges"""
-    from meshmode.mesh.generation import generate_regular_rect_mesh
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
@@ -902,7 +893,7 @@ def test_improvement_quadrature(actx_factory, order):
 
         ns = [20, 25]
         for n in ns:
-            mesh = generate_regular_rect_mesh(
+            mesh = mgen.generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
                 n=(n,)*dims,
@@ -978,8 +969,7 @@ def test_bessel(actx_factory):
 
     dims = 2
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
+    mesh = mgen.generate_regular_rect_mesh(
             a=(0.1,)*dims,
             b=(1.0,)*dims,
             n=(8,)*dims)
@@ -1011,11 +1001,10 @@ def test_external_call(actx_factory):
     def double(queue, x):
         return 2 * x
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-
     dims = 2
 
-    mesh = generate_regular_rect_mesh(a=(0,) * dims, b=(1,) * dims, n=(4,) * dims)
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(0,) * dims, b=(1,) * dims, n=(4,) * dims)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=1)
 
     ones = sym.Ones(sym.DD_VOLUME)
@@ -1044,9 +1033,8 @@ def test_function_symbol_array(actx_factory, array_type):
 
     actx = actx_factory()
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
-    mesh = generate_regular_rect_mesh(
+    mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             n=(8,)*dim, order=4)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
@@ -1073,9 +1061,8 @@ def test_norm_obj_array(actx_factory, p):
 
     actx = actx_factory()
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
-    mesh = generate_regular_rect_mesh(
+    mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             n=(8,)*dim, order=1)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
@@ -1112,9 +1099,8 @@ def test_map_if(actx_factory):
 
     actx = actx_factory()
 
-    from meshmode.mesh.generation import generate_regular_rect_mesh
     dim = 2
-    mesh = generate_regular_rect_mesh(
+    mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             n=(8,)*dim, order=4)
     discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
