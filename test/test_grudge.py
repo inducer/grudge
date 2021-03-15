@@ -1109,6 +1109,24 @@ def test_map_if(actx_factory):
     bind(discr, sym_if)(actx)
 
 
+def test_empty_boundary(actx_factory):
+    # https://github.com/inducer/grudge/issues/54
+
+    actx = actx_factory()
+
+    dim = 2
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            n=(8,)*dim, order=4)
+    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
+    normal = bind(discr,
+            sym.normal(sym.BTAG_NONE, dim, dim=dim - 1))(actx)
+    from meshmode.dof_array import DOFArray
+    for component in normal:
+        assert isinstance(component, DOFArray)
+        assert len(component) == len(discr.discr_from_dd(sym.BTAG_NONE).groups)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 

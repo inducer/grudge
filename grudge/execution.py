@@ -501,9 +501,6 @@ class ExecutionMapper(mappers.Evaluator,
             for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
                 assert in_grp.nelements == out_grp.nelements
 
-                if in_grp.nelements == 0:
-                    continue
-
                 # Cache operator
                 cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
                     field.entry_dtype
