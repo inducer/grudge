@@ -41,7 +41,7 @@ def main(write_output=True, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(20,)*dims)
+            nelements_per_axis=(20,)*dims)
 
     discr = DiscretizationCollection(actx, mesh, order=order)
 

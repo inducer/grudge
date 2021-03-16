@@ -48,7 +48,7 @@ def test_inverse_metric(actx_factory, dim):
     actx = actx_factory()
 
     mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-            n=(6,)*dim, order=4)
+            nelements_per_axis=(6,)*dim, order=4)
 
     def m(x):
         result = np.empty_like(x)
@@ -98,7 +98,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     """
     actx = actx_factory()
 
-    nelements = 17
+    nel_1d = 16
     order = 4
 
     a = -4.0 * np.pi
@@ -116,7 +116,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
 
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
-            n=(nelements,)*ambient_dim, order=1)
+            nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
     discr = DiscretizationCollection(actx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
@@ -418,7 +418,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
     for n in [4, 8, 16]:
         mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-                n=(n,)*dim, order=4)
+                nelements_per_axis=(n,)*dim, order=4)
 
         discr = DiscretizationCollection(actx, mesh, order=4)
         nabla = sym.nabla(dim)
@@ -438,7 +438,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
         logger.info("axis %d\n%s", axis, eoc_rec)
-        assert eoc_rec.order_estimate() > order
+        assert eoc_rec.order_estimate() > order - 0.25
 
 # }}}
 
@@ -689,7 +689,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         elif mesh_name.startswith("rect"):
             dim = int(mesh_name[-1:])
             mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-                    n=(mesh_par,)*dim, order=4)
+                    nelements_per_axis=(mesh_par,)*dim, order=4)
 
             if dim == 2:
                 dt_factor = 4
@@ -699,7 +699,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                 raise ValueError("dt_factor not known for %dd" % dim)
         elif mesh_name.startswith("warped"):
             dim = int(mesh_name[-1:])
-            mesh = mgen.generate_warped_rect_mesh(dim, order=order, n=mesh_par)
+            mesh = mgen.generate_warped_rect_mesh(dim, order=order,
+                    nelements_side=mesh_par)
 
             if dim == 2:
                 dt_factor = 4
@@ -783,7 +784,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
     if mesh_name.startswith("warped"):
         # NOTE: curvilinear meshes are hard
-        assert eoc_rec.order_estimate() > order - 0.25
+        assert eoc_rec.order_estimate() > order - 0.5
     else:
         assert eoc_rec.order_estimate() > order
 
@@ -807,7 +808,7 @@ def test_convergence_maxwell(actx_factory,  order):
         mesh = mgen.generate_regular_rect_mesh(
                 a=(0.0,)*dims,
                 b=(1.0,)*dims,
-                n=(n,)*dims)
+                nelements_per_axis=(n,)*dims)
 
         discr = DiscretizationCollection(actx, mesh, order=order)
 
@@ -896,7 +897,7 @@ def test_improvement_quadrature(actx_factory, order):
             mesh = mgen.generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
-                n=(n,)*dims,
+                nelements_per_axis=(n,)*dims,
                 order=order)
 
             if use_quad:
@@ -928,7 +929,7 @@ def test_improvement_quadrature(actx_factory, order):
 
     assert q_eoc > eoc
     assert (q_errs < errs).all()
-    assert q_eoc > order
+    assert q_eoc > order - 0.1
 
 # }}}
 
@@ -972,7 +973,7 @@ def test_bessel(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(
             a=(0.1,)*dims,
             b=(1.0,)*dims,
-            n=(8,)*dims)
+            nelements_per_axis=(8,)*dims)
 
     discr = DiscretizationCollection(actx, mesh, order=3)
 
@@ -1004,7 +1005,7 @@ def test_external_call(actx_factory):
     dims = 2
 
     mesh = mgen.generate_regular_rect_mesh(
-            a=(0,) * dims, b=(1,) * dims, n=(4,) * dims)
+            a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
     discr = DiscretizationCollection(actx, mesh, order=1)
 
     ones = sym.Ones(sym.DD_VOLUME)
@@ -1036,7 +1037,7 @@ def test_function_symbol_array(actx_factory, array_type):
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
-            n=(8,)*dim, order=4)
+            nelements_per_axis=(8,)*dim, order=4)
     discr = DiscretizationCollection(actx, mesh, order=4)
     volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
 
@@ -1064,7 +1065,7 @@ def test_norm_obj_array(actx_factory, p):
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
-            n=(8,)*dim, order=1)
+            nelements_per_axis=(8,)*dim, order=1)
     discr = DiscretizationCollection(actx, mesh, order=4)
 
     w = make_obj_array([1.0, 2.0, 3.0])[:dim]
@@ -1102,7 +1103,7 @@ def test_map_if(actx_factory):
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
-            n=(8,)*dim, order=4)
+            nelements_per_axis=(8,)*dim, order=4)
     discr = DiscretizationCollection(actx, mesh, order=4)
 
     sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
@@ -1117,7 +1118,7 @@ def test_empty_boundary(actx_factory):
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
-            n=(8,)*dim, order=4)
+            nelements_per_axis=(8,)*dim, order=4)
     discr = DiscretizationCollection(actx, mesh, order=4)
     normal = bind(discr,
             sym.normal(sym.BTAG_NONE, dim, dim=dim - 1))(actx)

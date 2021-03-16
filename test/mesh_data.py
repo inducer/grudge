@@ -125,7 +125,7 @@ class BoxMeshBuilder(MeshBuilder):
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(
                 a=self.a, b=self.b,
-                n=resolution,
+                nelements_per_axis=resolution,
                 order=mesh_order)
 
         return mesh

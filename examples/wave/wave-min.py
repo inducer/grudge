@@ -41,7 +41,7 @@ def main(write_output=True, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(16,)*dims)
+            nelements_per_axis=(16,)*dims)
 
     if mesh.dim == 2:
         dt = 0.04

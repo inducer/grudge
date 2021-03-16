@@ -453,7 +453,7 @@ def get_wave_op_with_discr(actx, dims=2, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(16,)*dims)
+            nelements_per_axis=(16,)*dims)
 
     logger.debug("%d elements", mesh.nelements)
 
