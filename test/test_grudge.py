@@ -241,7 +241,7 @@ def test_mass_surface_area(actx_factory, name):
 
         h_max = bind(discr, sym.h_max_from_volume(
             discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
-        eoc.add_data_point(h_max, area_error)
+        eoc.add_data_point(h_max, area_error + 1.0e-16)
 
     # }}}
 
