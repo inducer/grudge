@@ -17,7 +17,7 @@ from pycuda.curandom import rand as curand
 
 from modepy import equidistant_nodes
 
-#from bs4 import UnicodeDammit
+from bs4 import UnicodeDammit
 import hjson
 import time
 #from math import ceil
@@ -34,14 +34,14 @@ from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
 
 ctof = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 
-def testBandwidth(fp_format=np.float64, nruns=1):
+def testBandwidth(fp_format=np.float32, nruns=100):
 
     from pyopencl.array import sum as clsum
     platform = cl.get_platforms()
     my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-    ctx = cl.Context(devices=my_gpu_devices)
-    #ctx = cl.create_some_context(interactive=True)
-    queue = cl.CommandQueue(ctx)
+    #ctx = cl.Context(devices=my_gpu_devices)
+    ctx = cl.create_some_context(interactive=True)
+    queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
     from pyopencl.tools import ImmediateAllocator
     allocator = ImmediateAllocator(queue)
@@ -50,20 +50,38 @@ def testBandwidth(fp_format=np.float64, nruns=1):
     knl = lp.make_copy_kernel("c,c", old_dim_tags="c,c")
     knl = lp.add_dtypes(knl, {"input": fp_format, "output": fp_format})
     knl = knl.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
-    n0 = 20
+    n0 = 1
     #knl = lp.split_iname(knl, "i1", 1024//2, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
-    knl = lp.split_iname(knl, "i1", 512, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "i1", 1024, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
     #knl = lp.split_iname(knl, "i1", 6*16, outer_tag="g.0") 
     #knl = lp.split_iname(knl, "i1_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1)) 
-
     #knl = lp.split_iname(knl, "i0", n0, inner_tag="l.1", outer_tag="g.1", slabs=(0,0))
 
     fp_bytes = 8 if fp_format == np.float64 else 4
 
-    for i in range(24):
+    # This assumes fp32
+    len_list = []
+    float_count = 1
+    max_floats = 2**29
+    while float_count <= max_floats:
+        len_list.append(float_count)
+        float_count = int(np.ceil(float_count*1.5))
+    for i in range(29):
+        len_list.append(2**i)
+    len_list = sorted(list(set(len_list)))
 
-        n = 2**i
+    #data = np.random.randint(-127, 128, (1,max_bytes), dtype=np.int8)
+    #inpt = cl.array.to_device(queue, data, allocator=allocator)
+
+    print(len_list)
+
+    for n in len_list:
+    #for i in range(29):
+
+        #n = 2**i
         kern = lp.fix_parameters(knl, n0=n0, n1=n)
+        #data = np.random.randint(-127, 128, (1,n), dtype=np.int8)
+        #inpt = cl.array.to_device(queue, data, allocator=allocator)
         inpt = cl.clrandom.rand(queue, (n0, n), dtype=fp_format)
         outpt = cl.array.Array(queue, (n0, n), dtype=fp_format, allocator=allocator)
      
@@ -71,13 +89,21 @@ def testBandwidth(fp_format=np.float64, nruns=1):
 
         for j in range(2):
             kern(queue, input=inpt, output=outpt)
-        start = time.time()
+        dt = 0
+        events = []
         for j in range(nruns):
-            kern(queue, input=inpt, output=outpt)
-        queue.finish()
-        dt = (time.time() - start)/nruns
-        bandwidth = 2*n*n0*fp_bytes / dt / 1e9
-        print("{} {}".format(i, bandwidth))
+            evt, _ = kern(queue, input=inpt, output=outpt)
+            events.append(evt)
+
+        cl.wait_for_events(events)
+        for evt in events:
+            dt += evt.profile.end - evt.profile.start 
+        #queue.finish()
+        dt = dt / nruns / 1e9
+
+        nbytes_transferred = 2*fp_bytes*n*n0
+        bandwidth = nbytes_transferred / dt / 1e9
+        print("{} {}".format(nbytes_transferred, bandwidth))
 
         #print((inpt - outpt)) 
         diff = (inpt - outpt)
@@ -122,26 +148,29 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
             diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
 
         pycuda.autoinit.context.synchronize()
-
+        sum_time = time.time() - start
 
     elif OPENCL:
         platform = cl.get_platforms()
         my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
         #ctx = cl.Context(devices=my_gpu_devices)
         ctx = cl.create_some_context(interactive=True)
-        queue = cl.CommandQueue(ctx)
+        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
-        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
-        #code = lp.generate_code_v2(kern).device_code()
         # Print the Code
-        #prog = cl.Program(ctx, code)
-        #prog = prog.build()
-        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        code = lp.generate_code_v2(kern).device_code()
+        prog = cl.Program(ctx, code)
+        prog = prog.build()
+        ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
         #errors="ignore") #Breaks pocl
-        #dammit = UnicodeDammit(ptx)
+        dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
+        f = open("ptx.ptx", "w")
+        f.write(dammit.unicode_markup)
+        f.close()
 
         from pyopencl.tools import ImmediateAllocator
         allocator = ImmediateAllocator(queue)
@@ -156,13 +185,18 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
                 kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
             queue.finish()
 
-        start = time.time()
+        sum_time = 0.0
+        events = []
         for i in range(nruns):
-            kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            evt, _ = kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            events.append(evt)
 
-        queue.finish()
+        cl.wait_for_events(events)
+        for evt in events:
+            sum_time += evt.profile.end - evt.profile.start
+        sum_time = sum_time / 1e9        
+        #queue.finish()
 
-    sum_time = time.time() - start
     avg_time = sum_time / nruns
 
     return (B_dev, A_dev, X_dev), avg_time
@@ -210,15 +244,18 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
-        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
-        #code = lp.generate_code_v2(kern).device_code()
+
         # Print the Code
-        #prog = cl.Program(ctx, code)
-        #prog = prog.build()
-        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        """
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        code = lp.generate_code_v2(kern).device_code()
+        prog = cl.Program(ctx, code)
+        prog = prog.build()
+        ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
         #errors="ignore") #Breaks pocl
-        #dammit = UnicodeDammit(ptx)
-        #print(dammit.unicode_markup)
+        dammit = UnicodeDammit(ptx)
+        print(dammit.unicode_markup)
+        """
 
         from pyopencl.tools import ImmediateAllocator
         allocator = ImmediateAllocator(queue)
@@ -233,12 +270,8 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
         B_dev = make_obj_array(B_dev)
         A_dev = make_obj_array(A_dev)
  
-       # Code for running binaries
-
+        # Code for running binaries
         #device = queue.get_info(cl.command_queue_info.DEVICE)
-        #with open("pocl_32x32.ptx","rb") as f:
-        #with open("ptx_binary_nvopencl","rb") as f:
-        #with open("ptx_binary", "rb") as f:
         #with open("cuda_32x32.ptx", "rb") as f:
         #    binary = f.read()
         #prg = cl.Program(ctx, [device], [binary])
@@ -248,6 +281,8 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
     if warmup==True:
         for i in range(2):
             if OPENCL:
+                #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
+                #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, 
                 kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
             elif CUDA:
                 diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
@@ -264,13 +299,15 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
     for i in range(nruns):
         if OPENCL:
             evt, _ = kern(queue, result=B_dev, diff_mat=A_dev, vec=X_dev)
-            evt.wait()
-            sum_time += (evt.profile.end - evt.profile.start)/ 1e9
+            events.append(evt)
         elif CUDA:
             diff_fn(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev,
                 block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
-        queue.finish()
+        cl.wait_for_events(events)
+        for evt in events:
+            sum_time += evt.profile.end - evt.profile.start
+        sum_time = sum_time / 1e9
     elif CUDA:
         pycuda.autoinit.context.synchronize()
         sum_time = time.time() - start
@@ -325,12 +362,13 @@ def runTest(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, n
         my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
         ctx = cl.Context(devices=my_gpu_devices)
         #ctx = cl.create_some_context(interactive=True)
-        queue = cl.CommandQueue(ctx)
+        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
         #kern = lp.set_options(kern, edit_code=False)  # Only works for OpenCL?
         # Outputs the code before editing it
-        kern = lp.set_options(kern, "write_code")
-        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        #kern = lp.set_options(kern, "write_code")
+        #kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+
         #code = lp.generate_code_v2(kern).device_code()
         # Print the Code
         #prog = cl.Program(ctx, code)
@@ -398,17 +436,19 @@ def runTest(kern, n_elem, n_in, n_out, backend="OPENCL", fp_format=np.float32, n
             #diff_knl.set_args(B_dev.data, A_dev.data, X_dev.data)
             #evt = cl.enqueue_nd_range_kernel(queue, diff_knl, X_dev.shape, (32,32),
             #                                   None)
-            kern(queue, diff_mat=A_dev, vec=X_dev, result=B_dev)
-            #events.append(evt)
+            evt, _ = kern(queue, diff_mat=A_dev, vec=X_dev, result=B_dev)
+            events.append(evt)
         elif CUDA:
             diff_fn(B_dev, A_dev, X_dev, block=(yblk, xblk, 1), grid=(ygrid, xgrid))
     if OPENCL:
-        queue.finish()
-        #cl.wait_for_events(events)
+        #queue.finish()
+        cl.wait_for_events(events)
+        for evt in events:
+            sum_time += evt.profile.end - evt.profile.start
+        sum_time = sum_time / 1e9        
     elif CUDA:
         pycuda.autoinit.context.synchronize()
-
-    sum_time = time.time() - start
+        sum_time = time.time() - start
     avg_time = sum_time / nruns
 
 
@@ -419,12 +459,13 @@ def analyze_knl_bandwidth(knl, avg_time):
     nbytes = 0
     for arg in knl.args:
         print(arg.name)
-        entries = np.prod((arg.shape))
+        print(arg.shape)
         print(type(arg.dtype))
+        entries = np.prod((arg.shape))
         fp_bytes = 8 if arg.dtype.dtype == np.float64 else 4
         nbytes += fp_bytes * entries
     bw = nbytes / avg_time / 1e9
-    print("Bandwidth: {} GB/s".format(bw))
+    print("Time: {}, Bytes: {}, Bandwidth: {} GB/s".format(avg_time, nbytes, bw))
 
 def analyzeResult(n_out, n_in, n_elem, peak_gflops, device_memory_bandwidth,
                     avg_time, fp_bytes=4):
@@ -641,11 +682,12 @@ if __name__ == "__main__":
         print(settings)
     # Add functionality to write transformations to file
     """ 
+    """
     dim_to_file = {1: "diff_1d_transform.hjson", 
                    2: "diff_2d_transform.hjson",
-                   3: "diff_1d_transform.hjson"}
+                   3: "diff_3d_transform.hjson"}
 
-    for dim in range(1,4):
+    for dim in range(3,4):
         hjson_file = open(dim_to_file[dim])
         #for i in range(2,8):
         pn = 3
@@ -663,8 +705,10 @@ if __name__ == "__main__":
         #analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
         print(avg_time)
         #verifyResult(*dev_arrays)
+
     """
-    #testBandwidth()
+    testBandwidth()
+    """
     # Test elwise linear
     pn = 3
     n_out = len(equidistant_nodes(pn,3)[1])

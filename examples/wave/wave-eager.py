@@ -153,7 +153,7 @@ def main():
         return wave_operator(discr, c=1, w=w)
 
     t = 0
-    t_final = 3
+    t_final = dt + dt
     istep = 0
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)

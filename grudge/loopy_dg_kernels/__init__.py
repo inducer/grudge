@@ -79,7 +79,7 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
                      and ndiscr_nodes_out > 0 \
                      and ndiscr_nodes_in > 0 and nmatrices > 0",
         options=options,
-        name="opt_diff_{}d".format(n_mat)
+        name="opt_diff_{}_axis".format(n_mat)
         )
         return knl
 

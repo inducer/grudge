@@ -10,6 +10,7 @@ import hjson
 import numpy as np
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
+import pyopencl as cl
 
 try:
     import importlib.resources as pkg_resources
@@ -90,6 +91,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         transform_id = get_transformation_id(device_id)
 
         if "opt_diff" in program.name:
+
+            #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,
             # Rename this file
             pn = -1
@@ -119,6 +122,26 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
 
+
+            # Print the Code
+            """
+            platform = cl.get_platforms()
+            my_gpu_devices = platform[1].get_devices(device_type=cl.device_type.GPU)
+            #ctx = cl.create_some_context(interactive=True)
+            ctx = cl.Context(devices=my_gpu_devices)
+            kern = program.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+            code = lp.generate_code_v2(kern).device_code()
+            prog = cl.Program(ctx, code)
+            prog = prog.build()
+            ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+            #errors="ignore") #Breaks pocl
+            from bs4 import UnicodeDammit
+            dammit = UnicodeDammit(ptx)
+            print(dammit.unicode_markup)
+            print(program.options)
+            exit()
+            """
+
         elif "elwise_linear" in program.name:
             hjson_file = pkg_resources.open_text(dgk, "elwise_linear_transform.hjson")
             pn = -1
@@ -135,6 +158,13 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 indices)
             hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
+        
+        elif program.name == "nodes":
+            # Only works for pn=3
+            program = lp.split_iname(program, "iel", 64, outer_tag="g.0", slabs=(0,1))
+            program = lp.split_iname(program, "iel_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+            program = lp.split_iname(program, "idof", 20, outer_tag="g.1", slabs=(0,0))
+            program = lp.split_iname(program, "idof_inner", 10, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
                       
         elif "actx_special" in program.name:
             program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
@@ -155,10 +185,24 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             #program = super().transform_loopy_program(program)
             #print(program)
             #print(lp.generate_code_v2(program).device_code())
+        elif program.name == "resample_by_mat":
+            hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
+
+            pn = 3 # This needs to  be not fixed
+            fp_string = "FP64"
+            
+            indices = [transform_id, fp_string, str(pn)]
+            transformations = dgk.load_transformations_from_file(hjson_file,
+                indices)
+            hjson_file.close()
+            print(transformations)
+            program = dgk.apply_transformation_list(program, transformations)
+
         elif "grudge_assign" in program.name or \
              "flatten" in program.name or \
-             "resample" in program.name or  \
+             "resample_by_picking" in program.name or  \
              "face_mass" in program.name:
+            # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
                                         slabs=(0, 1))
@@ -172,21 +216,73 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         return program
 
     def call_loopy(self, program, **kwargs):
-        evt, result = super().call_loopy(program, **kwargs)
-        evt.wait()
-        dt = (evt.profile.end - evt.profile.start) / 1e9
+
+        if False:#"opt_diff" in program.name:
+            program = self.transform_loopy_program(program)
+
+            dt = 0
+            nruns = 10
+
+            for i in range(2):
+                evt, result = program(self.queue, **kwargs, allocator=self.allocator)
+                #evt, result = super().call_loopy(program, **kwargs)
+                evt.wait()
+            for i in range(nruns):
+                evt, result = program(self.queue, **kwargs, allocator=self.allocator)
+                #evt, result = super().call_loopy(program, **kwargs)
+                evt.wait()
+                dt += evt.profile.end - evt.profile.start
+            dt = dt / nruns
+        else:
+            evt, result = super().call_loopy(program, **kwargs)
+            evt.wait()
+            dt = evt.profile.end - evt.profile.start
+        dt = dt / 1e9
+
         nbytes = 0
         # Could probably just use program.args but maybe all
         # parameters are not set
-        for val in kwargs.values():
-            if isinstance(val, lp.ArrayArg): 
-              nbytes += prod(val.shape)*8
-        for val in result.values():
-            nbytes += prod(val.shape)*8
+
+        #print("Input")
+
+        if program.name == "resample_by_mat":
+            n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
+            nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
+                        n_to_nodes*n_from_nodes +
+                        kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
+        elif program.name == "resample_by_picking":
+            # Double check this
+            nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
+                        + kwargs["to_element_indices"].shape[0])*8
+        else:
+            #print(kwargs.keys())
+            for key, val in kwargs.items():
+                # output may be a list of pyopenclarrays or it could be a 
+                # pyopenclarray. This prevents double counting (allowing
+                # other for-loop to count the bytes in the former case)
+                if key not in result.keys(): 
+                    try: 
+                        nbytes += prod(val.shape)*8
+                        #print(val.shape)
+                    except AttributeError:
+                        nbytes += 0 # Or maybe 1*8 if this is a scalar
+                #print(nbytes)
+            #print("Output")
+            #print(result.keys())
+            for val in result.values():
+                try:
+                    nbytes += prod(val.shape)*8
+                    #print(val.shape)
+                except AttributeError:
+                    nbytes += 0 # Or maybe this is a scalar?
 
         bw = nbytes / dt / 1e9
 
+
         print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.name, dt, nbytes, bw))
+       
+        #if "opt_diff" in program.name: 
+        #    exit()
         return evt, result
 
     '''

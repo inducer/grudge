@@ -553,7 +553,7 @@ class ExecutionMapper(mappers.Evaluator,
                         tags=VecOpIsDOFArray()),
                     ...
                 ],
-                name="diff_{}d".format(n_mat))
+                name="diff_{}_axis".format(n_mat))
 
             result = lp.fix_parameters(result, nmatrices=n_mat)
             result = lp.tag_inames(result, "imatrix: ilp")
@@ -609,6 +609,11 @@ class ExecutionMapper(mappers.Evaluator,
                     n_out, options=options, fp_format=field.entry_dtype)
             else:
                 program = prg(noperators)
+
+            #if noperators == 3:
+            #    np.set_printoptions(precision=4, linewidth=200)
+            #    print(matrices_ary_dev.get())
+            #    exit()
 
             self.array_context.call_loopy(
                     program,
