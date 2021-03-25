@@ -1,10 +1,9 @@
 from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import IsDOFArray
-from pytools.tag import Tag
 from pytools import memoize_method
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
+from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsFaceDOFArray, IsVecOpDOFArray
 from numpy import prod
 import hjson
 import numpy as np
@@ -27,21 +26,6 @@ def get_transformation_id(device_id):
     hjson_file.close()
     od = hjson.loads(hjson_text)
     return od[device_id]
-
-class VecIsDOFArray(Tag):
-    pass
-
-
-class FaceIsDOFArray(Tag):
-    pass
-
-
-class VecOpIsDOFArray(Tag):
-    pass
-
-
-class IsOpArray(Tag):
-    pass
 
 def get_fp_string(dtype):
     return "FP64" if dtype == np.float64 else "FP32"
@@ -77,13 +61,11 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         for arg in program.args:
             if isinstance(arg.tags, IsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
-            elif isinstance(arg.tags, IsOpArray):
-                program = lp.tag_array_axes(program, arg.name, "f,f")
-            elif isinstance(arg.tags, VecIsDOFArray):
+            elif isinstance(arg.tags, IsVecDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-            #elif isinstance(arg.tags, VecOpIsDOFArray):
+            #elif isinstance(arg.tags, IsVecOpDOFArray):
             #    program = lp.tag_array_axes(program, arg.name, "sep,c,c")
-            elif isinstance(arg.tags, FaceIsDOFArray):
+            elif isinstance(arg.tags, IsFaceDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
 
         device_id = "NVIDIA Titan V"

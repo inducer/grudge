@@ -41,8 +41,9 @@ from grudge import sym
 from grudge.function_registry import base_function_registry
 
 import grudge.loopy_dg_kernels as dgk
-from grudge.grudge_array_context import (GrudgeArrayContext, VecIsDOFArray,
-    FaceIsDOFArray, VecOpIsDOFArray, IsOpArray)
+from grudge.grudge_array_context import GrudgeArrayContext
+from grudge.grudge_tags import (IsVecDOFArray,
+    IsFaceDOFArray, IsVecOpDOFArray)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -130,7 +131,7 @@ class ExecutionMapper(mappers.Evaluator,
                 """ % op_name,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("operand", None, shape=lp.auto, tags=IsOpArray()),
+                    lp.GlobalArg("operand", None, shape=lp.auto, tags=IsDOFArray()),
                     ...
                 ],
                 name="grudge_elementwise_%s" % op_name)
@@ -370,7 +371,7 @@ class ExecutionMapper(mappers.Evaluator,
                 """,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=FaceIsDOFArray()),
+                    lp.GlobalArg("vec", None, shape=lp.auto, tags=IsFaceDOFArray()),
                     "..."
                 ],
                 name="face_mass")
@@ -547,10 +548,10 @@ class ExecutionMapper(mappers.Evaluator,
                 """,
                 kernel_data=[
                     lp.GlobalArg("result", None, shape=lp.auto,
-                                    tags=VecIsDOFArray()),
+                                    tags=sVecDOFArray()),
                     lp.GlobalArg("vec", None, shape=lp.auto, tags=IsDOFArray()),
                     lp.GlobalArg("diff_mat", None, shape=lp.auto,
-                        tags=VecOpIsDOFArray()),
+                        tags=IsVecOpDOFArray()),
                     ...
                 ],
                 name="diff_{}_axis".format(n_mat))
