@@ -74,11 +74,11 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
             lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
                 order="C", offset=lp.auto),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in), order="F",
-                offset=lp.auto)
-            #lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
-            #lp.ValueArg("n_mat", tags=ParameterValue(n_mat)),
-            #lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
-            #lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
+                offset=lp.auto),
+            lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
+            lp.ValueArg("n_mat", tags=ParameterValue(n_mat)),
+            lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
+            lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
         ],
         assumptions="nelements > 0 \
                      and ndiscr_nodes_out > 0 \
