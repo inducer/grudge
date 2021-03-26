@@ -3,7 +3,7 @@ from pytools import memoize_method
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
-from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsFaceDOFArray, IsVecOpDOFArray
+from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsFaceDOFArray, IsVecOpDOFArray, ParameterValue
 from numpy import prod
 import hjson
 import numpy as np
@@ -58,6 +58,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     def transform_loopy_program(self, program):
         #print(program.name)
 
+        # This assumes arguments have only one tag
         for arg in program.args:
             if isinstance(arg.tags, IsDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
@@ -67,12 +68,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             #    program = lp.tag_array_axes(program, arg.name, "sep,c,c")
             elif isinstance(arg.tags, IsFaceDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
+            elif isinstance(arg.tags, ParameterValue):
+                program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
 
         device_id = "NVIDIA Titan V"
         # This read could be slow
         transform_id = get_transformation_id(device_id)
 
-        if "opt_diff" in program.name:
+        if "diff" in program.name:
 
             #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,

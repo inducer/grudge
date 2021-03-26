@@ -6,6 +6,7 @@ from pytools import memoize_in
 #import pyopencl.clrandom
 
 import loopy as lp
+from grudge.grudge_tags import IsDOFArray, ParameterValue
 #from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 #from loopy.kernel.data import AddressSpace
 
@@ -74,18 +75,23 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
                 order="C", offset=lp.auto),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in), order="F",
                 offset=lp.auto)
+            #lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
+            #lp.ValueArg("n_mat", tags=ParameterValue(n_mat)),
+            #lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
+            #lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
         ],
         assumptions="nelements > 0 \
                      and ndiscr_nodes_out > 0 \
                      and ndiscr_nodes_in > 0 and nmatrices > 0",
         options=options,
-        name="opt_diff_{}_axis".format(n_mat)
+        name="diff_{}_axis".format(n_mat)
         )
         return knl
 
     knl = _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format)
 
     # This should be in array context probably but need to avoid circular dependency
+    # Probably should split kernels out of grudge_array_context
     knl = lp.tag_inames(knl, "imatrix: ilp")
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,f,f")
@@ -129,7 +135,7 @@ def gen_diff_knl_fortran(n_elem, n_in, n_out, fp_format=np.float32, options=None
                      and ndiscr_nodes_out > 0 \
                      and ndiscr_nodes_in > 0",
         options=options,
-        name="opt_diff"
+        name="diff"
 
     )
 
@@ -179,7 +185,7 @@ def gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format=np.float32, options=None)
                      and ndiscr_nodes_in > 0 \
                      and nmatrices > 0",
         options=options,
-        name="opt_diff"
+        name="diff"
     )
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,c,c")
@@ -224,7 +230,7 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
                      and ndiscr_nodes_out > 0 \
                      and ndiscr_nodes_in > 0",
         default_offset=None,
-        name="opt_diff"
+        name="diff"
     )
 
     knl = lp.fix_parameters(knl, nelements=n_elem, ndiscr_nodes_in=n_in,
