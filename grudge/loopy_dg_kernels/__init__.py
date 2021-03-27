@@ -76,7 +76,7 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in), order="F",
                 offset=lp.auto),
             lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
-            lp.ValueArg("n_mat", tags=ParameterValue(n_mat)),
+            lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
             lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
             lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
         ],
@@ -96,8 +96,8 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     knl = lp.tag_array_axes(knl, "vec", "f,f")
-    knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
-        ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
+    #knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
+    #    ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
     return knl
 
 
