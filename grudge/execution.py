@@ -536,9 +536,10 @@ class ExecutionMapper(mappers.Evaluator,
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        @memoize_in(self.array_context,
-                (ExecutionMapper, "reference_derivative_prg"))
+        #@memoize_in(self.array_context,
+        #        (ExecutionMapper, "reference_derivative_prg"))
         def prg(n_mat, n_elem, n_in, n_out, fp_format):
+            print(n_elem)
             result = make_loopy_program(
                 """{[imatrix, iel, idof, j]:
                     0<=imatrix<nmatrices and
@@ -550,23 +551,30 @@ class ExecutionMapper(mappers.Evaluator,
                         j, diff_mat[imatrix, idof, j] * vec[iel, j])
                 """,
                 kernel_data=[
-                    lp.GlobalArg("result", fp_format, shape=lp.auto,
-                                    tags=IsVecDOFArray()),
-                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("diff_mat", fp_format, shape=lp.auto,
-                        tags=IsVecOpDOFArray()),
+                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsVecDOFArray(), offset=lp.auto),
+                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsDOFArray(), offset=lp.auto, order="F"),
+                    lp.GlobalArg("diff_mat", fp_format, shape=lp.auto, tags=IsVecOpDOFArray(), offset=lp.auto, order="C"),
                     lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
                     lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
                     lp.ValueArg("nunit_nodes_out", tags=ParameterValue(n_out)),
-                    lp.ValueArg("nunit_nodes_in", tags=ParameterValue(n_in))
+                    lp.ValueArg("nunit_nodes_in", tags=ParameterValue(n_in)),
+                    ...
                 ],
+                options=None,
+                assumptions="nelements > 0 \
+                     and ndiscr_nodes_out > 0 \
+                     and ndiscr_nodes_in > 0 and nmatrices > 0 \
+                     and nmatrices > 0",
                 name="diff_{}_axis".format(n_mat))
 
+            result = lp.set_options(result, no_numpy=True, return_dict=True)
             #result = lp.fix_parameters(result, nmatrices=n_mat)
             # This should be done in transform code but is left
             # to appease PyOpenCLArrayContext
             result = lp.tag_inames(result, "imatrix: ilp")
-            result = lp.tag_array_axes(result, "result", "sep,c,c")
+            result = lp.tag_array_axes(result, "result", "sep,f,f")
+            result = lp.tag_array_axes(result, "diff_mat", "sep,c,c")
+            result = lp.tag_array_axes(result, "vec", "f,f")
             return result
 
         noperators = len(insn.operators)
@@ -614,15 +622,15 @@ class ExecutionMapper(mappers.Evaluator,
             # TODO Add transformations for other numbers of operators
 
             # For some reason this is needed to prevent the two axis kernel from breaking
-            if (noperators == 2 and (field.entry_dtype == np.float64
+            if ((field.entry_dtype == np.float64
                     or field.entry_dtype == np.float32) \
                     and isinstance(self.array_context, GrudgeArrayContext)):
                 options = lp.Options(no_numpy=True, return_dict=True)
                 program = dgk.gen_diff_knl_fortran2(noperators, n_elem, n_in,
                     n_out, options=options, fp_format=field.entry_dtype)
             else:
-                print("HERE")
-                print(noperators)
+                #print("HERE")
+                #print(noperators)
                 program = prg(noperators, n_elem, n_in, n_out, fp_format)
 
             #if noperators == 3:

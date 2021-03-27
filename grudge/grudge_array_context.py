@@ -64,8 +64,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
             elif isinstance(arg.tags, IsVecDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-            #elif isinstance(arg.tags, IsVecOpDOFArray):
-            #    program = lp.tag_array_axes(program, arg.name, "sep,c,c")
+            elif isinstance(arg.tags, IsVecOpDOFArray):
+                program = lp.tag_array_axes(program, arg.name, "sep,c,c")
             elif isinstance(arg.tags, IsFaceDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
             elif isinstance(arg.tags, ParameterValue):
