@@ -43,19 +43,67 @@ from grudge.function_registry import base_function_registry
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_array_context import GrudgeArrayContext
 from grudge.grudge_tags import (IsVecDOFArray,
-    IsFaceDOFArray, IsVecOpDOFArray, ParameterValue)
+    IsFaceDOFArray, IsVecOpArray, ParameterValue)
 
 import logging
 logger = logging.getLogger(__name__)
 
 MPI_TAG_SEND_TAGS = 1729
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 ResultType = Union[DOFArray, Number]
 
 
 # {{{ exec mapper
+
+#@memoize_method
+#@memoize_in(self.array_context,
+#        (ExecutionMapper, "reference_derivative_prg"))
+def diff_prg(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
+        options=None):
+    
+    @memoize_in(diff_prg, "_gen_diff_knl")
+    def _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format):
+        knl = lp.make_kernel(
+        """{[imatrix,iel,idof,j]:
+            0<=imatrix<nmatrices and
+            0<=iel<nelements and
+            0<=idof<ndiscr_nodes_out and
+            0<=j<ndiscr_nodes_in}""",
+        """
+        result[imatrix,iel,idof] = simul_reduce(sum, j, diff_mat[imatrix, idof, j] * vec[iel, j])
+        """,
+        kernel_data=[
+            lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
+                offset=lp.auto, tags=IsVecDOFArray()),
+            lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
+                offset=lp.auto, tags=IsVecOpArray()),
+            lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
+                offset=lp.auto, tags=IsDOFArray()),
+            lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
+            lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
+            lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
+            lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
+        ],
+        assumptions="nelements > 0 \
+                     and ndiscr_nodes_out > 0 \
+                     and ndiscr_nodes_in > 0 and nmatrices > 0",
+        options=options,
+        name="diff_{}_axis".format(n_mat)
+        )
+        return knl
+
+    knl = _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format)
+
+    # This should be in array context probably but need to avoid circular dependency
+    # Probably should split kernels out of grudge_array_context
+    knl = lp.tag_inames(knl, "imatrix: ilp")
+    #knl = lp.tag_array_axes(knl, "result", "sep,f,f")
+    return knl
+
+
+
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
@@ -536,47 +584,6 @@ class ExecutionMapper(mappers.Evaluator,
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        #@memoize_in(self.array_context,
-        #        (ExecutionMapper, "reference_derivative_prg"))
-        def prg(n_mat, n_elem, n_in, n_out, fp_format):
-            print(n_elem)
-            result = make_loopy_program(
-                """{[imatrix, iel, idof, j]:
-                    0<=imatrix<nmatrices and
-                    0<=iel<nelements and
-                    0<=idof<nunit_nodes_out and
-                    0<=j<nunit_nodes_in}""",
-                """
-                result[imatrix, iel, idof] = simul_reduce(sum,
-                        j, diff_mat[imatrix, idof, j] * vec[iel, j])
-                """,
-                kernel_data=[
-                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsVecDOFArray(), offset=lp.auto),
-                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsDOFArray(), offset=lp.auto, order="F"),
-                    lp.GlobalArg("diff_mat", fp_format, shape=lp.auto, tags=IsVecOpDOFArray(), offset=lp.auto, order="C"),
-                    lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
-                    lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
-                    lp.ValueArg("nunit_nodes_out", tags=ParameterValue(n_out)),
-                    lp.ValueArg("nunit_nodes_in", tags=ParameterValue(n_in)),
-                    ...
-                ],
-                options=None,
-                assumptions="nelements > 0 \
-                     and ndiscr_nodes_out > 0 \
-                     and ndiscr_nodes_in > 0 and nmatrices > 0 \
-                     and nmatrices > 0",
-                name="diff_{}_axis".format(n_mat))
-
-            result = lp.set_options(result, no_numpy=True, return_dict=True)
-            #result = lp.fix_parameters(result, nmatrices=n_mat)
-            # This should be done in transform code but is left
-            # to appease PyOpenCLArrayContext
-            result = lp.tag_inames(result, "imatrix: ilp")
-            result = lp.tag_array_axes(result, "result", "sep,f,f")
-            result = lp.tag_array_axes(result, "diff_mat", "sep,c,c")
-            result = lp.tag_array_axes(result, "vec", "f,f")
-            return result
-
         noperators = len(insn.operators)
 
         in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
@@ -615,33 +622,8 @@ class ExecutionMapper(mappers.Evaluator,
             n_out, n_in = matrices_ary_dev[0].shape
             n_elem = field[in_grp.index].shape[0]
             fp_format = field.entry_dtype
-            #options = lp.Options(no_numpy=True, return_dict=True)
-            # Breaks on complex data types without check
-            # TODO Add fallback transformations to hjson file
-            # TODO Use the above kernel rather than the one in loopy_dg_kernels
-            # TODO Add transformations for other numbers of operators
-
-            # For some reason this is needed to prevent the two axis kernel from breaking
-            if ((field.entry_dtype == np.float64
-                    or field.entry_dtype == np.float32) \
-                    and isinstance(self.array_context, GrudgeArrayContext)):
-                options = lp.Options(no_numpy=True, return_dict=True)
-                program = dgk.gen_diff_knl_fortran2(noperators, n_elem, n_in,
-                    n_out, options=options, fp_format=field.entry_dtype)
-            else:
-                #print("HERE")
-                #print(noperators)
-                program = prg(noperators, n_elem, n_in, n_out, fp_format)
-
-            #if noperators == 3:
-            #    np.set_printoptions(precision=4, linewidth=200)
-            #    print(matrices_ary_dev.get())
-            #    exit()
-        
-            #print(n_elem)
-
-            #why is it wrong about the size on 2-axis kernel?
-            #program = prg(noperators, n_elem, n_in, n_out, fp_format)
+            options = lp.Options(no_numpy=True, return_dict=True)
+            program = diff_prg(noperators, n_elem, n_in, n_out, options=options, fp_format=field.entry_dtype)
 
             self.array_context.call_loopy(
                     program,

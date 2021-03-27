@@ -9,7 +9,7 @@ class IsFaceDOFArray(Tag):
     pass
 
 
-class IsVecOpDOFArray(Tag):
+class IsVecOpArray(Tag):
     pass
 
 

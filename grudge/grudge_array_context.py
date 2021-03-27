@@ -3,7 +3,7 @@ from pytools import memoize_method
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
-from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsFaceDOFArray, IsVecOpDOFArray, ParameterValue
+from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsFaceDOFArray, IsVecOpArray, ParameterValue
 from numpy import prod
 import hjson
 import numpy as np
@@ -48,15 +48,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         thawed = super().thaw(array)
         if type(getattr(array, "tags", None)) == IsDOFArray:
             cq = thawed.queue
+            # Should this be run through the array context
+            #evt, out = self.call_loopy(ctof_knl, **{input: thawed})
             _, (out,) = ctof_knl(cq, input=thawed)
             thawed = out
-            # May or may not be needed
-            #thawed.tags = "dof_array"
         return thawed
 
     @memoize_method
     def transform_loopy_program(self, program):
-        #print(program.name)
 
         # This assumes arguments have only one tag
         for arg in program.args:
@@ -64,12 +63,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 program = lp.tag_array_axes(program, arg.name, "f,f")
             elif isinstance(arg.tags, IsVecDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-            elif isinstance(arg.tags, IsVecOpDOFArray):
+            elif isinstance(arg.tags, IsVecOpArray):
                 program = lp.tag_array_axes(program, arg.name, "sep,c,c")
             elif isinstance(arg.tags, IsFaceDOFArray):
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
             elif isinstance(arg.tags, ParameterValue):
                 program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
+
+        # Set no_numpy and return_dict options here?
 
         device_id = "NVIDIA Titan V"
         # This read could be slow
