@@ -158,22 +158,18 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_nodal_sum(self, op, field_expr):
         actx = self.array_context
-        return sum([
-            actx.to_numpy(actx.np.sum(grp_ary))[()]
-            for grp_ary in self.rec(field_expr)
-            ])
+        return actx.np.sum(actx.np.stack([actx.np.sum(grp_ary)
+                                          for grp_ary in self.rec(field_expr)]))
 
     def map_nodal_max(self, op, field_expr):
         actx = self.array_context
-        return np.max([
-            actx.to_numpy(actx.np.max(grp_ary))[()]
-            for grp_ary in self.rec(field_expr)])
+        return actx.np.max(actx.np.stack([actx.np.max(grp_ary)
+                                          for grp_ary in self.rec(field_expr)]))
 
     def map_nodal_min(self, op, field_expr):
         actx = self.array_context
-        return np.min([
-            actx.to_numpy(actx.np.min(grp_ary))[()]
-            for grp_ary in self.rec(field_expr)])
+        return actx.np.min(actx.np.stack([actx.np.min(grp_ary)
+                                          for grp_ary in self.rec(field_expr)]))
 
     # }}}
 
