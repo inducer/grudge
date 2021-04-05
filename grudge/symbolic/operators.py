@@ -665,11 +665,6 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     volgrp.order,
                     face_vertices)
 
-        # np.set_printoptions(linewidth=200, precision=3)
-        # matrix[np.abs(matrix) < 1e-13] = 0
-        # print(matrix)
-        # 1/0
-
         return matrix
 
     mapper_method = intern("map_ref_face_mass_operator")
