@@ -358,13 +358,14 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_elem_grp, in_elem_grp):
         if in_elem_grp == out_elem_grp:
-            assert in_elem_grp.is_orthogonal_basis()
+            assert in_elem_grp.is_orthonormal_basis()
             mmat = in_elem_grp.mass_matrix()
             return [dmat.T.dot(mmat.T) for dmat in in_elem_grp.diff_matrices()]
 
         from modepy import vandermonde
-        vand = vandermonde(out_elem_grp.basis(), out_elem_grp.unit_nodes)
-        grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
+        basis = out_elem_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_elem_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, in_elem_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
@@ -513,8 +514,9 @@ class RefMassOperator(RefMassOperatorBase):
             return in_element_group.mass_matrix()
 
         from modepy import vandermonde
-        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
-        o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
+        basis = out_element_group.basis_obj()
+        vand = vandermonde(basis.functions, out_element_group.unit_nodes)
+        o_vand = vandermonde(basis.functions, in_element_group.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_element_group.weights
@@ -528,8 +530,9 @@ class RefInverseMassOperator(RefMassOperatorBase):
     def matrix(in_element_group, out_element_group):
         assert in_element_group == out_element_group
         import modepy as mp
+        basis = in_element_group.basis_obj()
         return mp.inverse_mass_matrix(
-                in_element_group.basis(),
+                basis.functions,
                 in_element_group.unit_nodes)
 
     mapper_method = intern("map_ref_inverse_mass")
@@ -653,11 +656,12 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
 
         from modepy.tools import UNIT_VERTICES
         import modepy as mp
+        basis = volgrp.basis_obj()
         for iface, fvi in enumerate(
                 volgrp.mesh_el_group.face_vertex_indices()):
             face_vertices = UNIT_VERTICES[volgrp.dim][np.array(fvi)].T
             matrix[:, iface, :] = mp.nodal_face_mass_matrix(
-                    volgrp.basis(), volgrp.unit_nodes, afgrp.unit_nodes,
+                    basis.functions, volgrp.unit_nodes, afgrp.unit_nodes,
                     volgrp.order,
                     face_vertices)
 
