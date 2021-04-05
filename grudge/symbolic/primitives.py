@@ -649,7 +649,7 @@ def forward_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
-    result = np.zeros((ambient_dim, dim), dtype=np.object)
+    result = np.zeros((ambient_dim, dim), dtype=object)
     for j in range(dim):
         result[:, j] = forward_metric_derivative_vector(ambient_dim, j, dd=dd)
 
@@ -660,7 +660,7 @@ def inverse_metric_derivative_mat(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
-    result = np.zeros((ambient_dim, dim), dtype=np.object)
+    result = np.zeros((ambient_dim, dim), dtype=object)
     for i in range(dim):
         for j in range(ambient_dim):
             result[i, j] = inverse_metric_derivative(
@@ -688,12 +688,12 @@ def inverse_first_fundamental_form(ambient_dim, dim=None, dd=None):
         form1 = first_fundamental_form(ambient_dim, dim, dd)
 
         if dim == 1:
-            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=np.object)
+            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=object)
         elif dim == 2:
             (E, F), (_, G) = form1      # noqa: N806
             inv_form1 = 1.0 / (E * G - F * F) * np.array([
                 [G, -F], [-F, E]
-                ], dtype=np.object)
+                ], dtype=object)
         else:
             raise ValueError("%dD surfaces not supported" % dim)
 
@@ -732,7 +732,7 @@ def second_fundamental_form(ambient_dim, dim=None, dd=None):
         raise ValueError("%dD surfaces not supported" % dim)
 
     from pytools import flatten
-    form2 = np.empty((dim, dim), dtype=np.object)
+    form2 = np.empty((dim, dim), dtype=object)
     for ref_axes in second_ref_axes:
         i, j = flatten([rst_axis] * n for rst_axis, n in ref_axes)
 

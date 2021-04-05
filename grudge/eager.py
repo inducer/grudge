@@ -144,7 +144,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def _div_helper(self, diff_func, vecs):
         if not isinstance(vecs, np.ndarray):
             raise TypeError("argument must be an object array")
-        assert vecs.dtype == np.object
+        assert vecs.dtype == object
 
         if vecs.shape[-1] != self.ambient_dim:
             raise ValueError("last dimension of *vecs* argument must match "

@@ -179,7 +179,7 @@ class ExecutionMapper(mappers.Evaluator,
         if isinstance(bool_crit, DOFArray):
             # continues below
             pass
-        elif isinstance(bool_crit, (np.bool_, np.bool, np.number)):
+        elif isinstance(bool_crit, (bool, np.bool_, np.number)):
             if bool_crit:
                 return self.rec(expr.then)
             else:
