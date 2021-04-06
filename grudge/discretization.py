@@ -135,10 +135,13 @@ class DGDiscretizationWithBoundaries:
             setup_helper = setup_helpers[i_remote_part] = MPIBoundaryCommSetupHelper(
                     mpi_communicator, array_context, conn,
                     i_remote_part, grp_factory)
-            setup_helper.post_sends()
+            setup_helper.post_send()
 
         for i_remote_part, setup_helper in setup_helpers.items():
-            boundary_connections[i_remote_part] = setup_helper.complete_setup()
+            boundary_connections[i_remote_part] = setup_helper.recv()
+
+        for setup_helper in setup_helpers.values():
+            setup_helper.complete_send()
 
         return boundary_connections
 
