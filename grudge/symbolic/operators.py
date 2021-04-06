@@ -675,7 +675,7 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                 face
             )
             matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
-                faces[iface], face_quadrature,
+                face, face_quadrature,
                 face_basis.functions, vol_basis.functions,
                 volgrp.unit_nodes, afgrp.unit_nodes,
             )
