@@ -656,14 +656,31 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
 
         from modepy.tools import UNIT_VERTICES
         import modepy as mp
-        basis = volgrp.basis_obj()
+
+        vol_basis = volgrp.basis_obj()
+        faces = mp.faces_for_shape(volgrp.shape)
+
+        # NOTE: Assumes each face has the same quadrature/basis
+        face_quadrature = mp.quadrature_for_space(
+            # FIXME: How do we want to handle this in general?
+            # Do we always want a quadrature rule that exactly
+            # integrates 2N polynomials on the faces?
+            # For tensor-product and simplices?
+            mp.space_for_shape(faces[-1], 2*afgrp.order),
+            faces[-1]
+        )
+        face_basis = mp.basis_for_space(
+            mp.space_for_shape(faces[-1], afgrp.order),
+            faces[-1]
+        )
+
         for iface, fvi in enumerate(
                 volgrp.mesh_el_group.face_vertex_indices()):
-            face_vertices = UNIT_VERTICES[volgrp.dim][np.array(fvi)].T
-            matrix[:, iface, :] = mp.nodal_face_mass_matrix(
-                    basis.functions, volgrp.unit_nodes, afgrp.unit_nodes,
-                    volgrp.order,
-                    face_vertices)
+            matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                faces[iface], face_quadrature,
+                face_basis.functions, vol_basis.functions,
+                volgrp.unit_nodes, afgrp.unit_nodes,
+            )
 
         return matrix
 
