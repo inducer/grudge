@@ -410,7 +410,7 @@ class ExecutionMapper(mappers.Evaluator,
             return 0
 
         @memoize_in(self.array_context, (ExecutionMapper, "face_mass_knl"))
-        def prg():
+        def prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
             return make_loopy_program(
                 """{[iel,idof,f,j]:
                     0<=iel<nelements and
@@ -421,8 +421,13 @@ class ExecutionMapper(mappers.Evaluator,
                 result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
                 """,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("vec", None, shape=lp.auto, tags=IsFaceDOFArray()),
+                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsFaceDOFArray()),
+                    lp.GlobalArg("mat", fp_format, shape=lp.auto),
+                    lp.ValueArg("nelements", tags=ParameterValue(nelements)),
+                    lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
+                    lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
+                    lp.ValueArg("nface_nodes", tags=ParameterValue(nface_nodes)), 
                     "..."
                 ],
                 name="face_mass")
@@ -451,8 +456,14 @@ class ExecutionMapper(mappers.Evaluator,
 
             input_view = field[afgrp.index].reshape(
                     nfaces, volgrp.nelements, afgrp.nunit_dofs)
+
+            nelements, _ = result[volgrp.index].shape
+            nvol_nodes, nfaces, nface_nodes = matrix.shape
+            fp_format = input_view.dtype
+            program = prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+
             self.array_context.call_loopy(
-                    prg(),
+                    program,
                     mat=matrix,
                     result=result[volgrp.index],
                     vec=input_view)

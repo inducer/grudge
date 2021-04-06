@@ -134,7 +134,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             fp_format = None
             for arg in program.args:
                 if arg.name == "mat":
-                    pn = get_order_from_dofs(arg.shape[1])                    
+                    pn = get_order_from_dofs(arg.shape[0])                    
                     fp_format = arg.dtype.numpy_dtype
                     break
 
@@ -144,6 +144,24 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 indices)
             hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
+
+        elif program.name == "face_mass":
+            hjson_file = pkg_resources.open_text(dgk, "face_mass_transform.hjson")
+            pn = -1
+            fp_format = None
+            for arg in program.args:
+                if arg.name == "mat":
+                    pn = get_order_from_dofs(arg.shape[0])                    
+                    fp_format = arg.dtype.numpy_dtype
+                    break
+
+            fp_string = get_fp_string(fp_format)
+            indices = [transform_id, fp_string, str(pn)]
+            transformations = dgk.load_transformations_from_file(hjson_file,
+                indices)
+            hjson_file.close()
+            program = dgk.apply_transformation_list(program, transformations)
+
         
         elif program.name == "nodes":
             # Only works for pn=3
@@ -183,11 +201,15 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file.close()
             print(transformations)
             program = dgk.apply_transformation_list(program, transformations)
-
+        elif program.name == "resample_by_picking":
+            program = lp.split_iname(program, "iel", 96, outer_tag="g.0",
+                                        slabs=(0, 1))
+            program = lp.split_iname(program, "iel_inner", 96, outer_tag="ilp",
+                                        inner_tag="l.0")
+            program = lp.split_iname(program, "idof", 10, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 0))
         elif "grudge_assign" in program.name or \
-             "flatten" in program.name or \
-             "resample_by_picking" in program.name or  \
-             "face_mass" in program.name:
+             "flatten" in program.name:
             # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",

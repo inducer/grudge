@@ -30,7 +30,7 @@ import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
-    generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl)
+    generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
 
 ctof = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
 
@@ -109,6 +109,153 @@ def testBandwidth(fp_format=np.float32, nruns=100):
         diff = (inpt - outpt)
         if  clsum(inpt - outpt) != 0:
             print("INCORRECT COPY")
+
+# There seems to be a pattern here. Maybe pass in a function that returns the arguments
+def test_face_mass(kern, backend="OPENCL", nruns=10, warmup=True):
+    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
+    #    i_inner_outer, i_inner_inner, j_inner)
+    kern = lp.set_options(kern, "no_numpy")
+    kern = lp.set_options(kern, "return_dict")
+    for arg in kern.args:
+        if arg.name == "vec":
+            fp_format = arg.dtype
+            fp_bytes = 4 if fp_format.numpy_dtype == np.float32 else 8
+            nfaces, nelements, nface_nodes = arg.shape
+        elif arg.name == "mat":
+            nvol_nodes, _, _ = arg.shape
+
+    CUDA = (backend == "CUDA")
+    OPENCL = not CUDA
+
+    if CUDA:
+        print("CUDA mode not currently supported")
+        exit()
+    elif OPENCL:
+        platform = cl.get_platforms()
+        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        #ctx = cl.Context(devices=my_gpu_devices)
+        ctx = cl.create_some_context(interactive=True)
+        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+
+        #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
+        kern = lp.set_options(kern, "write_code")  # Output code before editing it
+        # Print the Code
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        code = lp.generate_code_v2(kern).device_code()
+        prog = cl.Program(ctx, code)
+        prog = prog.build()
+        ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        #errors="ignore") #Breaks pocl
+        dammit = UnicodeDammit(ptx)
+        #print(dammit.unicode_markup)
+        f = open("ptx.ptx", "w")
+        f.write(dammit.unicode_markup)
+        f.close()
+
+        from pyopencl.tools import ImmediateAllocator
+        allocator = ImmediateAllocator(queue)
+
+        A_dev = cl.clrandom.rand(queue, (nvol_nodes, nfaces, nface_nodes), dtype=fp_format)
+        # Might try strides=(nelements*nface_nodes, 1, nelements)
+        strides = (fp_bytes*nelements, fp_bytes*1, fp_bytes*nelements*nfaces) #original
+        #strides = (fp_bytes*nelements*nface_nodes, 1*fp_bytes, fp_bytes*nelements)
+        X_dev = cl.array.Array(queue, (nfaces, nelements, nface_nodes), dtype=fp_format, 
+                                strides=strides, allocator=allocator)
+        cl.clrandom.fill_rand(X_dev, queue=queue)
+        B_dev = cl.array.Array(queue, (nelements, nvol_nodes), dtype=fp_format, allocator=allocator,order="F")
+
+        if warmup:
+            for i in range(2):
+                kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            queue.finish()
+
+        sum_time = 0.0
+        events = []
+        for i in range(nruns):
+            evt, _ = kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            events.append(evt)
+
+        cl.wait_for_events(events)
+        for evt in events:
+            sum_time += evt.profile.end - evt.profile.start
+        sum_time = sum_time / 1e9        
+        #queue.finish()
+
+    avg_time = sum_time / nruns
+
+    return (B_dev, A_dev, X_dev), avg_time
+
+def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
+    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
+    #    i_inner_outer, i_inner_inner, j_inner)
+    kern = lp.set_options(kern, "no_numpy")
+    kern = lp.set_options(kern, "return_dict")
+    for arg in kern.args:
+        if arg.name == "vec":
+            fp_format = arg.dtype
+            n_elem, n_in = arg.shape
+        elif arg.name == "mat":
+            n_out, _ = arg.shape
+
+    CUDA = (backend == "CUDA")
+    OPENCL = not CUDA
+
+    if CUDA:
+        print("Not supported")
+        exit()
+    elif OPENCL:
+        platform = cl.get_platforms()
+        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        #ctx = cl.Context(devices=my_gpu_devices)
+        ctx = cl.create_some_context(interactive=True)
+        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+
+        #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
+        kern = lp.set_options(kern, "write_code")  # Output code before editing it
+        # Print the Code
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        code = lp.generate_code_v2(kern).device_code()
+        prog = cl.Program(ctx, code)
+        prog = prog.build()
+        ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        #errors="ignore") #Breaks pocl
+        dammit = UnicodeDammit(ptx)
+        #print(dammit.unicode_markup)
+        f = open("ptx.ptx", "w")
+        f.write(dammit.unicode_markup)
+        f.close()
+
+        from pyopencl.tools import ImmediateAllocator
+        allocator = ImmediateAllocator(queue)
+
+        X_dev = cl.array.Array(queue, (n_elem, n_in), dtype=fp_format, order="F", allocator=allocator)
+        cl.clrandom.fill_rand(X_dev, queue=queue)
+        B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F")
+        A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
+
+        if warmup:
+            for i in range(2):
+                kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            queue.finish()
+
+        sum_time = 0.0
+        events = []
+        for i in range(nruns):
+            evt, _ = kern(queue, result=B_dev, mat=A_dev, vec=X_dev)
+            events.append(evt)
+
+        cl.wait_for_events(events)
+        for evt in events:
+            sum_time += evt.profile.end - evt.profile.start
+        sum_time = sum_time / 1e9        
+        #queue.finish()
+
+    avg_time = sum_time / nruns
+
+    return (B_dev, A_dev, X_dev), avg_time
+
+
+
 
 def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
     #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
@@ -697,7 +844,7 @@ if __name__ == "__main__":
         knl = gen_diff_knl_fortran2(dim, n_elem, n_out, n_in, fp_format=fp_format)
         trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
         knl = apply_transformation_list(knl, trans)
-        print(lp.generate_code_v2(knl).device_code())
+        #print(lp.generate_code_v2(knl).device_code())
 
         dev_arrays, avg_time = runTestFortran(knl, nruns=10, warmup=True)
         #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
@@ -707,8 +854,8 @@ if __name__ == "__main__":
         #verifyResult(*dev_arrays)
 
     """
-    testBandwidth()
-    """
+    #testBandwidth()
+    #"""
     # Test elwise linear
     pn = 3
     n_out = len(equidistant_nodes(pn,3)[1])
@@ -723,6 +870,27 @@ if __name__ == "__main__":
     knl = apply_transformation_list(knl, trans)
     #print(knl)
     _, avg_time = test_elwise_linear(knl, backend="OPENCL", nruns=10, warmup=True)
+    print(avg_time)
+    analyze_knl_bandwidth(knl, avg_time)
+    #"""
+    """
+    # Test face_mass            
+    pn = 3
+    nvol_nodes = len(equidistant_nodes(pn,3)[1])
+    nface_nodes = 10
+    #nelements = 2**22
+    nelements = 178746
+    nfaces = 4
+    fp_format = np.float64
+    fp_string = "FP64" if fp_format == np.float64 else "FP32" 
+    knl = gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+    #knl = gen_face_mass_knl_merged(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+    #hjson_file = open("elwise_linear_transform.hjson")
+    #trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
+    #knl = apply_transformation_list(knl, trans)
+    print(knl)
+    _, avg_time = test_face_mass(knl, backend="OPENCL", nruns=10, warmup=True)
+    #_, avg_time = test_face_mass_merged(knl, backend="OPENCL", nruns=10, warmup=True)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
     """

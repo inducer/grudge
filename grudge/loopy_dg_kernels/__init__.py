@@ -31,6 +31,79 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
+def gen_face_mass_knl_merged(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+    knl =  lp.make_kernel(
+         """{[iel,idof,fj]:
+             0<=iel<nelements and
+             0<=idof<nvol_nodes and
+             0<=fj<nf_times_j}""",
+         """
+         result[iel,idof] = sum(fj, mat[idof, fj] * vec[iel, fj])
+         """,
+         kernel_data=[
+             lp.GlobalArg("result", fp_format, shape=lp.auto, order="F"),
+             lp.GlobalArg("vec", fp_format, shape=lp.auto, order="F"),
+             lp.GlobalArg("mat", fp_format, shape=lp.auto, order="C"),
+             "..."
+         ],
+         name="face_mass")
+
+    # Gets around 470 GB/s
+    knl = lp.fix_parameters(knl, nelements=nelements, nf_times_j=nfaces*nface_nodes, nvol_nodes=nvol_nodes)
+    #knl = lp.tag_array_axes(knl, "result", "f,f")
+    #knl = lp.tag_array_axes(knl, "vec", "f,f")
+
+    knl = lp.split_iname(knl, "iel", 96, outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "iel_inner", 32, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+    knl = lp.add_prefetch(knl, "vec", "iel_inner_outer,iel_inner_inner,fj",
+                            temporary_name="vecf", default_tag="l.auto")
+
+    knl = lp.tag_array_axes(knl, "vecf", "f,f")
+    knl = lp.split_iname(knl, "idof", 20, outer_tag="g.1", slabs=(0,0))
+    knl = lp.split_iname(knl, "idof_inner", 2, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
+    knl = lp.split_iname(knl, "fj", 10, slabs=(0,0), inner_tag="unr")
+
+    return knl
+
+
+def gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+    knl =  lp.make_kernel(
+         """{[iel,idof,f,j]:
+             0<=iel<nelements and
+             0<=f<nfaces and
+             0<=idof<nvol_nodes and
+             0<=j<nface_nodes}""",
+         """
+         #result[iel,idof] = sum(fj, mat[idof, fj] * vec[iel, fj])
+         result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
+         """,
+         kernel_data=[
+             lp.GlobalArg("result", fp_format, shape=lp.auto),
+             lp.GlobalArg("vec", fp_format, shape=lp.auto),
+             lp.GlobalArg("mat", fp_format, shape=lp.auto),
+             "..."
+         ],
+         name="face_mass")
+
+    knl = lp.fix_parameters(knl, nelements=nelements, nfaces=nfaces, nvol_nodes=nvol_nodes, nface_nodes=nface_nodes)
+    knl = lp.tag_array_axes(knl, "result", "f,f")
+    knl = lp.tag_array_axes(knl, "vec", "N1,N0,N2")
+
+    # Gets around 450 GB/s
+
+    knl = lp.split_iname(knl, "iel", 96, outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "iel_inner", 32, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+    knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner,f",
+                            temporary_name="vecf", default_tag="l.auto")
+
+    knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2")
+    knl = lp.split_iname(knl, "idof", 20, outer_tag="g.1", slabs=(0,0))
+    knl = lp.split_iname(knl, "idof_inner", 4, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
+    knl = lp.split_iname(knl, "j", 10, slabs=(0,0))
+
+    return knl
+
+
 def gen_elwise_linear_knl(n_elem, n_in, n_out, fp_format):
 
     knl = lp.make_kernel(
@@ -96,8 +169,8 @@ def gen_diff_knl_fortran2(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
     knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
     knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     knl = lp.tag_array_axes(knl, "vec", "f,f")
-    #knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
-    #    ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
+    knl = lp.fix_parameters(knl, nmatrices=n_mat, nelements=n_elem,
+        ndiscr_nodes_in=n_in, ndiscr_nodes_out=n_out)
     return knl
 
 
