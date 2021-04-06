@@ -654,7 +654,6 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     afgrp.nunit_dofs),
                 dtype=dtype)
 
-        from modepy.tools import UNIT_VERTICES
         import modepy as mp
 
         vol_basis = volgrp.basis_obj()
