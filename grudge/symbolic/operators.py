@@ -349,7 +349,8 @@ class RefDiffOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_element_group, in_element_group):
         assert in_element_group == out_element_group
-        return in_element_group.diff_matrices()
+        from meshmode.discretization.poly_element import diff_matrices
+        return diff_matrices(in_element_group)
 
 
 class RefStiffnessTOperator(RefDiffOperatorBase):
@@ -359,8 +360,10 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
     def matrices(out_elem_grp, in_elem_grp):
         if in_elem_grp == out_elem_grp:
             assert in_elem_grp.is_orthonormal_basis()
-            mmat = in_elem_grp.mass_matrix()
-            return [dmat.T.dot(mmat.T) for dmat in in_elem_grp.diff_matrices()]
+            from meshmode.discretization.poly_element import (mass_matrix,
+                                                              diff_matrices)
+            mmat = mass_matrix(in_elem_grp)
+            return [dmat.T.dot(mmat.T) for dmat in diff_matrices(in_elem_grp)]
 
         from modepy import vandermonde
         basis = out_elem_grp.basis_obj()
@@ -511,7 +514,8 @@ class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(out_element_group, in_element_group):
         if out_element_group == in_element_group:
-            return in_element_group.mass_matrix()
+            from meshmode.discretization.poly_element import mass_matrix
+            return mass_matrix(in_element_group)
 
         from modepy import vandermonde
         basis = out_element_group.basis_obj()
