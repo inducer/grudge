@@ -135,8 +135,7 @@ class DGDiscretizationWithBoundaries:
 
             from meshmode.distributed import MPIBoundaryCommSetupHelper
             with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
-                    connected_parts, local_boundary_connections,
-                    grp_factory) as bdry_setup_helper:
+                    local_boundary_connections, grp_factory) as bdry_setup_helper:
                 while True:
                     conns = bdry_setup_helper.complete_some()
                     if not conns:
