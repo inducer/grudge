@@ -478,6 +478,45 @@ class VandermondeOperator(ElementwiseLinearOperator):
 # }}}
 
 
+# {{{ volume and surface quadrature interpolation
+
+class VolumeQuadratureInterpolationOperator(ElementwiseLinearOperator):
+    """Interpolates a function represented in a polynomial
+    space to an arbitrary volume quadrature grid.
+    """
+
+    def matrix(self, out_element_group, in_element_group):
+        from modepy import vandermonde
+        basis = in_element_group.basis_obj()
+        vand = vandermonde(basis.functions, out_element_group.unit_nodes)
+        return vand
+
+
+class SurfaceQuadratureInterpolationOperator(ElementwiseLinearOperator):
+    """Interpolates a function represented in a polynomial
+    space to an arbitrary quadrature grid defined on the
+    boundary of the reference element.
+    """
+
+    def matrix(self, out_element_group, in_element_group):
+        basis = in_element_group.basis_obj()
+        surface_quad_nodes = out_element_group.unit_nodes
+        faces = mp.faces_for_shape(in_element_group.shape)
+
+        # Array containing all surface quadrature nodes
+        # in volume coordinates
+        all_surface_nodes = np.array([
+            face.map_to_volume(surface_quad_nodes)
+            for face in faces
+        ])
+
+        from modepy import vandermonde
+        vand = vandermonde(basis.functions, all_surface_nodes)
+        return vand
+
+# }}}
+
+
 # {{{ mass operators
 
 class MassOperatorBase(Operator):
