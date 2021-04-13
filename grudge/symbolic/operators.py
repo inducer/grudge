@@ -661,34 +661,38 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
 
+        n = volgrp.order
+        m = afgrp.order
         vol_basis = volgrp.basis_obj()
         faces = mp.faces_for_shape(volgrp.shape)
+        face_quad_degree = 2*max(n, m)
 
         for iface, face in enumerate(faces):
-            # NOTE: Quadrature degree determined such that
-            # we either guarantee exact integration of degree 2N
-            # polynomials, or use a higher-order quadrature rule
-            # provided by the user (for example, when doing overintegration)
-            face_quad_degree = 2*max(volgrp.order, afgrp.order)
-            face_quadrature = mp.quadrature_for_space(
-                mp.space_for_shape(face, face_quad_degree),
-                face
-            )
-            assert face_quadrature.exact_to >= face_quad_degree
-
-            if isinstance(afgrp, ElementGroupWithBasis):
-                face_basis = afgrp.basis_obj()
-            else:
-                face_basis = mp.basis_for_space(
-                    mp.space_for_shape(face, afgrp.order),
+            try:
+                face_quadrature = afgrp._quadrature_rule()
+            except AttributeError:
+                face_quadrature = mp.quadrature_for_space(
+                    mp.space_for_shape(face, face_quad_degree),
                     face
                 )
+            if (isinstance(afgrp, ElementGroupWithBasis)
+                    and afgrp.space.space_dim == afgrp.nunit_dofs):
 
-            matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
-                face, face_quadrature,
-                face_basis.functions, vol_basis.functions,
-                volgrp.unit_nodes, afgrp.unit_nodes,
-            )
+                face_basis = afgrp.basis_obj()
+                assert face_quadrature.exact_to >= n + m
+
+                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                    face, face_quadrature,
+                    face_basis.functions, vol_basis.functions,
+                    volgrp.unit_nodes, afgrp.unit_nodes,
+                )
+            else:
+                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
+                    face,
+                    face_quadrature,
+                    vol_basis.functions,
+                    volgrp.unit_nodes,
+                )
 
         return matrix
 
