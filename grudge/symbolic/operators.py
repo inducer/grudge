@@ -659,6 +659,7 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                 dtype=dtype)
 
         import modepy as mp
+        from meshmode.discretization import ElementGroupWithBasis
 
         vol_basis = volgrp.basis_obj()
         faces = mp.faces_for_shape(volgrp.shape)
@@ -668,16 +669,21 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
             # we either guarantee exact integration of degree 2N
             # polynomials, or use a higher-order quadrature rule
             # provided by the user (for example, when doing overintegration)
-            face_quad_degree = max(2*volgrp.order, afgrp.order)
+            face_quad_degree = 2*max(volgrp.order, afgrp.order)
             face_quadrature = mp.quadrature_for_space(
                 mp.space_for_shape(face, face_quad_degree),
                 face
             )
-            assert face_quadrature.exact_to >= afgrp.order
-            face_basis = mp.basis_for_space(
-                mp.space_for_shape(face, afgrp.order),
-                face
-            )
+            assert face_quadrature.exact_to >= face_quad_degree
+
+            if isinstance(afgrp, ElementGroupWithBasis):
+                face_basis = afgrp.basis_obj()
+            else:
+                face_basis = mp.basis_for_space(
+                    mp.space_for_shape(face, afgrp.order),
+                    face
+                )
+
             matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
                 face, face_quadrature,
                 face_basis.functions, vol_basis.functions,
