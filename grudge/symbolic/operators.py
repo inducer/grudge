@@ -660,21 +660,32 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
 
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
+        from meshmode.discretization.poly_element import QuadratureSimplexElementGroup
 
         n = volgrp.order
         m = afgrp.order
         vol_basis = volgrp.basis_obj()
         faces = mp.faces_for_shape(volgrp.shape)
-        face_quad_degree = 2*max(n, m)
 
         for iface, face in enumerate(faces):
-            try:
-                face_quadrature = afgrp._quadrature_rule()
-            except AttributeError:
+            # If the face group is defined on a higher-order
+            # quadrature grid, use the underlying quadrature rule
+            if isinstance(afgrp, QuadratureSimplexElementGroup):
+                weights = afgrp.weights
+                quad_nodes = afgrp.unit_nodes
+                face_quadrature = mp.Quadrature(quad_nodes, weights)
+            else:
+                # NOTE: This handles the general case where
+                # volume and surface quadrature rules may have different
+                # integration orders
+                face_quad_degree = 2*max(n, m)
                 face_quadrature = mp.quadrature_for_space(
                     mp.space_for_shape(face, face_quad_degree),
                     face
                 )
+
+            # If the group has a nodal basis and is unisolvent,
+            # we use the basis on the face to compute the face mass matrix
             if (isinstance(afgrp, ElementGroupWithBasis)
                     and afgrp.space.space_dim == afgrp.nunit_dofs):
 
@@ -687,6 +698,8 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     volgrp.unit_nodes, afgrp.unit_nodes,
                 )
             else:
+                # Otherwise, we use a routine that is purely quadrature-based
+                # (no need for explicit face basis functions)
                 matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
                     face,
                     face_quadrature,
