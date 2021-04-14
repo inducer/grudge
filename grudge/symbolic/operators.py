@@ -660,7 +660,8 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
 
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
-        from meshmode.discretization.poly_element import QuadratureSimplexElementGroup
+        from meshmode.discretization.poly_element import \
+            QuadratureSimplexElementGroup
 
         n = volgrp.order
         m = afgrp.order
