@@ -672,16 +672,13 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
             # If the face group is defined on a higher-order
             # quadrature grid, use the underlying quadrature rule
             if isinstance(afgrp, QuadratureSimplexElementGroup):
-                weights = afgrp.weights
-                quad_nodes = afgrp.unit_nodes
-                face_quadrature = mp.Quadrature(quad_nodes, weights)
+                face_quadrature = afgrp._quadrature_rule()
             else:
                 # NOTE: This handles the general case where
                 # volume and surface quadrature rules may have different
                 # integration orders
-                face_quad_degree = 2*max(n, m)
                 face_quadrature = mp.quadrature_for_space(
-                    mp.space_for_shape(face, face_quad_degree),
+                    mp.space_for_shape(face, 2*max(n, m)),
                     face
                 )
 
@@ -690,8 +687,8 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
             if (isinstance(afgrp, ElementGroupWithBasis)
                     and afgrp.space.space_dim == afgrp.nunit_dofs):
 
-                face_basis = afgrp.basis_obj()
                 assert face_quadrature.exact_to >= n + m
+                face_basis = afgrp.basis_obj()
 
                 matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
                     face, face_quadrature,
