@@ -682,12 +682,13 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     face
                 )
 
+            assert face_quadrature.exact_to >= n + m
+
             # If the group has a nodal basis and is unisolvent,
             # we use the basis on the face to compute the face mass matrix
             if (isinstance(afgrp, ElementGroupWithBasis)
                     and afgrp.space.space_dim == afgrp.nunit_dofs):
 
-                assert face_quadrature.exact_to >= n + m
                 face_basis = afgrp.basis_obj()
 
                 matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
