@@ -50,22 +50,22 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
         return op.normal(self, dd)
 
     def grad(self, vec):
-        return op.grad(self, vec)
+        return op.local_grad(self, vec)
 
     def d_dx(self, xyz_axis, vec):
-        return op.d_dx(self, xyz_axis, vec)
+        return op.local_d_dx(self, xyz_axis, vec)
 
     def div(self, vecs):
-        return op.d_dx(self, vecs)
+        return op.local_d_dx(self, vecs)
 
     def weak_grad(self, *args):
-        return op.weak_grad(self, *args)
+        return op.weak_local_grad(self, *args)
 
     def weak_d_dx(self, *args):
-        return op.weak_d_dx(self, *args)
+        return op.weak_local_d_dx(self, *args)
 
     def weak_div(self, *args):
-        return op.weak_div(self, *args)
+        return op.weak_local_div(self, *args)
 
     def mass(self, *args):
         return op.mass(self, *args)

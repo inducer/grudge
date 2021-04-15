@@ -2,13 +2,13 @@
 .. autofunction:: project
 .. autofunction:: nodes
 
-.. autofunction:: grad
-.. autofunction:: d_dx
-.. autofunction:: div
+.. autofunction:: local_grad
+.. autofunction:: local_d_dx
+.. autofunction:: local_div
 
-.. autofunction:: weak_grad
-.. autofunction:: weak_d_dx
-.. autofunction:: weak_div
+.. autofunction:: weak_local_grad
+.. autofunction:: weak_local_d_dx
+.. autofunction:: weak_local_div
 
 .. autofunction:: normal
 .. autofunction:: mass
@@ -133,8 +133,9 @@ def _bound_grad(discrwb):
     return bind(discrwb, sym.nabla(discrwb.dim) * sym.Variable("u"), local_only=True)
 
 
-def grad(discrwb, vec):
-    r"""Return the gradient of the volume function represented by *vec*.
+def local_grad(discrwb, vec):
+    r"""Return the element-local gradient of the volume function represented by
+    *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
@@ -148,9 +149,9 @@ def _bound_d_dx(discrwb, xyz_axis):
             local_only=True)
 
 
-def d_dx(discrwb, xyz_axis, vec):
-    r"""Return the derivative along axis *xyz_axis* of the volume function
-    represented by *vec*.
+def local_d_dx(discrwb, xyz_axis, vec):
+    r"""Return the element-local derivative along axis *xyz_axis* of the volume
+    function represented by *vec*.
 
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
@@ -179,8 +180,8 @@ def _div_helper(discrwb, diff_func, vecs):
         return result
 
 
-def div(discrwb, vecs):
-    r"""Return the divergence of the vector volume function
+def local_div(discrwb, vecs):
+    r"""Return the element-local divergence of the vector volume function
     represented by *vecs*.
 
     :arg vec: an object array of
@@ -191,7 +192,7 @@ def div(discrwb, vecs):
     """
 
     return _div_helper(discrwb,
-            lambda i, subvec: d_dx(discrwb, i, subvec),
+            lambda i, subvec: local_d_dx(discrwb, i, subvec),
             vecs)
 
 
@@ -202,9 +203,9 @@ def _bound_weak_grad(discrwb, dd):
             local_only=True)
 
 
-def weak_grad(discrwb, *args):
-    r"""Return the "weak gradient" of the volume function represented by
-    *vec*.
+def weak_local_grad(discrwb, *args):
+    r"""Return the element-local weak gradient of the volume function
+    represented by *vec*.
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
@@ -232,9 +233,9 @@ def _bound_weak_d_dx(discrwb, dd, xyz_axis):
             local_only=True)
 
 
-def weak_d_dx(discrwb, *args):
-    r"""Return the derivative along axis *xyz_axis* of the volume function
-    represented by *vec*.
+def weak_local_d_dx(discrwb, *args):
+    r"""Return the element-local weak derivative along axis *xyz_axis* of the
+    volume function represented by *vec*.
 
     May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
 
@@ -254,8 +255,8 @@ def weak_d_dx(discrwb, *args):
     return _bound_weak_d_dx(discrwb, dd, xyz_axis)(u=vec)
 
 
-def weak_div(discrwb, *args):
-    r"""Return the "weak divergence" of the vector volume function
+def weak_local_div(discrwb, *args):
+    r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
@@ -277,7 +278,7 @@ def weak_div(discrwb, *args):
         raise TypeError("invalid number of arguments")
 
     return _div_helper(discrwb,
-            lambda i, subvec: weak_d_dx(discrwb, dd, i, subvec),
+            lambda i, subvec: weak_local_d_dx(discrwb, dd, i, subvec),
             vecs)
 
 # }}}
