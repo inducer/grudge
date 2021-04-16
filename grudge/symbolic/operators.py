@@ -515,7 +515,7 @@ class SurfaceQuadratureInterpolationOperator(ElementwiseLinearOperator):
         return vand
 
 
-class ElementBoundaryIntegrationOperator(ElementwiseLinearOperator):
+class RefBoundaryIntegrationOperator(ElementwiseLinearOperator):
     """Integrates functions along the boundary of the reference
     element.
     """
