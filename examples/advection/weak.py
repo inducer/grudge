@@ -127,8 +127,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             [np.linspace(-d/2, d/2, npoints) for _ in range(dim)],
             order=order)
 
-    from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
+    from grudge import DiscretizationCollection
+    discr = DiscretizationCollection(actx, mesh, order=order)
 
     # }}}
 

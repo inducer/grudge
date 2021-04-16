@@ -144,8 +144,8 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     else:
         quad_tag_to_group_factory = {}
 
-    from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order,
+    from grudge import DiscretizationCollection
+    discr = DiscretizationCollection(actx, mesh, order=order,
             quad_tag_to_group_factory=quad_tag_to_group_factory)
 
     # }}}

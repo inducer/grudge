@@ -26,7 +26,7 @@ THE SOFTWARE.
 import numpy as np
 import pyopencl as cl
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 
 from meshmode.array_context import PyOpenCLArrayContext
 
@@ -43,7 +43,7 @@ def main(write_output=True, order=4):
             b=(0.5,)*dims,
             n=(20,)*dims)
 
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
+    discr = DiscretizationCollection(actx, mesh, order=order)
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05

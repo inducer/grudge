@@ -29,7 +29,7 @@ import pyopencl as cl
 from meshmode.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 
 from grudge.models.em import get_rectangular_cavity_mode
 
@@ -48,7 +48,7 @@ def main(dims, write_output=True, order=4):
             b=(1.0,)*dims,
             n=(5,)*dims)
 
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
+    discr = DiscretizationCollection(actx, mesh, order=order)
 
     if 0:
         epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)
