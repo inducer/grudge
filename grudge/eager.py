@@ -1,3 +1,6 @@
+"""
+.. autoclass:: EagerDGDiscretization
+"""
 __copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
 
 __license__ = """
@@ -26,9 +29,10 @@ from grudge.discretization import DiscretizationCollection
 
 class EagerDGDiscretization(DiscretizationCollection):
     """
-    Inherits from :class:`~grudge.discretization.DiscretizationCollection`.
-
-    .. automethod:: __init__
+    This class is deprecated and only part of the documentation in order to
+    avoid breaking depending documentation builds.
+    Use :class:`~grudge.discretization.DiscretizationCollection` instead in
+    new code.
     """
 
     def __init__(self, *args, **kwargs):
