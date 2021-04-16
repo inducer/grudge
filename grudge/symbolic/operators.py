@@ -673,6 +673,13 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
             # quadrature grid, use the underlying quadrature rule
             if isinstance(afgrp, QuadratureSimplexElementGroup):
                 face_quadrature = afgrp._quadrature_rule()
+                if face_quadrature.exact_to < m:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {m}."
+                    )
             else:
                 # NOTE: This handles the general case where
                 # volume and surface quadrature rules may have different
@@ -682,14 +689,22 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     face
                 )
 
-            assert face_quadrature.exact_to >= n + m
-
             # If the group has a nodal basis and is unisolvent,
             # we use the basis on the face to compute the face mass matrix
             if (isinstance(afgrp, ElementGroupWithBasis)
                     and afgrp.space.space_dim == afgrp.nunit_dofs):
 
                 face_basis = afgrp.basis_obj()
+
+                # Sanity check for face quadrature accuracy. Not integrating
+                # degree N + M polynomials here is asking for a bad time.
+                if face_quadrature.exact_to < m + n:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {n+m}."
+                    )
 
                 matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
                     face, face_quadrature,
