@@ -478,7 +478,7 @@ class VandermondeOperator(ElementwiseLinearOperator):
 # }}}
 
 
-# {{{ volume and surface quadrature interpolation
+# {{{ entropy stable base operators
 
 class VolumeQuadratureInterpolationOperator(ElementwiseLinearOperator):
     """Interpolates a function represented in a polynomial
@@ -498,10 +498,10 @@ class SurfaceQuadratureInterpolationOperator(ElementwiseLinearOperator):
     boundary of the reference element.
     """
 
-    def matrix(self, out_element_group, in_element_group):
-        basis = in_element_group.basis_obj()
-        surface_quad_nodes = out_element_group.unit_nodes
-        faces = mp.faces_for_shape(in_element_group.shape)
+    def matrix(self, vol_element_group, face_element_group):
+        basis = vol_element_group.basis_obj()
+        surface_quad_nodes = face_element_group.unit_nodes
+        faces = mp.faces_for_shape(face_element_group.shape)
 
         # Array containing all surface quadrature nodes
         # in volume coordinates
@@ -513,6 +513,30 @@ class SurfaceQuadratureInterpolationOperator(ElementwiseLinearOperator):
         from modepy import vandermonde
         vand = vandermonde(basis.functions, all_surface_nodes)
         return vand
+
+
+class ElementBoundaryIntegrationOperator(ElementwiseLinearOperator):
+    """Integrates functions along the boundary of the reference
+    element.
+    """
+
+    def matrix(self, face_element_group):
+        import modepy as mp
+
+        faces = mp.faces_for_shape(in_element_group.shape)
+        face_normals = [mp.face_normal(face) for face in faces]
+        # NOTE: assumes same quadrature rule on all faces
+        face_quad_weights = face_element_group.weights
+        nqf = len(face_quad_weights)
+        nfaces = len(faces)
+
+        # Return the diagonal vectors instead of a full diagonal matrices
+        # [Bx1, Bx2, etc]
+        return [
+            np.concatenate([wf*normals[i][dim]
+                            for i in range(nfaces)], axis=None)
+            for dim in range(face_element_group.dim)
+        ]
 
 # }}}
 
