@@ -32,18 +32,19 @@ from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.eager import EagerDGDiscretization, interior_trace_pair
+from grudge.discretization import DiscretizationCollection
+import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits
 
-def wave_flux(discr, c, w_tpair):
+def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, discr.normal(w_tpair.dd))
+    normal = thaw(u.int.array_context, op.normal(dcoll, w_tpair.dd))
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -56,28 +57,28 @@ def wave_flux(discr, c, w_tpair):
             0.5*normal*np.dot(normal, v.ext-v.int),
             )
 
-    return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
+    return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
-def wave_operator(discr, c, w):
+def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
 
-    dir_u = discr.project("vol", BTAG_ALL, u)
-    dir_v = discr.project("vol", BTAG_ALL, v)
+    dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
+    dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            discr.inverse_mass(
+            op.inverse_mass(dcoll,
                 flat_obj_array(
-                    -c*discr.weak_div(v),
-                    -c*discr.weak_grad(u)
+                    -c*op.weak_local_div(dcoll, v),
+                    -c*op.weak_local_grad(dcoll, u)
                     )
                 +  # noqa: W504
-                discr.face_mass(
-                    wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
-                    + wave_flux(discr, c=c, w_tpair=TracePair(
+                op.face_mass(dcoll,
+                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
+                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
                         BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     ))
                 )
@@ -93,15 +94,15 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(actx, discr, t=0):
-    source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
+def bump(actx, dcoll, t=0):
+    source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, discr.nodes())
+    nodes = thaw(actx, op.nodes(dcoll))
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
-        for i in range(discr.dim)
+        for i in range(dcoll.dim)
         ])
 
     return (
@@ -137,17 +138,17 @@ def main():
 
     print("%d elements" % mesh.nelements)
 
-    discr = EagerDGDiscretization(actx, mesh, order=order)
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     fields = flat_obj_array(
-            bump(actx, discr),
-            [discr.zeros(actx) for i in range(discr.dim)]
+            bump(actx, dcoll),
+            [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(discr, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll, order+3 if dim == 2 else order)
 
     def rhs(t, w):
-        return wave_operator(discr, c=1, w=w)
+        return wave_operator(dcoll, c=1, w=w)
 
     t = 0
     t_final = 3
@@ -156,8 +157,8 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
-                    f"sol max: {discr.nodal_max('vol', fields[0])}")
+            print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
+                    f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),

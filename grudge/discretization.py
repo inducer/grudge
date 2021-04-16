@@ -27,11 +27,11 @@ from meshmode.array_context import ArrayContext
 
 
 __doc__ = """
-.. autoclass:: DGDiscretizationWithBoundaries
+.. autoclass:: DiscretizationCollection
 """
 
 
-class DGDiscretizationWithBoundaries:
+class DiscretizationCollection:
     """
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
@@ -390,7 +390,7 @@ class DGDiscretizationWithBoundaries:
     @property
     def order(self):
         from warnings import warn
-        warn("DGDiscretizationWithBoundaries.order is deprecated, "
+        warn("DiscretizationCollection.order is deprecated, "
                 "consider using the orders of element groups instead. "
                 "'order' will go away in 2021.",
                 DeprecationWarning, stacklevel=2)
@@ -398,5 +398,12 @@ class DGDiscretizationWithBoundaries:
         from pytools import single_valued
         return single_valued(egrp.order for egrp in self._volume_discr.groups)
 
+
+class DGDiscretizationWithBoundaries(DiscretizationCollection):
+    def __init__(self, *args, **kwargs):
+        from warnings import warn
+        warn("DGDiscretizationWithBoundaries is deprecated and will go away "
+                "in 2022. Use DiscretizationCollection instead.",
+                DeprecationWarning, stacklevel=2)
 
 # vim: foldmethod=marker

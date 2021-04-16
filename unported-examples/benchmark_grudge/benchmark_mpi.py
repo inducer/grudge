@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pyopencl as cl
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from grudge.shortcuts import set_up_rk4
 
 
@@ -35,7 +35,7 @@ def simple_wave_entrypoint(dim=2, num_elems=256, order=4, num_steps=30,
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(cl_ctx, local_mesh, order=order,
+    vol_discr = DiscretizationCollection(cl_ctx, local_mesh, order=order,
                                                mpi_communicator=comm)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]

@@ -72,7 +72,7 @@ from pymbolic.mapper.evaluator import EvaluationMapper \
 from pytools import memoize
 from pytools.obj_array import flat_obj_array
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from leap.rk import LSRK4MethodBuilder
 
 from pyopencl.tools import (  # noqa
@@ -457,7 +457,7 @@ def get_wave_op_with_discr(actx, dims=2, order=4):
 
     logger.debug("%d elements", mesh.nelements)
 
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
+    discr = DiscretizationCollection(actx, mesh, order=order)
 
     from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -634,7 +634,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
     def map_insn_loopy_kernel(self, insn, profile_data):
         kdescr = insn.kernel_descriptor
-        discr = self.inner_mapper.discrwb.discr_from_dd(kdescr.governing_dd)
+        discr = self.inner_mapper.dcoll.discr_from_dd(kdescr.governing_dd)
 
         dof_array_kwargs = {}
         other_kwargs = {}
@@ -705,7 +705,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
             logger.debug("assignment not profiled: %s <- %s", name, expr)
             inner_mapper = self.inner_mapper
             value = inner_mapper.rec(expr)
-            inner_mapper.discrwb._discr_scoped_subexpr_name_to_value[name] = value
+            inner_mapper.dcoll._discr_scoped_subexpr_name_to_value[name] = value
             assignments.append((name, value))
 
         return assignments, []
@@ -714,7 +714,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
         return [(
             insn.name,
             self.inner_mapper.
-                discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
+                dcoll._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_rank_data_swap(self, insn, profile_data):
         raise NotImplementedError("no profiling for instruction: %s" % insn)

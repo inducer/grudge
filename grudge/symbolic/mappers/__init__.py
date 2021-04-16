@@ -582,14 +582,14 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
     reference elements, together with explicit multiplication by geometric factors.
     """
 
-    def __init__(self, discrwb):
+    def __init__(self, dcoll):
         CSECachingMapperMixin.__init__(self)
         IdentityMapper.__init__(self)
 
-        self.ambient_dim = discrwb.ambient_dim
-        self.dim = discrwb.dim
+        self.ambient_dim = dcoll.ambient_dim
+        self.dim = dcoll.dim
 
-        volume_discr = discrwb.discr_from_dd(sym.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(sym.DD_VOLUME)
         self.use_wadg = not all(grp.is_affine for grp in volume_discr.groups)
 
     map_common_subexpression_uncached = \
