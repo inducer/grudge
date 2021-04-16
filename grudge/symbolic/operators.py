@@ -538,6 +538,26 @@ class RefBoundaryIntegrationOperator(ElementwiseLinearOperator):
             for dim in range(face_element_group.dim)
         ]
 
+
+class QuadratureProjectionOperator(ElementwiseLinearOperator):
+    """Projects an arbitrary function evaluated at
+    volume quadrature points on the reference element to a
+    polynomial basis representation.
+    """
+
+    def matrix(self, basis_element_group, quad_element_group):
+        from modepy import vandermonde, inverse_mass_matrix
+        basis = basis_element_group.basis_obj()
+
+        # P_q = Minv * Vq.T * diag(vol_weights)
+        # Create volume interpolation matrix and multiply by weights
+        VqTWq = vandermonde(basis.functions, quad_element_group.unit_nodes).T
+        VqTWq *= quad_element_group.weights
+        # Get mass inverse operator using the element group with a basis
+        Minv = inverse_mass_matrix(basis.functions,
+                                   basis_element_group.unit_nodes)
+        return np.einsum('ij,jk->ik', Minv, VqTWq)
+
 # }}}
 
 
