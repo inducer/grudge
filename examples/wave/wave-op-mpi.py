@@ -32,7 +32,7 @@ from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.discretization import DGDiscretizationWithBoundaries
+from grudge.discretization import DiscretizationCollection
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
@@ -41,11 +41,11 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
-def wave_flux(discr, c, w_tpair):
+def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, op.normal(discr, w_tpair.dd))
+    normal = thaw(u.int.array_context, op.normal(dcoll, w_tpair.dd))
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -59,32 +59,32 @@ def wave_flux(discr, c, w_tpair):
             0.5*normal*v_jump,
             )
 
-    return op.project(discr, w_tpair.dd, "all_faces", c*flux_weak)
+    return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
-def wave_operator(discr, c, w):
+def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
 
-    dir_u = op.project(discr, "vol", BTAG_ALL, u)
-    dir_v = op.project(discr, "vol", BTAG_ALL, v)
+    dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
+    dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            op.inverse_mass(discr,
+            op.inverse_mass(dcoll,
                 flat_obj_array(
-                    -c*op.weak_local_div(discr, v),
-                    -c*op.weak_local_grad(discr, u)
+                    -c*op.weak_local_div(dcoll, v),
+                    -c*op.weak_local_grad(dcoll, u)
                     )
                 +  # noqa: W504
-                op.face_mass(discr,
-                    wave_flux(discr, c=c, w_tpair=op.interior_trace_pair(discr, w))
-                    + wave_flux(discr, c=c, w_tpair=TracePair(
+                op.face_mass(dcoll,
+                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
+                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
                         BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     + sum(
-                        wave_flux(discr, c=c, w_tpair=tpair)
-                        for tpair in op.cross_rank_trace_pairs(discr, w))
+                        wave_flux(dcoll, c=c, w_tpair=tpair)
+                        for tpair in op.cross_rank_trace_pairs(dcoll, w))
                     )
                 )
                 )
@@ -100,15 +100,15 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(actx, discr, t=0):
-    source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
+def bump(actx, dcoll, t=0):
+    source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, op.nodes(discr))
+    nodes = thaw(actx, op.nodes(dcoll))
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
-        for i in range(discr.dim)
+        for i in range(dcoll.dim)
         ])
 
     return (
@@ -152,7 +152,7 @@ def main():
 
     order = 3
 
-    discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
                     mpi_communicator=comm)
 
     if dim == 2:
@@ -165,14 +165,14 @@ def main():
         raise ValueError("don't have a stable time step guesstimate")
 
     fields = flat_obj_array(
-            bump(actx, discr),
-            [discr.zeros(actx) for i in range(discr.dim)]
+            bump(actx, dcoll),
+            [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(discr, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll, order+3 if dim == 2 else order)
 
     def rhs(t, w):
-        return wave_operator(discr, c=1, w=w)
+        return wave_operator(dcoll, c=1, w=w)
 
     t = 0
     t_final = 3
@@ -181,7 +181,7 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, op.norm(discr, fields[0], p=2))
+            print(istep, t, op.norm(dcoll, fields[0], p=2))
             vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",

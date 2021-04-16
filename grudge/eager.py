@@ -21,12 +21,12 @@ THE SOFTWARE.
 """
 
 import grudge.op as op
-from grudge.discretization import DGDiscretizationWithBoundaries
+from grudge.discretization import DiscretizationCollection
 
 
-class EagerDGDiscretization(DGDiscretizationWithBoundaries):
+class EagerDGDiscretization(DiscretizationCollection):
     """
-    Inherits from :class:`~grudge.discretization.DGDiscretizationWithBoundaries`.
+    Inherits from :class:`~grudge.discretization.DiscretizationCollection`.
 
     .. automethod:: __init__
     """
@@ -34,7 +34,7 @@ class EagerDGDiscretization(DGDiscretizationWithBoundaries):
     def __init__(self, *args, **kwargs):
         from warnings import warn
         warn("EagerDGDiscretization is deprecated and will go away in 2022. "
-                "Use the base DGDiscretizationWithBoundaries with grudge.op "
+                "Use the base DiscretizationCollection with grudge.op "
                 "instead.",
                 DeprecationWarning, stacklevel=2)
 

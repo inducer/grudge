@@ -61,15 +61,15 @@ from meshmode.dof_array import freeze, flatten, unflatten
 from grudge.symbolic.primitives import TracePair
 
 
-# def interp(discrwb, src, tgt, vec):
+# def interp(dcoll, src, tgt, vec):
 #     from warnings import warn
 #     warn("using 'interp' is deprecated, use 'project' instead.",
 #             DeprecationWarning, stacklevel=2)
 #
-#     return discrwb.project(src, tgt, vec)
+#     return dcoll.project(src, tgt, vec)
 
 
-def project(discrwb, src, tgt, vec):
+def project(dcoll, src, tgt, vec):
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
@@ -85,17 +85,17 @@ def project(discrwb, src, tgt, vec):
 
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: project(discrwb, src, tgt, el), vec)
+                lambda el: project(dcoll, src, tgt, el), vec)
 
     if isinstance(vec, Number):
         return vec
 
-    return discrwb.connection_from_dds(src, tgt)(vec)
+    return dcoll.connection_from_dds(src, tgt)(vec)
 
 
 # {{{ geometric properties
 
-def nodes(discrwb, dd=None):
+def nodes(dcoll, dd=None):
     r"""Return the nodes of a discretization.
 
     :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
@@ -103,22 +103,22 @@ def nodes(discrwb, dd=None):
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if dd is None:
-        return discrwb._volume_discr.nodes()
+        return dcoll._volume_discr.nodes()
     else:
-        return discrwb.discr_from_dd(dd).nodes()
+        return dcoll.discr_from_dd(dd).nodes()
 
 
 @memoize_on_first_arg
-def normal(discrwb, dd):
+def normal(dcoll, dd):
     """Get unit normal to specified surface discretization, *dd*.
 
     :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
     """
-    surface_discr = discrwb.discr_from_dd(dd)
+    surface_discr = dcoll.discr_from_dd(dd)
     actx = surface_discr._setup_actx
     return freeze(
-            bind(discrwb,
+            bind(dcoll,
                 sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim),
                 local_only=True)
             (array_context=actx))
@@ -129,27 +129,27 @@ def normal(discrwb, dd):
 # {{{ derivatives
 
 @memoize_on_first_arg
-def _bound_grad(discrwb):
-    return bind(discrwb, sym.nabla(discrwb.dim) * sym.Variable("u"), local_only=True)
+def _bound_grad(dcoll):
+    return bind(dcoll, sym.nabla(dcoll.dim) * sym.Variable("u"), local_only=True)
 
 
-def local_grad(discrwb, vec):
+def local_grad(dcoll, vec):
     r"""Return the element-local gradient of the volume function represented by
     *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
-    return _bound_grad(discrwb)(u=vec)
+    return _bound_grad(dcoll)(u=vec)
 
 
 @memoize_on_first_arg
-def _bound_d_dx(discrwb, xyz_axis):
-    return bind(discrwb, sym.nabla(discrwb.dim)[xyz_axis] * sym.Variable("u"),
+def _bound_d_dx(dcoll, xyz_axis):
+    return bind(dcoll, sym.nabla(dcoll.dim)[xyz_axis] * sym.Variable("u"),
             local_only=True)
 
 
-def local_d_dx(discrwb, xyz_axis, vec):
+def local_d_dx(dcoll, xyz_axis, vec):
     r"""Return the element-local derivative along axis *xyz_axis* of the volume
     function represented by *vec*.
 
@@ -158,15 +158,15 @@ def local_d_dx(discrwb, xyz_axis, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
     """
-    return _bound_d_dx(discrwb, xyz_axis)(u=vec)
+    return _bound_d_dx(dcoll, xyz_axis)(u=vec)
 
 
-def _div_helper(discrwb, diff_func, vecs):
+def _div_helper(dcoll, diff_func, vecs):
     if not isinstance(vecs, np.ndarray):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
 
-    if vecs.shape[-1] != discrwb.ambient_dim:
+    if vecs.shape[-1] != dcoll.ambient_dim:
         raise ValueError("last dimension of *vecs* argument must match "
                 "ambient dimension")
 
@@ -180,7 +180,7 @@ def _div_helper(discrwb, diff_func, vecs):
         return result
 
 
-def local_div(discrwb, vecs):
+def local_div(dcoll, vecs):
     r"""Return the element-local divergence of the vector volume function
     represented by *vecs*.
 
@@ -191,19 +191,19 @@ def local_div(discrwb, vecs):
     :returns: a :class:`~meshmode.dof_array.DOFArray`
     """
 
-    return _div_helper(discrwb,
-            lambda i, subvec: local_d_dx(discrwb, i, subvec),
+    return _div_helper(dcoll,
+            lambda i, subvec: local_d_dx(dcoll, i, subvec),
             vecs)
 
 
 @memoize_on_first_arg
-def _bound_weak_grad(discrwb, dd):
-    return bind(discrwb,
-            sym.stiffness_t(discrwb.dim, dd_in=dd) * sym.Variable("u", dd),
+def _bound_weak_grad(dcoll, dd):
+    return bind(dcoll,
+            sym.stiffness_t(dcoll.dim, dd_in=dd) * sym.Variable("u", dd),
             local_only=True)
 
 
-def weak_local_grad(discrwb, *args):
+def weak_local_grad(dcoll, *args):
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -222,18 +222,18 @@ def weak_local_grad(discrwb, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    return _bound_weak_grad(discrwb, dd)(u=vec)
+    return _bound_weak_grad(dcoll, dd)(u=vec)
 
 
 @memoize_on_first_arg
-def _bound_weak_d_dx(discrwb, dd, xyz_axis):
-    return bind(discrwb,
-            sym.stiffness_t(discrwb.dim, dd_in=dd)[xyz_axis]
+def _bound_weak_d_dx(dcoll, dd, xyz_axis):
+    return bind(dcoll,
+            sym.stiffness_t(dcoll.dim, dd_in=dd)[xyz_axis]
             * sym.Variable("u", dd),
             local_only=True)
 
 
-def weak_local_d_dx(discrwb, *args):
+def weak_local_d_dx(dcoll, *args):
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
@@ -252,10 +252,10 @@ def weak_local_d_dx(discrwb, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    return _bound_weak_d_dx(discrwb, dd, xyz_axis)(u=vec)
+    return _bound_weak_d_dx(dcoll, dd, xyz_axis)(u=vec)
 
 
-def weak_local_div(discrwb, *args):
+def weak_local_div(dcoll, *args):
     r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
@@ -277,8 +277,8 @@ def weak_local_div(discrwb, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    return _div_helper(discrwb,
-            lambda i, subvec: weak_local_d_dx(discrwb, dd, i, subvec),
+    return _div_helper(dcoll,
+            lambda i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
             vecs)
 
 # }}}
@@ -287,12 +287,12 @@ def weak_local_div(discrwb, *args):
 # {{{ mass-like
 
 @memoize_on_first_arg
-def _bound_mass(discrwb, dd):
-    return bind(discrwb, sym.MassOperator(dd_in=dd)(sym.Variable("u", dd)),
+def _bound_mass(dcoll, dd):
+    return bind(dcoll, sym.MassOperator(dd_in=dd)(sym.Variable("u", dd)),
             local_only=True)
 
 
-def mass(discrwb, *args):
+def mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
         dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -303,32 +303,32 @@ def mass(discrwb, *args):
 
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: mass(discrwb, dd, el), vec)
+                lambda el: mass(dcoll, dd, el), vec)
 
-    return _bound_mass(discrwb, dd)(u=vec)
+    return _bound_mass(dcoll, dd)(u=vec)
 
 
 @memoize_on_first_arg
-def _bound_inverse_mass(discrwb):
-    return bind(discrwb, sym.InverseMassOperator()(sym.Variable("u")),
+def _bound_inverse_mass(dcoll):
+    return bind(dcoll, sym.InverseMassOperator()(sym.Variable("u")),
             local_only=True)
 
 
-def inverse_mass(discrwb, vec):
+def inverse_mass(dcoll, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: inverse_mass(discrwb, el), vec)
+                lambda el: inverse_mass(dcoll, el), vec)
 
-    return _bound_inverse_mass(discrwb)(u=vec)
+    return _bound_inverse_mass(dcoll)(u=vec)
 
 
 @memoize_on_first_arg
-def _bound_face_mass(discrwb, dd):
+def _bound_face_mass(dcoll, dd):
     u = sym.Variable("u", dd=dd)
-    return bind(discrwb, sym.FaceMassOperator(dd_in=dd)(u), local_only=True)
+    return bind(dcoll, sym.FaceMassOperator(dd_in=dd)(u), local_only=True)
 
 
-def face_mass(discrwb, *args):
+def face_mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
         dd = sym.DOFDesc("all_faces", sym.QTAG_NONE)
@@ -339,9 +339,9 @@ def face_mass(discrwb, *args):
 
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: face_mass(discrwb, dd, el), vec)
+                lambda el: face_mass(dcoll, dd, el), vec)
 
-    return _bound_face_mass(discrwb, dd)(u=vec)
+    return _bound_face_mass(dcoll, dd)(u=vec)
 
 # }}}
 
@@ -349,13 +349,13 @@ def face_mass(discrwb, *args):
 # {{{ reductions
 
 @memoize_on_first_arg
-def _norm(discrwb, p, dd):
-    return bind(discrwb,
+def _norm(dcoll, p, dd):
+    return bind(dcoll,
             sym.norm(p, sym.var("arg", dd=dd), dd=dd),
             local_only=True)
 
 
-def norm(discrwb, vec, p, dd=None):
+def norm(dcoll, vec, p, dd=None):
     if dd is None:
         dd = "vol"
 
@@ -364,56 +364,56 @@ def norm(discrwb, vec, p, dd=None):
     if isinstance(vec, np.ndarray):
         if p == 2:
             return sum(
-                    norm(discrwb, vec[idx], dd=dd)**2
+                    norm(dcoll, vec[idx], dd=dd)**2
                     for idx in np.ndindex(vec.shape))**0.5
         elif p == np.inf:
             return max(
-                    norm(discrwb, vec[idx], np.inf, dd=dd)
+                    norm(dcoll, vec[idx], np.inf, dd=dd)
                     for idx in np.ndindex(vec.shape))
         else:
             raise ValueError("unsupported norm order")
 
-    return _norm(discrwb, p, dd)(arg=vec)
+    return _norm(dcoll, p, dd)(arg=vec)
 
 
 @memoize_on_first_arg
-def _nodal_reduction(discrwb, operator, dd):
-    return bind(discrwb, operator(dd)(sym.var("arg")), local_only=True)
+def _nodal_reduction(dcoll, operator, dd):
+    return bind(dcoll, operator(dd)(sym.var("arg")), local_only=True)
 
 
-def nodal_sum(discrwb, dd, vec):
-    return _nodal_reduction(discrwb, sym.NodalSum, dd)(arg=vec)
+def nodal_sum(dcoll, dd, vec):
+    return _nodal_reduction(dcoll, sym.NodalSum, dd)(arg=vec)
 
 
-def nodal_min(discrwb, dd, vec):
-    return _nodal_reduction(discrwb, sym.NodalMin, dd)(arg=vec)
+def nodal_min(dcoll, dd, vec):
+    return _nodal_reduction(dcoll, sym.NodalMin, dd)(arg=vec)
 
 
-def nodal_max(discrwb, dd, vec):
-    return _nodal_reduction(discrwb, sym.NodalMax, dd)(arg=vec)
+def nodal_max(dcoll, dd, vec):
+    return _nodal_reduction(dcoll, sym.NodalMax, dd)(arg=vec)
 
 # }}}
 
 
 @memoize_on_first_arg
-def connected_ranks(discrwb):
+def connected_ranks(dcoll):
     from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(discrwb._volume_discr.mesh)
+    return get_connected_partitions(dcoll._volume_discr.mesh)
 
 
 # {{{ interior_trace_pair
 
-def interior_trace_pair(discrwb, vec):
+def interior_trace_pair(dcoll, vec):
     """Return a :class:`grudge.sym.TracePair` for the interior faces of
-    *discrwb*.
+    *dcoll*.
     """
-    i = project(discrwb, "vol", "int_faces", vec)
+    i = project(dcoll, "vol", "int_faces", vec)
 
     def get_opposite_face(el):
         if isinstance(el, Number):
             return el
         else:
-            return discrwb.opposite_face_connection()(el)
+            return dcoll.opposite_face_connection()(el)
 
     e = obj_array_vectorize(get_opposite_face, i)
 
@@ -427,21 +427,21 @@ def interior_trace_pair(discrwb, vec):
 class _RankBoundaryCommunication:
     base_tag = 1273
 
-    def __init__(self, discrwb, remote_rank, vol_field, tag=None):
+    def __init__(self, dcoll, remote_rank, vol_field, tag=None):
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
 
-        self.discrwb = discrwb
+        self.dcoll = dcoll
         self.array_context = vol_field.array_context
         self.remote_btag = BTAG_PARTITION(remote_rank)
 
-        self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
-        self.local_dof_array = project(discrwb, "vol", self.remote_btag, vol_field)
+        self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
+        self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
 
         local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
 
-        comm = self.discrwb.mpi_communicator
+        comm = self.dcoll.mpi_communicator
 
         self.send_req = comm.Isend(
                 local_data, remote_rank, tag=self.tag)
@@ -456,7 +456,7 @@ class _RankBoundaryCommunication:
         remote_dof_array = unflatten(self.array_context, self.bdry_discr,
                 actx.from_numpy(self.remote_data_host))
 
-        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(
+        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(
                 sym.as_dofdesc(sym.DTAG_BOUNDARY(self.remote_btag)))
         swapped_remote_dof_array = bdry_conn(remote_dof_array)
 
@@ -467,24 +467,24 @@ class _RankBoundaryCommunication:
                 exterior=swapped_remote_dof_array)
 
 
-def _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=None):
+def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
     if isinstance(vec, Number):
         return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
-                for remote_rank in connected_ranks(discrwb)]
+                for remote_rank in connected_ranks(dcoll)]
     else:
-        rbcomms = [_RankBoundaryCommunication(discrwb, remote_rank, vec, tag=tag)
-                for remote_rank in connected_ranks(discrwb)]
+        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, vec, tag=tag)
+                for remote_rank in connected_ranks(dcoll)]
         return [rbcomm.finish() for rbcomm in rbcomms]
 
 
-def cross_rank_trace_pairs(discrwb, vec, tag=None):
+def cross_rank_trace_pairs(dcoll, vec, tag=None):
     if isinstance(vec, np.ndarray):
 
         n, = vec.shape
         result = {}
         for ivec in range(n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    discrwb, vec[ivec]):
+                    dcoll, vec[ivec]):
                 assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
@@ -497,9 +497,9 @@ def cross_rank_trace_pairs(discrwb, vec, tag=None):
                 exterior=make_obj_array([
                     result[remote_rank, i].ext for i in range(n)])
                 )
-            for remote_rank in connected_ranks(discrwb)]
+            for remote_rank in connected_ranks(dcoll)]
     else:
-        return _cross_rank_trace_pairs_scalar_field(discrwb, vec, tag=tag)
+        return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
 
 # }}}
 

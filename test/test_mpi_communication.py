@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from grudge.shortcuts import set_up_rk4
 
 
@@ -64,7 +64,7 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=5,
+    vol_discr = DiscretizationCollection(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
     sym_x = sym.nodes(local_mesh.dim)
@@ -126,7 +126,7 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
+    vol_discr = DiscretizationCollection(actx, local_mesh, order=order,
                                                mpi_communicator=comm)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
