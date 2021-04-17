@@ -492,8 +492,8 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
     Each of the TracePair components are structured like *vec*.
 
     The input field data *vec* may be an array up to shape like (n, m).
-    *vec* may be a scalar(single) DOFArray (i.e. (n,m)=(1,1)), or an
-    $n \times m$ object array of DOFArrays.
+    *vec* may be a scalar(single) DOFArray, an n-vector of DOFArrays,
+    or an $n \times m$ object array of DOFArrays.
 
     Each of n*m components are independently communicated by calling
     this routine. Upon entry, *vec* is serialized (if needed), each
