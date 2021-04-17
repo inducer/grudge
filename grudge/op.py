@@ -477,8 +477,8 @@ def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
         return [rbcomm.finish() for rbcomm in rbcomms]
 
 
-def cross_rank_trace_pairs(dcoll, vec, tag=None):
-    """Get a list of *vec* trace pairs for each partition boundary.
+def cross_rank_trace_pairs(dcoll, ary, tag=None):
+    r"""Get a list of *vec* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *vec* are
     communicated to/from the neighboring partition. Presumably, this
@@ -487,17 +487,13 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
     _cross_rank_trace_pairs_scalar_field).
 
     For each face on each partition boundary, a :class:`TracePair` is
-    created with the locally, and remote owned partition boundary face
+    created with the locally, and remotely owned partition boundary face
     data as the `internal`, and `external` components, respectively.
     Each of the TracePair components are structured like *vec*.
 
-    The input field data *vec* may be a single DOFArray, or an object
-    array of DOFArrays. Each of *vec* components are independently
-    communicated by calling this routine. Upon entry, *vec* is
-    serialized (if needed), each component is communicated, then
-    (if needed) the components are de-serialized back to the original
-    structure of *vec*, before returned as TracePairs for each partition
-    boundary.
+    The input field data *vec* may be a single
+    :class:`~meshmode.dof_array.DOFArray`, or an object
+    array of ``DOFArray``\ s of arbitrary shape.
     """
     if isinstance(vec, np.ndarray):
         oshape = vec.shape
@@ -505,6 +501,8 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
 
         n, = comm_vec.shape
         result = {}
+        # FIXME: Batch this communication rather than
+        # doing it in sequence.
         for ivec in range(n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
                     dcoll, comm_vec[ivec]):
