@@ -481,13 +481,13 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
     """Get a list of *vec* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *vec* are
-    communicated to/from the neighboring partition. Presumably, this 
+    communicated to/from the neighboring partition. Presumably, this
     communication is MPI (but strictly speaking, may not be, and this
     routine is agnostic to the underlying communication, see e.g.
     _cross_rank_trace_pairs_scalar_field).
 
     For each face on each partition boundary, a :class:`TracePair` is
-    created with the locally, and remote owned partition boundary face 
+    created with the locally, and remote owned partition boundary face
     data as the `internal`, and `external` components, respectively.
     Each of the TracePair components are structured like *vec*.
 
