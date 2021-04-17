@@ -519,30 +519,27 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
 
-        int_result = {}
-        ext_result = {}
         pb_tpairs = []
         for remote_rank in connected_ranks(dcoll):
+            int_result = {}
+            ext_result = {}
             for ivec in range(vec_n):
                 if vec.ndim == 2:
-                    int_result[remote_rank, ivec] = (
+                    int_result[ivec] = (
                         make_obj_array([result[remote_rank, ivec*vec_m+i].int
                                         for i in range(vec_m)])
                     )
-                    ext_result[remote_rank, ivec] = (
+                    ext_result[ivec] = (
                         make_obj_array([result[remote_rank, ivec*vec_m+i].ext
                                         for i in range(vec_m)])
                     )
                 else:
-                    int_result[remote_rank, ivec] = result[remote_rank, ivec].int
-                    ext_result[remote_rank, ivec] = result[remote_rank, ivec].ext
-            interior = make_obj_array([int_result[remote_rank, i]
-                                       for i in range(vec_n)])
-            exterior = make_obj_array([ext_result[remote_rank, i]
-                                       for i in range(vec_n)])
+                    int_result[ivec] = result[remote_rank, ivec].int
+                    ext_result[ivec] = result[remote_rank, ivec].ext
             pb_tpairs.append(TracePair(
                 dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-                interior=interior, exterior=exterior))
+                interior=make_obj_array([int_result[i] for i in range(vec_n)]),
+                exterior=make_obj_array([ext_result[i] for i in range(vec_n)])))
         return pb_tpairs
     else:
         return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
