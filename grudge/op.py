@@ -478,9 +478,9 @@ def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
 
 
 def cross_rank_trace_pairs(dcoll, ary, tag=None):
-    r"""Get a list of *vec* trace pairs for each partition boundary.
+    r"""Get a list of *ary* trace pairs for each partition boundary.
 
-    For each partition boundary, the field data values in *vec* are
+    For each partition boundary, the field data values in *ary* are
     communicated to/from the neighboring partition. Presumably, this
     communication is MPI (but strictly speaking, may not be, and this
     routine is agnostic to the underlying communication, see e.g.
@@ -489,15 +489,15 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
     For each face on each partition boundary, a :class:`TracePair` is
     created with the locally, and remotely owned partition boundary face
     data as the `internal`, and `external` components, respectively.
-    Each of the TracePair components are structured like *vec*.
+    Each of the TracePair components are structured like *ary*.
 
-    The input field data *vec* may be a single
+    The input field data *ary* may be a single
     :class:`~meshmode.dof_array.DOFArray`, or an object
     array of ``DOFArray``\ s of arbitrary shape.
     """
-    if isinstance(vec, np.ndarray):
-        oshape = vec.shape
-        comm_vec = vec.flatten()
+    if isinstance(ary, np.ndarray):
+        oshape = ary.shape
+        comm_vec = ary.flatten()
 
         n, = comm_vec.shape
         result = {}
@@ -520,7 +520,7 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
                 )
             for remote_rank in connected_ranks(dcoll)]
     else:
-        return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
+        return _cross_rank_trace_pairs_scalar_field(dcoll, ary, tag=tag)
 
 # }}}
 
