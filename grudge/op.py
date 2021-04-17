@@ -500,25 +500,27 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
     boundary.
     """
     if isinstance(vec, np.ndarray):
-        orig_shape = vec.shape
+        oshape = vec.shape
         comm_vec = vec.flatten()
 
-        comm_n, = comm_vec.shape
+        n, = comm_vec.shape
         result = {}
-        for ivec in range(comm_n):
+        for ivec in range(n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
                     dcoll, comm_vec[ivec]):
                 assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
 
-        return [TracePair(
-            dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-            interior=make_obj_array([result[remote_rank, i].int
-                                     for i in range(comm_n)]).reshape(orig_shape),
-            exterior=make_obj_array([result[remote_rank, i].ext
-                                     for i in range(comm_n)]).reshape(orig_shape))
-                for remote_rank in connected_ranks(dcoll)]
+        return [
+            TracePair(
+                dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
+                interior=make_obj_array([
+                    result[remote_rank, i].int for i in range(n)]).reshape(oshape),
+                exterior=make_obj_array([
+                    result[remote_rank, i].ext for i in range(n)]).reshape(oshape)
+                )
+            for remote_rank in connected_ranks(dcoll)]
     else:
         return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
 
