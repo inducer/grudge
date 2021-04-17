@@ -478,26 +478,72 @@ def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
 
 
 def cross_rank_trace_pairs(dcoll, vec, tag=None):
-    if isinstance(vec, np.ndarray):
+    """Get a list of *vec* trace pairs for each partition boundary.
 
-        n, = vec.shape
+    For each partition boundary, the field data values in *vec* are
+    communicated to/from the neighboring partition. Presumably, this 
+    communication is MPI (but strictly speaking, may not be, and this
+    routine is agnostic to the underlying communication, see e.g.
+    _cross_rank_trace_pairs_scalar_field).
+
+    For each face on each partition boundary, a :class:`TracePair` is
+    created with the locally, and remote owned partition boundary face 
+    data as the `internal`, and `external` components, respectively.
+    Each of the TracePair components are structured like *vec*.
+
+    The input field data *vec* may be an array up to shape like (n, m).
+    *vec* may be a scalar(single) DOFArray (i.e. (n,m)=(1,1)), or an
+    $n \times m$ object array of DOFArrays.
+
+    Each of n*m components are independently communicated by calling
+    this routine. Upon entry, *vec* is serialized (if needed), each
+    component is communicated, then (if needed) the components are
+    de-serialized back to the structure of *vec*, before returned as
+    TracePairs for each partition boundary.
+    """
+    if isinstance(vec, np.ndarray):
+        if vec.ndim == 2:
+            vec_n, vec_m = vec.shape
+            comm_vec = vec.reshape((vec_n*vec_m,))
+        else:
+            comm_vec = vec
+            vec_m = 0
+            vec_n, = comm_vec.shape
+
+        comm_n, = comm_vec.shape
         result = {}
-        for ivec in range(n):
+        for ivec in range(comm_n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, vec[ivec]):
+                    dcoll, comm_vec[ivec]):
                 assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
 
-        return [
-            TracePair(
+        int_result = {}
+        ext_result = {}
+        pb_tpairs = []
+        for remote_rank in connected_ranks(dcoll):
+            for ivec in range(vec_n):
+                if vec.ndim == 2:
+                    int_result[remote_rank, ivec] = (
+                        make_obj_array([result[remote_rank, ivec*vec_m+i].int
+                                        for i in range(vec_m)])
+                    )
+                    ext_result[remote_rank, ivec] = (
+                        make_obj_array([result[remote_rank, ivec*vec_m+i].ext
+                                        for i in range(vec_m)])
+                    )
+                else:
+                    int_result[remote_rank, ivec] = result[remote_rank, ivec].int
+                    ext_result[remote_rank, ivec] = result[remote_rank, ivec].ext
+            interior = make_obj_array([int_result[remote_rank, i]
+                                       for i in range(vec_n)])
+            exterior = make_obj_array([ext_result[remote_rank, i]
+                                       for i in range(vec_n)])
+            pb_tpairs.append(TracePair(
                 dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-                interior=make_obj_array([
-                    result[remote_rank, i].int for i in range(n)]),
-                exterior=make_obj_array([
-                    result[remote_rank, i].ext for i in range(n)])
-                )
-            for remote_rank in connected_ranks(dcoll)]
+                interior=interior, exterior=exterior))
+        return pb_tpairs
     else:
         return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
 
