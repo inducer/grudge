@@ -375,7 +375,7 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
             # NOTE: special case for 1d
             grad_vand = (grad_vand,)
 
-        weights = in_elem_grp.weights
+        weights = in_elem_grp.quadrature_rule().weights
         return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
@@ -523,7 +523,7 @@ class RefMassOperator(RefMassOperatorBase):
         o_vand = vandermonde(basis.functions, in_element_group.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
-        weights = in_element_group.weights
+        weights = in_element_group.quadrature_rule().weights
         return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
     mapper_method = intern("map_ref_mass")
@@ -672,7 +672,7 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
             # If the face group is defined on a higher-order
             # quadrature grid, use the underlying quadrature rule
             if isinstance(afgrp, QuadratureSimplexElementGroup):
-                face_quadrature = afgrp._quadrature_rule()
+                face_quadrature = afgrp.quadrature_rule()
                 if face_quadrature.exact_to < m:
                     raise ValueError(
                         "The face quadrature rule is only exact for polynomials "
