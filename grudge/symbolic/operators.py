@@ -379,6 +379,28 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
         return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
+class RefIntegratedQuadDiffOperator(RefDiffOperatorBase):
+    mapper_method = intern("map_ref_diff")
+
+    @staticmethod
+    def matrices(out_element_group, in_element_group):
+
+        from modepy import vandermonde, inverse_mass_matrix
+        from meshmode.discretization.poly_element import diff_matrices
+
+        basis = in_element_group.basis_obj()
+
+        # Create volume interpolation matrix and weights vector
+        Vq = vandermonde(basis.functions, out_element_group.unit_nodes)
+        Wq = out_element_group.weights
+        # Get mass inverse operator using the element group with a basis
+        Minv = inverse_mass_matrix(basis.functions,
+                                   basis_element_group.unit_nodes)
+
+        # Qi = W_q * V_q * D_i * Minv * V_q.T * W_q
+        return [Wq*Vq.dot(Di.dot(Minv.dot(Vq.T*Wq)))
+                for Di in diff_matrices(in_element_group)]
+
 # }}}
 
 # }}}
