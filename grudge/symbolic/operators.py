@@ -349,7 +349,8 @@ class RefDiffOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_element_group, in_element_group):
         assert in_element_group == out_element_group
-        return in_element_group.diff_matrices()
+        from meshmode.discretization.poly_element import diff_matrices
+        return diff_matrices(in_element_group)
 
 
 class RefStiffnessTOperator(RefDiffOperatorBase):
@@ -358,20 +359,23 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_elem_grp, in_elem_grp):
         if in_elem_grp == out_elem_grp:
-            assert in_elem_grp.is_orthogonal_basis()
-            mmat = in_elem_grp.mass_matrix()
-            return [dmat.T.dot(mmat.T) for dmat in in_elem_grp.diff_matrices()]
+            assert in_elem_grp.is_orthonormal_basis()
+            from meshmode.discretization.poly_element import (mass_matrix,
+                                                              diff_matrices)
+            mmat = mass_matrix(in_elem_grp)
+            return [dmat.T.dot(mmat.T) for dmat in diff_matrices(in_elem_grp)]
 
         from modepy import vandermonde
-        vand = vandermonde(out_elem_grp.basis(), out_elem_grp.unit_nodes)
-        grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
+        basis = out_elem_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_elem_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, in_elem_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
             # NOTE: special case for 1d
             grad_vand = (grad_vand,)
 
-        weights = in_elem_grp.weights
+        weights = in_elem_grp.quadrature_rule().weights
         return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
@@ -510,14 +514,16 @@ class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(out_element_group, in_element_group):
         if out_element_group == in_element_group:
-            return in_element_group.mass_matrix()
+            from meshmode.discretization.poly_element import mass_matrix
+            return mass_matrix(in_element_group)
 
         from modepy import vandermonde
-        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
-        o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
+        basis = out_element_group.basis_obj()
+        vand = vandermonde(basis.functions, out_element_group.unit_nodes)
+        o_vand = vandermonde(basis.functions, in_element_group.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
-        weights = in_element_group.weights
+        weights = in_element_group.quadrature_rule().weights
         return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
     mapper_method = intern("map_ref_mass")
@@ -528,8 +534,9 @@ class RefInverseMassOperator(RefMassOperatorBase):
     def matrix(in_element_group, out_element_group):
         assert in_element_group == out_element_group
         import modepy as mp
+        basis = in_element_group.basis_obj()
         return mp.inverse_mass_matrix(
-                in_element_group.basis(),
+                basis.functions,
                 in_element_group.unit_nodes)
 
     mapper_method = intern("map_ref_inverse_mass")
@@ -651,20 +658,68 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     afgrp.nunit_dofs),
                 dtype=dtype)
 
-        from modepy.tools import UNIT_VERTICES
         import modepy as mp
-        for iface, fvi in enumerate(
-                volgrp.mesh_el_group.face_vertex_indices()):
-            face_vertices = UNIT_VERTICES[volgrp.dim][np.array(fvi)].T
-            matrix[:, iface, :] = mp.nodal_face_mass_matrix(
-                    volgrp.basis(), volgrp.unit_nodes, afgrp.unit_nodes,
-                    volgrp.order,
-                    face_vertices)
+        from meshmode.discretization import ElementGroupWithBasis
+        from meshmode.discretization.poly_element import \
+            QuadratureSimplexElementGroup
 
-        # np.set_printoptions(linewidth=200, precision=3)
-        # matrix[np.abs(matrix) < 1e-13] = 0
-        # print(matrix)
-        # 1/0
+        n = volgrp.order
+        m = afgrp.order
+        vol_basis = volgrp.basis_obj()
+        faces = mp.faces_for_shape(volgrp.shape)
+
+        for iface, face in enumerate(faces):
+            # If the face group is defined on a higher-order
+            # quadrature grid, use the underlying quadrature rule
+            if isinstance(afgrp, QuadratureSimplexElementGroup):
+                face_quadrature = afgrp.quadrature_rule()
+                if face_quadrature.exact_to < m:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {m}."
+                    )
+            else:
+                # NOTE: This handles the general case where
+                # volume and surface quadrature rules may have different
+                # integration orders
+                face_quadrature = mp.quadrature_for_space(
+                    mp.space_for_shape(face, 2*max(n, m)),
+                    face
+                )
+
+            # If the group has a nodal basis and is unisolvent,
+            # we use the basis on the face to compute the face mass matrix
+            if (isinstance(afgrp, ElementGroupWithBasis)
+                    and afgrp.space.space_dim == afgrp.nunit_dofs):
+
+                face_basis = afgrp.basis_obj()
+
+                # Sanity check for face quadrature accuracy. Not integrating
+                # degree N + M polynomials here is asking for a bad time.
+                if face_quadrature.exact_to < m + n:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {n+m}."
+                    )
+
+                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                    face, face_quadrature,
+                    face_basis.functions, vol_basis.functions,
+                    volgrp.unit_nodes, afgrp.unit_nodes,
+                )
+            else:
+                # Otherwise, we use a routine that is purely quadrature-based
+                # (no need for explicit face basis functions)
+                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
+                    face,
+                    face_quadrature,
+                    vol_basis.functions,
+                    volgrp.unit_nodes,
+                )
 
         return matrix
 

@@ -477,14 +477,35 @@ def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
         return [rbcomm.finish() for rbcomm in rbcomms]
 
 
-def cross_rank_trace_pairs(dcoll, vec, tag=None):
-    if isinstance(vec, np.ndarray):
+def cross_rank_trace_pairs(dcoll, ary, tag=None):
+    r"""Get a list of *ary* trace pairs for each partition boundary.
 
-        n, = vec.shape
+    For each partition boundary, the field data values in *ary* are
+    communicated to/from the neighboring partition. Presumably, this
+    communication is MPI (but strictly speaking, may not be, and this
+    routine is agnostic to the underlying communication, see e.g.
+    _cross_rank_trace_pairs_scalar_field).
+
+    For each face on each partition boundary, a :class:`TracePair` is
+    created with the locally, and remotely owned partition boundary face
+    data as the `internal`, and `external` components, respectively.
+    Each of the TracePair components are structured like *ary*.
+
+    The input field data *ary* may be a single
+    :class:`~meshmode.dof_array.DOFArray`, or an object
+    array of ``DOFArray``\ s of arbitrary shape.
+    """
+    if isinstance(ary, np.ndarray):
+        oshape = ary.shape
+        comm_vec = ary.flatten()
+
+        n, = comm_vec.shape
         result = {}
+        # FIXME: Batch this communication rather than
+        # doing it in sequence.
         for ivec in range(n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, vec[ivec]):
+                    dcoll, comm_vec[ivec]):
                 assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
@@ -493,13 +514,13 @@ def cross_rank_trace_pairs(dcoll, vec, tag=None):
             TracePair(
                 dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
                 interior=make_obj_array([
-                    result[remote_rank, i].int for i in range(n)]),
+                    result[remote_rank, i].int for i in range(n)]).reshape(oshape),
                 exterior=make_obj_array([
-                    result[remote_rank, i].ext for i in range(n)])
+                    result[remote_rank, i].ext for i in range(n)]).reshape(oshape)
                 )
             for remote_rank in connected_ranks(dcoll)]
     else:
-        return _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=tag)
+        return _cross_rank_trace_pairs_scalar_field(dcoll, ary, tag=tag)
 
 # }}}
 
