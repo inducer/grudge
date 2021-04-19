@@ -911,7 +911,7 @@ class TracePair:
         return 0.5*(self.int + self.ext)
 
     @property
-    def jump(self):
+    def diff(self):
         return self.ext - self.int
 
 
