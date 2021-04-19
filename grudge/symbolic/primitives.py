@@ -910,6 +910,10 @@ class TracePair:
     def avg(self):
         return 0.5*(self.int + self.ext)
 
+    @property
+    def jump(self):
+        return self.ext - self.int
+
 
 def int_tpair(expression, qtag=None, from_dd=None):
     from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
