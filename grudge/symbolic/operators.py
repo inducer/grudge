@@ -395,7 +395,7 @@ class RefIntegratedQuadDiffOperator(RefDiffOperatorBase):
         Wq = out_element_group.weights
         # Get mass inverse operator using the element group with a basis
         Minv = inverse_mass_matrix(basis.functions,
-                                   basis_element_group.unit_nodes)
+                                   in_element_group.unit_nodes)
 
         # Qi = W_q * V_q * D_i * Minv * V_q.T * W_q
         return [Wq*Vq.dot(Di.dot(Minv.dot(Vq.T*Wq)))
@@ -521,6 +521,7 @@ class SurfaceQuadratureInterpolationOperator(ElementwiseLinearOperator):
     """
 
     def matrix(self, vol_element_group, face_element_group):
+        import modepy as mp
         basis = vol_element_group.basis_obj()
         surface_quad_nodes = face_element_group.unit_nodes
         faces = mp.faces_for_shape(face_element_group.shape)
@@ -545,7 +546,7 @@ class RefBoundaryIntegrationOperator(ElementwiseLinearOperator):
     def matrix(self, face_element_group):
         import modepy as mp
 
-        faces = mp.faces_for_shape(in_element_group.shape)
+        faces = mp.faces_for_shape(face_element_group.shape)
         face_normals = [mp.face_normal(face) for face in faces]
         # NOTE: assumes same quadrature rule on all faces
         face_quad_weights = face_element_group.weights
@@ -555,7 +556,7 @@ class RefBoundaryIntegrationOperator(ElementwiseLinearOperator):
         # Return the diagonal vectors instead of a full diagonal matrices
         # [Bx1, Bx2, etc]
         return [
-            np.concatenate([wf*normals[i][dim]
+            np.concatenate([face_quad_weights*face_normals[i][dim]
                             for i in range(nfaces)], axis=None)
             for dim in range(face_element_group.dim)
         ]
