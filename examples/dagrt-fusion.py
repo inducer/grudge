@@ -1294,8 +1294,7 @@ def main():
     else:
         if not SKIP_TESTS:
             # Run tests.
-            from py.test import main
-            result = main([__file__])
+            result = pytest.main([__file__])
             assert result == 0
 
         # Run examples.

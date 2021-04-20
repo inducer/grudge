@@ -110,7 +110,7 @@ class DiscretizationCollection:
             return True
         else:
             return self.mpi_communicator.Get_rank() \
-                    == self._get_management_rank_index()
+                    == self.get_management_rank_index()
 
     def _set_up_distributed_communication(self, mpi_communicator, array_context):
         from_dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -383,9 +383,7 @@ class DiscretizationCollection:
 
     def is_volume_where(self, where):
         from grudge import sym
-        return (
-                where is None
-                or where == sym.VTAG_ALL)
+        return where is None or sym.as_dofdesc(where).is_volume()
 
     @property
     def order(self):

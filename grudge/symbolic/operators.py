@@ -424,12 +424,11 @@ class FilterOperator(ElementwiseLinearOperator):
             for mid in ldis.generate_mode_identifiers()]
 
         # build filter matrix
+        import numpy.linalg as la
         vdm = ldis.vandermonde()
-        from grudge.tools import leftsolve
         mat = np.asarray(
-            leftsolve(vdm,
-                np.dot(vdm, np.diag(filter_coeffs))),
-            order="C")
+                la.solve(vdm.T, np.diag(filter_coeffs) @ vdm.T).T,
+                order="C")
 
         return mat
 
@@ -448,7 +447,7 @@ class AveragingOperator(ElementwiseLinearOperator):
         if dd_in != dd_out:
             raise ValueError("dd_in and dd_out must be identical")
 
-        super(FilterOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
     def matrix(self, eg):
         # average matrix, so that AVE*fields = cellaverage(fields)

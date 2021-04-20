@@ -23,6 +23,29 @@ jobs:
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-flake8.sh
                 . ./prepare-and-run-flake8.sh "$(basename $GITHUB_REPOSITORY)" examples test
 
+    pylint:
+        name: Pylint
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v2
+        -   name: "Main Script"
+            run: |
+                sudo apt update
+                sudo apt install openmpi-bin libopenmpi-dev
+
+                CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+                echo "- mpi4py" >> $CONDA_ENVIRONMENT
+                echo "- scipy" >> $CONDA_ENVIRONMENT
+                echo "-------------------------------------------"
+                cat $CONDA_ENVIRONMENT
+                echo "-------------------------------------------"
+                USE_CONDA_BUILD=1
+
+                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
+
+                . ./prepare-and-run-pylint.sh "$(basename $GITHUB_REPOSITORY)" test/*.py \
+                    $(find examples -name '*.py')
+
     pytest3:
         name: Pytest on Py3
         runs-on: ubuntu-latest

@@ -364,7 +364,7 @@ def norm(dcoll, vec, p, dd=None):
     if isinstance(vec, np.ndarray):
         if p == 2:
             return sum(
-                    norm(dcoll, vec[idx], dd=dd)**2
+                    norm(dcoll, vec[idx], p, dd=dd)**2
                     for idx in np.ndindex(vec.shape))**0.5
         elif p == np.inf:
             return max(
