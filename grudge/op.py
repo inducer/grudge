@@ -137,7 +137,9 @@ def _bound_volume_quad_interp(dcoll, dd_vol, dd_quad):
     )
 
 
-def volume_quadrature_interpolation(dcoll, vec, dd_vol, dd_quad=None):
+def volume_quadrature_interpolation(dcoll, vec, dd_quad=None):
+
+    dd_vol = sym.DOFDesc("vol", sym.QTAG_NONE)
 
     if dd_quad is None or dd_quad == dd_vol:
         # No quadrature grid, no need to interpolate
@@ -147,7 +149,8 @@ def volume_quadrature_interpolation(dcoll, vec, dd_vol, dd_quad=None):
 
 
 @memoize_on_first_arg
-def _bound_surface_quad_interp(dcoll, dd_vol, dd_face_quad):
+def _bound_surface_quad_interp(dcoll, dd_face_quad):
+    dd_vol = sym.DOFDesc("vol", sym.QTAG_NONE)
     return bind(
         dcoll, sym.SurfaceQuadratureInterpolationOperator(
             dd_in=dd_vol, dd_out=dd_face_quad) * sym.Variable("u"),
@@ -155,13 +158,13 @@ def _bound_surface_quad_interp(dcoll, dd_vol, dd_face_quad):
     )
 
 
-def surface_quadrature_interpolation(dcoll, vec, dd_vol, dd_face_quad=None):
+def surface_quadrature_interpolation(dcoll, vec, dd_face_quad=None):
 
     if dd_face_quad is None:
         # If no face quadrature grid, just restrict to faces
         dd_face_quad = sym.DOFDesc("all_faces", sym.QTAG_NONE)
 
-    return _bound_surface_quad_interp(dcoll, dd_vol, dd_face_quad)(u=vec)
+    return _bound_surface_quad_interp(dcoll, dd_face_quad)(u=vec)
 
 
 @memoize_on_first_arg
@@ -173,7 +176,9 @@ def _bound_quad_l2_proj(dcoll, dd_vol, dd_quad):
     )
 
 
-def quadrature_l2_projection(dcoll, vec, dd_vol, dd_quad=None):
+def quadrature_l2_projection(dcoll, vec, dd_quad=None):
+
+    dd_vol = sym.DOFDesc("vol", sym.QTAG_NONE)
 
     if dd_quad is None or dd_vol == dd_quad:
         # Just apply mass inverse
