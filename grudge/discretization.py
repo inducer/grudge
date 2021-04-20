@@ -406,4 +406,6 @@ class DGDiscretizationWithBoundaries(DiscretizationCollection):
                 "in 2022. Use DiscretizationCollection instead.",
                 DeprecationWarning, stacklevel=2)
 
+        super().__init__(*args, **kwargs)
+
 # vim: foldmethod=marker
