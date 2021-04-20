@@ -126,6 +126,46 @@ def normal(dcoll, dd):
 # }}}
 
 
+# {{{ entropy stable operators
+
+@memoize_on_first_arg
+def _bound_volume_quad_interp(dcoll, dd_basis, dd_quad):
+    return bind(
+        dcoll, sym.VolumeQuadratureInterpolationOperator(
+            dd_in=dd_basis, dd_out=dd_quad) * sym.Variable("u"),
+        local_only=True
+    )
+
+
+def volume_quadrature_interpolation(dcoll, vec, dd_basis, dd_quad=None):
+
+    if dd_quad is None or dd_quad == dd_basis:
+        # No quadrature grid, no need to interpolate
+        return vec
+
+    return _bound_volume_quad_interp(dcoll, dd_basis, dd_quad)(u=vec)
+
+
+@memoize_on_first_arg
+def _bound_surface_quad_interp(dcoll, dd_vol, dd_face_quad):
+    return bind(
+        dcoll, sym.SurfaceQuadratureInterpolationOperator(
+            dd_in=dd_vol, dd_out=dd_face_quad) * sym.Variable("u"),
+        local_only=True
+    )
+
+
+def surface_quadrature_interpolation(dcoll, vec, dd_vol, dd_face_quad=None):
+
+    if dd_face_quad is None:
+        # If no face quadrature grid, just restrict to faces
+        dd_face_quad = sym.DOFDesc("all_faces", sym.QTAG_NONE)
+
+    return _bound_surface_quad_interp(dcoll, dd_vol, dd_face_quad)(u=vec)
+
+# }}}
+
+
 # {{{ derivatives
 
 @memoize_on_first_arg
