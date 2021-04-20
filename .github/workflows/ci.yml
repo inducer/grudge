@@ -34,6 +34,7 @@ jobs:
                 sudo apt install openmpi-bin libopenmpi-dev
 
                 CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+                echo "- matplotlib" >> $CONDA_ENVIRONMENT
                 echo "- mpi4py" >> $CONDA_ENVIRONMENT
                 echo "- scipy" >> $CONDA_ENVIRONMENT
                 echo "-------------------------------------------"
