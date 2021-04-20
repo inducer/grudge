@@ -31,7 +31,7 @@ class Curve2DMeshBuilder(MeshBuilder):
     def get_mesh(self, resolution, mesh_order):
         from meshmode.mesh.generation import make_curve_mesh
         return make_curve_mesh(
-                self.curve_fn,
+                self.curve_fn,      # pylint: disable=no-member
                 np.linspace(0.0, 1.0, resolution + 1),
                 mesh_order)
 

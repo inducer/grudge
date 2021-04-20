@@ -48,6 +48,9 @@ class TimeDependentOperator(Operator):
 class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
+    def max_eigenvalue(self, t, fields, discr):
+        raise NotImplementedError
+
     def estimate_rk4_timestep(self, discr, t=None, fields=None):
         """Estimate the largest stable timestep for an RK4 method.
         """
