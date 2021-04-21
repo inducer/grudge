@@ -48,7 +48,7 @@ THE SOFTWARE.
 
 
 from numbers import Number
-from pytools import memoize_on_first_arg
+from pytools import memoize_on_first_arg, keyed_memoize_in
 
 import numpy as np  # noqa
 from pytools.obj_array import obj_array_vectorize, make_obj_array
@@ -59,6 +59,8 @@ import grudge.dof_desc as dof_desc
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.dof_array import freeze, flatten, unflatten
+
+import loopy as lp
 
 from grudge.symbolic.primitives import TracePair
 
@@ -308,6 +310,68 @@ def mass(dcoll, *args):
                 lambda el: mass(dcoll, dd, el), vec)
 
     return _bound_mass(dcoll, dd)(u=vec)
+
+
+@memoize_on_first_arg
+def _elwise_linear_loopy_prg(actx):
+    result = make_loopy_program(
+        """{[iel, idof, j]:
+            0<=iel<nelements and
+            0<=idof<ndiscr_nodes_out and
+            0<=j<ndiscr_nodes_in}""",
+        "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
+        name="elwise_linear_op_knl")
+
+    result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+    return result
+
+
+def reference_mass_matrix(actx, out_element_group, in_element_group):
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda (out_grp, in_grp): (out_grp.discretization_key(),
+                                   in_grp.discretization_key()))
+    def get_ref_mass_mat(out_grp, in_grp):
+        if out_grp == in_grp:
+            from meshmode.discretization.poly_element import mass_matrix
+            return mass_matrix(in_grp)
+
+        from modepy import vandermonde
+        basis = out_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_grp.unit_nodes)
+        o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
+        vand_inv_t = np.linalg.inv(vand).T
+
+        weights = in_grp.quadrature_rule().weights
+        # actx.np.einsum?
+        return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
+
+    return actx.freeze(
+        actx.from_numpy(get_ref_mass_mat(out_element_group,
+                                         in_element_group))
+    )
+
+
+def _apply_mass_operator(dcoll, dd, vec):
+    pass
+
+
+def mass_operator(dcoll, *args):
+
+    if len(args) == 1:
+        vec, = args
+        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: mass_operator(dcoll, dd, el), vec
+        )
+
+    return _apply_mass_operator(dcoll, dd, vec)
 
 
 @memoize_on_first_arg
