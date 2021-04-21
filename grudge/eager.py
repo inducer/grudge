@@ -60,7 +60,7 @@ class EagerDGDiscretization(DiscretizationCollection):
         return op.local_d_dx(self, xyz_axis, vec)
 
     def div(self, vecs):
-        return op.local_d_dx(self, vecs)
+        return op.local_div(self, vecs)
 
     def weak_grad(self, *args):
         return op.weak_local_grad(self, *args)

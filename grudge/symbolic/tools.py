@@ -58,7 +58,7 @@ def split_sym_operator_for_multirate(state_vector, sym_operator,
 
         killers.append(IndexGroupKillerSubstMap(kill_set))
 
-    from grudge.symbolic import \
+    from grudge.symbolic.mappers import \
             SubstitutionMapper, \
             CommutativeConstantFoldingMapper
 

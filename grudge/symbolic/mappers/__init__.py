@@ -502,7 +502,7 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
             IdentityMapper.map_common_subexpression
 
     def map_operator_binding(self, expr):
-        from grudge.symbolic.primitives import BoundaryPair
+        from grudge.symbolic.primitives import TracePair
 
         from grudge.symbolic.mappers.type_inference import (
                 type_info, QuadratureRepresentation)
@@ -520,7 +520,7 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
                 field_repr_tag = field_type.repr_tag
             except AttributeError:
                 # boundary pairs are not assigned types
-                assert isinstance(expr.field, BoundaryPair)
+                assert isinstance(expr.field, TracePair)
                 has_quad_operand = False
             else:
                 has_quad_operand = isinstance(field_repr_tag,
