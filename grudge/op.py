@@ -53,10 +53,13 @@ from pytools import memoize_on_first_arg
 import numpy as np  # noqa
 from pytools.obj_array import obj_array_vectorize, make_obj_array
 import pyopencl.array as cla  # noqa
+from pytools import memoize_in, memoize_on_first_arg
+
 from grudge import sym, bind
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.dof_array import freeze, flatten, unflatten
+from meshmode.array_context import make_loopy_program
 
 from grudge.symbolic.primitives import TracePair
 
@@ -128,27 +131,70 @@ def normal(dcoll, dd):
 
 # {{{ entropy stable operators
 
+def _interpolation_matrix(out_element_group, in_element_group):
+    from modepy import vandermonde
+    basis = in_element_group.basis_obj()
+    vand = vandermonde(basis.functions, out_element_group.unit_nodes)
+    return vand
+
+
 @memoize_on_first_arg
-def _bound_volume_quad_interp(dcoll, dd_vol, dd_quad):
-    return bind(
-        dcoll, sym.VolumeQuadratureInterpolationOperator(
-            dd_in=dd_vol, dd_out=dd_quad) * sym.Variable("u"),
-        local_only=True
-    )
+def _volume_quadrature_interpolation(actx, vec, dcoll, dd_vol, dd_quad):
+
+    @memoize_in(actx, "elementwise_quad_interp_prg")
+    def lin_op_eval():
+        return make_loopy_program([
+            "{[iel]: 0 <= iel < nelements}",
+            "{[idof]: 0 <= idof < n_to_dofs}",
+            "{[jdof]: 0 <= jdof < n_from_dofs}"
+            ],
+            """
+                y[iel, idof] = sum(jdof, A[idof, jdof] * x[iel, jdof])
+            """,
+            name="elementwise_lin_op_prg")
+
+    vol_disc = dcoll.discr_from_dd(dd_vol)
+    quad_disc = dcoll.discr_from_dd(dd_quad)
+    vol_el_grps = vol_disc.groups
+    quad_el_grps = quad_disc.groups
+
+    # sanity checks
+    assert len(vol_el_grps) == len(quad_el_grps)
+    assert vec.shape == (len(vol_el_grps),)
+
+    # Result is on the quadrature grid
+    result = quad_disc.empty(actx, dtype=vec.entry_dtype)
+
+    for vol_grp, quad_grp in zip(vol_el_grps, quad_el_grps):
+
+        assert vol_grp.index == quad_grp.index
+        gidx = vol_grp.index
+
+        interp_mat = _interpolation_matrix(quad_grp, vol_grp)
+
+        # sanity check
+        assert vec[gidx].shape == (vol_grp.nelements, vol_grp.nunit_dofs)
+        act.call_loopy(
+            lin_op_eval(),
+            A=interp_mat,
+            x=vec[gidx],
+            y=result[gidx])
+
+    return result
 
 
 def volume_quadrature_interpolation(dcoll, vec, dd_quad=None):
 
+    actx = vec.array_context
     dd_vol = sym.DOFDesc("vol", sym.QTAG_NONE)
 
     if dd_quad is None or dd_quad == dd_vol:
         # No quadrature grid, no need to interpolate
         return vec
 
-    return _bound_volume_quad_interp(dcoll, dd_vol, dd_quad)(u=vec)
+    return _volume_quadrature_interpolation(actx, vec, dcoll, dd_vol, dd_quad)
 
 
-@memoize_on_first_arg
 def _bound_surface_quad_interp(dcoll, dd_face_quad):
     dd_vol = sym.DOFDesc("vol", sym.QTAG_NONE)
     return bind(
@@ -167,7 +213,6 @@ def surface_quadrature_interpolation(dcoll, vec, dd_face_quad=None):
     return _bound_surface_quad_interp(dcoll, dd_face_quad)(u=vec)
 
 
-@memoize_on_first_arg
 def _bound_quad_l2_proj(dcoll, dd_vol, dd_quad):
     return bind(
         dcoll, sym.QuadratureProjectionOperator(
