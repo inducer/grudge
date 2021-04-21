@@ -166,7 +166,7 @@ def _ellipse_surface_area(radius, aspect_ratio):
         # NOTE: hardcoded value so we don't need scipy for the test
         ellip_e = 1.2110560275684594
     else:
-        from scipy.special import ellipe
+        from scipy.special import ellipe        # pylint: disable=no-name-in-module
         ellip_e = ellipe(eccentricity)
 
     return 4.0 * radius * ellip_e
