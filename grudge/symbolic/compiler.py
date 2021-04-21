@@ -61,7 +61,7 @@ class Instruction(Record):
         return not self.__eq__(other)
 
 
-@memoize
+@memoize(use_kwargs=True)
 def _make_dep_mapper(include_subscripts):
     return mappers.DependencyMapper(
             include_operator_bindings=False,
