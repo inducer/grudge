@@ -343,13 +343,13 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
         vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_grp.quadrature_rule().weights
-        # actx.np.einsum?
-        return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
+        return actx.freeze(
+            actx.from_numpy(
+                np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
+            )
+        )
 
-    return actx.freeze(
-        actx.from_numpy(get_ref_mass_mat(out_element_group,
-                                         in_element_group))
-    )
+    return get_ref_mass_mat(out_element_group, in_element_group)
 
 
 def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
