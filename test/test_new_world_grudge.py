@@ -99,10 +99,10 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
 
     #mass_op = bind(discr, dof_desc.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
 
-    num_integral_1 = np.dot(ones_volm,
-            actx.to_numpy(flatten(
-                op.mass_operator(dcoll, dd_quad, f_quad))))
-    1/0
+    mop = op.mass_operator(dcoll, dd_quad, f_quad)
+    num_integral_1 = np.dot(
+            actx.to_numpy(flatten(ones_volm)),
+            actx.to_numpy(flatten( mop)))
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 1e-9, err_1
 

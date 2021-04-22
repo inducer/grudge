@@ -49,6 +49,7 @@ THE SOFTWARE.
 
 from numbers import Number
 from pytools import memoize_on_first_arg, keyed_memoize_in
+from pytools.tag import Tag
 
 import numpy as np  # noqa
 from pytools.obj_array import obj_array_vectorize, make_obj_array
@@ -58,11 +59,24 @@ from grudge import sym, bind
 import grudge.dof_desc as dof_desc
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.dof_array import freeze, flatten, unflatten
+from meshmode.dof_array import freeze, flatten, unflatten, DOFArray
+from meshmode.array_context import FirstAxisIsElementsTag
 
 import loopy as lp
 
 from grudge.symbolic.primitives import TracePair
+
+
+# {{{ tags
+
+class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
+    pass
+
+
+class MassOperatorTag(HasElementwiseMatvecTag):
+    pass
+
+# }}}
 
 
 # def interp(dcoll, src, tgt, vec):
@@ -353,20 +367,24 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
 
 
 def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
-
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
-    return [
-        actx.np.einsum("ij,j,ej->ei",
-            reference_mass_matrix(actx,
-                out_element_group=out_grp,
-                in_element_group=in_grp),
-            # FIXME: These are not area elements!
-            in_discr.zeros(actx),
-            vec_i)
-        for in_grp, out_grp, vec_i in zip(in_discr.groups, out_discr.groups, vec)]
+    area_elements = in_discr.zeros(actx)  # FIXME *cough*
+    return DOFArray(actx,
+            tuple(
+                actx.einsum("ij,ej,ej->ei",
+                    reference_mass_matrix(actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp),
+                    ae_i, vec_i,
+                    arg_names=("mass_mat", "jac_det", "vec"),
+                    tagged=(MassOperatorTag(),))
+
+                for in_grp, out_grp, ae_i, vec_i in zip(
+                    in_discr.groups, out_discr.groups,
+                    area_elements, vec)))
 
 
 def mass_operator(dcoll, *args):
