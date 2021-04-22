@@ -329,8 +329,8 @@ def _elwise_linear_loopy_prg(actx):
 def reference_mass_matrix(actx, out_element_group, in_element_group):
     @keyed_memoize_in(
         actx, reference_mass_matrix,
-        lambda (out_grp, in_grp): (out_grp.discretization_key(),
-                                   in_grp.discretization_key()))
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
