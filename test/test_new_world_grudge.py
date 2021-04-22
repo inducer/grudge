@@ -33,8 +33,10 @@ from meshmode.array_context import (  # noqa
 import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array, make_obj_array
+import grudge.op as op
 
 from grudge import DiscretizationCollection
+import grudge.dof_desc as dof_desc
 
 import pytest
 
@@ -46,7 +48,7 @@ logger = logging.getLogger(__name__)
 # {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
-@pytest.mark.parametrize("quad_tag", [sym.QTAG_NONE, "OVSMP"])
+@pytest.mark.parametrize("quad_tag", [dof_desc.QTAG_NONE, "OVSMP"])
 def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
@@ -63,9 +65,9 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     from meshmode.discretization.poly_element import \
         QuadratureSimplexGroupFactory
 
-    dd_quad = sym.DOFDesc(sym.DTAG_VOLUME_ALL, quad_tag)
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, quad_tag)
 
-    if quad_tag is sym.QTAG_NONE:
+    if quad_tag is dof_desc.QTAG_NONE:
         quad_tag_to_group_factory = {}
     else:
         quad_tag_to_group_factory = {
@@ -85,22 +87,22 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     def f(x):
         return actx.np.sin(x[0])**2
 
-    def ones(x):
-        return actx.np.ones(x.shape)
-
-    volm_disc = dcoll.disc_from_dd(sym.DD_VOLUME)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     x_volm = thaw(actx, volm_disc.nodes())
-    f_volm = f(x_vol)
-    ones_volm = ones(x_vol)
+    f_volm = f(x_volm)
+    ones_volm = volm_disc.zeros(actx) + 1
 
-    quad_disc = dcoll.disc_from_dd(dd_quad)
+    quad_disc = dcoll.discr_from_dd(dd_quad)
     x_quad = thaw(actx, quad_disc.nodes())
     f_quad = f(x_quad)
-    ones_quad = ones(x_quad)
+    ones_quad = quad_disc.zeros(actx) + 1
 
-    mass_op = bind(discr, sym.MassOperator(dd_quad, sym.DD_VOLUME)(sym_f))
+    #mass_op = bind(discr, dof_desc.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
 
-    num_integral_1 = np.dot(ones_volm, actx.to_numpy(flatten(mass_op(f=f_quad))))
+    num_integral_1 = np.dot(ones_volm,
+            actx.to_numpy(flatten(
+                op.mass_operator(dcoll, dd_quad, f_quad))))
+    1/0
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 1e-9, err_1
 
@@ -108,12 +110,15 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 1.0e-9, err_2
 
-    if quad_tag is sym.QTAG_NONE:
+    if quad_tag is dof_desc.QTAG_NONE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
         num_integral_3 = bind(discr,
-                sym.integral(sym_f, dd=dd_quad))(f=f_quad)
+                dof_desc.integral(sym_f, dd=dd_quad))(f=f_quad)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
 
 # }}}
+
+
+# vim: foldmethod=marker

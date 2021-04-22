@@ -352,12 +352,24 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
     )
 
 
-def _apply_mass_operator(dcoll, dd, vec):
-    pass
+def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_out)
+
+    actx = vec.array_context
+    return [
+        actx.np.einsum("ij,j,ej->ei",
+            reference_mass_matrix(actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp),
+            # FIXME: These are not area elements!
+            in_discr.zeros(actx),
+            vec_i)
+        for in_grp, out_grp, vec_i in zip(in_discr.groups, out_discr.groups, vec)]
 
 
 def mass_operator(dcoll, *args):
-
     if len(args) == 1:
         vec, = args
         dd = sym.DOFDesc("vol", sym.QTAG_NONE)
@@ -371,7 +383,12 @@ def mass_operator(dcoll, *args):
             lambda el: mass_operator(dcoll, dd, el), vec
         )
 
-    return _apply_mass_operator(dcoll, dd, vec)
+    dd_in = dd
+    del dd
+    from grudge.dof_desc import QTAG_NONE
+    dd_out = dd_in.with_qtag(QTAG_NONE)
+
+    return _apply_mass_operator(dcoll, dd_out, dd_in, vec)
 
 
 @memoize_on_first_arg
