@@ -25,6 +25,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from meshmode.discretization.connection import \
+    FACE_RESTR_INTERIOR, FACE_RESTR_ALL
+from meshmode.mesh import \
+    BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE
+
+
 __doc__ = """
 DOF description
 ^^^^^^^^^^^^^^^
