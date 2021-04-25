@@ -326,20 +326,6 @@ def mass(dcoll, *args):
     return _bound_mass(dcoll, dd)(u=vec)
 
 
-@memoize_on_first_arg
-def _elwise_linear_loopy_prg(actx):
-    result = make_loopy_program(
-        """{[iel, idof, j]:
-            0<=iel<nelements and
-            0<=idof<ndiscr_nodes_out and
-            0<=j<ndiscr_nodes_in}""",
-        "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
-        name="elwise_linear_op_knl")
-
-    result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
-    return result
-
-
 def reference_mass_matrix(actx, out_element_group, in_element_group):
     @keyed_memoize_in(
         actx, reference_mass_matrix,
