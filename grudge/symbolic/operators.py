@@ -92,12 +92,12 @@ class Operator(pymbolic.primitives.Expression):
     """
     .. attribute:: dd_in
 
-        an instance of :class:`~grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.dof_desc.DOFDesc` describing the
         input discretization.
 
     .. attribute:: dd_out
 
-        an instance of :class:`~grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.dof_desc.DOFDesc` describing the
         output discretization.
     """
 

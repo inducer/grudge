@@ -32,9 +32,6 @@ from meshmode.mesh import \
 
 
 __doc__ = """
-DOF description
-^^^^^^^^^^^^^^^
-
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
 .. autoclass:: DTAG_BOUNDARY
