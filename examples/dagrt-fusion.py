@@ -62,8 +62,10 @@ import pymbolic.primitives as p
 from meshmode.dof_array import DOFArray
 from meshmode.array_context import PyOpenCLArrayContext
 
+import grudge.dof_desc as dof_desc
 import grudge.symbolic.mappers as gmap
 import grudge.symbolic.operators as sym_op
+
 from grudge.execution import ExecutionMapper
 from grudge.function_registry import base_function_registry
 from pymbolic.mapper import Mapper
@@ -187,8 +189,8 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
     phase = dag.phases[phase_name]
 
     ctx = {
-            "<t>": sym.var("input_t", sym.DD_SCALAR),
-            "<dt>": sym.var("input_dt", sym.DD_SCALAR),
+            "<t>": sym.var("input_t", dof_desc.DD_SCALAR),
+            "<dt>": sym.var("input_dt", dof_desc.DD_SCALAR),
             f"<state>{field_var_name}": sym.make_sym_array(
                 f"input_{field_var_name}", field_components),
             "<p>residual": sym.make_sym_array(
@@ -378,9 +380,9 @@ class RK4TimeStepper(RK4TimeStepperBase):
         from grudge.symbolic.primitives import FunctionSymbol, Variable
         call = sym.cse(
                 FunctionSymbol("grudge_op")(*(
-                    (Variable("t", dd=sym.DD_SCALAR),)
+                    (Variable("t", dd=dof_desc.DD_SCALAR),)
                     + tuple(
-                        Variable(field_var_name, dd=sym.DD_VOLUME)[i]
+                        Variable(field_var_name, dd=dof_desc.DD_VOLUME)[i]
                         for i in range(num_fields)))))
         sym_rhs = flat_obj_array(*(call[i] for i in range(num_fields)))
 
@@ -392,7 +394,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
                 base_function_registry,
                 "grudge_op",
                 implementation=self._bound_op,
-                dd=sym.DD_VOLUME)
+                dd=dof_desc.DD_VOLUME)
 
         self.set_up_stepper(
                 discr, field_var_name, sym_rhs, num_fields,
@@ -755,8 +757,8 @@ def test_assignment_memory_model(ctx_factory):
     # Assignment instruction
     bound_op = bind(
             discr,
-            sym.Variable("input0", sym.DD_VOLUME)
-            + sym.Variable("input1", sym.DD_VOLUME),
+            sym.Variable("input0", dof_desc.DD_VOLUME)
+            + sym.Variable("input1", dof_desc.DD_VOLUME),
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     input0 = discr.zeros(actx)

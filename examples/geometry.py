@@ -36,12 +36,14 @@ def main(write_output=True):
     actx = PyOpenCLArrayContext(queue)
 
     from meshmode.mesh.generation import generate_warped_rect_mesh
+    from meshmode.mesh import BTAG_ALL
+
     mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
 
     discr = DiscretizationCollection(actx, mesh, order=4)
 
-    sym_op = sym.normal(sym.BTAG_ALL, mesh.dim)
-    #sym_op = sym.nodes(mesh.dim, where=sym.BTAG_ALL)
+    sym_op = sym.normal(BTAG_ALL, mesh.dim)
+    # sym_op = sym.nodes(mesh.dim, dd=BTAG_ALL)
     print(sym.pretty(sym_op))
     op = bind(discr, sym_op)
     print()
