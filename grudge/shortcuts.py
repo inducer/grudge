@@ -48,7 +48,8 @@ def make_visualizer(dcoll, vis_order):
 
 def make_boundary_visualizer(dcoll, vis_order):
     from meshmode.discretization.visualization import make_visualizer
-    from grudge import sym
+    from meshmode.mesh import BTAG_ALL
+
     return make_visualizer(
-            dcoll._setup_actx, dcoll.discr_from_dd(sym.BTAG_ALL),
+            dcoll._setup_actx, dcoll.discr_from_dd(BTAG_ALL),
             vis_order)
