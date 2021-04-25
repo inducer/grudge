@@ -29,7 +29,9 @@ import numpy as np
 
 def is_scalar(expr):
     from grudge import sym
-    if isinstance(expr, sym.Variable) and expr.dd.domain_tag is sym.DTAG_SCALAR:
+    from grudge.dof_desc import DTAG_SCALAR
+
+    if isinstance(expr, sym.Variable) and expr.dd.domain_tag is DTAG_SCALAR:
         return True
 
     return isinstance(expr, (int, float, complex))

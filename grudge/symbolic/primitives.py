@@ -27,15 +27,6 @@ from sys import intern
 import numpy as np
 from pytools.obj_array import make_obj_array
 
-from meshmode.mesh import (
-        BTAG_ALL,
-        BTAG_REALLY_ALL,
-        BTAG_NONE,
-        BTAG_PARTITION)
-from meshmode.discretization.connection import (
-        FACE_RESTR_ALL,
-        FACE_RESTR_INTERIOR)
-
 import pymbolic.primitives as prim
 from pymbolic.primitives import (
         Variable as VariableBase,
@@ -119,7 +110,7 @@ class HasDOFDesc:
     """
     .. attribute:: dd
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
         discretization on which this property is given.
     """
 
@@ -153,13 +144,16 @@ class cse_scope(cse_scope_base):        # noqa: N801
 
 
 class Variable(HasDOFDesc, ExpressionBase, VariableBase):
-    """A user-supplied input variable with a known :class:`DOFDesc`.
+    """A user-supplied input variable with a known
+    :class:`grudge.dof_desc.DOFDesc`.
     """
     init_arg_names = ("name", "dd")
 
     def __init__(self, name, dd=None):
+        import grudge.dof_desc as dof_desc
+
         if dd is None:
-            dd = DD_VOLUME
+            dd = dof_desc.DD_VOLUME
 
         super().__init__(name, dd)
 
@@ -174,7 +168,9 @@ var = Variable
 
 class ScalarVariable(Variable):
     def __init__(self, name):
-        super().__init__(name, DD_SCALAR)
+        import grudge.dof_desc as dof_desc
+
+        super().__init__(name, dof_desc.DD_SCALAR)
 
 
 def make_sym_array(name, shape, dd=None):
@@ -279,7 +275,9 @@ class _SignedFaceOnes(HasDOFDesc, ExpressionBase):
     """
 
     def __init__(self, dd):
-        dd = as_dofdesc(dd)
+        import grudge.dof_desc as dof_desc
+
+        dd = dof_desc.as_dofdesc(dd)
         assert dd.is_trace()
         super().__init__(dd)
 
@@ -312,10 +310,12 @@ class NodeCoordinateComponent(DiscretizationProperty):
 
 
 def nodes(ambient_dim, dd=None):
-    if dd is None:
-        dd = DD_VOLUME
+    import grudge.dof_desc as dof_desc
 
-    dd = as_dofdesc(dd)
+    if dd is None:
+        dd = dof_desc.DD_VOLUME
+
+    dd = dof_desc.as_dofdesc(dd)
 
     return np.array([NodeCoordinateComponent(i, dd)
         for i in range(ambient_dim)], dtype=object)
@@ -346,6 +346,7 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         May also be a singile integer *i*, which is viewed as equivalent
         to ``((i, 1),)``.
     """
+    import grudge.dof_desc as dof_desc
 
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
@@ -360,8 +361,8 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         raise ValueError("ref_axes must not contain an axis more than once")
 
     if dd is None:
-        dd = DD_VOLUME
-    inner_dd = dd.with_qtag(QTAG_NONE)
+        dd = dof_desc.DD_VOLUME
+    inner_dd = dd.with_qtag(dof_desc.QTAG_NONE)
 
     from pytools import flatten
     flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
@@ -587,7 +588,9 @@ def area_element(ambient_dim, dim=None, dd=None):
 
 
 def surface_normal(ambient_dim, dim=None, dd=None):
-    dd = as_dofdesc(dd)
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
     if dim is None:
         dim = ambient_dim - 1
 
@@ -605,7 +608,9 @@ def surface_normal(ambient_dim, dim=None, dd=None):
 
 def mv_normal(dd, ambient_dim, dim=None):
     """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
-    dd = as_dofdesc(dd)
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
     if not dd.is_trace():
         raise ValueError("may only request normals on boundaries")
 
@@ -626,9 +631,12 @@ def mv_normal(dd, ambient_dim, dim=None):
     assert dim == ambient_dim - 2
 
     from grudge.symbolic.operators import project
+    import grudge.dof_desc as dof_desc
+
     volm_normal = (
-            surface_normal(ambient_dim, dim=dim + 1, dd=DD_VOLUME)
-            .map(project(DD_VOLUME, dd)))
+            surface_normal(ambient_dim, dim=dim + 1,
+                           dd=dof_desc.DD_VOLUME)
+            .map(project(dof_desc.DD_VOLUME, dd)))
     pder = pseudoscalar(ambient_dim, dim, dd=dd)
 
     mv = cse(-(volm_normal ^ pder) << volm_normal.I.inv(),
@@ -673,7 +681,7 @@ class TracePair:
     """
     .. attribute:: dd
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
         discretization on which :attr:`interior` and :attr:`exterior`
         live.
 
@@ -697,8 +705,9 @@ class TracePair:
     def __init__(self, dd, *, interior, exterior):
         """
         """
+        import grudge.dof_desc as dof_desc
 
-        self.dd = as_dofdesc(dd)
+        self.dd = dof_desc.as_dofdesc(dd)
         self.interior = interior
         self.exterior = exterior
 
@@ -726,13 +735,15 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None, from_dd=None):
+    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
     from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
+    import grudge.dof_desc as dof_desc
 
     if from_dd is None:
-        from_dd = DD_VOLUME
+        from_dd = dof_desc.DD_VOLUME
     assert not from_dd.uses_quadrature()
 
-    trace_dd = DOFDesc(FACE_RESTR_INTERIOR, qtag)
+    trace_dd = dof_desc.DOFDesc(FACE_RESTR_INTERIOR, qtag)
     if from_dd.domain_tag == trace_dd.domain_tag:
         i = expression
     else:

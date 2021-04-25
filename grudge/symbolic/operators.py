@@ -102,9 +102,9 @@ class Operator(pymbolic.primitives.Expression):
     """
 
     def __init__(self, dd_in, dd_out):
-        import grudge.symbolic.primitives as prim
-        self.dd_in = prim.as_dofdesc(dd_in)
-        self.dd_out = prim.as_dofdesc(dd_out)
+        import grudge.dof_desc as dof_desc
+        self.dd_in = dof_desc.as_dofdesc(dd_in)
+        self.dd_out = dof_desc.as_dofdesc(dd_out)
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -231,8 +231,8 @@ class ElementwiseMaxOperator(ElementwiseReductionOperator):
 class NodalReductionOperator(Operator):
     def __init__(self, dd_in, dd_out=None):
         if dd_out is None:
-            import grudge.symbolic.primitives as prim
-            dd_out = prim.DD_SCALAR
+            import grudge.dof_desc as dof_desc
+            dd_out = dof_desc.DD_SCALAR
 
         assert dd_out.is_scalar()
 
@@ -259,14 +259,14 @@ class NodalMin(NodalReductionOperator):
 
 class DiffOperatorBase(Operator):
     def __init__(self, xyz_axis, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
+            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
         else:
-            dd_out = prim.as_dofdesc(dd_out)
+            dd_out = dof_desc.as_dofdesc(dd_out)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -317,12 +317,12 @@ class MInvSTOperator(WeakFormDiffOperatorBase):
 
 class RefDiffOperatorBase(ElementwiseLinearOperator):
     def __init__(self, rst_axis, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
+            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -395,9 +395,9 @@ class FilterOperator(ElementwiseLinearOperator):
           (For example an instance of
           :class:`ExponentialFilterResponseFunction`.
         """
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
             dd_out = dd_in
@@ -435,9 +435,9 @@ class FilterOperator(ElementwiseLinearOperator):
 
 class AveragingOperator(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
             dd_out = dd_in
@@ -488,11 +488,11 @@ class MassOperatorBase(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
         if dd_out is None:
-            dd_out = prim.DD_VOLUME
+            dd_out = dof_desc.DD_VOLUME
 
         super().__init__(dd_in, dd_out)
 
@@ -558,14 +558,17 @@ class OppositeInteriorFaceSwap(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
+        from meshmode.discretization.connection import FACE_RESTR_INTERIOR
         import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
+
         if dd_in is None:
-            dd_in = prim.DOFDesc(prim.FACE_RESTR_INTERIOR, None)
+            dd_in = dof_desc.DOFDesc(FACE_RESTR_INTERIOR, None)
         if dd_out is None:
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if self.dd_in.domain_tag is not prim.FACE_RESTR_INTERIOR:
+        if self.dd_in.domain_tag is not FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -590,7 +593,9 @@ class OppositePartitionFaceSwap(Operator):
         MPI tag offset to keep different subexpressions apart in MPI traffic.
     """
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
+        from meshmode.mesh import BTAG_PARTITION
         import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
 
         if dd_in is None and dd_out is None:
             raise ValueError("dd_in or dd_out must be specified")
@@ -600,8 +605,8 @@ class OppositePartitionFaceSwap(Operator):
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if not (isinstance(self.dd_in.domain_tag, prim.DTAG_BOUNDARY)
-                and isinstance(self.dd_in.domain_tag.tag, prim.BTAG_PARTITION)):
+        if not (isinstance(self.dd_in.domain_tag, dof_desc.DTAG_BOUNDARY)
+                and isinstance(self.dd_in.domain_tag.tag, BTAG_PARTITION)):
             raise ValueError(
                     "dd_in must be a partition boundary faces domain, not '%s'"
                     % self.dd_in.domain_tag)
@@ -623,12 +628,15 @@ class OppositePartitionFaceSwap(Operator):
 
 class FaceMassOperatorBase(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
+        from meshmode.discretization.connection import FACE_RESTR_ALL
         import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
+
         if dd_in is None:
-            dd_in = prim.DOFDesc(prim.FACE_RESTR_ALL, None)
+            dd_in = dof_desc.DOFDesc(FACE_RESTR_ALL, None)
 
         if dd_out is None or dd_out == "vol":
-            dd_out = prim.DOFDesc("vol", prim.QTAG_NONE)
+            dd_out = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
 
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
@@ -636,7 +644,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
-        if dd_in.domain_tag is not prim.FACE_RESTR_ALL:
+        if dd_in.domain_tag is not FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
         super().__init__(dd_in, dd_out)
@@ -755,10 +763,11 @@ def stiffness_t(dim, dd_in=None, dd_out=None):
 
 def integral(arg, dd=None):
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
 
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     return NodalSum(dd)(
             arg * prim.cse(
@@ -772,10 +781,11 @@ def norm(p, arg, dd=None):
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
 
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
@@ -812,9 +822,11 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
     """
 
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
+
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if dim is None:
         dim = ambient_dim
@@ -833,9 +845,11 @@ def h_min_from_volume(ambient_dim, dim=None, dd=None):
     """
 
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
+
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if dim is None:
         dim = ambient_dim
