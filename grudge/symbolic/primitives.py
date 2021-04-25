@@ -27,15 +27,6 @@ from sys import intern
 import numpy as np
 from pytools.obj_array import make_obj_array
 
-from meshmode.mesh import (
-        BTAG_ALL,
-        BTAG_REALLY_ALL,
-        BTAG_NONE,
-        BTAG_PARTITION)
-from meshmode.discretization.connection import (
-        FACE_RESTR_ALL,
-        FACE_RESTR_INTERIOR)
-
 import pymbolic.primitives as prim
 from pymbolic.primitives import (
         Variable as VariableBase,
@@ -43,6 +34,12 @@ from pymbolic.primitives import (
         cse_scope as cse_scope_base,
         make_common_subexpression as cse)
 from pymbolic.geometric_algebra import MultiVector
+
+# FIXME: Need to import these for backwards compatibility with
+# Mirgecom. Need to remove importing the following from
+# `grudge.symbolic.primitives` in https://github.com/illinois-ceesd/mirgecom
+from grudge.dof_desc import \
+    DOFDesc, as_dofdesc, DTAG_BOUNDARY, QTAG_NONE  # noqa: F401
 
 
 class ExpressionBase(prim.Expression):
@@ -54,20 +51,6 @@ class ExpressionBase(prim.Expression):
 __doc__ = """
 
 .. currentmodule:: grudge.sym
-
-DOF description
-^^^^^^^^^^^^^^^
-
-.. autoclass:: DTAG_SCALAR
-.. autoclass:: DTAG_VOLUME_ALL
-.. autoclass:: DTAG_BOUNDARY
-.. autoclass:: QTAG_NONE
-
-.. autoclass:: DOFDesc
-.. autofunction:: as_dofdesc
-
-.. data:: DD_SCALAR
-.. data:: DD_VOLUME
 
 Symbols
 ^^^^^^^
@@ -127,185 +110,13 @@ Trace Pair
 """
 
 
-# {{{ DOF description
-
-class DTAG_SCALAR:          # noqa: N801
-    pass
-
-
-class DTAG_VOLUME_ALL:      # noqa: N801
-    pass
-
-
-class DTAG_BOUNDARY:        # noqa: N801
-    def __init__(self, tag):
-        self.tag = tag
-
-    def __eq__(self, other):
-        return isinstance(other, DTAG_BOUNDARY) and self.tag == other.tag
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        return hash(type(self)) ^ hash(self.tag)
-
-    def __repr__(self):
-        return "<{}({})>".format(type(self).__name__, repr(self.tag))
-
-
-class QTAG_NONE:            # noqa: N801
-    pass
-
-
-class DOFDesc:
-    """Describes the meaning of degrees of freedom.
-
-    .. attribute:: domain_tag
-    .. attribute:: quadrature_tag
-
-    .. automethod:: is_scalar
-    .. automethod:: is_discretized
-    .. automethod:: is_volume
-    .. automethod:: is_boundary_or_partition_interface
-    .. automethod:: is_trace
-
-    .. automethod:: uses_quadrature
-
-    .. automethod:: with_qtag
-    .. automethod:: with_dtag
-
-    .. automethod:: __eq__
-    .. automethod:: __ne__
-    .. automethod:: __hash__
-    """
-
-    def __init__(self, domain_tag, quadrature_tag=None):
-        """
-        :arg domain_tag: One of the following:
-            :class:`DTAG_SCALAR` (or the string ``"scalar"``),
-            :class:`DTAG_VOLUME_ALL` (or the string ``"vol"``)
-            for the default volume discretization,
-            :data:`~meshmode.discretization.connection.FACE_RESTR_ALL`
-            (or the string ``"all_faces"``), or
-            :data:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
-            (or the string ``"int_faces"``), or one of
-            :class:`~meshmode.mesh.BTAG_ALL`,
-            :class:`~meshmode.mesh.BTAG_NONE`,
-            :class:`~meshmode.mesh.BTAG_REALLY_ALL`,
-            :class:`~meshmode.mesh.BTAG_PARTITION`,
-            or *None* to indicate that the geometry is not yet known.
-
-        :arg quadrature_tag:
-            *None* to indicate that the quadrature grid is not known, or
-            :class:`QTAG_NONE` to indicate the use of the basic discretization
-            grid, or a string to indicate the use of the thus-tagged quadratue
-            grid.
-        """
-
-        if domain_tag is None:
-            pass
-        elif domain_tag in [DTAG_SCALAR, "scalar"]:
-            domain_tag = DTAG_SCALAR
-        elif domain_tag in [DTAG_VOLUME_ALL, "vol"]:
-            domain_tag = DTAG_VOLUME_ALL
-        elif domain_tag in [FACE_RESTR_ALL, "all_faces"]:
-            domain_tag = FACE_RESTR_ALL
-        elif domain_tag in [FACE_RESTR_INTERIOR, "int_faces"]:
-            domain_tag = FACE_RESTR_INTERIOR
-        elif isinstance(domain_tag, BTAG_PARTITION):
-            domain_tag = DTAG_BOUNDARY(domain_tag)
-        elif domain_tag in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
-            domain_tag = DTAG_BOUNDARY(domain_tag)
-        elif isinstance(domain_tag, DTAG_BOUNDARY):
-            pass
-        else:
-            raise ValueError("domain tag not understood: %s" % domain_tag)
-
-        if domain_tag is DTAG_SCALAR and quadrature_tag is not None:
-            raise ValueError("cannot have nontrivial quadrature tag on scalar")
-
-        if quadrature_tag is None:
-            quadrature_tag = QTAG_NONE
-
-        self.domain_tag = domain_tag
-        self.quadrature_tag = quadrature_tag
-
-    def is_scalar(self):
-        return self.domain_tag is DTAG_SCALAR
-
-    def is_discretized(self):
-        return not self.is_scalar()
-
-    def is_volume(self):
-        return self.domain_tag is DTAG_VOLUME_ALL
-
-    def is_boundary_or_partition_interface(self):
-        return isinstance(self.domain_tag, DTAG_BOUNDARY)
-
-    def is_trace(self):
-        return (self.is_boundary_or_partition_interface()
-                or self.domain_tag in [
-                    FACE_RESTR_ALL,
-                    FACE_RESTR_INTERIOR])
-
-    def uses_quadrature(self):
-        if self.quadrature_tag is None:
-            return False
-        if self.quadrature_tag is QTAG_NONE:
-            return False
-
-        return True
-
-    def with_qtag(self, qtag):
-        return type(self)(domain_tag=self.domain_tag, quadrature_tag=qtag)
-
-    def with_dtag(self, dtag):
-        return type(self)(domain_tag=dtag, quadrature_tag=self.quadrature_tag)
-
-    def __eq__(self, other):
-        return (type(self) == type(other)
-                and self.domain_tag == other.domain_tag
-                and self.quadrature_tag == other.quadrature_tag)
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        return hash((type(self), self.domain_tag, self.quadrature_tag))
-
-    def __repr__(self):
-        def fmt(s):
-            if isinstance(s, type):
-                return s.__name__
-            else:
-                return repr(s)
-
-        return "DOFDesc({}, {})".format(
-                fmt(self.domain_tag),
-                fmt(self.quadrature_tag))
-
-
-DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
-
-DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
-
-
-def as_dofdesc(dd):
-    if isinstance(dd, DOFDesc):
-        return dd
-    return DOFDesc(dd, quadrature_tag=None)
-
-# }}}
-
-
 # {{{ has-dof-desc mix-in
 
 class HasDOFDesc:
     """
     .. attribute:: dd
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
         discretization on which this property is given.
     """
 
@@ -339,13 +150,16 @@ class cse_scope(cse_scope_base):        # noqa: N801
 
 
 class Variable(HasDOFDesc, ExpressionBase, VariableBase):
-    """A user-supplied input variable with a known :class:`DOFDesc`.
+    """A user-supplied input variable with a known
+    :class:`grudge.dof_desc.DOFDesc`.
     """
     init_arg_names = ("name", "dd")
 
     def __init__(self, name, dd=None):
+        import grudge.dof_desc as dof_desc
+
         if dd is None:
-            dd = DD_VOLUME
+            dd = dof_desc.DD_VOLUME
 
         super().__init__(name, dd)
 
@@ -360,7 +174,9 @@ var = Variable
 
 class ScalarVariable(Variable):
     def __init__(self, name):
-        super().__init__(name, DD_SCALAR)
+        import grudge.dof_desc as dof_desc
+
+        super().__init__(name, dof_desc.DD_SCALAR)
 
 
 def make_sym_array(name, shape, dd=None):
@@ -465,7 +281,9 @@ class _SignedFaceOnes(HasDOFDesc, ExpressionBase):
     """
 
     def __init__(self, dd):
-        dd = as_dofdesc(dd)
+        import grudge.dof_desc as dof_desc
+
+        dd = dof_desc.as_dofdesc(dd)
         assert dd.is_trace()
         super().__init__(dd)
 
@@ -498,10 +316,12 @@ class NodeCoordinateComponent(DiscretizationProperty):
 
 
 def nodes(ambient_dim, dd=None):
-    if dd is None:
-        dd = DD_VOLUME
+    import grudge.dof_desc as dof_desc
 
-    dd = as_dofdesc(dd)
+    if dd is None:
+        dd = dof_desc.DD_VOLUME
+
+    dd = dof_desc.as_dofdesc(dd)
 
     return np.array([NodeCoordinateComponent(i, dd)
         for i in range(ambient_dim)], dtype=object)
@@ -532,6 +352,7 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         May also be a singile integer *i*, which is viewed as equivalent
         to ``((i, 1),)``.
     """
+    import grudge.dof_desc as dof_desc
 
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
@@ -546,8 +367,8 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         raise ValueError("ref_axes must not contain an axis more than once")
 
     if dd is None:
-        dd = DD_VOLUME
-    inner_dd = dd.with_qtag(QTAG_NONE)
+        dd = dof_desc.DD_VOLUME
+    inner_dd = dd.with_qtag(dof_desc.QTAG_NONE)
 
     from pytools import flatten
     flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
@@ -773,7 +594,9 @@ def area_element(ambient_dim, dim=None, dd=None):
 
 
 def surface_normal(ambient_dim, dim=None, dd=None):
-    dd = as_dofdesc(dd)
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
     if dim is None:
         dim = ambient_dim - 1
 
@@ -791,7 +614,9 @@ def surface_normal(ambient_dim, dim=None, dd=None):
 
 def mv_normal(dd, ambient_dim, dim=None):
     """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
-    dd = as_dofdesc(dd)
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
     if not dd.is_trace():
         raise ValueError("may only request normals on boundaries")
 
@@ -812,9 +637,12 @@ def mv_normal(dd, ambient_dim, dim=None):
     assert dim == ambient_dim - 2
 
     from grudge.symbolic.operators import project
+    import grudge.dof_desc as dof_desc
+
     volm_normal = (
-            surface_normal(ambient_dim, dim=dim + 1, dd=DD_VOLUME)
-            .map(project(DD_VOLUME, dd)))
+            surface_normal(ambient_dim, dim=dim + 1,
+                           dd=dof_desc.DD_VOLUME)
+            .map(project(dof_desc.DD_VOLUME, dd)))
     pder = pseudoscalar(ambient_dim, dim, dd=dd)
 
     mv = cse(-(volm_normal ^ pder) << volm_normal.I.inv(),
@@ -859,7 +687,7 @@ class TracePair:
     """
     .. attribute:: dd
 
-        an instance of :class:`grudge.sym.DOFDesc` describing the
+        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
         discretization on which :attr:`interior` and :attr:`exterior`
         live.
 
@@ -883,8 +711,9 @@ class TracePair:
     def __init__(self, dd, *, interior, exterior):
         """
         """
+        import grudge.dof_desc as dof_desc
 
-        self.dd = as_dofdesc(dd)
+        self.dd = dof_desc.as_dofdesc(dd)
         self.interior = interior
         self.exterior = exterior
 
@@ -912,13 +741,15 @@ class TracePair:
 
 
 def int_tpair(expression, qtag=None, from_dd=None):
+    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
     from grudge.symbolic.operators import project, OppositeInteriorFaceSwap
+    import grudge.dof_desc as dof_desc
 
     if from_dd is None:
-        from_dd = DD_VOLUME
+        from_dd = dof_desc.DD_VOLUME
     assert not from_dd.uses_quadrature()
 
-    trace_dd = DOFDesc(FACE_RESTR_INTERIOR, qtag)
+    trace_dd = dof_desc.DOFDesc(FACE_RESTR_INTERIOR, qtag)
     if from_dd.domain_tag == trace_dd.domain_tag:
         i = expression
     else:

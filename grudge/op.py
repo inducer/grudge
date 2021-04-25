@@ -55,6 +55,8 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 import pyopencl.array as cla  # noqa
 from grudge import sym, bind
 
+import grudge.dof_desc as dof_desc
+
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.dof_array import freeze, flatten, unflatten
 
@@ -74,12 +76,12 @@ def project(dcoll, src, tgt, vec):
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
 
-    :arg src: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
-    :arg tgt: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one
+    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
+    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     """
-    src = sym.as_dofdesc(src)
-    tgt = sym.as_dofdesc(tgt)
+    src = dof_desc.as_dofdesc(src)
+    tgt = dof_desc.as_dofdesc(tgt)
     if src == tgt:
         return vec
 
@@ -98,7 +100,7 @@ def project(dcoll, src, tgt, vec):
 def nodes(dcoll, dd=None):
     r"""Return the nodes of a discretization.
 
-    :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
@@ -112,7 +114,7 @@ def nodes(dcoll, dd=None):
 def normal(dcoll, dd):
     """Get unit normal to specified surface discretization, *dd*.
 
-    :arg dd: a :class:`~grudge.sym.DOFDesc` as the surface discretization.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
     """
     surface_discr = dcoll.discr_from_dd(dd)
@@ -209,14 +211,14 @@ def weak_local_grad(dcoll, *args):
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
-    :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if len(args) == 1:
         vec, = args
-        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -246,7 +248,7 @@ def weak_local_d_dx(dcoll, *args):
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
     elif len(args) == 3:
         dd, xyz_axis, vec = args
     else:
@@ -261,7 +263,7 @@ def weak_local_div(dcoll, *args):
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
-    :arg dd: a :class:`~grudge.sym.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
@@ -271,7 +273,7 @@ def weak_local_div(dcoll, *args):
     """
     if len(args) == 1:
         vecs, = args
-        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
     elif len(args) == 2:
         dd, vecs = args
     else:
@@ -295,7 +297,7 @@ def _bound_mass(dcoll, dd):
 def mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -331,7 +333,7 @@ def _bound_face_mass(dcoll, dd):
 def face_mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = sym.DOFDesc("all_faces", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("all_faces", dof_desc.QTAG_NONE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -359,7 +361,7 @@ def norm(dcoll, vec, p, dd=None):
     if dd is None:
         dd = "vol"
 
-    dd = sym.as_dofdesc(dd)
+    dd = dof_desc.as_dofdesc(dd)
 
     if isinstance(vec, np.ndarray):
         if p == 2:
@@ -457,7 +459,7 @@ class _RankBoundaryCommunication:
                 actx.from_numpy(self.remote_data_host))
 
         bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(
-                sym.as_dofdesc(sym.DTAG_BOUNDARY(self.remote_btag)))
+                dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
         swapped_remote_dof_array = bdry_conn(remote_dof_array)
 
         self.send_req.Wait()
@@ -506,13 +508,14 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
         for ivec in range(n):
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
                     dcoll, comm_vec[ivec]):
-                assert isinstance(rank_tpair.dd.domain_tag, sym.DTAG_BOUNDARY)
+                assert isinstance(rank_tpair.dd.domain_tag, dof_desc.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
 
         return [
             TracePair(
-                dd=sym.as_dofdesc(sym.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
+                dd=dof_desc.as_dofdesc(
+                    dof_desc.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
                 interior=make_obj_array([
                     result[remote_rank, i].int for i in range(n)]).reshape(oshape),
                 exterior=make_obj_array([

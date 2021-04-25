@@ -21,9 +21,12 @@ THE SOFTWARE.
 """
 
 from pytools import memoize_method
-from grudge import sym
+from grudge.dof_desc import QTAG_NONE, DTAG_BOUNDARY, DOFDesc, as_dofdesc
 import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
+from meshmode.discretization.connection import \
+    FACE_RESTR_INTERIOR, FACE_RESTR_ALL, make_face_restriction
+from meshmode.mesh import BTAG_PARTITION
 
 
 __doc__ = """
@@ -67,16 +70,16 @@ class DiscretizationCollection:
                         "'quad_tag_to_group_factory' must be given")
 
             quad_tag_to_group_factory = {
-                    sym.QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order=order)}
+                    QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order=order)}
         else:
             if order is not None:
                 quad_tag_to_group_factory = quad_tag_to_group_factory.copy()
-                if sym.QTAG_NONE in quad_tag_to_group_factory:
+                if QTAG_NONE in quad_tag_to_group_factory:
                     raise ValueError("if 'order' is given, "
                             "'quad_tag_to_group_factory' must not have a "
                             "key of QTAG_NONE")
 
-                quad_tag_to_group_factory[sym.QTAG_NONE] = \
+                quad_tag_to_group_factory[QTAG_NONE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
 
         self.quad_tag_to_group_factory = quad_tag_to_group_factory
@@ -84,7 +87,7 @@ class DiscretizationCollection:
         from meshmode.discretization import Discretization
 
         self._volume_discr = Discretization(array_context, mesh,
-                self.group_factory_for_quadrature_tag(sym.QTAG_NONE))
+                self.group_factory_for_quadrature_tag(QTAG_NONE))
 
         # {{{ management of discretization-scoped common subexpressions
 
@@ -113,7 +116,7 @@ class DiscretizationCollection:
                     == self.get_management_rank_index()
 
     def _set_up_distributed_communication(self, mpi_communicator, array_context):
-        from_dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        from_dd = DOFDesc("vol", QTAG_NONE)
 
         boundary_connections = {}
 
@@ -125,13 +128,13 @@ class DiscretizationCollection:
                 raise RuntimeError("must supply an MPI communicator when using a "
                     "distributed mesh")
 
-            grp_factory = self.group_factory_for_quadrature_tag(sym.QTAG_NONE)
+            grp_factory = self.group_factory_for_quadrature_tag(QTAG_NONE)
 
             local_boundary_connections = {}
             for i_remote_part in connected_parts:
                 local_boundary_connections[i_remote_part] = self.connection_from_dds(
-                        from_dd, sym.DOFDesc(sym.BTAG_PARTITION(i_remote_part),
-                        sym.QTAG_NONE))
+                        from_dd, DOFDesc(BTAG_PARTITION(i_remote_part),
+                        QTAG_NONE))
 
             from meshmode.distributed import MPIBoundaryCommSetupHelper
             with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
@@ -146,28 +149,28 @@ class DiscretizationCollection:
         return boundary_connections
 
     def get_distributed_boundary_swap_connection(self, dd):
-        if dd.quadrature_tag != sym.QTAG_NONE:
+        if dd.quadrature_tag != QTAG_NONE:
             # FIXME
             raise NotImplementedError("Distributed communication with quadrature")
 
-        assert isinstance(dd.domain_tag, sym.DTAG_BOUNDARY)
-        assert isinstance(dd.domain_tag.tag, sym.BTAG_PARTITION)
+        assert isinstance(dd.domain_tag, DTAG_BOUNDARY)
+        assert isinstance(dd.domain_tag.tag, BTAG_PARTITION)
 
         return self._dist_boundary_connections[dd.domain_tag.tag.part_nr]
 
     @memoize_method
     def discr_from_dd(self, dd):
-        dd = sym.as_dofdesc(dd)
+        dd = as_dofdesc(dd)
 
         qtag = dd.quadrature_tag
 
         if dd.is_volume():
-            if qtag is not sym.QTAG_NONE:
+            if qtag is not QTAG_NONE:
                 return self._quad_volume_discr(qtag)
             return self._volume_discr
 
-        if qtag is not sym.QTAG_NONE:
-            no_quad_discr = self.discr_from_dd(sym.DOFDesc(dd.domain_tag))
+        if qtag is not QTAG_NONE:
+            no_quad_discr = self.discr_from_dd(DOFDesc(dd.domain_tag))
 
             from meshmode.discretization import Discretization
             return Discretization(
@@ -175,11 +178,11 @@ class DiscretizationCollection:
                     no_quad_discr.mesh,
                     self.group_factory_for_quadrature_tag(qtag))
 
-        assert qtag is sym.QTAG_NONE
+        assert qtag is QTAG_NONE
 
-        if dd.domain_tag is sym.FACE_RESTR_ALL:
+        if dd.domain_tag is FACE_RESTR_ALL:
             return self._all_faces_volume_connection().to_discr
-        elif dd.domain_tag is sym.FACE_RESTR_INTERIOR:
+        elif dd.domain_tag is FACE_RESTR_INTERIOR:
             return self._interior_faces_connection().to_discr
         elif dd.is_boundary_or_partition_interface():
             return self._boundary_connection(dd.domain_tag.tag).to_discr
@@ -188,18 +191,18 @@ class DiscretizationCollection:
 
     @memoize_method
     def connection_from_dds(self, from_dd, to_dd):
-        from_dd = sym.as_dofdesc(from_dd)
-        to_dd = sym.as_dofdesc(to_dd)
+        from_dd = as_dofdesc(from_dd)
+        to_dd = as_dofdesc(to_dd)
 
         to_qtag = to_dd.quadrature_tag
 
         if (
                 not from_dd.is_volume()
                 and from_dd.quadrature_tag == to_dd.quadrature_tag
-                and to_dd.domain_tag is sym.FACE_RESTR_ALL):
+                and to_dd.domain_tag is FACE_RESTR_ALL):
             faces_conn = self.connection_from_dds(
-                    sym.DOFDesc("vol"),
-                    sym.DOFDesc(from_dd.domain_tag))
+                    DOFDesc("vol"),
+                    DOFDesc(from_dd.domain_tag))
 
             from meshmode.discretization.connection import \
                     make_face_to_all_faces_embedding
@@ -213,12 +216,12 @@ class DiscretizationCollection:
 
         if (
                 from_dd.domain_tag != to_dd.domain_tag
-                and from_dd.quadrature_tag is sym.QTAG_NONE
-                and to_dd.quadrature_tag is not sym.QTAG_NONE):
+                and from_dd.quadrature_tag is QTAG_NONE
+                and to_dd.quadrature_tag is not QTAG_NONE):
 
             from meshmode.discretization.connection import \
                     ChainedDiscretizationConnection
-            intermediate_dd = sym.DOFDesc(to_dd.domain_tag)
+            intermediate_dd = DOFDesc(to_dd.domain_tag)
             return ChainedDiscretizationConnection(
                     [
                         # first change domain
@@ -238,8 +241,8 @@ class DiscretizationCollection:
 
         if (
                 from_dd.domain_tag == to_dd.domain_tag
-                and from_dd.quadrature_tag is sym.QTAG_NONE
-                and to_dd.quadrature_tag is not sym.QTAG_NONE):
+                and from_dd.quadrature_tag is QTAG_NONE
+                and to_dd.quadrature_tag is not QTAG_NONE):
             from meshmode.discretization.connection.same_mesh import \
                     make_same_mesh_connection
 
@@ -250,19 +253,19 @@ class DiscretizationCollection:
 
         # }}}
 
-        if from_dd.quadrature_tag is not sym.QTAG_NONE:
+        if from_dd.quadrature_tag is not QTAG_NONE:
             raise ValueError("cannot interpolate *from* a "
                     "(non-interpolatory) quadrature grid")
 
-        assert to_qtag is sym.QTAG_NONE
+        assert to_qtag is QTAG_NONE
 
         if from_dd.is_volume():
-            if to_dd.domain_tag is sym.FACE_RESTR_ALL:
+            if to_dd.domain_tag is FACE_RESTR_ALL:
                 return self._all_faces_volume_connection()
-            if to_dd.domain_tag is sym.FACE_RESTR_INTERIOR:
+            if to_dd.domain_tag is FACE_RESTR_INTERIOR:
                 return self._interior_faces_connection()
             elif to_dd.is_boundary_or_partition_interface():
-                assert from_dd.quadrature_tag is sym.QTAG_NONE
+                assert from_dd.quadrature_tag is QTAG_NONE
                 return self._boundary_connection(to_dd.domain_tag.tag)
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import \
@@ -284,7 +287,7 @@ class DiscretizationCollection:
         """
 
         if quadrature_tag is None:
-            quadrature_tag = sym.QTAG_NONE
+            quadrature_tag = QTAG_NONE
 
         return self.quad_tag_to_group_factory[quadrature_tag]
 
@@ -299,11 +302,10 @@ class DiscretizationCollection:
 
     @memoize_method
     def _boundary_connection(self, boundary_tag):
-        from meshmode.discretization.connection import make_face_restriction
         return make_face_restriction(
                 self._setup_actx,
                 self._volume_discr,
-                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                self.group_factory_for_quadrature_tag(QTAG_NONE),
                 boundary_tag=boundary_tag)
 
     # }}}
@@ -312,12 +314,10 @@ class DiscretizationCollection:
 
     @memoize_method
     def _interior_faces_connection(self):
-        from meshmode.discretization.connection import (
-                make_face_restriction, FACE_RESTR_INTERIOR)
         return make_face_restriction(
                 self._setup_actx,
                 self._volume_discr,
-                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                self.group_factory_for_quadrature_tag(QTAG_NONE),
                 FACE_RESTR_INTERIOR,
 
                 # FIXME: This will need to change as soon as we support
@@ -340,12 +340,10 @@ class DiscretizationCollection:
 
     @memoize_method
     def _all_faces_volume_connection(self):
-        from meshmode.discretization.connection import (
-                make_face_restriction, FACE_RESTR_ALL)
         return make_face_restriction(
                 self._setup_actx,
                 self._volume_discr,
-                self.group_factory_for_quadrature_tag(sym.QTAG_NONE),
+                self.group_factory_for_quadrature_tag(QTAG_NONE),
                 FACE_RESTR_ALL,
 
                 # FIXME: This will need to change as soon as we support
@@ -382,8 +380,7 @@ class DiscretizationCollection:
         return self._volume_discr.zeros(array_context, dtype)
 
     def is_volume_where(self, where):
-        from grudge import sym
-        return where is None or sym.as_dofdesc(where).is_volume()
+        return where is None or as_dofdesc(where).is_volume()
 
     @property
     def order(self):

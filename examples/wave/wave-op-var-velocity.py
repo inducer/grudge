@@ -33,9 +33,10 @@ from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import QTAG_NONE, DOFDesc
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
-from grudge.symbolic.primitives import TracePair, QTAG_NONE, DOFDesc
+from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits

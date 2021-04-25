@@ -27,9 +27,12 @@ import pyopencl as cl
 
 from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import thaw, flatten
+from meshmode.mesh import BTAG_ALL
 
 from grudge import bind, sym
 from pytools.obj_array import flat_obj_array
+
+import grudge.dof_desc as dof_desc
 
 import logging
 logger = logging.getLogger(__name__)
@@ -51,7 +54,7 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
-            volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+            volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
             self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
@@ -171,7 +174,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     op = VariableCoefficientAdvectionOperator(
             c,
-            u_bc(sym.nodes(dim, sym.BTAG_ALL)),
+            u_bc(sym.nodes(dim, BTAG_ALL)),
             quad_tag=product_tag,
             flux_type=flux_type)
 
