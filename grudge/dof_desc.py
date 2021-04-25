@@ -50,18 +50,18 @@ DOF description
 
 # {{{ DOF description
 
-class DTAG_SCALAR:
+class DTAG_SCALAR:  # noqa: N801
     """A tag denoting scalar values."""
 
 
-class DTAG_VOLUME_ALL:
+class DTAG_VOLUME_ALL:  # noqa: N801
     """
     A tag denoting degrees of freedom defined
     in all cell volumes.
     """
 
 
-class DTAG_BOUNDARY:
+class DTAG_BOUNDARY:  # noqa: N801
     """A tag describing the meaning of degrees of freedom
     on element boundaries which are adjacent to elements
     of another :class:`~meshmode.mesh.Mesh`.
@@ -97,7 +97,7 @@ class DTAG_BOUNDARY:
         return "<{}({})>".format(type(self).__name__, repr(self.tag))
 
 
-class QTAG_NONE:
+class QTAG_NONE:  # noqa: N801
     """A quadrature tag indicating the use of a
     basic discretization grid. This tag is used
     to distinguish the base discretization (`QTAG_NONE`)

@@ -559,7 +559,6 @@ class OppositeInteriorFaceSwap(Operator):
 
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
         from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-        import grudge.symbolic.primitives as prim
         import grudge.dof_desc as dof_desc
 
         if dd_in is None:
@@ -594,7 +593,6 @@ class OppositePartitionFaceSwap(Operator):
     """
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
         from meshmode.mesh import BTAG_PARTITION
-        import grudge.symbolic.primitives as prim
         import grudge.dof_desc as dof_desc
 
         if dd_in is None and dd_out is None:
@@ -629,7 +627,6 @@ class OppositePartitionFaceSwap(Operator):
 class FaceMassOperatorBase(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
         from meshmode.discretization.connection import FACE_RESTR_ALL
-        import grudge.symbolic.primitives as prim
         import grudge.dof_desc as dof_desc
 
         if dd_in is None:
