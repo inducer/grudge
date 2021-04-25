@@ -2,6 +2,7 @@
 
 __copyright__ = """
 Copyright (C) 2008 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
 """
 
 __license__ = """
@@ -43,16 +44,38 @@ DOF description
 
 # {{{ DOF description
 
-class DTAG_SCALAR:          # noqa: N801
-    pass
+class DTAG_SCALAR:
+    """A tag denoting scalar values."""
 
 
-class DTAG_VOLUME_ALL:      # noqa: N801
-    pass
+class DTAG_VOLUME_ALL:
+    """
+    A tag denoting degrees of freedom defined
+    in all cell volumes.
+    """
 
 
-class DTAG_BOUNDARY:        # noqa: N801
+class DTAG_BOUNDARY:
+    """A tag describing the meaning of degrees of freedom
+    on element boundaries which are adjacent to elements
+    of another :class:`~meshmode.mesh.Mesh`.
+
+    .. attribute:: tag
+
+    .. automethod:: __init__
+    .. automethod:: __eq__
+    .. automethod:: __ne__
+    .. automethod:: __hash__
+    """
+
     def __init__(self, tag):
+        """
+        :arg tag: One of the following:
+            :class:`~meshmode.mesh.BTAG_ALL`,
+            :class:`~meshmode.mesh.BTAG_NONE`,
+            :class:`~meshmode.mesh.BTAG_REALLY_ALL`,
+            :class:`~meshmode.mesh.BTAG_PARTITION`.
+        """
         self.tag = tag
 
     def __eq__(self, other):
@@ -68,8 +91,12 @@ class DTAG_BOUNDARY:        # noqa: N801
         return "<{}({})>".format(type(self).__name__, repr(self.tag))
 
 
-class QTAG_NONE:            # noqa: N801
-    pass
+class QTAG_NONE:
+    """A quadrature tag indicating the use of a
+    basic discretization grid. This tag is used
+    to distinguish the base discretization (`QTAG_NONE`)
+    from quadrature (e.g. overintegration) grids.
+    """
 
 
 class DOFDesc:
@@ -77,6 +104,8 @@ class DOFDesc:
 
     .. attribute:: domain_tag
     .. attribute:: quadrature_tag
+
+    .. automethod:: __init__
 
     .. automethod:: is_scalar
     .. automethod:: is_discretized
