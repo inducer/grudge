@@ -348,7 +348,9 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
-            return mass_matrix(in_grp)
+            return actx.freeze(
+                actx.from_numpy(mass_matrix(in_grp))
+            )
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
