@@ -35,6 +35,12 @@ from pymbolic.primitives import (
         make_common_subexpression as cse)
 from pymbolic.geometric_algebra import MultiVector
 
+# FIXME: Need to import these for backwards compatibility with
+# Mirgecom. Need to remove importing the following from
+# `grudge.symbolic.primitives` in https://github.com/illinois-ceesd/mirgecom
+from grudge.dof_desc import \
+    DOFDesc, as_dofdesc, DTAG_BOUNDARY, QTAG_NONE  # noqa: F401
+
 
 class ExpressionBase(prim.Expression):
     def make_stringifier(self, originating_stringifier=None):
