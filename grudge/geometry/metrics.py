@@ -13,7 +13,7 @@ from pytools.obj_array import make_obj_array
 from pytools import memoize_on_first_arg
 
 
-def forward_metric_nth_derivative(dcoll, xyz_axis, ref_axes, vec, dd=None):
+def forward_metric_nth_derivative(dcoll, ref_axes, vec, dd=None):
     r"""
     Pointwise metric derivatives representing repeated derivatives to *vec*
 
@@ -22,6 +22,14 @@ def forward_metric_nth_derivative(dcoll, xyz_axis, ref_axes, vec, dd=None):
         \frac{\partial^n x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{ref\_axes}}}
 
     where *ref_axes* is a multi-index description.
+
+    :arg ref_axes: a :class:`tuple` of tuples indicating indices of
+        coordinate axes of the reference element to the number of derivatives
+        which will be taken. For example, the value ``((0, 2), (1, 1))``
+        indicates taking the second derivative with respect to the first
+        axis and the first derivative with respect to the second
+        axis. Each axis must occur only once and the tuple must be sorted
+        by the axis index.
     """
     if dd is None:
         dd = DD_VOLUME
@@ -55,7 +63,7 @@ def forward_metric_nth_derivative(dcoll, xyz_axis, ref_axes, vec, dd=None):
 def forward_metric_derivative_vector(dcoll, rst_axis, vec, dd=None):
 
     return make_obj_array([
-        forward_metric_nth_derivative(dcoll, i, rst_axis, vec[i], dd=dd)
+        forward_metric_nth_derivative(dcoll, rst_axis, vec[i], dd=dd)
         for i in range(dcoll.ambient_dim)
         ]
     )
@@ -92,18 +100,17 @@ def _signed_face_ones(actx, dcoll, dd):
 
 def parametrization_derivative(actx, dcoll, vec, dd):
 
-    ambient_dim = dcoll.ambient_dim
     if dd.is_volume():
-        dim = ambient_dim
+        dim = dcoll.dim
     else:
-        dim = ambient_dim - 1
+        dim = dcoll.dim - 1
 
     if dim == 0:
         from pymbolic.geometric_algebra import get_euclidean_space
 
         return MultiVector(
             _signed_face_ones(actx, dcoll, dd),
-            space=get_euclidean_space(ambient_dim)
+            space=get_euclidean_space(dcoll.ambient_dim)
         )
 
     from pytools import product
