@@ -45,6 +45,7 @@ def simple_mpi_communication_entrypoint():
     actx = PyOpenCLArrayContext(queue)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    from meshmode.mesh import BTAG_ALL
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -76,8 +77,8 @@ def simple_mpi_communication_entrypoint():
     sym_int_faces_func = sym.cse(
         sym.project("vol", "int_faces")(sym.var("myfunc")))
     sym_bdry_faces_func = sym.cse(
-        sym.project(sym.BTAG_ALL, "all_faces")(
-            sym.project("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
+        sym.project(BTAG_ALL, "all_faces")(
+            sym.project("vol", BTAG_ALL)(sym.var("myfunc"))))
 
     bound_face_swap = bind(vol_discr,
         sym.project("int_faces", "all_faces")(

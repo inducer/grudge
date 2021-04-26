@@ -663,7 +663,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
                 for assignee in insn.get_assignees()}
 
     from pytools import partition
-    from grudge.symbolic.primitives import DTAG_SCALAR
+    from grudge.dof_desc import DTAG_SCALAR
 
     unprocessed_assigns, other_insns = partition(
             lambda insn: (
@@ -869,7 +869,7 @@ class ToLoopyExpressionMapper(mappers.IdentityMapper):
 
             self.expr_to_name[expr] = name
 
-        from grudge.symbolic.primitives import DTAG_SCALAR
+        from grudge.dof_desc import DTAG_SCALAR
         if dd.domain_tag == DTAG_SCALAR or name in self.temp_names:
             return var(name)
         else:

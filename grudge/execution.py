@@ -373,6 +373,8 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     def map_signed_face_ones(self, expr):
+        from grudge.dof_desc import DOFDesc, DD_VOLUME
+
         assert expr.dd.is_trace()
         face_discr = self.dcoll.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
@@ -380,8 +382,8 @@ class ExecutionMapper(mappers.Evaluator,
         # NOTE: ignore quadrature_tags on expr.dd, since we only care about
         # the face_id here
         all_faces_conn = self.dcoll.connection_from_dds(
-                sym.DD_VOLUME,
-                sym.DOFDesc(expr.dd.domain_tag))
+                DD_VOLUME,
+                DOFDesc(expr.dd.domain_tag))
 
         field = face_discr.empty(self.array_context, dtype=self.dcoll.real_dtype)
         for grp_ary in field:
