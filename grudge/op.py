@@ -367,6 +367,13 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
     area_elements = area_element(actx, dcoll, dd=dd_in)
 
     data = []
+    # FIXME: I think there is a bug in loopy's implementation
+    # of einsum; this code works when dispatching to numpy. But
+    # fails when using actx.einsum due to strides mismatch
+    # on the mass matrix... (error raised when attempting to
+    # invoke the loopy kernel)
+    # NOTE: This ONLY fails when in_grp != out_grp
+    # TODO: Need to debug the loopy program...?
     for in_grp, out_grp, ae_i, vec_i in zip(
         in_discr.groups, out_discr.groups, area_elements, vec):
 
