@@ -90,6 +90,14 @@ class DiscretizationCollection:
         self._volume_discr = Discretization(array_context, mesh,
                 self.group_factory_for_quadrature_tag(QTAG_NONE))
 
+        # Modal discr should always comes from the base discretization
+        self._modal_discr = Discretization(
+            array_context, mesh,
+            _generate_modal_group_factory(
+                self.group_factory_for_quadrature_tag(QTAG_NONE)
+            )
+        )
+
         # {{{ management of discretization-scoped common subexpressions
 
         from pytools import UniqueNameGenerator
@@ -260,16 +268,14 @@ class DiscretizationCollection:
         # {{{ mapping between modal and nodal representations
 
         if (from_dd.domain_tag is DTAG_MODAL
-                and to_dd.is_volume()
-                and from_dd.quadrature_tag == to_qtag):
+                and to_dd.is_volume()):
 
-            return self._modal_to_nodal_connection(from_dd.quadrature_tag)
+            return self._modal_to_nodal_connection(to_qtag)
 
         if (to_dd.domain_tag is DTAG_MODAL
-                and from_dd.is_volume()
-                and from_dd.quadrature_tag == to_qtag):
+                and from_dd.is_volume()):
 
-            return self._nodal_to_modal_connection(to_qtag)
+            return self._nodal_to_modal_connection(from_dd.quadrature_tag)
 
         # }}}
 
@@ -318,24 +324,16 @@ class DiscretizationCollection:
         return Discretization(self._setup_actx, self._volume_discr.mesh,
                 self.group_factory_for_quadrature_tag(quadrature_tag))
 
-    # {{{ modal
-
-    @memoize_method
-    def _modal_discr(self, quadrature_tag):
-        from meshmode.discretization import Discretization
-
-        # Modal discr should always comes from the base discretization
-        order = self.group_factory_for_quadrature_tag(QTAG_NONE).order
-        nodal_group_factory = \
-            self.group_factory_for_quadrature_tag(quadrature_tag)
-
-        return Discretization(
-            self._setup_actx, self._volume_discr.mesh,
-            _generate_modal_group_factory(nodal_group_factory, order)
-        )
+    # {{{ modal to nodal connections
 
     @memoize_method
     def _modal_to_nodal_connection(self, quadrature_tag):
+        """
+        :arg quadrature_tag: a quadrature tag corresponding
+            to the "from_discr", which is assumed to be
+            either the base discretization or a quadrature
+            grid.
+        """
         from meshmode.discretization.connection import \
             ModalToNodalDiscretizationConnection
 
@@ -345,12 +343,18 @@ class DiscretizationCollection:
             to_discr = self._volume_discr
 
         return ModalToNodalDiscretizationConnection(
-            from_discr=self._modal_discr(quadrature_tag),
+            from_discr=self._modal_discr,
             to_discr=to_discr
         )
 
     @memoize_method
     def _nodal_to_modal_connection(self, quadrature_tag):
+        """
+        :arg quadrature_tag: a quadrature tag corresponding
+            to the "to_discr", which is assumed to be
+            either the base discretization or a quadrature
+            grid.
+        """
         from meshmode.discretization.connection import \
             NodalToModalDiscretizationConnection
 
@@ -361,7 +365,7 @@ class DiscretizationCollection:
 
         return NodalToModalDiscretizationConnection(
             from_discr=from_discr,
-            to_discr=self._modal_discr(quadrature_tag)
+            to_discr=self._modal_discr
         )
 
     # }}}
@@ -472,13 +476,14 @@ class DGDiscretizationWithBoundaries(DiscretizationCollection):
         super().__init__(*args, **kwargs)
 
 
-def _generate_modal_group_factory(nodal_group_factory, order):
+def _generate_modal_group_factory(nodal_group_factory):
     from meshmode.discretization.poly_element import (
         ModalSimplexGroupFactory,
         ModalTensorProductGroupFactory
     )
     from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 
+    order = nodal_group_factory.order
     mesh_group_cls = nodal_group_factory.mesh_group_class
 
     if mesh_group_cls is SimplexElementGroup:
