@@ -29,7 +29,6 @@ from meshmode.discretization.poly_element import (
     # Simplex group factories
     InterpolatoryQuadratureSimplexGroupFactory,
     PolynomialWarpAndBlendGroupFactory,
-    PolynomialRecursiveNodesGroupFactory,
     PolynomialEquidistantSimplexGroupFactory,
     # Tensor product group factories
     LegendreGaussLobattoTensorProductGroupFactory,
@@ -90,3 +89,45 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     err = actx.np.linalg.norm(nodal_f - nodal_f_2)
 
     assert err <= 1e-13
+
+
+def test_inverse_modal_connections_quadgrid(actx_factory):
+    actx = actx_factory()
+    order = 5
+
+    def f(x):
+        return 1 + 2*x + 3*x**2
+
+    # Make a regular rectangle mesh
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(0, 0), b=(5, 3), npoints_per_axis=(10, 6), order=order,
+        group_cls=QuadratureSimplexGroupFactory.mesh_group_class
+    )
+
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        quad_tag_to_group_factory={
+            dof_desc.QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order),
+            "quad": QuadratureSimplexGroupFactory(2*order)
+        }
+    )
+
+    # Use dof descriptors on the quadrature grid
+    dd_modal = dof_desc.DOFDesc(dof_desc.DTAG_MODAL, "quad")
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, "quad")
+
+    x_quad = thaw(actx, dcoll.discr_from_dd(dd_quad).nodes()[0])
+    quad_f = f(x_quad)
+
+    # Map nodal coefficients of f to modal coefficients
+    forward_conn = dcoll.connection_from_dds(dd_quad, dd_modal)
+    modal_f = forward_conn(quad_f)
+    # Now map the modal coefficients back to nodal
+    backward_conn = dcoll.connection_from_dds(dd_modal, dd_quad)
+    quad_f_2 = backward_conn(modal_f)
+
+    # This error should be small since we composed a map with
+    # its inverse
+    err = actx.np.linalg.norm(quad_f - quad_f_2)
+
+    assert err <= 1e-11
