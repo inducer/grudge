@@ -382,11 +382,7 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
         from grudge.symbolic.operators import project
         result = project(inner_dd, dd)(result)
 
-    prefix = "dx%d_%s" % (
-            xyz_axis,
-            "_".join("%sr%d" % ("d" * n, rst_axis) for rst_axis, n in ref_axes))
-
-    return cse(result, prefix, cse_scope.DISCRETIZATION)
+    return result
 
 
 def forward_metric_derivative(xyz_axis, rst_axis, dd=None):
