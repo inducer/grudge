@@ -97,8 +97,6 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     f_quad = f(x_quad)
     ones_quad = quad_disc.zeros(actx) + 1
 
-    #mass_op = bind(discr, dof_desc.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
-
     mop = op.mass_operator(dcoll, dd_quad, f_quad)
     num_integral_1 = np.dot(
             actx.to_numpy(flatten(ones_volm)),

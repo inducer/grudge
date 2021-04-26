@@ -334,8 +334,9 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
+
             return actx.freeze(
-                actx.from_numpy(mass_matrix(in_grp))
+                actx.from_numpy(mass_matrix(out_grp))
             )
 
         from modepy import vandermonde
@@ -355,30 +356,59 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
 
 
 def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
+    from grudge.geometry import area_element
+
+    import numpy as np
+
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
-    area_elements = in_discr.zeros(actx)  # FIXME *cough*
-    return DOFArray(actx,
-            tuple(
-                actx.einsum("ij,ej,ej->ei",
-                    reference_mass_matrix(actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp),
-                    ae_i, vec_i,
-                    arg_names=("mass_mat", "jac_det", "vec"),
-                    tagged=(MassOperatorTag(),))
+    area_elements = area_element(actx, dcoll, dd=dd_in)
 
-                for in_grp, out_grp, ae_i, vec_i in zip(
-                    in_discr.groups, out_discr.groups,
-                    area_elements, vec)))
+    data = []
+    for in_grp, out_grp, ae_i, vec_i in zip(
+        in_discr.groups, out_discr.groups, area_elements, vec):
+
+        ref_mass = reference_mass_matrix(actx,
+                                         out_element_group=out_grp,
+                                         in_element_group=in_grp)
+        numpy_mass = actx.to_numpy(ref_mass)
+        numpy_aei = actx.to_numpy(ae_i)
+        numpy_veci = actx.to_numpy(vec_i)
+        result = np.einsum("ij,ej,ej->ei", numpy_mass, numpy_aei, numpy_veci)
+        # result = actx.einsum("ij,ej,ej->ei",
+        #                      ref_mass,
+        #                      ae_i,
+        #                      vec_i,
+        #                      arg_names=("mass_mat", "jac_det", "vec"),
+        #                      tagged=(MassOperatorTag(),))
+        data.append(actx.from_numpy(result))
+    #import pdb; pdb.set_trace()
+    return DOFArray(actx, data=tuple(data))
+    # return DOFArray(
+    #     actx,
+    #     tuple(actx.einsum("ij,ej,ej->ei",
+    #                       reference_mass_matrix(
+    #                           actx,
+    #                           out_element_group=out_grp,
+    #                           in_element_group=in_grp
+    #                       ),
+    #                       ae_i,
+    #                       vec_i,
+    #                       arg_names=("mass_mat", "jac_det", "vec"),
+    #                       tagged=(MassOperatorTag(),))
+
+    #           for in_grp, out_grp, ae_i, vec_i in zip(
+    #               in_discr.groups, out_discr.groups, area_elements, vec)
+    #     )
+    # )
 
 
 def mass_operator(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = sym.DOFDesc("vol", sym.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -389,12 +419,7 @@ def mass_operator(dcoll, *args):
             lambda el: mass_operator(dcoll, dd, el), vec
         )
 
-    dd_in = dd
-    del dd
-    from grudge.dof_desc import QTAG_NONE
-    dd_out = dd_in.with_qtag(QTAG_NONE)
-
-    return _apply_mass_operator(dcoll, dd_out, dd_in, vec)
+    return _apply_mass_operator(dcoll, dof_desc.DD_VOLUME, dd, vec)
 
 
 @memoize_on_first_arg
