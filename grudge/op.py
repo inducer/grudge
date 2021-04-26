@@ -336,7 +336,12 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
             from meshmode.discretization.poly_element import mass_matrix
 
             return actx.freeze(
-                actx.from_numpy(mass_matrix(out_grp))
+                actx.from_numpy(
+                    np.asarray(
+                        mass_matrix(out_grp),
+                        order="C"
+                    )
+                )
             )
 
         from modepy import vandermonde
@@ -348,7 +353,10 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
         weights = in_grp.quadrature_rule().weights
         return actx.freeze(
             actx.from_numpy(
-                np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
+                np.asarray(
+                    np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                    order="C"
+                )
             )
         )
 
@@ -374,10 +382,7 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
                           ae_i,
                           vec_i,
                           arg_names=("mass_mat", "jac_det", "vec"),
-                          tagged=(MassOperatorTag(),),
-                          tagged_array_axes={
-                              "mass_mat": "stride:auto,stride:auto"
-                           })
+                          tagged=(MassOperatorTag(),))
 
               for in_grp, out_grp, ae_i, vec_i in zip(
                   in_discr.groups, out_discr.groups, area_elements, vec)
@@ -426,7 +431,10 @@ def reference_inverse_mass_matrix(actx, element_group):
 
         return actx.freeze(
             actx.from_numpy(
-                inverse_mass_matrix(basis.functions, grp.unit_nodes)
+                np.asarray(
+                    inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                    order="C"
+                )
             )
         )
 
@@ -449,6 +457,7 @@ def _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec):
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in)
     if use_wadg:
         # FIXME: This feels just wrong; can't we be smarter here?
+        # NOTE: Could just write a loopy program directly
         return DOFArray(
             actx,
             tuple(actx.einsum("ik,km,em,mj,ej->ei",
@@ -488,10 +497,7 @@ def _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec):
                             iae_i,
                             vec_i,
                             arg_names=("mass_inv_mat", "jac_det_inv", "vec"),
-                            tagged=(MassOperatorTag(),),
-                            tagged_array_axes={
-                                "mass_inv_mat": "stride:auto,stride:auto"
-                            })
+                            tagged=(MassOperatorTag(),))
 
                 for grp, iae_i, vec_i in zip(discr.groups, inv_area_elements, vec)
             )
