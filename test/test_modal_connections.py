@@ -113,7 +113,7 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     )
 
     # Use dof descriptors on the quadrature grid
-    dd_modal = dof_desc.DOFDesc(dof_desc.DTAG_MODAL, "quad")
+    dd_modal = dof_desc.DD_MODAL
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, "quad")
 
     x_quad = thaw(actx, dcoll.discr_from_dd(dd_quad).nodes()[0])
