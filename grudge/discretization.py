@@ -179,7 +179,7 @@ class DiscretizationCollection:
             return self._volume_discr
 
         if dd.is_modal():
-            return self._modal_discr(qtag)
+            return self._modal_discr
 
         if qtag is not QTAG_NONE:
             no_quad_discr = self.discr_from_dd(DOFDesc(dd.domain_tag))
