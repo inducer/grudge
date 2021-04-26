@@ -50,8 +50,8 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [dof_desc.QTAG_NONE, "OVSMP"])
 def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
-    """Check the integral of some trig functions on an interval using the mass
-    matrix.
+    """Check the integral of some trig functions on an interval
+    using the mass matrix.
     """
     actx = actx_factory()
 
@@ -97,24 +97,19 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     f_quad = f(x_quad)
     ones_quad = quad_disc.zeros(actx) + 1
 
-    mop = op.mass_operator(dcoll, dd_quad, f_quad)
-    num_integral_1 = np.dot(
-            actx.to_numpy(flatten(ones_volm)),
-            actx.to_numpy(flatten(mop)))
+    mop_1 = op.mass_operator(dcoll, dd_quad, f_quad)
+    num_integral_1 = np.dot(actx.to_numpy(flatten(ones_volm)),
+                            actx.to_numpy(flatten(mop_1)))
+
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 1e-9, err_1
 
-    # num_integral_2 = np.dot(f_volm, actx.to_numpy(flatten(mass_op(f=ones_quad))))
-    # err_2 = abs(num_integral_2 - true_integral)
-    # assert err_2 < 1.0e-9, err_2
+    mop_2 = op.mass_operator(dcoll, dd_quad, ones_quad)
+    num_integral_2 = np.dot(actx.to_numpy(flatten(f_volm)),
+                            actx.to_numpy(flatten(mop_2)))
 
-    # if quad_tag is dof_desc.QTAG_NONE:
-    #     # NOTE: `integral` always makes a square mass matrix and
-    #     # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-    #     num_integral_3 = bind(discr,
-    #             dof_desc.integral(sym_f, dd=dd_quad))(f=f_quad)
-    #     err_3 = abs(num_integral_3 - true_integral)
-    #     assert err_3 < 5.0e-10, err_3
+    err_2 = abs(num_integral_2 - true_integral)
+    assert err_2 < 1.0e-9, err_2
 
 # }}}
 
