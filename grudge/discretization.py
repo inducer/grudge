@@ -83,11 +83,6 @@ class DiscretizationCollection:
                 quad_tag_to_group_factory[QTAG_NONE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
 
-        self.quad_tag_to_modal_group_factory = {
-            qtag: _generate_modal_group_factory(grpf)
-            for (qtag, grpf) in quad_tag_to_group_factory.items()
-        }
-
         self.quad_tag_to_group_factory = quad_tag_to_group_factory
 
         from meshmode.discretization import Discretization
@@ -329,9 +324,14 @@ class DiscretizationCollection:
     def _modal_discr(self, quadrature_tag):
         from meshmode.discretization import Discretization
 
+        # Modal discr should always comes from the base discretization
+        order = self.group_factory_for_quadrature_tag(QTAG_NONE).order
+        nodal_group_factory = \
+            self.group_factory_for_quadrature_tag(quadrature_tag)
+
         return Discretization(
             self._setup_actx, self._volume_discr.mesh,
-            self.quad_tag_to_modal_group_factory[quadrature_tag]
+            _generate_modal_group_factory(nodal_group_factory, order)
         )
 
     @memoize_method
@@ -472,14 +472,13 @@ class DGDiscretizationWithBoundaries(DiscretizationCollection):
         super().__init__(*args, **kwargs)
 
 
-def _generate_modal_group_factory(nodal_group_factory):
+def _generate_modal_group_factory(nodal_group_factory, order):
     from meshmode.discretization.poly_element import (
         ModalSimplexGroupFactory,
         ModalTensorProductGroupFactory
     )
     from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 
-    order = nodal_group_factory.order
     mesh_group_cls = nodal_group_factory.mesh_group_class
 
     if mesh_group_cls is SimplexElementGroup:
