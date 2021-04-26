@@ -35,7 +35,7 @@ import meshmode.mesh.generation as mgen
 from pytools.obj_array import flat_obj_array, make_obj_array
 import grudge.op as op
 
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, sym, bind
 import grudge.dof_desc as dof_desc
 
 import pytest
@@ -45,7 +45,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# {{{ mass operator trig integration
+# {{{ mass operator
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("quad_tag", [dof_desc.QTAG_NONE, "OVSMP"])
@@ -110,6 +110,104 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
 
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 1.0e-9, err_2
+
+# }}}
+
+
+# {{{ mass operator on surface
+
+def _ellipse_surface_area(radius, aspect_ratio):
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
+    eccentricity = 1.0 - (1/aspect_ratio)**2
+
+    if abs(aspect_ratio - 2.0) < 1.0e-14:
+        # NOTE: hardcoded value so we don't need scipy for the test
+        ellip_e = 1.2110560275684594
+    else:
+        from scipy.special import ellipe        # pylint: disable=no-name-in-module
+        ellip_e = ellipe(eccentricity)
+
+    return 4.0 * radius * ellip_e
+
+
+def _spheroid_surface_area(radius, aspect_ratio):
+    # https://en.wikipedia.org/wiki/Ellipsoid#Surface_area
+    a = 1.0
+    c = aspect_ratio
+
+    if a < c:
+        e = np.sqrt(1.0 - (a/c)**2)
+        return 2.0 * np.pi * radius**2 * (1.0 + (c/a) / e * np.arcsin(e))
+    else:
+        e = np.sqrt(1.0 - (c/a)**2)
+        return 2.0 * np.pi * radius**2 * (1 + (c/a)**2 / e * np.arctanh(e))
+
+
+@pytest.mark.parametrize("name", [
+    "2-1-ellipse", "spheroid", "box2d", "box3d"
+    ])
+def test_mass_surface_area(actx_factory, name):
+    actx = actx_factory()
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+        surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
+    elif name == "box2d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=2)
+        surface_area = 1.0
+    elif name == "box3d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=3)
+        surface_area = 1.0
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+
+        logger.info("ndofs:     %d", volume_discr.ndofs)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+
+        # {{{ compute surface area
+
+        dd = dof_desc.DD_VOLUME
+        ones_volm = volume_discr.zeros(actx) + 1
+        mass_weights = op.mass_operator(dcoll, dd, ones_volm)
+        approx_surface_area = np.dot(actx.to_numpy(flatten(ones_volm)),
+                                     actx.to_numpy(flatten(mass_weights)))
+
+        logger.info("surface: got {:.5e} / expected {:.5e}".format(
+            approx_surface_area, surface_area))
+        area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
+
+        # }}}
+
+        h_max = bind(dcoll, sym.h_max_from_volume(dcoll.ambient_dim,
+                                                  dim=dcoll.dim, dd=dd))(actx)
+        eoc.add_data_point(h_max, area_error)
+
+    # }}}
+
+    logger.info("surface area error\n%s", str(eoc))
+
+    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
 
 # }}}
 
