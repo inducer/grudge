@@ -358,58 +358,31 @@ def reference_mass_matrix(actx, out_element_group, in_element_group):
 def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
     from grudge.geometry import area_element
 
-    import numpy as np
-
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
+    return DOFArray(
+        actx,
+        tuple(actx.einsum("ij,ej,ej->ei",
+                          reference_mass_matrix(
+                              actx,
+                              out_element_group=out_grp,
+                              in_element_group=in_grp
+                          ),
+                          ae_i,
+                          vec_i,
+                          arg_names=("mass_mat", "jac_det", "vec"),
+                          tagged=(MassOperatorTag(),),
+                          tagged_array_axes={
+                              "mass_mat": "stride:auto,stride:auto"
+                           })
 
-    data = []
-    # FIXME: I think there is a bug in loopy's implementation
-    # of einsum; this code works when dispatching to numpy. But
-    # fails when using actx.einsum due to strides mismatch
-    # on the mass matrix... (error raised when attempting to
-    # invoke the loopy kernel)
-    # NOTE: This ONLY fails when in_grp != out_grp
-    # TODO: Need to debug the loopy program...?
-    for in_grp, out_grp, ae_i, vec_i in zip(
-        in_discr.groups, out_discr.groups, area_elements, vec):
-
-        ref_mass = reference_mass_matrix(actx,
-                                         out_element_group=out_grp,
-                                         in_element_group=in_grp)
-        numpy_mass = actx.to_numpy(ref_mass)
-        numpy_aei = actx.to_numpy(ae_i)
-        numpy_veci = actx.to_numpy(vec_i)
-        result = np.einsum("ij,ej,ej->ei", numpy_mass, numpy_aei, numpy_veci)
-        # result = actx.einsum("ij,ej,ej->ei",
-        #                      ref_mass,
-        #                      ae_i,
-        #                      vec_i,
-        #                      arg_names=("mass_mat", "jac_det", "vec"),
-        #                      tagged=(MassOperatorTag(),))
-        data.append(actx.from_numpy(result))
-    #import pdb; pdb.set_trace()
-    return DOFArray(actx, data=tuple(data))
-    # return DOFArray(
-    #     actx,
-    #     tuple(actx.einsum("ij,ej,ej->ei",
-    #                       reference_mass_matrix(
-    #                           actx,
-    #                           out_element_group=out_grp,
-    #                           in_element_group=in_grp
-    #                       ),
-    #                       ae_i,
-    #                       vec_i,
-    #                       arg_names=("mass_mat", "jac_det", "vec"),
-    #                       tagged=(MassOperatorTag(),))
-
-    #           for in_grp, out_grp, ae_i, vec_i in zip(
-    #               in_discr.groups, out_discr.groups, area_elements, vec)
-    #     )
-    # )
+              for in_grp, out_grp, ae_i, vec_i in zip(
+                  in_discr.groups, out_discr.groups, area_elements, vec)
+        )
+    )
 
 
 def mass_operator(dcoll, *args):
