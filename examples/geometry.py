@@ -35,10 +35,9 @@ def main(write_output=True):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
 
-    from meshmode.mesh.generation import generate_warped_rect_mesh
     from meshmode.mesh import BTAG_ALL
-
-    mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
+    from meshmode.mesh.generation import generate_warped_rect_mesh
+    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
 
     discr = DiscretizationCollection(actx, mesh, order=4)
 
