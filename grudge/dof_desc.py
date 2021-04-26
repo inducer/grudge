@@ -34,9 +34,9 @@ from meshmode.mesh import \
 __doc__ = """
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
-.. autoclass:: DTAG_MODAL
 .. autoclass:: DTAG_BOUNDARY
 .. autoclass:: QTAG_NONE
+.. autoclass:: QTAG_MODAL
 
 .. autoclass:: DOFDesc
 .. autofunction:: as_dofdesc
@@ -57,13 +57,6 @@ class DTAG_VOLUME_ALL:  # noqa: N801
     """
     A tag denoting degrees of freedom defined
     in all cell volumes.
-    """
-
-
-class DTAG_MODAL:  # noqa: N801
-    """
-    A tag denoting modal (rather than nodal)
-    degrees of freedom on cell volumes.
     """
 
 
@@ -111,6 +104,16 @@ class QTAG_NONE:  # noqa: N801
     """
 
 
+class QTAG_MODAL:  # noqa: N801
+    """A quadrature tag indicating the use of a
+    basic discretization grid with modal degrees of
+    freedom. This tag is used to distinguish the
+    modal discretization (`QTAG_MODAL`) from
+    the base (nodal) discretization (e.g. `QTAG_NONE`)
+    or discretizations on quadrature grids.
+    """
+
+
 class DOFDesc:
     """Describes the meaning of degrees of freedom.
 
@@ -122,7 +125,6 @@ class DOFDesc:
     .. automethod:: is_scalar
     .. automethod:: is_discretized
     .. automethod:: is_volume
-    .. automethod:: is_modal
     .. automethod:: is_boundary_or_partition_interface
     .. automethod:: is_trace
 
@@ -142,8 +144,6 @@ class DOFDesc:
             :class:`DTAG_SCALAR` (or the string ``"scalar"``),
             :class:`DTAG_VOLUME_ALL` (or the string ``"vol"``)
             for the default volume discretization,
-            :class:`DTAG_MODAL` (or the string ``"modal"``),
-            for denoting modal coefficients,
             :data:`~meshmode.discretization.connection.FACE_RESTR_ALL`
             (or the string ``"all_faces"``), or
             :data:`~meshmode.discretization.connection.FACE_RESTR_INTERIOR`
@@ -167,8 +167,6 @@ class DOFDesc:
             domain_tag = DTAG_SCALAR
         elif domain_tag in [DTAG_VOLUME_ALL, "vol"]:
             domain_tag = DTAG_VOLUME_ALL
-        elif domain_tag in [DTAG_MODAL, "modal"]:
-            domain_tag = DTAG_MODAL
         elif domain_tag in [FACE_RESTR_ALL, "all_faces"]:
             domain_tag = FACE_RESTR_ALL
         elif domain_tag in [FACE_RESTR_INTERIOR, "int_faces"]:
@@ -199,9 +197,6 @@ class DOFDesc:
 
     def is_volume(self):
         return self.domain_tag is DTAG_VOLUME_ALL
-
-    def is_modal(self):
-        return self.domain_tag is DTAG_MODAL
 
     def is_boundary_or_partition_interface(self):
         return isinstance(self.domain_tag, DTAG_BOUNDARY)
@@ -253,7 +248,7 @@ DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
 
 DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
 
-DD_MODAL = DOFDesc(DTAG_MODAL, None)
+DD_MODAL = DOFDesc(DTAG_VOLUME_ALL, QTAG_MODAL)
 
 
 def as_dofdesc(dd):
