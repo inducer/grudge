@@ -212,4 +212,68 @@ def test_mass_surface_area(actx_factory, name):
 # }}}
 
 
+# {{{ mass inverse on surfaces
+
+@pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
+def test_surface_mass_operator_inverse(actx_factory, name):
+    actx = actx_factory()
+
+    # {{{ cases
+
+    if name == "2-1-ellipse":
+        from mesh_data import EllipseMeshBuilder
+        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+    elif name == "spheroid":
+        from mesh_data import SpheroidMeshBuilder
+        builder = SpheroidMeshBuilder()
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    # {{{ convergence
+
+    from pytools.convergence import EOCRecorder
+    eoc = EOCRecorder()
+
+    for resolution in builder.resolutions:
+        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+
+        logger.info("ndofs:     %d", volume_discr.ndofs)
+        logger.info("nelements: %d", volume_discr.mesh.nelements)
+
+        # {{{ compute inverse mass
+
+        def f(x):
+            return actx.np.cos(4.0 * x[0])
+
+        dd = dof_desc.DD_VOLUME
+        x_volm = thaw(actx, volume_discr.nodes())
+        f_volm = f(x_volm)
+
+        res = op.inverse_mass_operator(
+            dcoll, op.mass_operator(dcoll, dd, f_volm)
+        )
+
+        # }}}
+
+        inv_error = bind(dcoll,
+                sym.norm(2, sym.var("x") - sym.var("y"))
+                / sym.norm(2, sym.var("y")))(actx, x=res, y=f_volm)
+
+        h_max = bind(dcoll, sym.h_max_from_volume(
+            dcoll.ambient_dim, dim=dcoll.dim, dd=dd))(actx)
+        eoc.add_data_point(h_max, inv_error)
+
+    # }}}
+
+    logger.info("inverse mass error\n%s", str(eoc))
+
+    assert eoc.max_error() < 1.0e-14
+
+# }}}
+
+
 # vim: foldmethod=marker
