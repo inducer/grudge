@@ -261,6 +261,7 @@ class DiscretizationCollection:
 
         # {{{ generic to-quad
 
+        # QTAG_MODAL is handled above
         if (from_dd.domain_tag == to_dd.domain_tag
                 and from_qtag is QTAG_NONE
                 and to_qtag is not QTAG_NONE):
