@@ -57,7 +57,7 @@ def simple_mpi_communication_entrypoint():
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-1,)*2,
                                           b=(1,)*2,
-                                          n=(3,)*2)
+                                          nelements_per_axis=(2,)*2)
 
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 
@@ -119,7 +119,7 @@ def mpi_communication_entrypoint():
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim,
                                           b=(0.5,)*dim,
-                                          n=(16,)*dim)
+                                          nelements_per_axis=(16,)*dim)
 
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 

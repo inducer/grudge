@@ -134,7 +134,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(0,)*dim, b=(d,)*dim,
-            n=(npoints,)*dim,
+            npoints_per_axis=(npoints,)*dim,
             order=order)
 
     from meshmode.discretization.poly_element import \
