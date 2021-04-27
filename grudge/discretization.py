@@ -21,7 +21,8 @@ THE SOFTWARE.
 """
 
 from pytools import memoize_method
-from grudge.dof_desc import QTAG_NONE, DTAG_BOUNDARY, DOFDesc, as_dofdesc
+from grudge.dof_desc import \
+    QTAG_NONE, QTAG_MODAL, DTAG_BOUNDARY, DOFDesc, as_dofdesc
 import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
 from meshmode.discretization.connection import \
@@ -81,6 +82,12 @@ class DiscretizationCollection:
 
                 quad_tag_to_group_factory[QTAG_NONE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
+
+        # Modal discr should always comes from the base discretization
+        quad_tag_to_group_factory[QTAG_MODAL] = \
+            _generate_modal_group_factory(
+                quad_tag_to_group_factory[QTAG_NONE]
+            )
 
         self.quad_tag_to_group_factory = quad_tag_to_group_factory
 
@@ -164,6 +171,9 @@ class DiscretizationCollection:
 
         qtag = dd.quadrature_tag
 
+        if qtag is QTAG_MODAL:
+            return self._modal_discr(dd.domain_tag)
+
         if dd.is_volume():
             if qtag is not QTAG_NONE:
                 return self._quad_volume_discr(qtag)
@@ -195,10 +205,23 @@ class DiscretizationCollection:
         to_dd = as_dofdesc(to_dd)
 
         to_qtag = to_dd.quadrature_tag
+        from_qtag = from_dd.quadrature_tag
+
+        # {{{ mapping between modal and nodal representations
+
+        if (from_qtag is QTAG_MODAL and to_qtag is not QTAG_MODAL):
+            return self._modal_to_nodal_connection(to_dd)
+
+        if (to_qtag is QTAG_MODAL and from_qtag is not QTAG_MODAL):
+            return self._nodal_to_modal_connection(from_dd)
+
+        # }}}
+
+        assert (to_qtag is not QTAG_MODAL and from_qtag is not QTAG_MODAL)
 
         if (
                 not from_dd.is_volume()
-                and from_dd.quadrature_tag == to_dd.quadrature_tag
+                and from_qtag == to_qtag
                 and to_dd.domain_tag is FACE_RESTR_ALL):
             faces_conn = self.connection_from_dds(
                     DOFDesc("vol"),
@@ -214,10 +237,9 @@ class DiscretizationCollection:
 
         # {{{ simplify domain + qtag change into chained
 
-        if (
-                from_dd.domain_tag != to_dd.domain_tag
-                and from_dd.quadrature_tag is QTAG_NONE
-                and to_dd.quadrature_tag is not QTAG_NONE):
+        if (from_dd.domain_tag != to_dd.domain_tag
+                and from_qtag is QTAG_NONE
+                and to_qtag is not QTAG_NONE):
 
             from meshmode.discretization.connection import \
                     ChainedDiscretizationConnection
@@ -239,10 +261,11 @@ class DiscretizationCollection:
 
         # {{{ generic to-quad
 
-        if (
-                from_dd.domain_tag == to_dd.domain_tag
-                and from_dd.quadrature_tag is QTAG_NONE
-                and to_dd.quadrature_tag is not QTAG_NONE):
+        # QTAG_MODAL is handled above
+        if (from_dd.domain_tag == to_dd.domain_tag
+                and from_qtag is QTAG_NONE
+                and to_qtag is not QTAG_NONE):
+
             from meshmode.discretization.connection.same_mesh import \
                     make_same_mesh_connection
 
@@ -253,7 +276,7 @@ class DiscretizationCollection:
 
         # }}}
 
-        if from_dd.quadrature_tag is not QTAG_NONE:
+        if from_qtag is not QTAG_NONE:
             raise ValueError("cannot interpolate *from* a "
                     "(non-interpolatory) quadrature grid")
 
@@ -265,12 +288,12 @@ class DiscretizationCollection:
             if to_dd.domain_tag is FACE_RESTR_INTERIOR:
                 return self._interior_faces_connection()
             elif to_dd.is_boundary_or_partition_interface():
-                assert from_dd.quadrature_tag is QTAG_NONE
+                assert from_qtag is QTAG_NONE
                 return self._boundary_connection(to_dd.domain_tag.tag)
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import \
                         make_same_mesh_connection
-                to_discr = self._quad_volume_discr(to_dd.quadrature_tag)
+                to_discr = self._quad_volume_discr(to_qtag)
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(self._setup_actx, to_discr,
                             from_discr)
@@ -297,6 +320,50 @@ class DiscretizationCollection:
 
         return Discretization(self._setup_actx, self._volume_discr.mesh,
                 self.group_factory_for_quadrature_tag(quadrature_tag))
+
+    # {{{ modal to nodal connections
+
+    @memoize_method
+    def _modal_discr(self, domain_tag):
+        from meshmode.discretization import Discretization
+
+        discr_base = self.discr_from_dd(DOFDesc(domain_tag, QTAG_NONE))
+        return Discretization(
+            self._setup_actx, discr_base.mesh,
+            self.group_factory_for_quadrature_tag(QTAG_MODAL)
+        )
+
+    @memoize_method
+    def _modal_to_nodal_connection(self, to_dd):
+        """
+        :arg to_dd: a :class:`grudge.dof_desc.DOFDesc`
+            describing the dofs corresponding to the
+            *to_discr*
+        """
+        from meshmode.discretization.connection import \
+            ModalToNodalDiscretizationConnection
+
+        return ModalToNodalDiscretizationConnection(
+            from_discr=self._modal_discr(to_dd.domain_tag),
+            to_discr=self.discr_from_dd(to_dd)
+        )
+
+    @memoize_method
+    def _nodal_to_modal_connection(self, from_dd):
+        """
+        :arg from_dd: a :class:`grudge.dof_desc.DOFDesc`
+            describing the dofs corresponding to the
+            *from_discr*
+        """
+        from meshmode.discretization.connection import \
+            NodalToModalDiscretizationConnection
+
+        return NodalToModalDiscretizationConnection(
+            from_discr=self.discr_from_dd(from_dd),
+            to_discr=self._modal_discr(from_dd.domain_tag)
+        )
+
+    # }}}
 
     # {{{ boundary
 
@@ -402,5 +469,25 @@ class DGDiscretizationWithBoundaries(DiscretizationCollection):
                 DeprecationWarning, stacklevel=2)
 
         super().__init__(*args, **kwargs)
+
+
+def _generate_modal_group_factory(nodal_group_factory):
+    from meshmode.discretization.poly_element import (
+        ModalSimplexGroupFactory,
+        ModalTensorProductGroupFactory
+    )
+    from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+
+    order = nodal_group_factory.order
+    mesh_group_cls = nodal_group_factory.mesh_group_class
+
+    if mesh_group_cls is SimplexElementGroup:
+        return ModalSimplexGroupFactory(order=order)
+    elif mesh_group_cls is TensorProductElementGroup:
+        return ModalTensorProductGroupFactory(order=order)
+    else:
+        raise ValueError(
+            f"Unknown mesh element group: {mesh_group_cls}"
+        )
 
 # vim: foldmethod=marker

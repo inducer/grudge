@@ -36,12 +36,14 @@ __doc__ = """
 .. autoclass:: DTAG_VOLUME_ALL
 .. autoclass:: DTAG_BOUNDARY
 .. autoclass:: QTAG_NONE
+.. autoclass:: QTAG_MODAL
 
 .. autoclass:: DOFDesc
 .. autofunction:: as_dofdesc
 
 .. data:: DD_SCALAR
 .. data:: DD_VOLUME
+.. data:: DD_VOLUME_MODAL
 """
 
 
@@ -99,6 +101,16 @@ class QTAG_NONE:  # noqa: N801
     basic discretization grid. This tag is used
     to distinguish the base discretization (`QTAG_NONE`)
     from quadrature (e.g. overintegration) grids.
+    """
+
+
+class QTAG_MODAL:  # noqa: N801
+    """A quadrature tag indicating the use of a
+    basic discretization grid with modal degrees of
+    freedom. This tag is used to distinguish the
+    modal discretization (`QTAG_MODAL`) from
+    the base (nodal) discretization (e.g. `QTAG_NONE`)
+    or discretizations on quadrature grids.
     """
 
 
@@ -235,6 +247,8 @@ class DOFDesc:
 DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
 
 DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
+
+DD_VOLUME_MODAL = DOFDesc(DTAG_VOLUME_ALL, QTAG_MODAL)
 
 
 def as_dofdesc(dd):
