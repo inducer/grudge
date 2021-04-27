@@ -246,7 +246,7 @@ class DOFDesc:
         warn("`DOFDesc.with_qtag` is deprecated and will be dropped "
              "in version 2022.x. Use `DOFDesc.with_discr_tag` instead.",
              DeprecationWarning, stacklevel=2)
-        return self.with_discr_tag(self, discr_tag)
+        return self.with_discr_tag(discr_tag)
 
     def with_discr_tag(self, discr_tag):
         return type(self)(domain_tag=self.domain_tag,
