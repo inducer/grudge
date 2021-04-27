@@ -90,14 +90,12 @@ class DiscretizationCollection:
                         PolynomialWarpAndBlendGroupFactory(order=order)
 
         # FIXME: QTAG_NONE hunting
-        if QTAG_NONE in quad_tag_to_group_factory.keys():
+        if QTAG_NONE in quad_tag_to_group_factory:
             warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
                  "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
                  DeprecationWarning, stacklevel=2)
-            # Is this too aggressive/invasive?
             quad_tag_to_group_factory[DISCR_TAG_BASE] = \
                 quad_tag_to_group_factory[QTAG_NONE]
-            del quad_tag_to_group_factory[QTAG_NONE]
 
         # Modal discr should always comes from the base discretization
         quad_tag_to_group_factory[DISCR_TAG_MODAL] = \
