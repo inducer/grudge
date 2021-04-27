@@ -575,10 +575,7 @@ def pseudoscalar(ambient_dim, dim=None, dd=None):
     if dim is None:
         dim = ambient_dim
 
-    return cse(
-        parametrization_derivative(ambient_dim, dim, dd=dd)
-        .project_max_grade(),
-        "pseudoscalar", cse_scope.DISCRETIZATION)
+    return parametrization_derivative(ambient_dim, dim, dd=dd).project_max_grade()
 
 
 def area_element(ambient_dim, dim=None, dd=None):
