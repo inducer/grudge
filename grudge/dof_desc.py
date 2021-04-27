@@ -43,7 +43,7 @@ __doc__ = """
 
 .. data:: DD_SCALAR
 .. data:: DD_VOLUME
-.. data:: DD_MODAL
+.. data:: DD_VOLUME_MODAL
 """
 
 
