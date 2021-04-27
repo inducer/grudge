@@ -39,7 +39,7 @@ from pymbolic.geometric_algebra import MultiVector
 # Mirgecom. Need to remove importing the following from
 # `grudge.symbolic.primitives` in https://github.com/illinois-ceesd/mirgecom
 from grudge.dof_desc import \
-    DOFDesc, as_dofdesc, DTAG_BOUNDARY, QTAG_NONE  # noqa: F401
+    DOFDesc, as_dofdesc, DTAG_BOUNDARY, DISCR_TAG_BASE, QTAG_NONE  # noqa: F401
 
 
 class ExpressionBase(prim.Expression):
@@ -368,7 +368,7 @@ def forward_metric_nth_derivative(xyz_axis, ref_axes, dd=None):
 
     if dd is None:
         dd = dof_desc.DD_VOLUME
-    inner_dd = dd.with_qtag(dof_desc.QTAG_NONE)
+    inner_dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
     from pytools import flatten
     flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)

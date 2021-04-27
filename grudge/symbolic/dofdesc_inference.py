@@ -26,7 +26,8 @@ THE SOFTWARE.
 
 
 from pymbolic.mapper import RecursiveMapper, CSECachingMapperMixin
-from grudge.dof_desc import DOFDesc, DTAG_SCALAR
+from grudge.dof_desc import DOFDesc, DTAG_SCALAR, QTAG_NONE, DISCR_TAG_BASE
+from warnings import warn
 
 
 def unify_dofdescs(dd_a, dd_b, expr=None):
@@ -46,6 +47,20 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
             return dd_a
         else:
             raise ValueError("mismatched domain tags " + loc_str)
+
+    # FIXME: QTAG_NONE hunting
+    if dd_a.discretization_tag is QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd_a = dd_a.with_discr_tag(DISCR_TAG_BASE)
+
+    # FIXME: QTAG_NONE hunting
+    if dd_b.discretization_tag is QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd_b = dd_b.with_discr_tag(DISCR_TAG_BASE)
 
     # domain tags match
     if dd_a.quadrature_tag != dd_b.quadrature_tag:

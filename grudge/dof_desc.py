@@ -176,7 +176,7 @@ class DOFDesc:
             :class:`DISCR_TAG_BASE` to indicate the use of the basic
             discretization grid, :class:`DISCR_TAG_MODAL` to indicate a
             modal discretization, or :class:`DISCR_TAG_QUAD` or a string
-            to indicate the use of the thus-tagged quadratue grid.
+            to indicate the use of the thus-tagged quadrature grid.
         """
 
         if domain_tag is None:

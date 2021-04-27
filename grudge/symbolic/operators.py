@@ -26,6 +26,8 @@ import numpy as np
 import pymbolic.primitives
 
 from typing import Tuple
+from warnings import warn
+
 
 __doc__ = """
 
@@ -103,8 +105,25 @@ class Operator(pymbolic.primitives.Expression):
 
     def __init__(self, dd_in, dd_out):
         import grudge.dof_desc as dof_desc
-        self.dd_in = dof_desc.as_dofdesc(dd_in)
-        self.dd_out = dof_desc.as_dofdesc(dd_out)
+        dd_in = dof_desc.as_dofdesc(dd_in)
+        dd_out = dof_desc.as_dofdesc(dd_out)
+
+        # FIXME: QTAG_NONE hunting
+        if dd_in.discretization_tag is dof_desc.QTAG_NONE:
+            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+                 DeprecationWarning, stacklevel=2)
+            dd_in = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
+        # FIXME: QTAG_NONE hunting
+        if dd_out.discretization_tag is dof_desc.QTAG_NONE:
+            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+                 DeprecationWarning, stacklevel=2)
+            dd_out = dd_out.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
+        self.dd_in = dd_in
+        self.dd_out = dd_out
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -264,7 +283,7 @@ class DiffOperatorBase(Operator):
             dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
         else:
             dd_out = dof_desc.as_dofdesc(dd_out)
 
@@ -322,7 +341,7 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
             dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -633,7 +652,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
             dd_in = dof_desc.DOFDesc(FACE_RESTR_ALL, None)
 
         if dd_out is None or dd_out == "vol":
-            dd_out = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+            dd_out = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
@@ -766,6 +785,13 @@ def integral(arg, dd=None):
         dd = dof_desc.DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
 
+    # FIXME: QTAG_NONE hunting
+    if dd.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
     return NodalSum(dd)(
             arg * prim.cse(
                 MassOperator(dd_in=dd, dd_out=dd)(prim.Ones(dd)),
@@ -783,6 +809,13 @@ def norm(p, arg, dd=None):
     if dd is None:
         dd = dof_desc.DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
+
+    # FIXME: QTAG_NONE hunting
+    if dd.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
@@ -825,6 +858,13 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
         dd = dof_desc.DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
 
+    # FIXME: QTAG_NONE hunting
+    if dd.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
     if dim is None:
         dim = ambient_dim
 
@@ -847,6 +887,13 @@ def h_min_from_volume(ambient_dim, dim=None, dd=None):
     if dd is None:
         dd = dof_desc.DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
+
+    # FIXME: QTAG_NONE hunting
+    if dd.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
     if dim is None:
         dim = ambient_dim
