@@ -172,7 +172,7 @@ class DiscretizationCollection:
         qtag = dd.quadrature_tag
 
         if qtag is QTAG_MODAL:
-            return self._modal_discr(dd)
+            return self._modal_discr(dd.domain_tag)
 
         if dd.is_volume():
             if qtag is not QTAG_NONE:
