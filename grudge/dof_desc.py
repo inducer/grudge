@@ -35,8 +35,10 @@ __doc__ = """
 .. autoclass:: DTAG_SCALAR
 .. autoclass:: DTAG_VOLUME_ALL
 .. autoclass:: DTAG_BOUNDARY
-.. autoclass:: QTAG_NONE
-.. autoclass:: QTAG_MODAL
+
+.. autoclass:: DISCR_TAG_BASE
+.. autoclass:: DISCR_TAG_QUAD
+.. autoclass:: DISCR_TAG_MODAL
 
 .. autoclass:: DOFDesc
 .. autofunction:: as_dofdesc
@@ -50,19 +52,19 @@ __doc__ = """
 # {{{ DOF description
 
 class DTAG_SCALAR:  # noqa: N801
-    """A tag denoting scalar values."""
+    """A domain tag denoting scalar values."""
 
 
 class DTAG_VOLUME_ALL:  # noqa: N801
     """
-    A tag denoting degrees of freedom defined
+    A domain tag denoting values defined
     in all cell volumes.
     """
 
 
 class DTAG_BOUNDARY:  # noqa: N801
-    """A tag describing the meaning of degrees of freedom
-    on element boundaries which are adjacent to elements
+    """A domain tag describing the values on element
+    boundaries which are adjacent to elements
     of another :class:`~meshmode.mesh.Mesh`.
 
     .. attribute:: tag
@@ -96,21 +98,36 @@ class DTAG_BOUNDARY:  # noqa: N801
         return "<{}({})>".format(type(self).__name__, repr(self.tag))
 
 
-class QTAG_NONE:  # noqa: N801
-    """A quadrature tag indicating the use of a
+class DISCR_TAG_BASE:  # noqa: N801
+    """A discretization tag indicating the use of a
     basic discretization grid. This tag is used
-    to distinguish the base discretization (`QTAG_NONE`)
-    from quadrature (e.g. overintegration) grids.
+    to distinguish the base discretization from quadrature
+    (e.g. overintegration) or modal (`DISCR_TAG_MODAL`)
+    discretizations.
     """
 
 
-class QTAG_MODAL:  # noqa: N801
-    """A quadrature tag indicating the use of a
+# FIXME: This needs to go away
+class QTAG_NONE:  # noqa: N801
+    pass
+
+
+class DISCR_TAG_QUAD:  # noqa: N801
+    """A discretization tag indicating the use of a
+    quadrature discretization grid. This tag is used
+    to distinguish the quadrature discretization
+    (e.g. overintegration) from modal (`DISCR_TAG_MODAL`)
+    or base (`DISCR_TAG_BASE`) discretizations.
+    """
+
+
+class DISCR_TAG_MODAL:  # noqa: N801
+    """A discretization tag indicating the use of a
     basic discretization grid with modal degrees of
     freedom. This tag is used to distinguish the
-    modal discretization (`QTAG_MODAL`) from
-    the base (nodal) discretization (e.g. `QTAG_NONE`)
-    or discretizations on quadrature grids.
+    modal discretization from the base (nodal)
+    discretization (e.g. `DISCR_TAG_BASE`) or
+    discretizations on quadrature grids (`DISCR_TAG_QUAD`).
     """
 
 
@@ -118,7 +135,7 @@ class DOFDesc:
     """Describes the meaning of degrees of freedom.
 
     .. attribute:: domain_tag
-    .. attribute:: quadrature_tag
+    .. attribute:: discretization_tag
 
     .. automethod:: __init__
 
@@ -130,7 +147,7 @@ class DOFDesc:
 
     .. automethod:: uses_quadrature
 
-    .. automethod:: with_qtag
+    .. automethod:: with_discr_tag
     .. automethod:: with_dtag
 
     .. automethod:: __eq__
@@ -138,7 +155,7 @@ class DOFDesc:
     .. automethod:: __hash__
     """
 
-    def __init__(self, domain_tag, quadrature_tag=None):
+    def __init__(self, domain_tag, discretization_tag=None):
         """
         :arg domain_tag: One of the following:
             :class:`DTAG_SCALAR` (or the string ``"scalar"``),
@@ -154,11 +171,12 @@ class DOFDesc:
             :class:`~meshmode.mesh.BTAG_PARTITION`,
             or *None* to indicate that the geometry is not yet known.
 
-        :arg quadrature_tag:
-            *None* to indicate that the quadrature grid is not known, or
-            :class:`QTAG_NONE` to indicate the use of the basic discretization
-            grid, or a string to indicate the use of the thus-tagged quadratue
-            grid.
+        :arg discretization_tag:
+            *None* to indicate that the discretization grid is not known,
+            :class:`DISCR_TAG_BASE` to indicate the use of the basic
+            discretization grid, :class:`DISCR_TAG_MODAL` to indicate a
+            modal discretization, or :class:`DISCR_TAG_QUAD` or a string
+            to indicate the use of the thus-tagged quadratue grid.
         """
 
         if domain_tag is None:
@@ -180,14 +198,22 @@ class DOFDesc:
         else:
             raise ValueError("domain tag not understood: %s" % domain_tag)
 
-        if domain_tag is DTAG_SCALAR and quadrature_tag is not None:
-            raise ValueError("cannot have nontrivial quadrature tag on scalar")
+        if domain_tag is DTAG_SCALAR and discretization_tag is not None:
+            raise ValueError("cannot have nontrivial discretization tag on scalar")
 
-        if quadrature_tag is None:
-            quadrature_tag = QTAG_NONE
+        if discretization_tag is None:
+            discretization_tag = DISCR_TAG_BASE
 
         self.domain_tag = domain_tag
-        self.quadrature_tag = quadrature_tag
+        self.discretization_tag = discretization_tag
+
+    @property
+    def quadrature_tag(self):
+        from warnings import warn
+        warn("`DOFDesc.quadrature_tag` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.discretization_tag` instead.",
+             DeprecationWarning, stacklevel=2)
+        return self.discretization_tag
 
     def is_scalar(self):
         return self.domain_tag is DTAG_SCALAR
@@ -208,29 +234,38 @@ class DOFDesc:
                     FACE_RESTR_INTERIOR])
 
     def uses_quadrature(self):
-        if self.quadrature_tag is None:
-            return False
-        if self.quadrature_tag is QTAG_NONE:
-            return False
+        if self.discretization_tag is DISCR_TAG_QUAD:
+            return True
+        if isinstance(self.discretization_tag, str):
+            return True
 
-        return True
+        return False
 
-    def with_qtag(self, qtag):
-        return type(self)(domain_tag=self.domain_tag, quadrature_tag=qtag)
+    def with_qtag(self, discr_tag):
+        from warnings import warn
+        warn("`DOFDesc.with_qtag` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.with_discr_tag` instead.",
+             DeprecationWarning, stacklevel=2)
+        return self.with_discr_tag(self, discr_tag)
+
+    def with_discr_tag(self, discr_tag):
+        return type(self)(domain_tag=self.domain_tag,
+                          discretization_tag=discr_tag)
 
     def with_dtag(self, dtag):
-        return type(self)(domain_tag=dtag, quadrature_tag=self.quadrature_tag)
+        return type(self)(domain_tag=dtag,
+                          discretization_tag=self.discretization_tag)
 
     def __eq__(self, other):
         return (type(self) == type(other)
                 and self.domain_tag == other.domain_tag
-                and self.quadrature_tag == other.quadrature_tag)
+                and self.discretization_tag == other.discretization_tag)
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((type(self), self.domain_tag, self.quadrature_tag))
+        return hash((type(self), self.domain_tag, self.discretization_tag))
 
     def __repr__(self):
         def fmt(s):
@@ -241,20 +276,20 @@ class DOFDesc:
 
         return "DOFDesc({}, {})".format(
                 fmt(self.domain_tag),
-                fmt(self.quadrature_tag))
+                fmt(self.discretization_tag))
 
 
 DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
 
 DD_VOLUME = DOFDesc(DTAG_VOLUME_ALL, None)
 
-DD_VOLUME_MODAL = DOFDesc(DTAG_VOLUME_ALL, QTAG_MODAL)
+DD_VOLUME_MODAL = DOFDesc(DTAG_VOLUME_ALL, DISCR_TAG_MODAL)
 
 
 def as_dofdesc(dd):
     if isinstance(dd, DOFDesc):
         return dd
-    return DOFDesc(dd, quadrature_tag=None)
+    return DOFDesc(dd, discretization_tag=None)
 
 # }}}
 

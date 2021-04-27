@@ -67,7 +67,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     dcoll = DiscretizationCollection(
         actx, mesh,
         quad_tag_to_group_factory={
-            dof_desc.QTAG_NONE: nodal_group_factory(order)
+            dof_desc.DISCR_TAG_BASE: nodal_group_factory(order)
         }
     )
 
@@ -107,14 +107,15 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     dcoll = DiscretizationCollection(
         actx, mesh,
         quad_tag_to_group_factory={
-            dof_desc.QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order),
-            "quad": QuadratureSimplexGroupFactory(2*order)
+            dof_desc.DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }
     )
 
     # Use dof descriptors on the quadrature grid
     dd_modal = dof_desc.DD_VOLUME_MODAL
-    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, "quad")
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL,
+                               dof_desc.DISCR_TAG_QUAD)
 
     x_quad = thaw(actx, dcoll.discr_from_dd(dd_quad).nodes()[0])
     quad_f = f(x_quad)
