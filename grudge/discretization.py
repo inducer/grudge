@@ -244,10 +244,12 @@ class DiscretizationCollection:
 
         # {{{ mapping between modal and nodal representations
 
-        if (from_discr_tag is DISCR_TAG_MODAL and to_discr_tag is not DISCR_TAG_MODAL):
+        if (from_discr_tag is DISCR_TAG_MODAL
+                and to_discr_tag is not DISCR_TAG_MODAL):
             return self._modal_to_nodal_connection(to_dd)
 
-        if (to_discr_tag is DISCR_TAG_MODAL and from_discr_tag is not DISCR_TAG_MODAL):
+        if (to_discr_tag is DISCR_TAG_MODAL
+                and from_discr_tag is not DISCR_TAG_MODAL):
             return self._nodal_to_modal_connection(from_dd)
 
         # }}}
