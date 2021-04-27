@@ -1168,6 +1168,7 @@ def test_operator_compiler_overwrite(actx_factory):
 
 @pytest.mark.parametrize("ambient_dim", [
     2,
+    # FIXME, cf. https://github.com/inducer/grudge/pull/78/
     pytest.param(3, marks=pytest.mark.xfail)
     ])
 def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
