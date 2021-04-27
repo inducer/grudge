@@ -62,6 +62,8 @@ from meshmode.dof_array import freeze, flatten, unflatten
 
 from grudge.symbolic.primitives import TracePair
 
+from warnings import warn
+
 
 # def interp(dcoll, src, tgt, vec):
 #     from warnings import warn
@@ -82,6 +84,21 @@ def project(dcoll, src, tgt, vec):
     """
     src = dof_desc.as_dofdesc(src)
     tgt = dof_desc.as_dofdesc(tgt)
+
+    # FIXME: QTAG_NONE hunting
+    if src.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        src = src.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
+    # FIXME: QTAG_NONE hunting
+    if tgt.discretization_tag is dof_desc.QTAG_NONE:
+        warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
+             "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
+             DeprecationWarning, stacklevel=2)
+        tgt = tgt.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
     if src == tgt:
         return vec
 
