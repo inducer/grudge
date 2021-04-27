@@ -22,7 +22,7 @@ THE SOFTWARE.
 
 from pytools import memoize_method
 from grudge.dof_desc import (
-    DISCR_TAG_BASE, DISCR_TAG_QUAD, DISCR_TAG_MODAL,
+    DISCR_TAG_BASE, DISCR_TAG_MODAL,
     DTAG_BOUNDARY, DOFDesc, as_dofdesc,
     # importing so we can yell at the user for using it
     QTAG_NONE
@@ -171,7 +171,7 @@ class DiscretizationCollection:
         return boundary_connections
 
     def get_distributed_boundary_swap_connection(self, dd):
-        if not dd.discretization_tag in (DISCR_TAG_BASE, DISCR_TAG_MODAL):
+        if dd.discretization_tag not in (DISCR_TAG_BASE, DISCR_TAG_MODAL):
             # FIXME
             raise NotImplementedError("Distributed communication with quadrature")
 
