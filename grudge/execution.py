@@ -73,7 +73,15 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_node_coordinate_component(self, expr):
         discr = self.dcoll.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes()[expr.axis])
+        return thaw(self.array_context, discr.nodes(
+            # only save volume nodes or boundary nodes
+            # (but not interior ones, which are likely only used once
+            # to compute the normals)
+            cached=(
+                discr.ambient_dim == discr.dim
+                or expr.dd.is_boundary_or_partition_interface()
+                )
+            )[expr.axis])
 
     def map_grudge_variable(self, expr):
         from numbers import Number
