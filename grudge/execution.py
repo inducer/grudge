@@ -75,8 +75,8 @@ class ExecutionMapper(mappers.Evaluator,
         discr = self.dcoll.discr_from_dd(expr.dd)
         return thaw(self.array_context, discr.nodes(
             # only save volume nodes or boundary nodes
-            # (but not interior ones, which are likely only used once
-            # to compute the normals)
+            # (but not nodes for interior face discretizations, which are likely only
+            # used once to compute the normals)
             cached=(
                 discr.ambient_dim == discr.dim
                 or expr.dd.is_boundary_or_partition_interface()
