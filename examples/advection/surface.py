@@ -58,7 +58,7 @@ class Plotter:
             self.x = actx.to_numpy(flatten(actx.np.atan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr, vis_order=order)
+            self.vis = make_visualizer(discr)
         else:
             raise ValueError("unsupported dimension")
 
@@ -211,7 +211,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     if visualize and dim == 3:
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr, vis_order=order)
+        vis = make_visualizer(discr)
         vis.write_vtk_file("fld-surface-velocity.vtu", [
             ("u", bind(discr, c)(actx)),
             ("n", bind(discr, sym_normal)(actx))
@@ -224,7 +224,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
             df, face_discr.ambient_dim, dim=face_discr.dim))(actx)
 
         from meshmode.discretization.visualization import make_visualizer
-        vis = make_visualizer(actx, face_discr, vis_order=order)
+        vis = make_visualizer(actx, face_discr)
         vis.write_vtk_file("fld-surface-face-normals.vtu", [
             ("n", face_normal)
             ], overwrite=True)
