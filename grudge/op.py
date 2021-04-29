@@ -142,6 +142,10 @@ def local_grad(dcoll, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: local_grad(dcoll, el), vec)
+
     return _bound_grad(dcoll)(u=vec)
 
 
@@ -223,6 +227,10 @@ def weak_local_grad(dcoll, *args):
         dd, vec = args
     else:
         raise TypeError("invalid number of arguments")
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: weak_local_grad(dcoll, dd, el), vec)
 
     return _bound_weak_grad(dcoll, dd)(u=vec)
 
