@@ -160,9 +160,12 @@ class DiscretizationCollection:
         return boundary_connections
 
     def get_distributed_boundary_swap_connection(self, dd):
-        if dd.discretization_tag not in (DISCR_TAG_BASE, DISCR_TAG_MODAL):
+        if dd.discretization_tag is not DISCR_TAG_BASE:
             # FIXME
-            raise NotImplementedError("Distributed communication with quadrature")
+            raise NotImplementedError(
+                "Distributed communication with discretization tag "
+                f"{dd.discretization_tag} is not implemented."
+            )
 
         assert isinstance(dd.domain_tag, DTAG_BOUNDARY)
         assert isinstance(dd.domain_tag.tag, BTAG_PARTITION)
