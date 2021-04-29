@@ -171,11 +171,10 @@ class DOFDesc:
             or *None* to indicate that the geometry is not yet known.
 
         :arg discretization_tag:
-            *None* to indicate that the discretization grid is not known,
-            :class:`DISCR_TAG_BASE` to indicate the use of the basic
+            *None* or :class:`DISCR_TAG_BASE` to indicate the use of the basic
             discretization grid, :class:`DISCR_TAG_MODAL` to indicate a
-            modal discretization, or :class:`DISCR_TAG_QUAD` or a string
-            to indicate the use of the thus-tagged quadrature grid.
+            modal discretization, or :class:`DISCR_TAG_QUAD` to indicate
+            the use of a quadrature grid.
         """
 
         if domain_tag is None:
@@ -197,13 +196,11 @@ class DOFDesc:
         else:
             raise ValueError("domain tag not understood: %s" % domain_tag)
 
-        # Prints warning if a user passes both a quadrature_tag and
-        # a discretization_tag
         if (quadrature_tag is not None and discretization_tag is not None):
-            warn("`quadrature_tag` and `discretization_tag` are specified. "
-                 "`quadrature_tag` will be ignored. Use `discretization_tag` "
-                 "instead.",
-                 DeprecationWarning, stacklevel=2)
+            raise ValueError(
+                "Both `quadrature_tag` and `discretization_tag` are specified. "
+                "Use `discretization_tag` instead."
+            )
 
         if (quadrature_tag is not None and discretization_tag is None):
             warn("`quadrature_tag` is a deprecated kwarg and will be dropped "
@@ -216,6 +213,12 @@ class DOFDesc:
 
         if discretization_tag is None:
             discretization_tag = DISCR_TAG_BASE
+
+        if isinstance(discretization_tag, str):
+            warn("Support for string values of `discretization_tag` will "
+                 "be dropped in version 2022.x. Use one of the `DISCR_TAG_` "
+                 "tags instead.",
+                 DeprecationWarning, stacklevel=2)
 
         self.domain_tag = domain_tag
         self.discretization_tag = discretization_tag
@@ -322,8 +325,8 @@ def __getattr__(name):
 
 
 if sys.version_info < (3, 7):
-    QTAG_NONE = DISCR_TAG_BASE
-    QTAG_MODAL = DISCR_TAG_MODAL
+    for name in _deprecated_names:
+        name = globals()[f"{_deprecated_names[name]}"]
 
 # }}}
 
