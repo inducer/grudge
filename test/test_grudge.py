@@ -936,8 +936,8 @@ def test_improvement_quadrature(actx_factory, order):
     eoc, errs = conv_test("no quadrature", False)
     q_eoc, q_errs = conv_test("with quadrature", True)
 
-    assert q_eoc >= eoc
-    assert (q_errs <= errs).all()
+    assert q_eoc > eoc
+    assert (q_errs < errs).all()
     assert q_eoc > order - 0.1
 
 # }}}

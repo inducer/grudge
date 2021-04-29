@@ -82,7 +82,6 @@ def project(dcoll, src, tgt, vec):
     """
     src = dof_desc.as_dofdesc(src)
     tgt = dof_desc.as_dofdesc(tgt)
-
     if src == tgt:
         return vec
 

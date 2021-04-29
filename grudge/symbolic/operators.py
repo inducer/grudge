@@ -27,7 +27,6 @@ import pymbolic.primitives
 
 from typing import Tuple
 
-
 __doc__ = """
 
 Building blocks and mappers for operator expression trees.
@@ -104,11 +103,8 @@ class Operator(pymbolic.primitives.Expression):
 
     def __init__(self, dd_in, dd_out):
         import grudge.dof_desc as dof_desc
-        dd_in = dof_desc.as_dofdesc(dd_in)
-        dd_out = dof_desc.as_dofdesc(dd_out)
-
-        self.dd_in = dd_in
-        self.dd_out = dd_out
+        self.dd_in = dof_desc.as_dofdesc(dd_in)
+        self.dd_out = dof_desc.as_dofdesc(dd_out)
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
