@@ -13,7 +13,7 @@ from pytools.obj_array import make_obj_array
 from pytools import memoize_on_first_arg
 
 
-def forward_metric_nth_derivative(dcoll, ref_axes, vec, dd=None):
+def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     r"""
     Pointwise metric derivatives representing repeated derivatives to *vec*
 
@@ -51,8 +51,11 @@ def forward_metric_nth_derivative(dcoll, ref_axes, vec, dd=None):
 
     from meshmode.discretization import num_reference_derivative
 
-    vol_discr = dcoll.discr_from_dd(DD_VOLUME)
-    vec = num_reference_derivative(vol_discr, flat_ref_axes, vec)
+    vec = num_reference_derivative(
+        dcoll.discr_from_dd(DD_VOLUME),
+        flat_ref_axes,
+        thaw(actx, dcoll.discr_from_dd(DD_VOLUME).nodes())[xyz_axis]
+    )
 
     if dd.uses_quadrature():
         vec = dcoll.connection_from_dds(DD_VOLUME, dd)(vec)
@@ -60,22 +63,134 @@ def forward_metric_nth_derivative(dcoll, ref_axes, vec, dd=None):
     return vec
 
 
-def forward_metric_derivative_vector(dcoll, rst_axis, vec, dd=None):
+def forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=None):
 
     return make_obj_array([
-        forward_metric_nth_derivative(dcoll, rst_axis, vec[i], dd=dd)
+        forward_metric_nth_derivative(actx, dcoll, i, rst_axis, dd=dd)
         for i in range(dcoll.ambient_dim)
         ]
     )
 
 
-def forward_metric_derivative_mv(dcoll, rst_axis, vec, dd=None):
+def forward_metric_derivative_mv(actx, dcoll, rst_axis, dd=None):
 
     return MultiVector(
-        forward_metric_derivative_vector(dcoll, rst_axis, vec, dd=dd)
+        forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=dd)
     )
 
 
+def forward_metric_derivative_mat(actx, dcoll, dd=None):
+
+    ambient_dim = dcoll.ambient_dim
+    dim = dcoll.dim
+
+    result = np.zeros((ambient_dim, dim), dtype=object)
+    for j in range(dim):
+        result[:, j] = forward_metric_derivative_vector(actx, dcoll, j, dd=dd)
+
+    return result
+
+
+def first_fundamental_form(actx, dcoll, dd):
+
+    mder = forward_metric_derivative_mat(actx, dcoll, dd)
+
+    return mder.T.dot(mder)
+
+
+def inverse_metric_derivative_mat(actx, dcoll, dd=None):
+
+    ambient_dim = dcoll.ambient_dim
+    dim = dcoll.dim
+
+    result = np.zeros((ambient_dim, dim), dtype=object)
+    for i in range(dim):
+        for j in range(ambient_dim):
+            result[i, j] = inverse_metric_derivative(
+                actx, dcoll, i, j, dd=dd
+            )
+
+    return result
+
+
+@memoize_on_first_arg
+def inverse_first_fundamental_form(actx, dcoll, dd):
+
+    if dcoll.ambient_dim == dcoll.dim:
+        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dd)
+        inv_form1 = inv_mder.dot(inv_mder.T)
+    else:
+        form1 = first_fundamental_form(actx, dcoll, dd)
+
+        if dim == 1:
+            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=object)
+        elif dim == 2:
+            (E, F), (_, G) = form1      # noqa: N806
+            inv_form1 = 1.0 / (E * G - F * F) * np.array(
+                [[G, -F],
+                 [-F, E]], dtype=object
+            )
+        else:
+            raise ValueError("%dD surfaces not supported" % dim)
+
+    return inv_form1
+
+
+@memoize_on_first_arg
+def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
+
+    dim = dcoll.dim
+    if dim != dcoll.ambient_dim:
+        raise ValueError(
+            "Not clear what inverse_metric_derivative means if "
+            "the derivative matrix is not square!"
+        )
+
+    par_vecs = [forward_metric_derivative_mv(actx, dcoll, rst, dd)
+                for rst in range(dim)]
+
+    # Yay Cramer's rule!
+    from functools import reduce, partial
+    from operator import xor as outerprod_op
+    outerprod = partial(reduce, outerprod_op)
+
+    def outprod_with_unit(i, at):
+        unit_vec = np.zeros(dim)
+        unit_vec[i] = 1
+
+        vecs = par_vecs[:]
+        vecs[at] = MultiVector(unit_vec)
+
+        return outerprod(vecs)
+
+    volume_pseudoscalar_inv = outerprod(
+        forward_metric_derivative_mv(actx, dcoll, rst_axis, dd)
+        for rst_axis in range(dim)
+    ).inv()
+
+    return (outprod_with_unit(xyz_axis, rst_axis)
+            * volume_pseudoscalar_inv).as_scalar()
+
+
+@memoize_on_first_arg
+def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
+
+    if dcoll.ambient_dim == dcoll.dim:
+        imd = inverse_metric_derivative(
+            actx, dcoll, rst_axis, xyz_axis, dd=dd
+        )
+    else:
+        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+        imd = sum(
+            inv_form1[rst_axis, d]*forward_metric_nth_derivative(
+                actx, dcoll, d, rst_axis, dd=dd
+            ) for d in range(dim)
+        )
+
+    return imd
+
+
+@memoize_on_first_arg
 def _signed_face_ones(actx, dcoll, dd):
 
     assert dd.is_trace()
@@ -98,7 +213,7 @@ def _signed_face_ones(actx, dcoll, dd):
     return signed_face_ones
 
 
-def parametrization_derivative(actx, dcoll, vec, dd):
+def parametrization_derivative(actx, dcoll, dd):
 
     if dd.is_volume():
         dim = dcoll.dim
@@ -116,26 +231,21 @@ def parametrization_derivative(actx, dcoll, vec, dd):
     from pytools import product
 
     return product(
-        forward_metric_derivative_mv(dcoll, rst_axis, vec, dd)
+        forward_metric_derivative_mv(actx, dcoll, rst_axis, dd)
         for rst_axis in range(dim)
     )
 
 
-def pseudoscalar(actx, dcoll, vec, dd):
+def pseudoscalar(actx, dcoll, dd):
 
     return parametrization_derivative(
-        actx, dcoll, vec, dd
+        actx, dcoll, dd
     ).project_max_grade()
 
 
 @memoize_on_first_arg
 def area_element(actx, dcoll, dd=None):
 
-    if dd is None:
-        dd = DD_VOLUME
-
-    nodes = thaw(actx, dcoll.discr_from_dd(DD_VOLUME).nodes())
-
     return actx.np.sqrt(
-        pseudoscalar(actx, dcoll, nodes, dd=dd).norm_squared()
+        pseudoscalar(actx, dcoll, dd=dd).norm_squared()
     )
