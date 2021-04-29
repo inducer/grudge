@@ -319,5 +319,49 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
 # }}}
 
+{{{ diff operator
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_tri_diff_mat(actx_factory, dim, order=4):
+    """Check differentiation matrix along the coordinate axes on a disk
+
+    Uses sines as the function to differentiate.
+    """
+
+    actx = actx_factory()
+
+    from pytools.convergence import EOCRecorder
+    axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
+
+    def f(x, axis):
+        return actx.np.sin(3*x[axis])
+
+    def df(x, axis):
+        return 3*actx.np.cos(3*x[axis])
+
+    for n in [4, 8, 16]:
+        mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(n,)*dim, order=4
+        )
+
+        dcoll = DiscretizationCollection(actx, mesh, order=4)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        x = thaw(actx, volume_discr.nodes())
+
+        for axis in range(dim):
+
+            df_num = op.local_gradient(dcoll, f(x, axis))[axis]
+            df_volm = df(x, axis)
+
+            linf_error = actx.np.linalg.norm(df_num - df_volm, ord=np.inf)
+            axis_eoc_recs[axis].add_data_point(1/n, linf_error)
+
+    for axis, eoc_rec in enumerate(axis_eoc_recs):
+        logger.info("axis %d\n%s", axis, eoc_rec)
+        assert eoc_rec.order_estimate() > order - 0.25
+
+# }}}
+
 
 # vim: foldmethod=marker
