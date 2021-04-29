@@ -58,7 +58,7 @@ class Plotter:
             self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr, vis_order=order)
+            self.vis = make_visualizer(discr)
 
     def __call__(self, evt, basename, overwrite=True):
         if not self.visualize:
