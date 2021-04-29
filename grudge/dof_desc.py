@@ -306,9 +306,24 @@ def as_dofdesc(dd):
 
 # {{{ Deprecated tags
 
-# FIXME: These are deprecated and will be removed
-QTAG_NONE = DISCR_TAG_BASE
-QTAG_MODAL = DISCR_TAG_MODAL
+_deprecated_names = {"QTAG_NONE": "DISCR_TAG_BASE",
+                     "QTAG_MODAL": "DISCR_TAG_MODAL"}
+
+
+def __getattr__(name):
+    if name in _deprecated_names:
+        warn(f"{name} is deprecated and will be dropped "
+             f"in version 2022.x. Use {_deprecated_names[name]} instead.",
+             DeprecationWarning, stacklevel=2)
+        return globals()[f"{_deprecated_names[name]}"]
+
+    raise AttributeError(f"module {__name__} has no attribute {name}")
+
+import sys
+
+if sys.version_info < (3, 7):
+    QTAG_NONE = DISCR_TAG_BASE
+    QTAG_MODAL = DISCR_TAG_MODAL
 
 # }}}
 
