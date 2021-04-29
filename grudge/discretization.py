@@ -23,9 +23,7 @@ THE SOFTWARE.
 from pytools import memoize_method
 from grudge.dof_desc import (
     DISCR_TAG_BASE, DISCR_TAG_MODAL,
-    DTAG_BOUNDARY, DOFDesc, as_dofdesc,
-    # importing so we can yell at the user for using it
-    QTAG_NONE
+    DTAG_BOUNDARY, DOFDesc, as_dofdesc
 )
 import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
@@ -88,14 +86,6 @@ class DiscretizationCollection:
 
                 quad_tag_to_group_factory[DISCR_TAG_BASE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
-
-        # FIXME: QTAG_NONE hunting
-        if QTAG_NONE in quad_tag_to_group_factory:
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            quad_tag_to_group_factory[DISCR_TAG_BASE] = \
-                quad_tag_to_group_factory[QTAG_NONE]
 
         # Modal discr should always comes from the base discretization
         quad_tag_to_group_factory[DISCR_TAG_MODAL] = \
@@ -183,13 +173,6 @@ class DiscretizationCollection:
     def discr_from_dd(self, dd):
         dd = as_dofdesc(dd)
 
-        # FIXME: QTAG_NONE hunting
-        if dd.discretization_tag is QTAG_NONE:
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            dd = dd.with_discr_tag(DISCR_TAG_BASE)
-
         discr_tag = dd.discretization_tag
 
         if discr_tag is DISCR_TAG_MODAL:
@@ -224,20 +207,6 @@ class DiscretizationCollection:
     def connection_from_dds(self, from_dd, to_dd):
         from_dd = as_dofdesc(from_dd)
         to_dd = as_dofdesc(to_dd)
-
-        # FIXME: QTAG_NONE hunting
-        if to_dd.discretization_tag is QTAG_NONE:
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            to_dd = to_dd.with_discr_tag(DISCR_TAG_BASE)
-
-        # FIXME: QTAG_NONE hunting
-        if from_dd.discretization_tag is QTAG_NONE:
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            from_dd = from_dd.with_discr_tag(DISCR_TAG_BASE)
 
         to_discr_tag = to_dd.discretization_tag
         from_discr_tag = from_dd.discretization_tag
@@ -345,13 +314,6 @@ class DiscretizationCollection:
         """
         OK to override in user code to control mode/node choice.
         """
-        # FIXME: QTAG_NONE hunting
-        if discretization_tag is QTAG_NONE:
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            discretization_tag = DISCR_TAG_BASE
-
         if discretization_tag is None:
             discretization_tag = DISCR_TAG_BASE
 

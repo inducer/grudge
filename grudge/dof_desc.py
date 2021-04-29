@@ -108,11 +108,6 @@ class DISCR_TAG_BASE:  # noqa: N801
     """
 
 
-# FIXME: This is deprecated and will be removed
-class QTAG_NONE:  # noqa: N801
-    pass
-
-
 class DISCR_TAG_QUAD:  # noqa: N801
     """A discretization tag indicating the use of a
     quadrature discretization grid. This tag is used
@@ -305,6 +300,15 @@ def as_dofdesc(dd):
     if isinstance(dd, DOFDesc):
         return dd
     return DOFDesc(dd, discretization_tag=None)
+
+# }}}
+
+
+# {{{ Deprecated tags
+
+# FIXME: These are deprecated and will be removed
+QTAG_NONE = DISCR_TAG_BASE
+QTAG_MODAL = DISCR_TAG_MODAL
 
 # }}}
 

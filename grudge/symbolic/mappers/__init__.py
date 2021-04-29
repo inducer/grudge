@@ -878,14 +878,6 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
 
     def _process_dd(self, dd, location_descr):
 
-        # FIXME: QTAG_NONE hunting
-        if dd.discretization_tag is dof_desc.QTAG_NONE:
-            from warnings import warn
-            warn("`DOFDesc.QTAG_NONE` is deprecated and will be dropped "
-                 "in version 2022.x. Use `DOFDesc.DISCR_TAG_BASE` instead.",
-                 DeprecationWarning, stacklevel=2)
-            dd = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
-
         if dd.discretization_tag is not dof_desc.DISCR_TAG_BASE:
             if dd.discretization_tag not in self.quad_tag_to_group_factory:
                 raise ValueError("found unknown quadrature tag '%s' in '%s'"
