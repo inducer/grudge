@@ -93,7 +93,8 @@ def test_inverse_metric(actx_factory, dim):
 # {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
-@pytest.mark.parametrize("quad_tag", [dof_desc.QTAG_NONE, "OVSMP"])
+@pytest.mark.parametrize("quad_tag", [dof_desc.DISCR_TAG_BASE,
+                                      dof_desc.DISCR_TAG_QUAD])
 def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
@@ -109,7 +110,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
 
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, quad_tag)
-    if quad_tag is dof_desc.QTAG_NONE:
+    if quad_tag is dof_desc.DISCR_TAG_BASE:
         quad_tag_to_group_factory = {}
     else:
         quad_tag_to_group_factory = {
@@ -147,7 +148,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 1.0e-9, err_2
 
-    if quad_tag is dof_desc.QTAG_NONE:
+    if quad_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
         num_integral_3 = bind(discr,
@@ -578,7 +579,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         logger.info("nelements: %d", volume.mesh.nelements)
 
         dd = dof_desc.DD_VOLUME
-        dq = dd.with_qtag("product")
+        dq = dd.with_discr_tag("product")
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
         ambient_dim = discr.ambient_dim
         dim = discr.dim
