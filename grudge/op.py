@@ -161,6 +161,56 @@ def local_grad(dcoll, vec):
     return _bound_grad(dcoll)(u=vec)
 
 
+def reference_derivative_matrices(actx, element_group):
+    @keyed_memoize_in(
+        actx, reference_derivative_matrices,
+        lambda grp: grp.discretization_key())
+    def get_ref_derivative_mats(grp):
+        from meshmode.discretization.poly_element import diff_matrices
+        return tuple(
+            actx.freeze(actx.from_numpy(dfmat))
+            for dfmat in diff_matrices(grp)
+        )
+
+    return get_ref_derivative_mats(element_group)
+
+
+def _compute_local_gradient(dcoll, vec, xyz_axis):
+    from grudge.geometry import \
+        inverse_surface_metric_derivative
+
+    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    actx = vec.array_context
+
+    inverse_jac_t = [
+        inverse_surface_metric_derivative(
+            actx, dcoll, rst_axis, xyz_axis
+        ) for rst_axis in range(dcoll.dim)
+    ]
+
+    data = []
+    for grp, vec_i in zip(discr.groups, vec):
+        data.append(sum(
+            actx.einsum(
+                "ij,ej,ej->ei",
+                reference_derivative_matrices(actx, grp)[rst_axis],
+                vec_i,
+                inverse_jac_t[rst_axis],
+                arg_names=("ref_diff_mat", "vec", "inv_jac_t"),
+                tagged=(HasElementwiseMatvecTag(),)
+            ) for rst_axis in range(dcoll.dim))
+        )
+    return DOFArray(actx, data=tuple(data))
+
+
+def local_gradient(dcoll, vec):
+    from pytools.obj_array import make_obj_array
+    return make_obj_array(
+        [_compute_local_gradient(dcoll, vec, xyz_axis)
+         for xyz_axis in range(dcoll.dim)]
+    )
+
+
 @memoize_on_first_arg
 def _bound_d_dx(dcoll, xyz_axis):
     return bind(dcoll, sym.nabla(dcoll.dim)[xyz_axis] * sym.Variable("u"),

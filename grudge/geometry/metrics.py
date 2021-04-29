@@ -168,8 +168,12 @@ def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
         for rst_axis in range(dim)
     ).inv()
 
-    return (outprod_with_unit(xyz_axis, rst_axis)
-            * volume_pseudoscalar_inv).as_scalar()
+    # NOTE: this always produces a DOFArray of shape (1,).
+    # the thing we want is actually inside
+    result, = (outprod_with_unit(xyz_axis, rst_axis)
+              * volume_pseudoscalar_inv).as_scalar()
+
+    return result
 
 
 @memoize_on_first_arg
@@ -186,7 +190,6 @@ def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
                 actx, dcoll, d, rst_axis, dd=dd
             ) for d in range(dim)
         )
-
     return imd
 
 
@@ -236,7 +239,9 @@ def parametrization_derivative(actx, dcoll, dd):
     )
 
 
-def pseudoscalar(actx, dcoll, dd):
+def pseudoscalar(actx, dcoll, dd=None):
+    if dd is None:
+        dd = DD_VOLUME
 
     return parametrization_derivative(
         actx, dcoll, dd
