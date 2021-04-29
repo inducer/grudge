@@ -30,6 +30,7 @@ from meshmode.discretization.connection import \
 from meshmode.mesh import \
     BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE
 from warnings import warn
+import sys
 
 
 __doc__ = """
@@ -319,8 +320,6 @@ def __getattr__(name):
 
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
-
-import sys
 
 if sys.version_info < (3, 7):
     QTAG_NONE = DISCR_TAG_BASE
