@@ -167,7 +167,7 @@ class DOFDesc:
     """
 
     def __init__(self, domain_tag, discretization_tag=None,
-                 # FIXME: Remove this kwarg eventually
+                 # FIXME: `quadrature_tag` is deprecated
                  quadrature_tag=None):
         """
         :arg domain_tag: One of the following:
@@ -216,6 +216,7 @@ class DOFDesc:
                 "Use `discretization_tag` instead."
             )
 
+        # FIXME: `quadrature_tag` is deprecated
         if (quadrature_tag is not None and discretization_tag is None):
             warn("`quadrature_tag` is a deprecated kwarg and will be dropped "
                  "in version 2022.x. Use `discretization_tag` instead.",
@@ -228,6 +229,7 @@ class DOFDesc:
         if discretization_tag is None:
             discretization_tag = DISCR_TAG_BASE
 
+        # FIXME: String tags are deprecated
         if isinstance(discretization_tag, str):
             warn("Support for string values of `discretization_tag` will "
                  "be dropped in version 2022.x. Use one of the `DISCR_TAG_` "
@@ -263,9 +265,15 @@ class DOFDesc:
                     FACE_RESTR_INTERIOR])
 
     def uses_quadrature(self):
-        if issubclass(self.discretization_tag, DISCR_TAG_QUAD):
-            return True
+        # FIXME: String tags are deprecated
+        # Check for string first, otherwise
+        # `issubclass` will raise an exception whenever
+        # its first argument is not a class.
+        # This can go away once support for strings is dropped
+        # completely.
         if isinstance(self.discretization_tag, str):
+            return True
+        if issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             return True
 
         return False
