@@ -26,7 +26,7 @@ THE SOFTWARE.
 import numpy as np
 
 from grudge.dof_desc import (
-    DD_VOLUME, DOFDesc
+    DD_VOLUME, DOFDesc, QTAG_NONE
 )
 from meshmode.dof_array import thaw
 from pymbolic.geometric_algebra import MultiVector
@@ -54,6 +54,8 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     if dd is None:
         dd = DD_VOLUME
 
+    inner_dd = dd.with_qtag(QTAG_NONE)
+
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
 
@@ -72,13 +74,13 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     from meshmode.discretization import num_reference_derivative
 
     vec = num_reference_derivative(
-        dcoll.discr_from_dd(DD_VOLUME),
+        dcoll.discr_from_dd(inner_dd),
         flat_ref_axes,
-        thaw(actx, dcoll.discr_from_dd(DD_VOLUME).nodes())[xyz_axis]
+        thaw(actx, dcoll.discr_from_dd(inner_dd).nodes())[xyz_axis]
     )
 
     if dd.uses_quadrature():
-        vec = dcoll.connection_from_dds(DD_VOLUME, dd)(vec)
+        vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
 
     return vec
 
