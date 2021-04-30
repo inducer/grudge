@@ -51,9 +51,9 @@ class MassOperatorTag(HasElementwiseMatvecTag):
 # {{{ Derivative operator
 
 def reference_derivative_matrices(actx, element_group):
-    @keyed_memoize_in(
-        actx, reference_derivative_matrices,
-        lambda grp: grp.discretization_key())
+    # @keyed_memoize_in(
+    #     actx, reference_derivative_matrices,
+    #     lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
         return tuple(
@@ -106,10 +106,10 @@ def local_gradient(dcoll, vec):
 # {{{ Mass operator
 
 def reference_mass_matrix(actx, out_element_group, in_element_group):
-    @keyed_memoize_in(
-        actx, reference_mass_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
+    # @keyed_memoize_in(
+    #     actx, reference_mass_matrix,
+    #     lambda out_grp, in_grp: (out_grp.discretization_key(),
+    #                              in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
@@ -195,10 +195,10 @@ def mass_operator(dcoll, *args):
 def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_group):
 
     # FIXME: Think about how to compose this better with existing functions
-    @keyed_memoize_in(
-        actx, reference_stiffness_transpose_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
+    # @keyed_memoize_in(
+    #     actx, reference_stiffness_transpose_matrix,
+    #     lambda out_grp, in_grp: (out_grp.discretization_key(),
+    #                              in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
             mmat = reference_mass_matrix(actx, in_grp)
@@ -382,10 +382,10 @@ def inverse_mass_operator(dcoll, vec):
 
 def reference_face_mass_matrix(actx, face_element_group, vol_element_group, dtype):
 
-    @keyed_memoize_in(
-        actx, reference_mass_matrix,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
+    # @keyed_memoize_in(
+    #     actx, reference_mass_matrix,
+    #     lambda face_grp, vol_grp: (face_grp.discretization_key(),
+    #                                vol_grp.discretization_key()))
     def get_ref_face_mass_mat(face_grp, vol_grp):
         nfaces = vol_grp.mesh_el_group.nfaces
         assert (face_grp.nelements
