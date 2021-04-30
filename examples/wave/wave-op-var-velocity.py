@@ -33,9 +33,10 @@ from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import QTAG_NONE, DOFDesc
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
-from grudge.symbolic.primitives import TracePair, QTAG_NONE, DOFDesc
+from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits
@@ -142,7 +143,7 @@ def main():
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dim,
             b=(0.5,)*dim,
-            n=(nel_1d,)*dim)
+            nelements_per_axis=(nel_1d,)*dim)
 
     order = 3
 
@@ -174,7 +175,7 @@ def main():
             [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(dcoll, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll)
 
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)

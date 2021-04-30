@@ -34,6 +34,7 @@ import pymbolic.mapper.flop_counter
 from pymbolic.mapper import CSECachingMapperMixin
 
 from grudge import sym
+import grudge.dof_desc as dof_desc
 import grudge.symbolic.operators as op
 from grudge.tools import OrderedSet
 
@@ -435,8 +436,9 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
     def __init__(self, i_remote_part):
         from meshmode.discretization.connection import FACE_RESTR_INTERIOR
         from meshmode.mesh import BTAG_PARTITION
-        self.prev_dd = sym.as_dofdesc(FACE_RESTR_INTERIOR)
-        self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_remote_part))
+
+        self.prev_dd = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
+        self.new_dd = dof_desc.as_dofdesc(BTAG_PARTITION(i_remote_part))
 
     def _raise_unable(self, expr):
         raise ValueError("encountered '%s' in updating subexpression for "
@@ -589,7 +591,7 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         self.ambient_dim = dcoll.ambient_dim
         self.dim = dcoll.dim
 
-        volume_discr = dcoll.discr_from_dd(sym.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
         self.use_wadg = not all(grp.is_affine for grp in volume_discr.groups)
 
     map_common_subexpression_uncached = \
@@ -610,7 +612,7 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 
         jac_in = sym.area_element(self.ambient_dim, dim, dd=dd_in)
         jac_noquad = sym.area_element(self.ambient_dim, dim,
-                dd=dd_in.with_qtag(sym.QTAG_NONE))
+                dd=dd_in.with_qtag(dof_desc.QTAG_NONE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
             def imd(rst):
@@ -698,9 +700,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
                 FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
         if dd.domain_tag is None:
             result = "?"
-        elif dd.domain_tag is sym.DTAG_VOLUME_ALL:
+        elif dd.domain_tag is dof_desc.DTAG_VOLUME_ALL:
             result = "vol"
-        elif dd.domain_tag is sym.DTAG_SCALAR:
+        elif dd.domain_tag is dof_desc.DTAG_SCALAR:
             result = "scalar"
         elif dd.domain_tag is FACE_RESTR_ALL:
             result = "all_faces"
@@ -713,7 +715,7 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
         if dd.quadrature_tag is None:
             pass
-        elif dd.quadrature_tag is sym.QTAG_NONE:
+        elif dd.quadrature_tag is dof_desc.QTAG_NONE:
             result += "q"
         else:
             result += "Q"+fmt(dd.quadrature_tag)
@@ -875,15 +877,14 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
             IdentityMapper.map_common_subexpression
 
     def _process_dd(self, dd, location_descr):
-        from grudge.symbolic.primitives import DOFDesc, QTAG_NONE
-        if dd.quadrature_tag is not QTAG_NONE:
+        if dd.quadrature_tag is not dof_desc.QTAG_NONE:
             if dd.quadrature_tag not in self.quad_tag_to_group_factory:
                 raise ValueError("found unknown quadrature tag '%s' in '%s'"
                         % (dd.quadrature_tag, location_descr))
 
             grp_factory = self.quad_tag_to_group_factory[dd.quadrature_tag]
             if grp_factory is None:
-                dd = DOFDesc(dd.domain_tag, QTAG_NONE)
+                dd = dof_desc.DOFDesc(dd.domain_tag, dof_desc.QTAG_NONE)
 
         return dd
 
@@ -974,7 +975,7 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
         if (isinstance(expr.op, sym.ProjectionOperator)
                 and expr.op.dd_out.is_boundary_or_partition_interface()):
             domain_tag = expr.op.dd_out.domain_tag
-            assert isinstance(domain_tag, sym.DTAG_BOUNDARY)
+            assert isinstance(domain_tag, dof_desc.DTAG_BOUNDARY)
             if is_boundary_tag_empty(self.mesh, domain_tag.tag):
                 return 0
 

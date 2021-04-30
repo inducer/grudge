@@ -48,7 +48,7 @@ def main(write_output=True, order=4):
         mesh = generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
-                n=(16,)*dims)
+                nelements_per_axis=(16,)*dims)
 
         print("%d elements" % mesh.nelements)
 
@@ -113,7 +113,7 @@ def main(write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr)
 
     step = 0
 

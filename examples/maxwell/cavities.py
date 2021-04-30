@@ -46,7 +46,7 @@ def main(dims, write_output=True, order=4):
     mesh = generate_regular_rect_mesh(
             a=(0.0,)*dims,
             b=(1.0,)*dims,
-            n=(5,)*dims)
+            nelements_per_axis=(4,)*dims)
 
     discr = DiscretizationCollection(actx, mesh, order=order)
 
@@ -93,7 +93,7 @@ def main(dims, write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr)
 
     step = 0
 
