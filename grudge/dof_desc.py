@@ -115,6 +115,20 @@ class DISCR_TAG_QUAD:  # noqa: N801
     to distinguish the quadrature discretization
     (e.g. overintegration) from modal (:class:`DISCR_TAG_MODAL`)
     or base (:class:`DISCR_TAG_BASE`) discretizations.
+
+    For working with multiple quadrature grids, it is
+    recommended to create appropriate subclasses of
+    :class:`DISCR_TAG_QUAD` and define appropriate
+    :class:`DOFDesc` objects corresponding to each
+    subclass. For example:
+
+    .. code-block:: python
+
+        class CustomQuadTag(DISCR_TAG_QUAD):
+            "A custom quadrature discretization tag."
+
+        dd = DOFDesc(DTAG_VOLUME_ALL, CustomQuadTag)
+
     """
 
 
@@ -249,7 +263,7 @@ class DOFDesc:
                     FACE_RESTR_INTERIOR])
 
     def uses_quadrature(self):
-        if self.discretization_tag is DISCR_TAG_QUAD:
+        if issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             return True
         if isinstance(self.discretization_tag, str):
             return True
