@@ -27,12 +27,14 @@ from grudge.geometry.metrics import (
     forward_metric_derivative_mat,
     inverse_metric_derivative_mat,
     inverse_surface_metric_derivative,
-    area_element
+    area_element,
+    normal
 )
 
 __all__ = (
     "forward_metric_derivative_mat",
     "inverse_metric_derivative_mat",
     "inverse_surface_metric_derivative",
-    "area_element"
+    "area_element",
+    "normal"
 )

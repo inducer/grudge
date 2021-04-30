@@ -271,3 +271,60 @@ def area_element(actx, dcoll, dd=None):
     return actx.np.sqrt(
         pseudoscalar(actx, dcoll, dd=dd).norm_squared()
     )
+
+
+def surface_normal(actx, dcoll, dd=None, dim=None):
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
+    dim = dim or dcoll.dim
+
+    # NOTE: Don't be tempted to add a sign here. As it is, it produces
+    # exterior normals for positively oriented curves.
+
+    pder = pseudoscalar(actx, dcoll, dd=dd) / area_element(actx, dcoll, dd=dd)
+
+    # Dorst Section 3.7.2
+    return pder << pder.I.inv()
+
+
+def mv_normal(actx, dcoll, dd):
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
+    import grudge.dof_desc as dof_desc
+
+    dd = dof_desc.as_dofdesc(dd)
+    if not dd.is_trace():
+        raise ValueError("may only request normals on boundaries")
+
+    dim = dcoll.dim
+    ambient_dim = dcoll.ambient_dim
+
+    if dim == ambient_dim - 1:
+        return surface_normal(actx, dcoll, dd=dd)
+
+    # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
+    # enough information on the face to decide what an "exterior face normal"
+    # is (e.g the "normal" to a 1D curve in 3D space is actually a
+    # "normal plane")
+    #
+    # The trick done here is that we take the surface normal, move it to the
+    # face and then take a cross product with the face tangent to get the
+    # correct exterior face normal vector.
+    assert dim == ambient_dim - 2
+
+    from grudge.operators import project
+    import grudge.dof_desc as dof_desc
+
+    volm_normal = project(dcoll, dof_desc.DD_VOLUME, dd,
+                          surface_normal(actx, dcoll,
+                                         dd=dof_desc.DD_VOLUME,
+                                         dim=dim + 1))
+    pder = pseudoscalar(actx, dcoll, dd=dd)
+
+    mv = -(volm_normal ^ pder) << volm_normal.I.inv()
+
+    return mv / actx.np.sqrt(mv.norm_squared())
+
+
+def normal(actx, dcoll, dd):
+    return mv_normal(actx, dcoll, dd).as_vector()

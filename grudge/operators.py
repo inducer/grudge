@@ -22,9 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
+from numbers import Number
 from pytools import (
-    keyed_memoize_in, memoize_in, memoize_on_first_arg
+    memoize_in,
+    memoize_on_first_arg,
+    # keyed_memoize_in
 )
 from pytools.obj_array import obj_array_vectorize
 from meshmode.array_context import (
@@ -44,6 +46,60 @@ class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
 
 class MassOperatorTag(HasElementwiseMatvecTag):
     pass
+
+# }}}
+
+
+def project(dcoll, src, tgt, vec):
+    """Project from one discretization to another, e.g. from the
+    volume to the boundary, or from the base to the an overintegrated
+    quadrature discretization.
+
+    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
+    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    """
+    src = dof_desc.as_dofdesc(src)
+    tgt = dof_desc.as_dofdesc(tgt)
+    if src == tgt:
+        return vec
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: project(dcoll, src, tgt, el), vec)
+
+    if isinstance(vec, Number):
+        return vec
+
+    return dcoll.connection_from_dds(src, tgt)(vec)
+
+
+# {{{ geometric properties
+
+def nodes(dcoll, dd=None):
+    r"""Return the nodes of a discretization.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    """
+    if dd is None:
+        return dcoll._volume_discr.nodes()
+    else:
+        return dcoll.discr_from_dd(dd).nodes()
+
+
+@memoize_on_first_arg
+def normal(dcoll, dd):
+    """Get unit normal to specified surface discretization, *dd*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
+    """
+    from grudge.geometry import normal
+    surface_discr = dcoll.discr_from_dd(dd)
+    actx = surface_discr._setup_actx
+    return actx.freeze(normal(actx, dcoll, dd))
 
 # }}}
 
@@ -201,7 +257,7 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
     #                              in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            mmat = reference_mass_matrix(actx, in_grp)
+            mmat = reference_mass_matrix(actx, out_grp, in_grp)
             return [dmat.T.dot(mmat.T)
                     for dmat in reference_derivative_matrices(actx, in_grp)]
 
