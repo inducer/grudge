@@ -190,6 +190,106 @@ def mass_operator(dcoll, *args):
 # }}}
 
 
+# {{{ Stiffness transpose operator
+
+def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_group):
+
+    # FIXME: Think about how to compose this better with existing functions
+    @keyed_memoize_in(
+        actx, reference_stiffness_transpose_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
+    def get_ref_stiffness_transpose_mat(out_grp, in_grp):
+        if in_grp == out_grp:
+            mmat = reference_mass_matrix(actx, in_grp)
+            return [dmat.T.dot(mmat.T)
+                    for dmat in reference_derivative_matrices(actx, in_grp)]
+
+        from modepy import vandermonde
+        basis = out_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, in_grp.unit_nodes)
+        vand_inv_t = np.linalg.inv(vand).T
+
+        if not isinstance(grad_vand, tuple):
+            # NOTE: special case for 1d
+            grad_vand = (grad_vand,)
+
+        weights = in_grp.quadrature_rule().weights
+        return actx.freeze(
+            actx.from_numpy(
+                np.einsum(
+                    "c,bz,acz->abc",
+                    weights,
+                    vand_inv_t,
+                    grad_vand
+                )
+            )
+        )
+    return get_ref_stiffness_transpose_mat(out_element_group,
+                                           in_element_group)
+
+
+def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
+    from grudge.geometry import \
+        inverse_surface_metric_derivative, area_element
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_out)
+
+    actx = vec.array_context
+    area_elements = area_element(actx, dcoll, dd=dd_in)
+    # FIXME: Each individual term comes out as (result,)
+    inverse_jac_t = [
+        inverse_surface_metric_derivative(
+            actx, dcoll, rst_axis, xyz_axis
+        )[0] for rst_axis in range(dcoll.dim)
+    ]
+    data = []
+    for out_grp, in_grp, vec_i, ae_i in zip(out_discr.groups,
+                                            in_discr.groups,
+                                            vec,
+                                            area_elements):
+        ref_stiffness_t = reference_stiffness_transpose_matrix(
+            actx,
+            out_element_group=out_grp,
+            in_element_group=in_grp
+        )
+        data.append(sum(
+            actx.einsum(
+                "ej,ij,ej,ej->ei",
+                inverse_jac_t[rst_axis],
+                ref_stiffness_t[rst_axis],
+                vec_i,
+                ae_i,
+                arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", "jac"),
+                tagged=(HasElementwiseMatvecTag(),)
+            ) for rst_axis in range(dcoll.dim))
+        )
+    return DOFArray(actx, data=tuple(data))
+
+
+def stiffness_transpose_operator(dcoll, *args):
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    from pytools.obj_array import make_obj_array
+
+    return make_obj_array(
+        [_apply_stiffness_transpose_operator(dcoll,
+                                             dof_desc.DD_VOLUME,
+                                             dd, vec, xyz_axis)
+         for xyz_axis in range(dcoll.dim)]
+    )
+
+# }}}
+
+
 # {{{ Mass inverse operator
 
 def reference_inverse_mass_matrix(actx, element_group):
