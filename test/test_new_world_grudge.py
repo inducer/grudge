@@ -23,7 +23,6 @@ THE SOFTWARE.
 """
 
 import numpy as np
-import numpy.linalg as la
 
 from meshmode import _acf       # noqa: F401
 from meshmode.dof_array import flatten, thaw
@@ -32,8 +31,7 @@ from meshmode.array_context import (  # noqa
         as pytest_generate_tests)
 import meshmode.mesh.generation as mgen
 
-from pytools.obj_array import flat_obj_array, make_obj_array
-import grudge.op as op
+import grudge.operators as op
 
 from grudge import DiscretizationCollection, sym, bind
 import grudge.dof_desc as dof_desc
@@ -88,6 +86,7 @@ def test_inverse_metric(actx_factory, dim):
             assert err < 1.0e-12, (i, j, err)
 
 # }}}
+
 
 # {{{ mass operator
 
@@ -319,7 +318,8 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
 # }}}
 
-{{{ diff operator
+
+# {{{ diff operator
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 def test_tri_diff_mat(actx_factory, dim, order=4):
