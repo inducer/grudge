@@ -140,7 +140,8 @@ def inverse_metric_derivative_mat(actx, dcoll, dd=None):
 @memoize_on_first_arg
 def inverse_first_fundamental_form(actx, dcoll, dd):
 
-    if dcoll.ambient_dim == dcoll.dim:
+    dim = dcoll.dim
+    if dcoll.ambient_dim == dim:
         inv_mder = inverse_metric_derivative_mat(actx, dcoll, dd)
         inv_form1 = inv_mder.dot(inv_mder.T)
     else:
@@ -201,7 +202,8 @@ def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
 @memoize_on_first_arg
 def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
 
-    if dcoll.ambient_dim == dcoll.dim:
+    dim = dcoll.dim
+    if dcoll.ambient_dim == dim:
         imd = inverse_metric_derivative(
             actx, dcoll, rst_axis, xyz_axis, dd=dd
         )

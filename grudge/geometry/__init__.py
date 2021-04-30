@@ -29,3 +29,10 @@ from grudge.geometry.metrics import (
     inverse_surface_metric_derivative,
     area_element
 )
+
+__all__ = (
+    "forward_metric_derivative_mat",
+    "inverse_metric_derivative_mat",
+    "inverse_surface_metric_derivative",
+    "area_element"
+)
