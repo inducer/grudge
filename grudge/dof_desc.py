@@ -326,7 +326,7 @@ def __getattr__(name):
 
 if sys.version_info < (3, 7):
     for name in _deprecated_names:
-        name = globals()[f"{_deprecated_names[name]}"]
+        globals()[f"{name}"] = globals()[f"{_deprecated_names[name]}"]
 
 # }}}
 
