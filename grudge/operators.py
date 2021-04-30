@@ -23,9 +23,13 @@ THE SOFTWARE.
 """
 
 
-from pytools import keyed_memoize_in
+from pytools import (
+    keyed_memoize_in, memoize_in
+)
 from pytools.obj_array import obj_array_vectorize
-from meshmode.array_context import FirstAxisIsElementsTag
+from meshmode.array_context import (
+    FirstAxisIsElementsTag, make_loopy_program
+)
 from meshmode.dof_array import DOFArray
 
 import numpy as np
@@ -270,6 +274,167 @@ def inverse_mass_operator(dcoll, vec):
     return _apply_inverse_mass_operator(
         dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
     )
+
+# }}}
+
+
+# {{{ Face mass operator
+
+def reference_face_mass_matrix(actx, face_element_group, vol_element_group, dtype):
+
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda face_grp, vol_grp: (face_grp.discretization_key(),
+                                   vol_grp.discretization_key()))
+    def get_ref_face_mass_mat(face_grp, vol_grp):
+        nfaces = vol_grp.mesh_el_group.nfaces
+        assert (face_grp.nelements
+                == nfaces * vol_grp.nelements)
+
+        matrix = np.empty(
+            (vol_grp.nunit_dofs,
+            nfaces,
+            face_grp.nunit_dofs),
+            dtype=dtype
+        )
+
+        import modepy as mp
+        from meshmode.discretization import ElementGroupWithBasis
+        from meshmode.discretization.poly_element import \
+            QuadratureSimplexElementGroup
+
+        n = vol_grp.order
+        m = face_grp.order
+        vol_basis = vol_grp.basis_obj()
+        faces = mp.faces_for_shape(vol_grp.shape)
+
+        for iface, face in enumerate(faces):
+            # If the face group is defined on a higher-order
+            # quadrature grid, use the underlying quadrature rule
+            if isinstance(face_grp, QuadratureSimplexElementGroup):
+                face_quadrature = face_grp.quadrature_rule()
+                if face_quadrature.exact_to < m:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {m}."
+                    )
+            else:
+                # NOTE: This handles the general case where
+                # volume and surface quadrature rules may have different
+                # integration orders
+                face_quadrature = mp.quadrature_for_space(
+                    mp.space_for_shape(face, 2*max(n, m)),
+                    face
+                )
+
+            # If the group has a nodal basis and is unisolvent,
+            # we use the basis on the face to compute the face mass matrix
+            if (isinstance(face_grp, ElementGroupWithBasis)
+                    and face_grp.space.space_dim
+                    == face_grp.nunit_dofs):
+
+                face_basis = face_grp.basis_obj()
+
+                # Sanity check for face quadrature accuracy. Not integrating
+                # degree N + M polynomials here is asking for a bad time.
+                if face_quadrature.exact_to < m + n:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {n+m}."
+                    )
+
+                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                    face, face_quadrature,
+                    face_basis.functions, vol_basis.functions,
+                    vol_grp.unit_nodes,
+                    face_grp.unit_nodes,
+                )
+            else:
+                # Otherwise, we use a routine that is purely quadrature-based
+                # (no need for explicit face basis functions)
+                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
+                    face,
+                    face_quadrature,
+                    vol_basis.functions,
+                    vol_grp.unit_nodes,
+                )
+
+        return actx.freeze(actx.from_numpy(matrix))
+
+    return get_ref_face_mass_mat(face_element_group, vol_element_group)
+
+
+def _apply_face_mass_operator(dcoll, dd, vec):
+    from grudge.geometry import area_element
+
+    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    face_discr = dcoll.discr_from_dd(dd)
+    dtype = vec.entry_dtype
+    actx = vec.array_context
+    surf_area_elements = area_element(actx, dcoll, dd=dd)
+
+    @memoize_in(actx, (_apply_face_mass_operator, "face_mass_knl"))
+    def prg():
+        return make_loopy_program(
+            """{[iel,idof,f,j]:
+                0<=iel<nelements and
+                0<=f<nfaces and
+                0<=idof<nvol_nodes and
+                0<=j<nface_nodes}""",
+            """
+            result[iel,idof] = sum(f, sum(j, mat[idof, f, j] \
+                                             * jac_surf[f, iel, j] \
+                                             * vec[f, iel, j]))
+            """,
+            name="face_mass"
+        )
+
+    result = volm_discr.empty(actx, dtype=dtype)
+    assert len(face_discr.groups) == len(volm_discr.groups)
+
+    for afgrp, volgrp in zip(face_discr.groups, volm_discr.groups):
+
+        nfaces = volgrp.mesh_el_group.nfaces
+        matrix = reference_face_mass_matrix(
+            actx,
+            face_element_group=afgrp,
+            vol_element_group=volgrp,
+            dtype=dtype
+        )
+        input_view = result[afgrp.index].reshape(
+            nfaces, volgrp.nelements, afgrp.nunit_dofs
+        )
+        jac_surf = surf_area_elements[afgrp.index].reshape(
+            nfaces, volgrp.nelements, afgrp.nunit_dofs
+        )
+        actx.call_loopy(
+            prg(),
+            mat=matrix,
+            result=result[volgrp.index],
+            jac_surf=jac_surf,
+            vec=input_view
+        )
+    return result
+
+
+def face_mass_operator(dcoll, *args):
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("all_faces", dof_desc.QTAG_NONE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: face_mass_operator(dcoll, dd, el), vec)
+
+    return _apply_face_mass_operator(dcoll, dd, vec)
 
 # }}}
 
