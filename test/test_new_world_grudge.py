@@ -33,7 +33,7 @@ import meshmode.mesh.generation as mgen
 
 import grudge.operators as op
 
-from grudge import DiscretizationCollection, sym, bind
+from grudge import DiscretizationCollection
 import grudge.dof_desc as dof_desc
 
 import pytest
@@ -232,9 +232,9 @@ def test_mass_surface_area(actx_factory, name):
 
         dd = dof_desc.DD_VOLUME
         ones_volm = volume_discr.zeros(actx) + 1
-        mass_weights = op.mass_operator(dcoll, dd, ones_volm)
+        flattened_mass_weights = flatten(op.mass_operator(dcoll, dd, ones_volm))
         approx_surface_area = np.dot(actx.to_numpy(flatten(ones_volm)),
-                                     actx.to_numpy(flatten(mass_weights)))
+                                     actx.to_numpy(flattened_mass_weights))
 
         logger.info("surface: got {:.5e} / expected {:.5e}".format(
             approx_surface_area, surface_area))
@@ -242,8 +242,12 @@ def test_mass_surface_area(actx_factory, name):
 
         # }}}
 
-        h_max = bind(dcoll, sym.h_max_from_volume(dcoll.ambient_dim,
-                                                  dim=dcoll.dim, dd=dd))(actx)
+        # {{{ compute h_max using mass weights
+
+        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
+
+        # }}}
+
         eoc.add_data_point(h_max, area_error)
 
     # }}}
@@ -300,21 +304,25 @@ def test_surface_mass_operator_inverse(actx_factory, name):
             dcoll, op.mass_operator(dcoll, dd, f_volm)
         )
 
+        inv_error = actx.np.linalg.norm(res - f_volm, ord=2)
+
         # }}}
 
-        inv_error = bind(dcoll,
-                sym.norm(2, sym.var("x") - sym.var("y"))
-                / sym.norm(2, sym.var("y")))(actx, x=res, y=f_volm)
+        # {{{ compute h_max from mass weights
 
-        h_max = bind(dcoll, sym.h_max_from_volume(
-            dcoll.ambient_dim, dim=dcoll.dim, dd=dd))(actx)
+        ones_volm = volume_discr.zeros(actx) + 1
+        flattened_mass_weights = flatten(op.mass_operator(dcoll, dd, ones_volm))
+        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
+
+        # }}}
+
         eoc.add_data_point(h_max, inv_error)
 
     # }}}
 
     logger.info("inverse mass error\n%s", str(eoc))
 
-    assert eoc.max_error() < 1.0e-14
+    assert eoc.max_error() < 5e-13
 
 # }}}
 
