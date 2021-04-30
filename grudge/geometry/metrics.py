@@ -28,13 +28,9 @@ import numpy as np
 from grudge.dof_desc import (
     DD_VOLUME, DOFDesc
 )
-
 from meshmode.dof_array import thaw
-
 from pymbolic.geometric_algebra import MultiVector
-
 from pytools.obj_array import make_obj_array
-from pytools import memoize_on_first_arg
 
 
 def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
@@ -137,7 +133,6 @@ def inverse_metric_derivative_mat(actx, dcoll, dd=None):
     return result
 
 
-@memoize_on_first_arg
 def inverse_first_fundamental_form(actx, dcoll, dd):
 
     dim = dcoll.dim
@@ -161,7 +156,6 @@ def inverse_first_fundamental_form(actx, dcoll, dd):
     return inv_form1
 
 
-@memoize_on_first_arg
 def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
 
     dim = dcoll.dim
@@ -199,7 +193,6 @@ def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
     return result
 
 
-@memoize_on_first_arg
 def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
 
     dim = dcoll.dim
@@ -217,7 +210,6 @@ def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
     return imd
 
 
-@memoize_on_first_arg
 def _signed_face_ones(actx, dcoll, dd):
 
     assert dd.is_trace()
@@ -272,7 +264,6 @@ def pseudoscalar(actx, dcoll, dd=None):
     ).project_max_grade()
 
 
-@memoize_on_first_arg
 def area_element(actx, dcoll, dd=None):
 
     return actx.np.sqrt(
