@@ -139,12 +139,14 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     quad_tag_to_group_factory = {}
     if product_tag == "none":
         product_tag = None
+    else:
+        product_tag = dof_desc.DISCR_TAG_QUAD
 
     from meshmode.discretization.poly_element import \
             PolynomialWarpAndBlendGroupFactory, \
             QuadratureSimplexGroupFactory
 
-    quad_tag_to_group_factory[dof_desc.QTAG_NONE] = \
+    quad_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
             PolynomialWarpAndBlendGroupFactory(order)
 
     if product_tag:
