@@ -24,7 +24,7 @@ THE SOFTWARE.
 
 
 from pytools import (
-    keyed_memoize_in, memoize_in
+    keyed_memoize_in, memoize_in, memoize_on_first_arg
 )
 from pytools.obj_array import obj_array_vectorize
 from meshmode.array_context import (
@@ -293,9 +293,9 @@ def stiffness_transpose_operator(dcoll, *args):
 # {{{ Mass inverse operator
 
 def reference_inverse_mass_matrix(actx, element_group):
-    @keyed_memoize_in(
-        actx, reference_inverse_mass_matrix,
-        lambda grp: grp.discretization_key())
+    # @keyed_memoize_in(
+    #     actx, reference_inverse_mass_matrix,
+    #     lambda grp: grp.discretization_key())
     def get_ref_inv_mass_mat(grp):
         from modepy import inverse_mass_matrix
         basis = grp.basis_obj()
