@@ -57,10 +57,9 @@ ResultType = Union[DOFArray, Number]
 
 # {{{ exec mapper
 
-#@memoize_method
 #@memoize_in(self.array_context,
 #        (ExecutionMapper, "reference_derivative_prg"))
-def diff_prg(n_mat, n_elem, n_in, n_out, fp_format=np.float32,
+def diff_prg(n_mat, n_elem, n_in, n_out, fp_format,
         options=None):
     
     @memoize_in(diff_prg, "_gen_diff_knl")
@@ -634,7 +633,7 @@ class ExecutionMapper(mappers.Evaluator,
             n_elem = field[in_grp.index].shape[0]
             fp_format = field.entry_dtype
             options = lp.Options(no_numpy=True, return_dict=True)
-            program = diff_prg(noperators, n_elem, n_in, n_out, options=options, fp_format=field.entry_dtype)
+            program = diff_prg(noperators, n_elem, n_in, n_out, field.entry_dtype, options=options)
 
             self.array_context.call_loopy(
                     program,

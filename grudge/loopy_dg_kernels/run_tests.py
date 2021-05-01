@@ -255,9 +255,10 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
     return (B_dev, A_dev, X_dev), avg_time
 
 
+# Maybe the queue could also be a cuda stream? Could use the type of that to
+# distinguish between CUDA and OpenCL possibly
+def test_elwise_linear(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
-
-def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
     #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
     #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
@@ -298,11 +299,11 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
         sum_time = time.time() - start
 
     elif OPENCL:
-        platform = cl.get_platforms()
-        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-        #ctx = cl.Context(devices=my_gpu_devices)
-        ctx = cl.create_some_context(interactive=True)
-        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+        #platform = cl.get_platforms()
+        #my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        ##ctx = cl.Context(devices=my_gpu_devices)
+        #ctx = cl.create_some_context(interactive=True)
+        #queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
@@ -351,7 +352,7 @@ def test_elwise_linear(kern, backend="OPENCL", nruns=10, warmup=True):
 
 
 
-def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
+def runTestFortran(queue, kern, backend="OPENCL", nruns=10, warmup=True):
     for arg in kern.args:
         if arg.name == "diff_mat":
             n_mat, n_out, n_in = arg.shape
@@ -362,6 +363,7 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
     kern = lp.set_options(kern, "no_numpy")
     kern = lp.set_options(kern, "return_dict")
 
+    # Can probably set this based on type of queue object
     CUDA = (backend == "CUDA")
     OPENCL = not CUDA
 
@@ -383,12 +385,6 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
         print(code)
     elif OPENCL:
 
-        platform = cl.get_platforms()
-        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-        #ctx = cl.Context(devices=my_gpu_devices)
-        ctx = cl.create_some_context(interactive=True)
-        queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
 
@@ -406,11 +402,12 @@ def runTestFortran(kern, backend="OPENCL", nruns=10, warmup=True):
 
         from pyopencl.tools import ImmediateAllocator
         allocator = ImmediateAllocator(queue)
-        X_dev_c = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
-        evt, (X_dev,) = ctof(queue, input=X_dev_c)
+        X_dev = cl.array.Array(queue, (n_elem, n_in), fp_format, order="F", allocator=allocator)
+        cl.clrandom.fill_rand(X_dev, queue)
+        #X_dev_c = cl.clrandom.rand(queue, (n_elem, n_in), dtype=fp_format)
+        #evt, (X_dev,) = ctof(queue, input=X_dev_c)
         from pytools.obj_array import make_obj_array
-        B_dev = []
-        A_dev = []
+        B_dev, A_dev = [], []
         for i in range(n_mat):
             B_dev.append(cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F"))
             A_dev.append(cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format))
@@ -691,10 +688,10 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
     return sorted(options, reverse=reverse)
 
 
-def i_inner_inner_options(n_out, k_inner_inner, max_workitems=1024, reverse=True):
+def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, reverse=True):
     factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
     # Ensure total number of workitems is less than maximum
-    usable_factors = factors[factors*k_inner_inner <= max_workitems]
+    usable_factors = factors[factors*k_inner_inner <= max_work_group_size]
     return sorted(usable_factors, reverse=reverse)
 
 
@@ -744,36 +741,66 @@ def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
                             return result_saved
     return result_saved
 
+#def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
+#                    fp_format=np.float32,
+#                    max_gflops=None, device_memory_bandwidth=None,
+#                    max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
+# Kernel should have fully defined args
+def random_search(queue, knl, test_fn, 
+    time_limit=float("inf"), max_gflops=None, device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, fp_format=None):
 
-def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
-                    fp_format=np.float32,
-                    max_gflops=None, device_memory_bandwidth=None,
-                    max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
-    # Should probably make this a function
-    fp_bytes, fp_string = (8, "FP64") if fp_format == np.float64 else (4, "FP32")
+    # Imports
     from random import choice
+    from grudge.grudge_tags import ParameterValue
+
+    local_mem_size = queue.device.local_mem_size
+    max_work_group_size = queue.device.max_work_group_size    
+
     avg_time_saved = float("inf")
     result_saved = None
-    start = time.time()
+
+    # Extract n_in, n_out, n_elem
+    # How can this be made general?
+    # If they are all arguments, maybe they are not fixed at this point
+    for arg in knl.args:
+        if arg.name == "vec":
+            n_elem, n_out = arg.shape
+            fp_bytes = arg.dtype.dtype.itemsize
+            print(fp_bytes)
+        elif arg.name == "diff_mat":
+            n_mat, n_out, n_in = arg.shape
+
+
+    tested = []
+    # Assuming time is in milliseconds
+
+    # Some default transformations
+    for arg in knl.args:
+        if isinstance(arg.tags, ParameterValue):
+            knl = lp.fix_parameters(knl, **{arg.name: arg.tags.value})
+    knl = lp.tag_inames(knl, "imatrix: ilp")
+    knl = lp.tag_array_axes(knl, "result", "sep,f,f")
+    knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
+    knl = lp.tag_array_axes(knl, "vec", "f,f")
 
     k_inner_inner_opt = k_inner_inner_options()
     j_inner_opt = j_inner_options(n_in)
 
-    tested = []
-    # Assuming time is in milliseconds
+    start = time.time()
     while(time.time() - start < time_limit):
         # Can be more intelligent by ensuring choices are not run multiple times
+        # Maybe could use expressions
         kii = choice(k_inner_inner_opt)
-        kio = choice(k_inner_outer_options(n_in, kii, sm_size, fp_bytes=fp_bytes))
-        iii = choice(i_inner_inner_options(n_out, kii, max_workitems=max_workitems))
+        kio = choice(k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes))
+        iii = choice(i_inner_inner_options(n_out, kii, max_work_group_size=max_work_group_size))
         iio = choice(i_inner_outer_options(n_out, iii))
         ji = choice(j_inner_opt)
         choices = (kio, kii, iio, iii, ji)
         if choices not in tested:
             print(choices)
-            dev_arrays, avg_time = runTest(int(n_elem), int(n_in), int(n_out),
-                int(kio), int(kii), int(iio), int(iii), int(ji), fp_format=fp_format)
-            #exit()
+            # Apply more transformations here
+            exit()
+            dev_arrays, avg_time = test_fn(queue, knl)
             tested.append(choices)
             if max_gflops is not None and device_memory_bandwidth is not None:
                 frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out, n_in, n_elem,
@@ -796,9 +823,15 @@ def get_transformation_id(device_id):
     od = hjson.loads(hjson_text)
     return od[device_id]
 
-# Test existing optimizations
 if __name__ == "__main__": 
-    from __init__ import gen_diff_knl, load_transformations_from_file, apply_transformation_list 
+    from __init__ import gen_diff_knl, load_transformations_from_file, apply_transformation_list
+
+    # Test existing optimizations
+    platform = cl.get_platforms()
+    my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+    #ctx = cl.Context(devices=my_gpu_devices)
+    ctx = cl.create_some_context(interactive=True)
+    queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
     
     # Testing code
     device_id = "NVIDIA Titan V"
@@ -855,7 +888,7 @@ if __name__ == "__main__":
 
     """
     #testBandwidth()
-    #"""
+    """
     # Test elwise linear
     pn = 3
     n_out = len(equidistant_nodes(pn,3)[1])
@@ -869,10 +902,10 @@ if __name__ == "__main__":
     trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
     knl = apply_transformation_list(knl, trans)
     #print(knl)
-    _, avg_time = test_elwise_linear(knl, backend="OPENCL", nruns=10, warmup=True)
+    _, avg_time = test_elwise_linear(queue, knl, backend="OPENCL", nruns=10, warmup=True)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
-    #"""
+    """
     """
     # Test face_mass            
     pn = 3
@@ -894,3 +927,10 @@ if __name__ == "__main__":
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
     """
+
+    # Test autotuner
+    from grudge.execution import diff_prg 
+    knl = diff_prg(3, 178746, 20, 20, np.float64)
+    random_search(queue, knl, runTestFortran, time_limit=float("inf"), max_gflops=None, device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, fp_format=None)
+
+
