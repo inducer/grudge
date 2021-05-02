@@ -84,7 +84,7 @@ class LoopyKernelDescriptor:
     @memoize_method
     def scalar_args(self):
         import loopy as lp
-        return [arg.name for arg in self.loopy_kernel.args
+        return [arg.name for arg in self.loopy_kernel.default_entrypoint.args
                 if isinstance(arg, lp.ValueArg)
                 and arg.name not in ["nelements", "nunit_dofs"]]
 
