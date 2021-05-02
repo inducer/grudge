@@ -259,13 +259,11 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
 # distinguish between CUDA and OpenCL possibly
 def test_elwise_linear(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
-    #kern = gen_diff_knl(n_elem, n_in, n_out, k_inner_outer, k_inner_inner,
-    #    i_inner_outer, i_inner_inner, j_inner)
     kern = lp.set_options(kern, "no_numpy")
     kern = lp.set_options(kern, "return_dict")
     for arg in kern.args:
         if arg.name == "vec":
-            fp_format = arg.dtype
+            fp_format = arg.dtype.dtype
             n_elem, n_in = arg.shape
         elif arg.name == "mat":
             n_out, _ = arg.shape
@@ -741,13 +739,8 @@ def exhaustiveSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
                             return result_saved
     return result_saved
 
-#def randomSearch(n_in, n_out, n_elem, sm_size, time_limit=float("inf"),
-#                    fp_format=np.float32,
-#                    max_gflops=None, device_memory_bandwidth=None,
-#                    max_workitems=1024, gflops_cutoff=.95, bandwidth_cutoff=0.95):
-# Kernel should have fully defined args
-def random_search(queue, knl, test_fn, 
-    time_limit=float("inf"), max_gflops=None, device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, fp_format=None):
+def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
+        device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95):
 
     # Imports
     from random import choice
@@ -759,32 +752,45 @@ def random_search(queue, knl, test_fn,
     avg_time_saved = float("inf")
     result_saved = None
 
-    # Extract n_in, n_out, n_elem
-    # How can this be made general?
-    # If they are all arguments, maybe they are not fixed at this point
-    for arg in knl.args:
-        if arg.name == "vec":
-            n_elem, n_out = arg.shape
-            fp_bytes = arg.dtype.dtype.itemsize
-            print(fp_bytes)
-        elif arg.name == "diff_mat":
-            n_mat, n_out, n_in = arg.shape
+    # Kernel specific logic 
 
+    if "diff" in knl.name:
+        for arg in knl.args:
+            if arg.name == "vec":
+                n_elem, n_out = arg.shape
+                fp_bytes = arg.dtype.dtype.itemsize
+            elif arg.name == "diff_mat":
+                n_mat, n_out, n_in = arg.shape
+
+        knl = lp.tag_inames(knl, "imatrix: ilp")
+        knl = lp.tag_array_axes(knl, "result", "sep,f,f")
+        knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
+        knl = lp.tag_array_axes(knl, "vec", "f,f")
+
+    elif knl.name == "elwise_linear":
+        for arg in knl.args:
+            if arg.name == "vec":
+                n_elem, n_out = arg.shape
+                fp_bytes = arg.dtype.dtype.itemsize
+            elif arg.name == "mat":
+                n_out, n_in = arg.shape      
+
+        knl = lp.tag_array_axes(knl, "result", "f,f")
+        knl = lp.tag_array_axes(knl, "mat", "c,c")
+        knl = lp.tag_array_axes(knl, "vec", "f,f")
 
     tested = []
     # Assuming time is in milliseconds
 
-    # Some default transformations
+    # Fix the parameters
     for arg in knl.args:
         if isinstance(arg.tags, ParameterValue):
             knl = lp.fix_parameters(knl, **{arg.name: arg.tags.value})
-    knl = lp.tag_inames(knl, "imatrix: ilp")
-    knl = lp.tag_array_axes(knl, "result", "sep,f,f")
-    knl = lp.tag_array_axes(knl, "diff_mat", "sep,c,c")
-    knl = lp.tag_array_axes(knl, "vec", "f,f")
 
     k_inner_inner_opt = k_inner_inner_options()
     j_inner_opt = j_inner_options(n_in)
+
+    knl_base = knl.copy()
 
     start = time.time()
     while(time.time() - start < time_limit):
@@ -799,19 +805,28 @@ def random_search(queue, knl, test_fn,
         if choices not in tested:
             print(choices)
             # Apply more transformations here
-            exit()
+            knl = knl_base.copy()
+            knl = lp.split_iname(knl, "iel", kio, outer_tag="g.0", slabs=(0,1))
+            knl = lp.split_iname(knl, "iel_inner", kii, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+            knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
+            knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
+            knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+            knl = lp.split_iname(knl, "j", ji, outer_tag="for", inner_tag="for")
+            knl = lp.tag_array_axes(knl, "vecf", "f,f")
+
             dev_arrays, avg_time = test_fn(queue, knl)
             tested.append(choices)
+
             if max_gflops is not None and device_memory_bandwidth is not None:
                 frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out, n_in, n_elem,
                     max_gflops, device_memory_bandwidth, avg_time)
                 if frac_peak_gflops >= gflops_cutoff or frac_peak_GBps >= bandwidth_cutoff:  # noqa
                     # Should validate result here
                     print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
-                    return (kio, kii, iio, iii, ji)
+                    return choices
             if avg_time < avg_time_saved:
                 avg_time_saved = avg_time
-                result_saved = (kio, kii, iio, iii, ji)
+                result_saved = choices
 
     print("Time limit exceeded: returning current best result")
     return result_saved
@@ -929,8 +944,8 @@ if __name__ == "__main__":
     """
 
     # Test autotuner
-    from grudge.execution import diff_prg 
-    knl = diff_prg(3, 178746, 20, 20, np.float64)
-    random_search(queue, knl, runTestFortran, time_limit=float("inf"), max_gflops=None, device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, fp_format=None)
-
-
+    from grudge.execution import diff_prg, elwise_linear_prg
+    knl = diff_prg(1, 178746, 20, 20, np.float64)
+    knl = elwise_linear_prg(178746, 20, np.float64)
+    random_search(queue, knl, test_elwise_linear, time_limit=60, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=0.95)
+    

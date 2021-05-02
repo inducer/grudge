@@ -62,7 +62,7 @@ ResultType = Union[DOFArray, Number]
 def diff_prg(n_mat, n_elem, n_in, n_out, fp_format,
         options=None):
     
-    @memoize_in(diff_prg, "_gen_diff_knl")
+    @memoize_in(diff_prg, (ExecutionMapper, "_gen_diff_knl"))
     def _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format):
         knl = lp.make_kernel(
         """{[imatrix,iel,idof,j]:
@@ -101,7 +101,37 @@ def diff_prg(n_mat, n_elem, n_in, n_out, fp_format,
     #knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     return knl
 
+def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
 
+    @memoize_in(elwise_linear_prg, (ExecutionMapper, "elwise_linear_knl"))
+    def _gen_elwise_linear_knl(nelements, nnodes, fp_format):
+
+        result = lp.make_kernel(
+            """{[iel, idof, j]:
+                0<=iel<nelements and
+                0<=idof<ndiscr_nodes_out and
+                0<=j<ndiscr_nodes_in}""",
+            """
+            result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])
+            """,
+            kernel_data=[
+                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
+                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes,nnodes)),
+                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
+                lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes)),
+                lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes)),
+            ],
+            assumptions="nelements > 0 \
+                        and ndiscr_nodes_out > 0 \
+                        and ndiscr_nodes_in > 0",
+            options=options,
+            name="elwise_linear")
+
+        #result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+        return result
+    
+    return _gen_elwise_linear_knl(nelements, nnodes, fp_format)
 
 
 class ExecutionMapper(mappers.Evaluator,
@@ -327,31 +357,6 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
-        def prg(nelements, nnodes, fp_format):
-
-            result = make_loopy_program(
-                """{[iel, idof, j]:
-                    0<=iel<nelements and
-                    0<=idof<ndiscr_nodes_out and
-                    0<=j<ndiscr_nodes_in}""",
-                "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
-                kernel_data=[
-                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("mat", fp_format, shape=lp.auto),
-                    lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                    lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes)),
-                    lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes)),
-                ],
-                name="elwise_linear")
-
-            result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
-            #result = lp.fix_parameters(result, nelements=nelements, 
-            #                                 ndiscr_nodes_out=nnodes,
-            #                                 ndiscr_nodes_in=nnodes)
-            
-            return result
 
         in_discr = self.discrwb.discr_from_dd(op.dd_in)
         out_discr = self.discrwb.discr_from_dd(op.dd_out)
@@ -375,9 +380,10 @@ class ExecutionMapper(mappers.Evaluator,
             nnodes, _ = matrix.shape
             nelements, _ = field[in_grp.index].shape
             fp_format = matrix.dtype
-            
+            prg = elwise_linear_prg(nelements, nnodes, fp_format)            
+
             self.array_context.call_loopy(
-                    prg(nelements, nnodes, fp_format),
+                    prg,
                     mat=matrix,
                     result=result[out_grp.index],
                     vec=field[in_grp.index])  # inArg
