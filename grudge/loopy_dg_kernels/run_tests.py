@@ -944,8 +944,12 @@ if __name__ == "__main__":
     """
 
     # Test autotuner
-    from grudge.execution import diff_prg, elwise_linear_prg
-    knl = diff_prg(1, 178746, 20, 20, np.float64)
+    from grudge.execution import diff_prg, elwise_linear_prg, face_mass_prg
+    knl = diff_prg(1, 178746, 20, np.float64)
     knl = elwise_linear_prg(178746, 20, np.float64)
+    # Figure out the actual dimensions
+    knl = face_mass_prg(178746, 4, 20, 20, np.float64)
+    print(knl)
+    exit()
     random_search(queue, knl, test_elwise_linear, time_limit=60, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=0.95)
     

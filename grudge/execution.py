@@ -59,7 +59,7 @@ ResultType = Union[DOFArray, Number]
 
 #@memoize_in(self.array_context,
 #        (ExecutionMapper, "reference_derivative_prg"))
-def diff_prg(n_mat, n_elem, n_in, n_out, fp_format,
+def diff_prg(n_mat, n_elem, n_nodes, fp_format,
         options=None):
     
     @memoize_in(diff_prg, (ExecutionMapper, "_gen_diff_knl"))
@@ -93,7 +93,7 @@ def diff_prg(n_mat, n_elem, n_in, n_out, fp_format,
         )
         return knl
 
-    knl = _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format)
+    knl = _gen_diff_knl(n_mat, n_elem, n_nodes, n_nodes, fp_format)
 
     # This should be in array context probably but need to avoid circular dependency
     # Probably should split kernels out of grudge_array_context
@@ -132,6 +132,33 @@ def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
         return result
     
     return _gen_elwise_linear_knl(nelements, nnodes, fp_format)
+
+def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+
+    @memoize_in(face_mass_prg, (ExecutionMapper, "face_mass_knl"))
+    def _gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+        return make_loopy_program(
+            """{[iel,idof,f,j]:
+                0<=iel<nelements and
+                0<=f<nfaces and
+                0<=idof<nvol_nodes and
+                0<=j<nface_nodes}""",
+            """
+            result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
+            """,
+            kernel_data=[
+                lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
+                lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsFaceDOFArray()),
+                lp.GlobalArg("mat", fp_format, shape=lp.auto),
+                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
+                lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
+                lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
+                lp.ValueArg("nface_nodes", tags=ParameterValue(nface_nodes)), 
+                "..."
+            ],
+            name="face_mass")
+
+    return _gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
 
 
 class ExecutionMapper(mappers.Evaluator,
@@ -414,28 +441,6 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.array_context, (ExecutionMapper, "face_mass_knl"))
-        def prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
-            return make_loopy_program(
-                """{[iel,idof,f,j]:
-                    0<=iel<nelements and
-                    0<=f<nfaces and
-                    0<=idof<nvol_nodes and
-                    0<=j<nface_nodes}""",
-                """
-                result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
-                """,
-                kernel_data=[
-                    lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsFaceDOFArray()),
-                    lp.GlobalArg("mat", fp_format, shape=lp.auto),
-                    lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                    lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
-                    lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
-                    lp.ValueArg("nface_nodes", tags=ParameterValue(nface_nodes)), 
-                    "..."
-                ],
-                name="face_mass")
 
         all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
@@ -465,7 +470,7 @@ class ExecutionMapper(mappers.Evaluator,
             nelements, _ = result[volgrp.index].shape
             nvol_nodes, nfaces, nface_nodes = matrix.shape
             fp_format = input_view.dtype
-            program = prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+            program = face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
 
             self.array_context.call_loopy(
                     program,
@@ -639,7 +644,7 @@ class ExecutionMapper(mappers.Evaluator,
             n_elem = field[in_grp.index].shape[0]
             fp_format = field.entry_dtype
             options = lp.Options(no_numpy=True, return_dict=True)
-            program = diff_prg(noperators, n_elem, n_in, n_out, field.entry_dtype, options=options)
+            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype, options=options)
 
             self.array_context.call_loopy(
                     program,
