@@ -46,12 +46,12 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("order", [2, 3])
-@pytest.mark.parametrize(("vectorize", "stack"), [
+@pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
     ])
-def test_gradient(actx_factory, dim, form, order, vectorize, stack):
+def test_gradient(actx_factory, dim, form, order, vectorize, nested):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -98,10 +98,10 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
             normal = thaw(actx, op.normal(dcoll, dd))
             u_avg = u_tpair.avg
             if vectorize:
-                if stack:
-                    flux = np.outer(u_avg, normal)
-                else:
+                if nested:
                     flux = make_obj_array([u_avg_i * normal for u_avg_i in u_avg])
+                else:
+                    flux = np.outer(u_avg, normal)
             else:
                 flux = u_avg * normal
             return op.project(dcoll, dd, dd_allfaces, flux)
@@ -113,7 +113,7 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
             # FIXME: this doesn't work
             u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
             grad_u = op.inverse_mass(dcoll,
-                op.local_grad(dcoll, u, stack=stack)
+                op.local_grad(dcoll, u, nested=nested)
                 -  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
@@ -126,7 +126,7 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
-                -op.weak_local_grad(dcoll, u, stack=stack)
+                -op.weak_local_grad(dcoll, u, nested=nested)
                 +  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
@@ -137,7 +137,7 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
         if vectorize:
             expected_grad_u = make_obj_array(
                 [(idim+1)*grad_f(x) for idim in range(dim)])
-            if stack:
+            if not nested:
                 expected_grad_u = np.stack(expected_grad_u, axis=0)
         else:
             expected_grad_u = grad_f(x)

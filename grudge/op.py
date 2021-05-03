@@ -135,24 +135,24 @@ def _bound_grad(dcoll):
     return bind(dcoll, sym.nabla(dcoll.dim) * sym.Variable("u"), local_only=True)
 
 
-def local_grad(dcoll, vec, *, stack=True):
+def local_grad(dcoll, vec, *, nested=False):
     r"""Return the element-local gradient of the volume function represented by
     *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         `~meshmode.dof_array.DOFArray`
-    :arg stack: return a multidimensional object array instead of nested arrays
-        if *vec* is non-scalar
+    :arg nested: return nested object arrays instead of a single multidimensional
+        array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
-                lambda el: local_grad(dcoll, el, stack=stack), vec)
-        if stack:
-            return np.stack(grad, axis=0)
-        else:
+                lambda el: local_grad(dcoll, el, nested=nested), vec)
+        if nested:
             return grad
+        else:
+            return np.stack(grad, axis=0)
 
     return _bound_grad(dcoll)(u=vec)
 
@@ -217,7 +217,7 @@ def _bound_weak_grad(dcoll, dd):
             local_only=True)
 
 
-def weak_local_grad(dcoll, *args, stack=True):
+def weak_local_grad(dcoll, *args, nested=False):
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -227,8 +227,8 @@ def weak_local_grad(dcoll, *args, stack=True):
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         `~meshmode.dof_array.DOFArray`
-    :arg stack: return a multidimensional object array instead of nested arrays
-        if *vec* is non-scalar
+    :arg nested: return nested object arrays instead of a single multidimensional
+        array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s
     """
@@ -242,11 +242,11 @@ def weak_local_grad(dcoll, *args, stack=True):
 
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
-                lambda el: weak_local_grad(dcoll, dd, el, stack=stack), vec)
-        if stack:
-            return np.stack(grad, axis=0)
-        else:
+                lambda el: weak_local_grad(dcoll, dd, el, nested=nested), vec)
+        if nested:
             return grad
+        else:
+            return np.stack(grad, axis=0)
 
     return _bound_weak_grad(dcoll, dd)(u=vec)
 
