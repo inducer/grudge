@@ -41,6 +41,8 @@ __doc__ = """
 
 class DiscretizationCollection:
     """
+    .. automethod :: __init__
+
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
 
@@ -53,47 +55,69 @@ class DiscretizationCollection:
     """
 
     def __init__(self, array_context, mesh, order=None,
-            quad_tag_to_group_factory=None, mpi_communicator=None):
+            discr_tag_to_group_factory=None, mpi_communicator=None,
+            # FIXME: `quad_tag_to_group_factory` is deprecated
+            quad_tag_to_group_factory=None):
         """
-        :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
-            strings--but may be any hashable/comparable object) to a
+        :param discr_tag_to_group_factory: A mapping from discretization tags
+            (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
+            :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
+            :class:`grudge.dof_desc.DISCR_TAG_QUAD`) to a
             :class:`~meshmode.discretization.poly_element.ElementGroupFactory`
-            indicating with which quadrature discretization the operations are
+            indicating with which type of discretization the operations are
             to be carried out, or *None* to indicate that operations with this
-            quadrature tag should be carried out with the standard volume
+            discretization tag should be carried out with the standard volume
             discretization.
         """
+
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is not None):
+            raise ValueError(
+                "Both `quad_tag_to_group_factory` and `discr_tag_to_group_factory` "
+                "are specified. Use `discr_tag_to_group_factory` instead."
+            )
+
+        # FIXME: `quad_tag_to_group_factory` is deprecated
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is None):
+            warn("`quad_tag_to_group_factory` is a deprecated kwarg and will "
+                 "be dropped in version 2022.x. Use `discr_tag_to_group_factory` "
+                 "instead.",
+                 DeprecationWarning, stacklevel=2)
+            discr_tag_to_group_factory = quad_tag_to_group_factory
 
         self._setup_actx = array_context
 
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
 
-        if quad_tag_to_group_factory is None:
+        if discr_tag_to_group_factory is None:
             if order is None:
-                raise TypeError("one of 'order' and "
-                        "'quad_tag_to_group_factory' must be given")
+                raise TypeError(
+                    "one of 'order' and 'discr_tag_to_group_factory' must be given"
+                )
 
-            quad_tag_to_group_factory = {
+            discr_tag_to_group_factory = {
                     DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)}
         else:
             if order is not None:
-                quad_tag_to_group_factory = quad_tag_to_group_factory.copy()
-                if DISCR_TAG_BASE in quad_tag_to_group_factory:
-                    raise ValueError("if 'order' is given, "
-                            "'quad_tag_to_group_factory' must not have a "
-                            "key of DISCR_TAG_BASE")
+                discr_tag_to_group_factory = discr_tag_to_group_factory.copy()
+                if DISCR_TAG_BASE in discr_tag_to_group_factory:
+                    raise ValueError(
+                        "if 'order' is given, 'discr_tag_to_group_factory' must "
+                        "not have a key of DISCR_TAG_BASE"
+                    )
 
-                quad_tag_to_group_factory[DISCR_TAG_BASE] = \
+                discr_tag_to_group_factory[DISCR_TAG_BASE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
 
         # Modal discr should always comes from the base discretization
-        quad_tag_to_group_factory[DISCR_TAG_MODAL] = \
+        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
             _generate_modal_group_factory(
-                quad_tag_to_group_factory[DISCR_TAG_BASE]
+                discr_tag_to_group_factory[DISCR_TAG_BASE]
             )
 
-        self.quad_tag_to_group_factory = quad_tag_to_group_factory
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
 
         from meshmode.discretization import Discretization
 
@@ -333,7 +357,7 @@ class DiscretizationCollection:
         if discretization_tag is None:
             discretization_tag = DISCR_TAG_BASE
 
-        return self.quad_tag_to_group_factory[discretization_tag]
+        return self.discr_tag_to_group_factory[discretization_tag]
 
     @memoize_method
     def _discr_tag_volume_discr(self, discretization_tag):
