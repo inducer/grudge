@@ -186,7 +186,7 @@ class DiscretizationCollection:
 
         if dd.is_volume():
             if discr_tag is not DISCR_TAG_BASE:
-                return self._quad_volume_discr(discr_tag)
+                return self._discr_tag_volume_discr(discr_tag)
             return self._volume_discr
 
         if discr_tag is not DISCR_TAG_BASE:
@@ -306,7 +306,7 @@ class DiscretizationCollection:
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import \
                         make_same_mesh_connection
-                to_discr = self._quad_volume_discr(to_discr_tag)
+                to_discr = self._discr_tag_volume_discr(to_discr_tag)
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(self._setup_actx, to_discr,
                             from_discr)
@@ -336,7 +336,7 @@ class DiscretizationCollection:
         return self.quad_tag_to_group_factory[discretization_tag]
 
     @memoize_method
-    def _quad_volume_discr(self, discretization_tag):
+    def _discr_tag_volume_discr(self, discretization_tag):
         from meshmode.discretization import Discretization
 
         return Discretization(
