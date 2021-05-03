@@ -117,13 +117,12 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
                 -  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
+                    # Note: no boundary flux terms here because u_ext == u_int == 0
                     get_flux(sym.TracePair(dd_intfaces,
                         interior=u_intfaces,
                         exterior=u_intfaces))
                     -  # noqa: W504
-                    get_flux(op.interior_trace_pair(dcoll, u))
-                    # No boundary flux terms because u_ext == u_int == 0
-                    )
+                    get_flux(op.interior_trace_pair(dcoll, u)))
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
@@ -131,9 +130,8 @@ def test_gradient(actx_factory, dim, form, order, vectorize, stack):
                 +  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
-                    get_flux(op.interior_trace_pair(dcoll, u))
-                    # No boundary flux terms because u_ext == u_int == 0
-                    )
+                    # Note: no boundary flux terms here because u_ext == u_int == 0
+                    get_flux(op.interior_trace_pair(dcoll, u)))
                 )
 
         if vectorize:
