@@ -642,8 +642,7 @@ class ExecutionMapper(mappers.Evaluator,
             n_out, n_in = matrices_ary_dev[0].shape
             n_elem = field[in_grp.index].shape[0]
             fp_format = field.entry_dtype
-            options = lp.Options(no_numpy=True, return_dict=True)
-            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype, options=options)
+            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype)
 
             self.array_context.call_loopy(
                     program,

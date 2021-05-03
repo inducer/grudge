@@ -47,6 +47,8 @@ def set_memory_layout(program):
             program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
         elif isinstance(arg.tags, ParameterValue):
             program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
+
+        program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
     return program
 
 
@@ -267,6 +269,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                         + kwargs["to_element_indices"].shape[0])*8
         else:
+            print(program.name)
             #print(kwargs.keys())
             for key, val in kwargs.items():
                 # output may be a list of pyopenclarrays or it could be a 
@@ -297,96 +300,4 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         #    exit()
         return evt, result
 
-    '''
-    def call_loopy(self, program, **kwargs):
-        if program.name == "opt_diff":
-            self.queue.finish()
-            start = time.time()
-            evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-            self.queue.finish()
-            dt = time.time() - start
-            _, nelem, n = program.args[0].shape
-            print(program.args[0].shape)
-            #print(lp.generate_code_v2(program).device_code())
-            analyzeResult(n, n, nelem, 6144, 540, dt, 8)
-            print(dt)
-            # First is warmup
-            self.queue.finish()
-            start = time.time()
-            evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-            self.queue.finish()
-            dt = time.time() - start
-            _, nelem, n = program.args[0].shape
-            print(program.args[0].shape)
-            #print(lp.generate_code_v2(program).device_code())
-            analyzeResult(n, n, nelem, 6144, 540, dt, 8)
-            print(dt)
-
-            #exit()
-            result = kwargs["result"]
-        elif "actx_special" in program.name:
-            print(program.name)
-            start = time.time()
-            evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-            self.queue.finish()
-            dt = time.time() - start
-            print(dt)
-            d1, d2 = program.args[0].shape
-            print((d1, d2))
-            nbytes = d1*d2*8
-            bandwidth = 2*(nbytes / dt) / 1e9
-            print(bandwidth)
-        else:
-            evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-
-        """
-        if program.name == "opt_diff":
-             self.queue.finish()
-             start = time.time()
-             evt, result = super().call_loopy(program, **kwargs)
-             #evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-             self.queue.finish()
-             dt = time.time() - start
-             _, nelem, n = program.args[0].shape
-             print(program.args[0].shape)
-             #print(lp.generate_code_v2(program).device_code())
-             analyzeResult(n, n, nelem, 6144, 540, dt, 8)
-             print(dt)
-
-             # First was warmup
-             self.queue.finish()
-             start = time.time()
-             evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-             self.queue.finish()
-             dt = time.time() - start
-             _, nelem, n = program.args[0].shape
-             print(program.args[0].shape)
-             #print(lp.generate_code_v2(program).device_code())
-             analyzeResult(n, n, nelem, 6144, 540, dt, 8)
-             print(dt)
-
-
-             #exit()
-             result = kwargs["result"]
-        else:
-            evt, result = super().call_loopy(program, **kwargs)
-             #evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-        """
-        # """
-        #start = time.time()
-        evt, result = super().call_loopy(program, **kwargs)
-        """
-        if False:#program.name == "opt_diff":
-             self.queue.finish()
-             dt = time.time() - start
-             _, nelem, n = program.args[0].shape
-             print(program.args[0].shape)
-             print(lp.generate_code_v2(program).device_code())
-             analyzeResult(n, n, nelem, 6144, 540, dt, 8)
-             exit()
-        """
-        # """
-
-        return evt, result
-        '''
 # vim: foldmethod=marker
