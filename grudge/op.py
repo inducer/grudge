@@ -135,16 +135,24 @@ def _bound_grad(dcoll):
     return bind(dcoll, sym.nabla(dcoll.dim) * sym.Variable("u"), local_only=True)
 
 
-def local_grad(dcoll, vec):
+def local_grad(dcoll, vec, *, stack=True):
     r"""Return the element-local gradient of the volume function represented by
     *vec*.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`
+    :arg stack: return a multidimensional object array instead of nested arrays
+        if *vec* is non-scalar
+    :returns: an object array (possibly nested) of
+        :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
+        grad = obj_array_vectorize(
                 lambda el: local_grad(dcoll, el), vec)
+        if stack:
+            return np.stack(grad, axis=0)
+        else:
+            return grad
 
     return _bound_grad(dcoll)(u=vec)
 
@@ -209,7 +217,7 @@ def _bound_weak_grad(dcoll, dd):
             local_only=True)
 
 
-def weak_local_grad(dcoll, *args):
+def weak_local_grad(dcoll, *args, stack=True):
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -217,8 +225,12 @@ def weak_local_grad(dcoll, *args):
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`
+    :arg stack: return a multidimensional object array instead of nested arrays
+        if *vec* is non-scalar
+    :returns: an object array (possibly nested) of
+        :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if len(args) == 1:
         vec, = args
@@ -229,8 +241,12 @@ def weak_local_grad(dcoll, *args):
         raise TypeError("invalid number of arguments")
 
     if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
+        grad = obj_array_vectorize(
                 lambda el: weak_local_grad(dcoll, dd, el), vec)
+        if stack:
+            return np.stack(grad, axis=0)
+        else:
+            return grad
 
     return _bound_weak_grad(dcoll, dd)(u=vec)
 
