@@ -148,7 +148,7 @@ def local_grad(dcoll, vec, *, stack=True):
     """
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
-                lambda el: local_grad(dcoll, el), vec)
+                lambda el: local_grad(dcoll, el, stack=stack), vec)
         if stack:
             return np.stack(grad, axis=0)
         else:
@@ -242,7 +242,7 @@ def weak_local_grad(dcoll, *args, stack=True):
 
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
-                lambda el: weak_local_grad(dcoll, dd, el), vec)
+                lambda el: weak_local_grad(dcoll, dd, el, stack=stack), vec)
         if stack:
             return np.stack(grad, axis=0)
         else:
