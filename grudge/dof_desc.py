@@ -272,11 +272,17 @@ class DOFDesc:
         # This can go away once support for strings is dropped
         # completely.
         if isinstance(self.discretization_tag, str):
+            # All strings are interpreted as quadrature-related tags
             return True
-        if issubclass(self.discretization_tag, DISCR_TAG_QUAD):
+        elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             return True
-
-        return False
+        elif issubclass(self.discretization_tag,
+                        (DISCR_TAG_BASE, DISCR_TAG_MODAL)):
+            return False
+        else:
+            raise ValueError(
+                f"Unsure how to interpret tag: {self.discretization_tag}"
+            )
 
     def with_qtag(self, discr_tag):
         warn("`DOFDesc.with_qtag` is deprecated and will be dropped "
