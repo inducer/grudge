@@ -338,23 +338,24 @@ def as_dofdesc(dd):
 
 # {{{ Deprecated tags
 
-_deprecated_names = {"QTAG_NONE": "DISCR_TAG_BASE",
-                     "QTAG_MODAL": "DISCR_TAG_MODAL"}
+_deprecated_name_to_new_name = {"QTAG_NONE": "DISCR_TAG_BASE",
+                                "QTAG_MODAL": "DISCR_TAG_MODAL"}
 
 
 def __getattr__(name):
-    if name in _deprecated_names:
-        warn(f"{name} is deprecated and will be dropped "
-             f"in version 2022.x. Use {_deprecated_names[name]} instead.",
+    if name in _deprecated_name_to_new_name:
+        warn(f"'{name}' is deprecated and will be dropped "
+             f"in version 2022.x. Use '{_deprecated_name_to_new_name[name]}' "
+             "instead.",
              DeprecationWarning, stacklevel=2)
-        return globals()[f"{_deprecated_names[name]}"]
+        return globals()[_deprecated_name_to_new_name[name]]
 
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
 
 if sys.version_info < (3, 7):
-    for name in _deprecated_names:
-        globals()[f"{name}"] = globals()[f"{_deprecated_names[name]}"]
+    for name in _deprecated_name_to_new_name:
+        globals()[name] = globals()[_deprecated_name_to_new_name[name]]
 
 # }}}
 
