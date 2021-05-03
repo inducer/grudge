@@ -142,6 +142,16 @@ class DiscretizationCollection:
 
         self.mpi_communicator = mpi_communicator
 
+    @property
+    def quad_tag_to_group_factory(self):
+        warn("`DiscretizationCollection.quad_tag_to_group_factory` "
+             "is deprecated and will go away in 2022. Use "
+             "`DiscretizationCollection.discr_tag_to_group_factory` "
+             "instead.",
+             DeprecationWarning, stacklevel=2)
+
+        return self.discr_tag_to_group_factory
+
     def get_management_rank_index(self):
         return 0
 

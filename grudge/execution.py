@@ -719,7 +719,7 @@ def process_sym_operator(dcoll, sym_operator, post_bind_mapper=None, dumper=None
 
     dumper("before-qcheck", sym_operator)
     sym_operator = mappers.QuadratureCheckerAndRemover(
-            dcoll.quad_tag_to_group_factory)(sym_operator)
+            dcoll.discr_tag_to_group_factory)(sym_operator)
 
     # Work around https://github.com/numpy/numpy/issues/9438
     #

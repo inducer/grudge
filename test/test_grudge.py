@@ -93,9 +93,9 @@ def test_inverse_metric(actx_factory, dim):
 # {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
-@pytest.mark.parametrize("quad_tag", [dof_desc.DISCR_TAG_BASE,
-                                      dof_desc.DISCR_TAG_QUAD])
-def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
+@pytest.mark.parametrize("discr_tag", [dof_desc.DISCR_TAG_BASE,
+                                       dof_desc.DISCR_TAG_QUAD])
+def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
@@ -109,19 +109,21 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
 
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
-    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, quad_tag)
-    if quad_tag is dof_desc.DISCR_TAG_BASE:
-        quad_tag_to_group_factory = {}
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, discr_tag)
+    if discr_tag is dof_desc.DISCR_TAG_BASE:
+        discr_tag_to_group_factory = {}
     else:
-        quad_tag_to_group_factory = {
-                quad_tag: QuadratureSimplexGroupFactory(order=2*order)
-                }
+        discr_tag_to_group_factory = {
+            discr_tag: QuadratureSimplexGroupFactory(order=2*order)
+        }
 
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=order,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    discr = DiscretizationCollection(
+        actx, mesh, order=order,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
     def _get_variables_on(dd):
         sym_f = sym.var("f", dd=dd)
@@ -148,7 +150,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 1.0e-9, err_2
 
-    if quad_tag is dof_desc.DISCR_TAG_BASE:
+    if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
         num_integral_3 = bind(discr,
@@ -569,10 +571,12 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         from meshmode.discretization.poly_element import \
                 QuadratureSimplexGroupFactory
-        discr = DiscretizationCollection(actx, mesh, order=builder.order,
-                quad_tag_to_group_factory={
+        discr = DiscretizationCollection(
+            actx, mesh, order=builder.order,
+            discr_tag_to_group_factory={
                     "product": QuadratureSimplexGroupFactory(2 * builder.order)
-                    })
+            }
+        )
 
         volume = discr.discr_from_dd(dof_desc.DD_VOLUME)
         logger.info("ndofs:     %d", volume.ndofs)
@@ -911,14 +915,16 @@ def test_improvement_quadrature(actx_factory, order):
                 order=order)
 
             if use_quad:
-                quad_tag_to_group_factory = {
+                discr_tag_to_group_factory = {
                     "product": QuadratureSimplexGroupFactory(order=4*order)
-                    }
+                }
             else:
-                quad_tag_to_group_factory = {"product": None}
+                discr_tag_to_group_factory = {"product": None}
 
-            discr = DiscretizationCollection(actx, mesh, order=order,
-                    quad_tag_to_group_factory=quad_tag_to_group_factory)
+            discr = DiscretizationCollection(
+                actx, mesh, order=order,
+                discr_tag_to_group_factory=discr_tag_to_group_factory
+            )
 
             bound_op = bind(discr, op.sym_operator())
             fields = bind(discr, gaussian_mode())(actx, t=0)

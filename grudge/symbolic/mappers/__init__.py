@@ -868,10 +868,10 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
     """Checks whether all quadratu
     """
 
-    def __init__(self, quad_tag_to_group_factory):
+    def __init__(self, discr_tag_to_group_factory):
         IdentityMapper.__init__(self)
         CSECachingMapperMixin.__init__(self)
-        self.quad_tag_to_group_factory = quad_tag_to_group_factory
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
@@ -879,11 +879,11 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
     def _process_dd(self, dd, location_descr):
 
         if dd.discretization_tag is not dof_desc.DISCR_TAG_BASE:
-            if dd.discretization_tag not in self.quad_tag_to_group_factory:
+            if dd.discretization_tag not in self.discr_tag_to_group_factory:
                 raise ValueError("found unknown quadrature tag '%s' in '%s'"
                         % (dd.discretization_tag, location_descr))
 
-            grp_factory = self.quad_tag_to_group_factory[dd.discretization_tag]
+            grp_factory = self.discr_tag_to_group_factory[dd.discretization_tag]
             if grp_factory is None:
                 dd = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
 

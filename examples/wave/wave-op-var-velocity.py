@@ -161,11 +161,13 @@ def main():
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
             PolynomialWarpAndBlendGroupFactory
-    dcoll = DiscretizationCollection(actx, mesh,
-            quad_tag_to_group_factory={
-                DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
-                DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-                })
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
+        }
+    )
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)

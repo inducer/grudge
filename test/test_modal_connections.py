@@ -66,7 +66,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
 
     dcoll = DiscretizationCollection(
         actx, mesh,
-        quad_tag_to_group_factory={
+        discr_tag_to_group_factory={
             dof_desc.DISCR_TAG_BASE: nodal_group_factory(order)
         }
     )
@@ -106,7 +106,7 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
 
     dcoll = DiscretizationCollection(
         actx, mesh,
-        quad_tag_to_group_factory={
+        discr_tag_to_group_factory={
             dof_desc.DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
             dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }

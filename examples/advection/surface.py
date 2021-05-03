@@ -136,7 +136,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     else:
         raise ValueError("unsupported dimension")
 
-    quad_tag_to_group_factory = {}
+    discr_tag_to_group_factory = {}
     if product_tag == "none":
         product_tag = None
     else:
@@ -146,16 +146,18 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
             PolynomialWarpAndBlendGroupFactory, \
             QuadratureSimplexGroupFactory
 
-    quad_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
-            PolynomialWarpAndBlendGroupFactory(order)
+    discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
+        PolynomialWarpAndBlendGroupFactory(order)
 
     if product_tag:
-        quad_tag_to_group_factory[product_tag] = \
-                QuadratureSimplexGroupFactory(order=4*order)
+        discr_tag_to_group_factory[product_tag] = \
+            QuadratureSimplexGroupFactory(order=4*order)
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    discr = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
     volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:     %d", volume_discr.ndofs)
