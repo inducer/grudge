@@ -34,6 +34,22 @@ def get_order_from_dofs(dofs):
     dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
     return dofs_to_order[dofs]
 
+def set_memory_layout(program):
+    # This assumes arguments have only one tag
+    for arg in program.args:
+        if isinstance(arg.tags, IsDOFArray):
+            program = lp.tag_array_axes(program, arg.name, "f,f")
+        elif isinstance(arg.tags, IsVecDOFArray):
+            program = lp.tag_array_axes(program, arg.name, "sep,f,f")
+        elif isinstance(arg.tags, IsVecOpArray):
+            program = lp.tag_array_axes(program, arg.name, "sep,c,c")
+        elif isinstance(arg.tags, IsFaceDOFArray):
+            program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
+        elif isinstance(arg.tags, ParameterValue):
+            program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
+    return program
+
+
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def empty(self, shape, dtype):
@@ -57,20 +73,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     @memoize_method
     def transform_loopy_program(self, program):
 
-        # This assumes arguments have only one tag
-        for arg in program.args:
-            if isinstance(arg.tags, IsDOFArray):
-                program = lp.tag_array_axes(program, arg.name, "f,f")
-            elif isinstance(arg.tags, IsVecDOFArray):
-                program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-            elif isinstance(arg.tags, IsVecOpArray):
-                program = lp.tag_array_axes(program, arg.name, "sep,c,c")
-            elif isinstance(arg.tags, IsFaceDOFArray):
-                program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
-            elif isinstance(arg.tags, ParameterValue):
-                program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
-
         # Set no_numpy and return_dict options here?
+        program = set_memory_layout(program)
 
         device_id = "NVIDIA Titan V"
         # This read could be slow

@@ -98,7 +98,6 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
     # This should be in array context probably but need to avoid circular dependency
     # Probably should split kernels out of grudge_array_context
     knl = lp.tag_inames(knl, "imatrix: ilp")
-    #knl = lp.tag_array_axes(knl, "result", "sep,f,f")
     return knl
 
 def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
@@ -147,9 +146,9 @@ def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
             result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=lp.auto, tags=IsDOFArray()),
-                lp.GlobalArg("vec", fp_format, shape=lp.auto, tags=IsFaceDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=lp.auto),
+                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=IsDOFArray()),
+                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=IsFaceDOFArray()),
+                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes)),
                 lp.ValueArg("nelements", tags=ParameterValue(nelements)),
                 lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
                 lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
