@@ -97,8 +97,10 @@ class DiscretizationCollection:
 
         from meshmode.discretization import Discretization
 
-        self._volume_discr = Discretization(array_context, mesh,
-                self.group_factory_for_quadrature_tag(DISCR_TAG_BASE))
+        self._volume_discr = Discretization(
+            array_context, mesh,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
+        )
 
         # {{{ management of discretization-scoped common subexpressions
 
@@ -139,7 +141,8 @@ class DiscretizationCollection:
                 raise RuntimeError("must supply an MPI communicator when using a "
                     "distributed mesh")
 
-            grp_factory = self.group_factory_for_quadrature_tag(DISCR_TAG_BASE)
+            grp_factory = \
+                self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
 
             local_boundary_connections = {}
             for i_remote_part in connected_parts:
@@ -191,9 +194,10 @@ class DiscretizationCollection:
 
             from meshmode.discretization import Discretization
             return Discretization(
-                    self._setup_actx,
-                    no_quad_discr.mesh,
-                    self.group_factory_for_quadrature_tag(discr_tag))
+                self._setup_actx,
+                no_quad_discr.mesh,
+                self.group_factory_for_discretization_tag(discr_tag)
+            )
 
         assert discr_tag is DISCR_TAG_BASE
 
@@ -314,6 +318,15 @@ class DiscretizationCollection:
             raise ValueError("cannot interpolate from: " + str(from_dd))
 
     def group_factory_for_quadrature_tag(self, discretization_tag):
+        warn("`DiscretizationCollection.group_factory_for_quadrature_tag` "
+             "is deprecated and will go away in 2022. Use "
+             "`DiscretizationCollection.group_factory_for_discretization_tag` "
+             "instead.",
+             DeprecationWarning, stacklevel=2)
+
+        return self.group_factory_for_discretization_tag(discretization_tag)
+
+    def group_factory_for_discretization_tag(self, discretization_tag):
         """
         OK to override in user code to control mode/node choice.
         """
@@ -326,8 +339,10 @@ class DiscretizationCollection:
     def _quad_volume_discr(self, discretization_tag):
         from meshmode.discretization import Discretization
 
-        return Discretization(self._setup_actx, self._volume_discr.mesh,
-                self.group_factory_for_quadrature_tag(discretization_tag))
+        return Discretization(
+            self._setup_actx, self._volume_discr.mesh,
+            self.group_factory_for_discretization_tag(discretization_tag)
+        )
 
     # {{{ modal to nodal connections
 
@@ -338,7 +353,7 @@ class DiscretizationCollection:
         discr_base = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
         return Discretization(
             self._setup_actx, discr_base.mesh,
-            self.group_factory_for_quadrature_tag(DISCR_TAG_MODAL)
+            self.group_factory_for_discretization_tag(DISCR_TAG_MODAL)
         )
 
     @memoize_method
@@ -378,10 +393,11 @@ class DiscretizationCollection:
     @memoize_method
     def _boundary_connection(self, boundary_tag):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(DISCR_TAG_BASE),
-                boundary_tag=boundary_tag)
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            boundary_tag=boundary_tag
+        )
 
     # }}}
 
@@ -390,15 +406,16 @@ class DiscretizationCollection:
     @memoize_method
     def _interior_faces_connection(self):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(DISCR_TAG_BASE),
-                FACE_RESTR_INTERIOR,
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            FACE_RESTR_INTERIOR,
 
-                # FIXME: This will need to change as soon as we support
-                # pyramids or other elements with non-identical face
-                # types.
-                per_face_groups=False)
+            # FIXME: This will need to change as soon as we support
+            # pyramids or other elements with non-identical face
+            # types.
+            per_face_groups=False
+        )
 
     @memoize_method
     def opposite_face_connection(self):
@@ -416,15 +433,16 @@ class DiscretizationCollection:
     @memoize_method
     def _all_faces_volume_connection(self):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(DISCR_TAG_BASE),
-                FACE_RESTR_ALL,
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            FACE_RESTR_ALL,
 
-                # FIXME: This will need to change as soon as we support
-                # pyramids or other elements with non-identical face
-                # types.
-                per_face_groups=False)
+            # FIXME: This will need to change as soon as we support
+            # pyramids or other elements with non-identical face
+            # types.
+            per_face_groups=False
+        )
 
     # }}}
 
