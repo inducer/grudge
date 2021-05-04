@@ -264,7 +264,7 @@ class DiffOperatorBase(Operator):
             dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
         else:
             dd_out = dof_desc.as_dofdesc(dd_out)
 
@@ -322,7 +322,7 @@ class RefDiffOperatorBase(ElementwiseLinearOperator):
             dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(dof_desc.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -633,7 +633,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
             dd_in = dof_desc.DOFDesc(FACE_RESTR_ALL, None)
 
         if dd_out is None or dd_out == "vol":
-            dd_out = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+            dd_out = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
