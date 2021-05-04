@@ -23,8 +23,8 @@ THE SOFTWARE.
 import grudge.symbolic as sym
 from grudge.execution import bind
 
-from grudge.discretization import DGDiscretizationWithBoundaries
+from grudge.discretization import DiscretizationCollection
 
 __all__ = [
-    "sym", "bind", "DGDiscretizationWithBoundaries"
+    "sym", "bind", "DiscretizationCollection"
 ]

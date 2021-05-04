@@ -126,12 +126,20 @@ OTHER DEALINGS IN THE SOFTWARE.
 Acknowledgments
 ===============
 
-Andreas Klöckner's work on :mod:`grudge` was supported in part by
+Work on grudge was supported in part by
 
-* US Navy ONR grant number N00014-14-1-0117
-* the US National Science Foundation under grant number CCF-1524433.
+* the Department of Energy, National Nuclear Security Administration,
+  under Award Number DE-NA0003963,
+* the US Navy ONR, under grant number N00014-14-1-0117, and
+* the US National Science Foundation under grant numbers CCF-1524433,
+  and OAC-1931577.
 
-AK also gratefully acknowledges a hardware gift from Nvidia Corporation.  The
-views and opinions expressed herein do not necessarily reflect those of the
+AK also gratefully acknowledges a hardware gift from Nvidia Corporation.
+
+The views and opinions expressed herein do not necessarily reflect those of the
 funding agencies.
 
+Deprecated functionality
+========================
+
+.. automodule:: grudge.eager

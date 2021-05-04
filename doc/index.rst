@@ -7,6 +7,7 @@ Contents:
     :maxdepth: 2
 
     discretization
+    dof_desc
     symbolic
     misc
     🚀 Github <https://github.com/inducer/grudge>

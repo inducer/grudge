@@ -110,7 +110,7 @@ class WeakWaveOperator(HyperbolicOperator):
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.")
 
-            dir_g = sym.Field("dir_bc_u")
+            dir_g = sym.var("dir_bc_u")
             dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
         else:
             dir_bc = flat_obj_array(-dir_u, dir_v)
@@ -254,7 +254,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.")
 
-            dir_g = sym.Field("dir_bc_u")
+            dir_g = sym.var("dir_bc_u")
             dir_bc = flat_obj_array(dir_c, 2*dir_g - dir_u, dir_v)
         else:
             dir_bc = flat_obj_array(dir_c, -dir_u, dir_v)
@@ -310,7 +310,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_eigenvalue(self, t, fields=None, discr=None):
-        return sym.NodalMax()(sym.FunctionSymbol("fabs")(self.c))
+        return sym.NodalMax("vol")(sym.fabs(self.c))
 
 # }}}
 

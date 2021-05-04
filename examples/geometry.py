@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 import numpy as np  # noqa
 import pyopencl as cl
-from grudge import sym, bind, DGDiscretizationWithBoundaries, shortcuts
+from grudge import sym, bind, DiscretizationCollection, shortcuts
 
 from meshmode.array_context import PyOpenCLArrayContext
 
@@ -35,13 +35,14 @@ def main(write_output=True):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
 
+    from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.generation import generate_warped_rect_mesh
-    mesh = generate_warped_rect_mesh(dim=2, order=4, n=6)
+    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
 
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=4)
+    discr = DiscretizationCollection(actx, mesh, order=4)
 
-    sym_op = sym.normal(sym.BTAG_ALL, mesh.dim)
-    #sym_op = sym.nodes(mesh.dim, where=sym.BTAG_ALL)
+    sym_op = sym.normal(BTAG_ALL, mesh.dim)
+    # sym_op = sym.nodes(mesh.dim, dd=BTAG_ALL)
     print(sym.pretty(sym_op))
     op = bind(discr, sym_op)
     print()
@@ -49,11 +50,11 @@ def main(write_output=True):
 
     vec = op(actx)
 
-    vis = shortcuts.make_visualizer(discr, 4)
+    vis = shortcuts.make_visualizer(discr)
     vis.write_vtk_file("geo.vtu", [
         ])
 
-    bvis = shortcuts.make_boundary_visualizer(discr, 4)
+    bvis = shortcuts.make_boundary_visualizer(discr)
     bvis.write_vtk_file("bgeo.vtu", [
         ("normals", vec)
         ])

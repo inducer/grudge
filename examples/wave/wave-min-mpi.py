@@ -27,7 +27,7 @@ import numpy as np
 import pyopencl as cl
 from meshmode.array_context import PyOpenCLArrayContext
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from mpi4py import MPI
 
 
@@ -48,7 +48,7 @@ def main(write_output=True, order=4):
         mesh = generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
-                n=(16,)*dims)
+                nelements_per_axis=(16,)*dims)
 
         print("%d elements" % mesh.nelements)
 
@@ -61,7 +61,7 @@ def main(write_output=True, order=4):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
+    discr = DiscretizationCollection(actx, local_mesh, order=order,
             mpi_communicator=comm)
 
     if local_mesh.dim == 2:
@@ -113,7 +113,7 @@ def main(write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr)
 
     step = 0
 

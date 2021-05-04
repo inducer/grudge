@@ -22,8 +22,6 @@ It relies on
 * `modepy <https://pypi.org/project/modepy>`_ for modes and nodes on simplices
 * `meshmode <https://pypi.org/project/meshmode>`_ for modes and nodes on simplices
 * `loopy <https://pypi.org/project/loopy>`_ for fast array operations
-* `leap <https://pypi.org/project/leap>`_ for time integration
-* `dagrt <https://pypi.org/project/dagrt>`_ as an execution runtime
 * `pytest <https://pypi.org/project/pytest>`_ for automated testing
 
 and, indirectly,

@@ -323,7 +323,9 @@ class MaxwellOperator(HyperbolicOperator):
             return 1/sqrt(self.epsilon*self.mu)  # a number
         else:
             import grudge.symbolic as sym
-            return sym.NodalMax()(1/sym.FunctionSymbol("sqrt")(self.epsilon*self.mu))
+            return sym.NodalMax("vol")(
+                    1 / sym.sqrt(self.epsilon * self.mu)
+                    )
 
     def max_eigenvalue(self, t, fields=None, discr=None, context={}):
         if self.fixed_material:
