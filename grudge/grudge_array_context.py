@@ -72,12 +72,23 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             thawed = out
         return thawed
 
+
+    def from_numpy(self, np_array: np.ndarray):
+        cl_a = super().from_numpy(np_array)
+        tags = getattr(np_array, "tags", None)
+        if tags is not None and IsDOFArray() in tags:
+            # Should this call go through the array context?
+            evt, (out,) = ctof_knl(self.queue, input=cl_a)
+            cl_a = out
+        return cl_a
+
     @memoize_method
     def transform_loopy_program(self, program):
+        print(program.name)
 
         # Set no_numpy and return_dict options here?
         program = set_memory_layout(program)
-
+        
         device_id = "NVIDIA Titan V"
         # This read could be slow
         transform_id = get_transformation_id(device_id)
@@ -90,6 +101,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             pn = -1
             fp_format = None
             dim = -1
+            print(program)
             for arg in program.args:
                 if arg.name == "diff_mat":
                     dim = arg.shape[0]
@@ -168,14 +180,6 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file.close()
             program = dgk.apply_transformation_list(program, transformations)
 
-        
-        elif program.name == "nodes":
-            # Only works for pn=3
-            program = lp.split_iname(program, "iel", 64, outer_tag="g.0", slabs=(0,1))
-            program = lp.split_iname(program, "iel_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
-            program = lp.split_iname(program, "idof", 20, outer_tag="g.1", slabs=(0,0))
-            program = lp.split_iname(program, "idof_inner", 10, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
-                      
         elif "actx_special" in program.name:
             program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
                                         inner_tag="l.0", slabs=(0, 1))
@@ -195,9 +199,16 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             #program = super().transform_loopy_program(program)
             #print(program)
             #print(lp.generate_code_v2(program).device_code())
-        elif program.name == "resample_by_mat":
+ 
+        # These three still depend on the polynomial order = 3
+        elif False:#program.name == "resample_by_mat":
             hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
-
+    
+            # Order 3: 10 x 10
+            # Order 4: 15 x 35
+            
+            print(program)
+            exit()
             pn = 3 # This needs to  be not fixed
             fp_string = "FP64"
             
@@ -207,15 +218,21 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file.close()
             print(transformations)
             program = dgk.apply_transformation_list(program, transformations)
-        elif program.name == "resample_by_picking":
+        elif False:#program.name == "nodes":
+            program = lp.split_iname(program, "iel", 64, outer_tag="g.0", slabs=(0,1))
+            program = lp.split_iname(program, "iel_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+            program = lp.split_iname(program, "idof", 20, outer_tag="g.1", slabs=(0,0))
+            program = lp.split_iname(program, "idof_inner", 10, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
+                      
+        elif False: #program.name == "resample_by_picking":
             program = lp.split_iname(program, "iel", 96, outer_tag="g.0",
                                         slabs=(0, 1))
             program = lp.split_iname(program, "iel_inner", 96, outer_tag="ilp",
                                         inner_tag="l.0")
             program = lp.split_iname(program, "idof", 10, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
-        elif "grudge_assign" in program.name or \
-             "flatten" in program.name:
+        elif False: #"grudge_assign" in program.name or \
+             #"flatten" in program.name:
             # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
@@ -225,6 +242,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
         else:
+            print("USING FALLBACK TRANSORMATIIONS FOR " + program.name)
             program = super().transform_loopy_program(program)
 
         return program

@@ -127,7 +127,7 @@ def main():
             b=(0.5,)*dim,
             n=(nel_1d,)*dim)
 
-    order = 3
+    order = 4
 
     if dim == 2:
         # no deep meaning here, just a fudge factor

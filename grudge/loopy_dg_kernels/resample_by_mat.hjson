@@ -106,8 +106,8 @@
               #["tag_array_axes", ["result", "sep,f,f"]],
               #["tag_array_axes", ["vec", "f,f"]],
 
-              ["split_iname", ["iel", 96], {outer_tag: "g.0", slabs:[0,1]}],
-              ["split_iname", ["iel_inner", 96], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["iel", 32], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
               # See if these pass the tests
               #["split_iname", ["iel", 12], {outer_tag: "g.0", slabs:[0,1]}],
               #["split_iname", ["iel_inner", 4], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
