@@ -58,7 +58,7 @@ class Plotter:
             self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr, vis_order=order)
+            self.vis = make_visualizer(discr)
 
     def __call__(self, evt, basename, overwrite=True):
         if not self.visualize:
@@ -141,15 +141,17 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
             QuadratureSimplexGroupFactory
 
     if product_tag:
-        quad_tag_to_group_factory = {
-                product_tag: QuadratureSimplexGroupFactory(order=4*order)
-                }
+        discr_tag_to_group_factory = {
+            product_tag: QuadratureSimplexGroupFactory(order=4*order)
+        }
     else:
-        quad_tag_to_group_factory = {}
+        discr_tag_to_group_factory = {}
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh, order=order,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    discr = DiscretizationCollection(
+        actx, mesh, order=order,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
     # }}}
 

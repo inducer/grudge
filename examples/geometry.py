@@ -50,11 +50,11 @@ def main(write_output=True):
 
     vec = op(actx)
 
-    vis = shortcuts.make_visualizer(discr, 4)
+    vis = shortcuts.make_visualizer(discr)
     vis.write_vtk_file("geo.vtu", [
         ])
 
-    bvis = shortcuts.make_boundary_visualizer(discr, 4)
+    bvis = shortcuts.make_boundary_visualizer(discr)
     bvis.write_vtk_file("bgeo.vtu", [
         ("normals", vec)
         ])

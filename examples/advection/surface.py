@@ -58,7 +58,7 @@ class Plotter:
             self.x = actx.to_numpy(flatten(actx.np.atan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr, vis_order=order)
+            self.vis = make_visualizer(discr)
         else:
             raise ValueError("unsupported dimension")
 
@@ -136,24 +136,28 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     else:
         raise ValueError("unsupported dimension")
 
-    quad_tag_to_group_factory = {}
+    discr_tag_to_group_factory = {}
     if product_tag == "none":
         product_tag = None
+    else:
+        product_tag = dof_desc.DISCR_TAG_QUAD
 
     from meshmode.discretization.poly_element import \
             PolynomialWarpAndBlendGroupFactory, \
             QuadratureSimplexGroupFactory
 
-    quad_tag_to_group_factory[dof_desc.QTAG_NONE] = \
-            PolynomialWarpAndBlendGroupFactory(order)
+    discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
+        PolynomialWarpAndBlendGroupFactory(order)
 
     if product_tag:
-        quad_tag_to_group_factory[product_tag] = \
-                QuadratureSimplexGroupFactory(order=4*order)
+        discr_tag_to_group_factory[product_tag] = \
+            QuadratureSimplexGroupFactory(order=4*order)
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    discr = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
     volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:     %d", volume_discr.ndofs)
@@ -211,7 +215,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     if visualize and dim == 3:
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr, vis_order=order)
+        vis = make_visualizer(discr)
         vis.write_vtk_file("fld-surface-velocity.vtu", [
             ("u", bind(discr, c)(actx)),
             ("n", bind(discr, sym_normal)(actx))
@@ -224,7 +228,7 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
             df, face_discr.ambient_dim, dim=face_discr.dim))(actx)
 
         from meshmode.discretization.visualization import make_visualizer
-        vis = make_visualizer(actx, face_discr, vis_order=order)
+        vis = make_visualizer(actx, face_discr)
         vis.write_vtk_file("fld-surface-face-normals.vtu", [
             ("n", face_normal)
             ], overwrite=True)

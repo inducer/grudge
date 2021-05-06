@@ -95,7 +95,7 @@ def main(write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr)
 
     step = 0
 

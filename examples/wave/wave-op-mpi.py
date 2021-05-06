@@ -169,7 +169,7 @@ def main():
             [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(dcoll, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll)
 
     def rhs(t, w):
         return wave_operator(dcoll, c=1, w=w)

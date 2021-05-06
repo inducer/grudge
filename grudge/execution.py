@@ -73,7 +73,15 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_node_coordinate_component(self, expr):
         discr = self.dcoll.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes()[expr.axis])
+        return thaw(self.array_context, discr.nodes(
+            # only save volume nodes or boundary nodes
+            # (but not nodes for interior face discretizations, which are likely only
+            # used once to compute the normals)
+            cached=(
+                discr.ambient_dim == discr.dim
+                or expr.dd.is_boundary_or_partition_interface()
+                )
+            )[expr.axis])
 
     def map_grudge_variable(self, expr):
         from numbers import Number
@@ -711,7 +719,7 @@ def process_sym_operator(dcoll, sym_operator, post_bind_mapper=None, dumper=None
 
     dumper("before-qcheck", sym_operator)
     sym_operator = mappers.QuadratureCheckerAndRemover(
-            dcoll.quad_tag_to_group_factory)(sym_operator)
+            dcoll.discr_tag_to_group_factory)(sym_operator)
 
     # Work around https://github.com/numpy/numpy/issues/9438
     #

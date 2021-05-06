@@ -218,7 +218,7 @@ def weak_local_grad(dcoll, *args):
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -248,7 +248,7 @@ def weak_local_d_dx(dcoll, *args):
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 3:
         dd, xyz_axis, vec = args
     else:
@@ -273,7 +273,7 @@ def weak_local_div(dcoll, *args):
     """
     if len(args) == 1:
         vecs, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vecs = args
     else:
@@ -297,7 +297,7 @@ def _bound_mass(dcoll, dd):
 def mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -333,7 +333,7 @@ def _bound_face_mass(dcoll, dd):
 def face_mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("all_faces", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vec = args
     else:

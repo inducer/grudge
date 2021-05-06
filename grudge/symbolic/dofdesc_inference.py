@@ -48,8 +48,8 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
             raise ValueError("mismatched domain tags " + loc_str)
 
     # domain tags match
-    if dd_a.quadrature_tag != dd_b.quadrature_tag:
-        raise ValueError("mismatched quadrature tags " + loc_str)
+    if dd_a.discretization_tag != dd_b.discretization_tag:
+        raise ValueError("mismatched discretization tags " + loc_str)
 
     return dd_a
 

@@ -21,13 +21,17 @@ THE SOFTWARE.
 """
 
 from pytools import memoize_method
-from grudge.dof_desc import \
-    QTAG_NONE, QTAG_MODAL, DTAG_BOUNDARY, DOFDesc, as_dofdesc
+from grudge.dof_desc import (
+    DISCR_TAG_BASE, DISCR_TAG_MODAL,
+    DTAG_BOUNDARY, DOFDesc, as_dofdesc
+)
 import numpy as np  # noqa: F401
 from meshmode.array_context import ArrayContext
 from meshmode.discretization.connection import \
     FACE_RESTR_INTERIOR, FACE_RESTR_ALL, make_face_restriction
 from meshmode.mesh import BTAG_PARTITION
+
+from warnings import warn
 
 
 __doc__ = """
@@ -37,6 +41,8 @@ __doc__ = """
 
 class DiscretizationCollection:
     """
+    .. automethod :: __init__
+
     .. automethod :: discr_from_dd
     .. automethod :: connection_from_dds
 
@@ -49,52 +55,76 @@ class DiscretizationCollection:
     """
 
     def __init__(self, array_context, mesh, order=None,
-            quad_tag_to_group_factory=None, mpi_communicator=None):
+            discr_tag_to_group_factory=None, mpi_communicator=None,
+            # FIXME: `quad_tag_to_group_factory` is deprecated
+            quad_tag_to_group_factory=None):
         """
-        :param quad_tag_to_group_factory: A mapping from quadrature tags (typically
-            strings--but may be any hashable/comparable object) to a
+        :param discr_tag_to_group_factory: A mapping from discretization tags
+            (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
+            :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
+            :class:`grudge.dof_desc.DISCR_TAG_QUAD`) to a
             :class:`~meshmode.discretization.poly_element.ElementGroupFactory`
-            indicating with which quadrature discretization the operations are
+            indicating with which type of discretization the operations are
             to be carried out, or *None* to indicate that operations with this
-            quadrature tag should be carried out with the standard volume
+            discretization tag should be carried out with the standard volume
             discretization.
         """
+
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is not None):
+            raise ValueError(
+                "Both `quad_tag_to_group_factory` and `discr_tag_to_group_factory` "
+                "are specified. Use `discr_tag_to_group_factory` instead."
+            )
+
+        # FIXME: `quad_tag_to_group_factory` is deprecated
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is None):
+            warn("`quad_tag_to_group_factory` is a deprecated kwarg and will "
+                 "be dropped in version 2022.x. Use `discr_tag_to_group_factory` "
+                 "instead.",
+                 DeprecationWarning, stacklevel=2)
+            discr_tag_to_group_factory = quad_tag_to_group_factory
 
         self._setup_actx = array_context
 
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
 
-        if quad_tag_to_group_factory is None:
+        if discr_tag_to_group_factory is None:
             if order is None:
-                raise TypeError("one of 'order' and "
-                        "'quad_tag_to_group_factory' must be given")
+                raise TypeError(
+                    "one of 'order' and 'discr_tag_to_group_factory' must be given"
+                )
 
-            quad_tag_to_group_factory = {
-                    QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order=order)}
+            discr_tag_to_group_factory = {
+                    DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)}
         else:
             if order is not None:
-                quad_tag_to_group_factory = quad_tag_to_group_factory.copy()
-                if QTAG_NONE in quad_tag_to_group_factory:
-                    raise ValueError("if 'order' is given, "
-                            "'quad_tag_to_group_factory' must not have a "
-                            "key of QTAG_NONE")
+                discr_tag_to_group_factory = discr_tag_to_group_factory.copy()
+                if DISCR_TAG_BASE in discr_tag_to_group_factory:
+                    raise ValueError(
+                        "if 'order' is given, 'discr_tag_to_group_factory' must "
+                        "not have a key of DISCR_TAG_BASE"
+                    )
 
-                quad_tag_to_group_factory[QTAG_NONE] = \
+                discr_tag_to_group_factory[DISCR_TAG_BASE] = \
                         PolynomialWarpAndBlendGroupFactory(order=order)
 
         # Modal discr should always comes from the base discretization
-        quad_tag_to_group_factory[QTAG_MODAL] = \
+        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
             _generate_modal_group_factory(
-                quad_tag_to_group_factory[QTAG_NONE]
+                discr_tag_to_group_factory[DISCR_TAG_BASE]
             )
 
-        self.quad_tag_to_group_factory = quad_tag_to_group_factory
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
 
         from meshmode.discretization import Discretization
 
-        self._volume_discr = Discretization(array_context, mesh,
-                self.group_factory_for_quadrature_tag(QTAG_NONE))
+        self._volume_discr = Discretization(
+            array_context, mesh,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
+        )
 
         # {{{ management of discretization-scoped common subexpressions
 
@@ -112,6 +142,16 @@ class DiscretizationCollection:
 
         self.mpi_communicator = mpi_communicator
 
+    @property
+    def quad_tag_to_group_factory(self):
+        warn("`DiscretizationCollection.quad_tag_to_group_factory` "
+             "is deprecated and will go away in 2022. Use "
+             "`DiscretizationCollection.discr_tag_to_group_factory` "
+             "instead.",
+             DeprecationWarning, stacklevel=2)
+
+        return self.discr_tag_to_group_factory
+
     def get_management_rank_index(self):
         return 0
 
@@ -123,7 +163,7 @@ class DiscretizationCollection:
                     == self.get_management_rank_index()
 
     def _set_up_distributed_communication(self, mpi_communicator, array_context):
-        from_dd = DOFDesc("vol", QTAG_NONE)
+        from_dd = DOFDesc("vol", DISCR_TAG_BASE)
 
         boundary_connections = {}
 
@@ -135,13 +175,14 @@ class DiscretizationCollection:
                 raise RuntimeError("must supply an MPI communicator when using a "
                     "distributed mesh")
 
-            grp_factory = self.group_factory_for_quadrature_tag(QTAG_NONE)
+            grp_factory = \
+                self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
 
             local_boundary_connections = {}
             for i_remote_part in connected_parts:
                 local_boundary_connections[i_remote_part] = self.connection_from_dds(
                         from_dd, DOFDesc(BTAG_PARTITION(i_remote_part),
-                        QTAG_NONE))
+                        DISCR_TAG_BASE))
 
             from meshmode.distributed import MPIBoundaryCommSetupHelper
             with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
@@ -156,9 +197,12 @@ class DiscretizationCollection:
         return boundary_connections
 
     def get_distributed_boundary_swap_connection(self, dd):
-        if dd.quadrature_tag != QTAG_NONE:
+        if dd.discretization_tag is not DISCR_TAG_BASE:
             # FIXME
-            raise NotImplementedError("Distributed communication with quadrature")
+            raise NotImplementedError(
+                "Distributed communication with discretization tag "
+                f"{dd.discretization_tag} is not implemented."
+            )
 
         assert isinstance(dd.domain_tag, DTAG_BOUNDARY)
         assert isinstance(dd.domain_tag.tag, BTAG_PARTITION)
@@ -169,26 +213,27 @@ class DiscretizationCollection:
     def discr_from_dd(self, dd):
         dd = as_dofdesc(dd)
 
-        qtag = dd.quadrature_tag
+        discr_tag = dd.discretization_tag
 
-        if qtag is QTAG_MODAL:
+        if discr_tag is DISCR_TAG_MODAL:
             return self._modal_discr(dd.domain_tag)
 
         if dd.is_volume():
-            if qtag is not QTAG_NONE:
-                return self._quad_volume_discr(qtag)
+            if discr_tag is not DISCR_TAG_BASE:
+                return self._discr_tag_volume_discr(discr_tag)
             return self._volume_discr
 
-        if qtag is not QTAG_NONE:
+        if discr_tag is not DISCR_TAG_BASE:
             no_quad_discr = self.discr_from_dd(DOFDesc(dd.domain_tag))
 
             from meshmode.discretization import Discretization
             return Discretization(
-                    self._setup_actx,
-                    no_quad_discr.mesh,
-                    self.group_factory_for_quadrature_tag(qtag))
+                self._setup_actx,
+                no_quad_discr.mesh,
+                self.group_factory_for_discretization_tag(discr_tag)
+            )
 
-        assert qtag is QTAG_NONE
+        assert discr_tag is DISCR_TAG_BASE
 
         if dd.domain_tag is FACE_RESTR_ALL:
             return self._all_faces_volume_connection().to_discr
@@ -204,24 +249,26 @@ class DiscretizationCollection:
         from_dd = as_dofdesc(from_dd)
         to_dd = as_dofdesc(to_dd)
 
-        to_qtag = to_dd.quadrature_tag
-        from_qtag = from_dd.quadrature_tag
+        to_discr_tag = to_dd.discretization_tag
+        from_discr_tag = from_dd.discretization_tag
 
         # {{{ mapping between modal and nodal representations
 
-        if (from_qtag is QTAG_MODAL and to_qtag is not QTAG_MODAL):
+        if (from_discr_tag is DISCR_TAG_MODAL
+                and to_discr_tag is not DISCR_TAG_MODAL):
             return self._modal_to_nodal_connection(to_dd)
 
-        if (to_qtag is QTAG_MODAL and from_qtag is not QTAG_MODAL):
+        if (to_discr_tag is DISCR_TAG_MODAL
+                and from_discr_tag is not DISCR_TAG_MODAL):
             return self._nodal_to_modal_connection(from_dd)
 
         # }}}
 
-        assert (to_qtag is not QTAG_MODAL and from_qtag is not QTAG_MODAL)
+        assert (to_discr_tag is not DISCR_TAG_MODAL
+                    and from_discr_tag is not DISCR_TAG_MODAL)
 
-        if (
-                not from_dd.is_volume()
-                and from_qtag == to_qtag
+        if (not from_dd.is_volume()
+                and from_discr_tag == to_discr_tag
                 and to_dd.domain_tag is FACE_RESTR_ALL):
             faces_conn = self.connection_from_dds(
                     DOFDesc("vol"),
@@ -235,11 +282,11 @@ class DiscretizationCollection:
                     faces_conn, self.discr_from_dd(to_dd),
                     self.discr_from_dd(from_dd))
 
-        # {{{ simplify domain + qtag change into chained
+        # {{{ simplify domain + discr_tag change into chained
 
         if (from_dd.domain_tag != to_dd.domain_tag
-                and from_qtag is QTAG_NONE
-                and to_qtag is not QTAG_NONE):
+                and from_discr_tag is DISCR_TAG_BASE
+                and to_discr_tag is not DISCR_TAG_BASE):
 
             from meshmode.discretization.connection import \
                     ChainedDiscretizationConnection
@@ -261,10 +308,10 @@ class DiscretizationCollection:
 
         # {{{ generic to-quad
 
-        # QTAG_MODAL is handled above
+        # DISCR_TAG_MODAL is handled above
         if (from_dd.domain_tag == to_dd.domain_tag
-                and from_qtag is QTAG_NONE
-                and to_qtag is not QTAG_NONE):
+                and from_discr_tag is DISCR_TAG_BASE
+                and to_discr_tag is not DISCR_TAG_BASE):
 
             from meshmode.discretization.connection.same_mesh import \
                     make_same_mesh_connection
@@ -276,11 +323,11 @@ class DiscretizationCollection:
 
         # }}}
 
-        if from_qtag is not QTAG_NONE:
+        if from_discr_tag is not DISCR_TAG_BASE:
             raise ValueError("cannot interpolate *from* a "
                     "(non-interpolatory) quadrature grid")
 
-        assert to_qtag is QTAG_NONE
+        assert to_discr_tag is DISCR_TAG_BASE
 
         if from_dd.is_volume():
             if to_dd.domain_tag is FACE_RESTR_ALL:
@@ -288,12 +335,12 @@ class DiscretizationCollection:
             if to_dd.domain_tag is FACE_RESTR_INTERIOR:
                 return self._interior_faces_connection()
             elif to_dd.is_boundary_or_partition_interface():
-                assert from_qtag is QTAG_NONE
+                assert from_discr_tag is DISCR_TAG_BASE
                 return self._boundary_connection(to_dd.domain_tag.tag)
             elif to_dd.is_volume():
                 from meshmode.discretization.connection import \
                         make_same_mesh_connection
-                to_discr = self._quad_volume_discr(to_qtag)
+                to_discr = self._discr_tag_volume_discr(to_discr_tag)
                 from_discr = self._volume_discr
                 return make_same_mesh_connection(self._setup_actx, to_discr,
                             from_discr)
@@ -304,22 +351,32 @@ class DiscretizationCollection:
         else:
             raise ValueError("cannot interpolate from: " + str(from_dd))
 
-    def group_factory_for_quadrature_tag(self, quadrature_tag):
+    def group_factory_for_quadrature_tag(self, discretization_tag):
+        warn("`DiscretizationCollection.group_factory_for_quadrature_tag` "
+             "is deprecated and will go away in 2022. Use "
+             "`DiscretizationCollection.group_factory_for_discretization_tag` "
+             "instead.",
+             DeprecationWarning, stacklevel=2)
+
+        return self.group_factory_for_discretization_tag(discretization_tag)
+
+    def group_factory_for_discretization_tag(self, discretization_tag):
         """
         OK to override in user code to control mode/node choice.
         """
+        if discretization_tag is None:
+            discretization_tag = DISCR_TAG_BASE
 
-        if quadrature_tag is None:
-            quadrature_tag = QTAG_NONE
-
-        return self.quad_tag_to_group_factory[quadrature_tag]
+        return self.discr_tag_to_group_factory[discretization_tag]
 
     @memoize_method
-    def _quad_volume_discr(self, quadrature_tag):
+    def _discr_tag_volume_discr(self, discretization_tag):
         from meshmode.discretization import Discretization
 
-        return Discretization(self._setup_actx, self._volume_discr.mesh,
-                self.group_factory_for_quadrature_tag(quadrature_tag))
+        return Discretization(
+            self._setup_actx, self._volume_discr.mesh,
+            self.group_factory_for_discretization_tag(discretization_tag)
+        )
 
     # {{{ modal to nodal connections
 
@@ -327,10 +384,10 @@ class DiscretizationCollection:
     def _modal_discr(self, domain_tag):
         from meshmode.discretization import Discretization
 
-        discr_base = self.discr_from_dd(DOFDesc(domain_tag, QTAG_NONE))
+        discr_base = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
         return Discretization(
             self._setup_actx, discr_base.mesh,
-            self.group_factory_for_quadrature_tag(QTAG_MODAL)
+            self.group_factory_for_discretization_tag(DISCR_TAG_MODAL)
         )
 
     @memoize_method
@@ -370,10 +427,11 @@ class DiscretizationCollection:
     @memoize_method
     def _boundary_connection(self, boundary_tag):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(QTAG_NONE),
-                boundary_tag=boundary_tag)
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            boundary_tag=boundary_tag
+        )
 
     # }}}
 
@@ -382,15 +440,16 @@ class DiscretizationCollection:
     @memoize_method
     def _interior_faces_connection(self):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(QTAG_NONE),
-                FACE_RESTR_INTERIOR,
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            FACE_RESTR_INTERIOR,
 
-                # FIXME: This will need to change as soon as we support
-                # pyramids or other elements with non-identical face
-                # types.
-                per_face_groups=False)
+            # FIXME: This will need to change as soon as we support
+            # pyramids or other elements with non-identical face
+            # types.
+            per_face_groups=False
+        )
 
     @memoize_method
     def opposite_face_connection(self):
@@ -408,15 +467,16 @@ class DiscretizationCollection:
     @memoize_method
     def _all_faces_volume_connection(self):
         return make_face_restriction(
-                self._setup_actx,
-                self._volume_discr,
-                self.group_factory_for_quadrature_tag(QTAG_NONE),
-                FACE_RESTR_ALL,
+            self._setup_actx,
+            self._volume_discr,
+            self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
+            FACE_RESTR_ALL,
 
-                # FIXME: This will need to change as soon as we support
-                # pyramids or other elements with non-identical face
-                # types.
-                per_face_groups=False)
+            # FIXME: This will need to change as soon as we support
+            # pyramids or other elements with non-identical face
+            # types.
+            per_face_groups=False
+        )
 
     # }}}
 
@@ -451,7 +511,6 @@ class DiscretizationCollection:
 
     @property
     def order(self):
-        from warnings import warn
         warn("DiscretizationCollection.order is deprecated, "
                 "consider using the orders of element groups instead. "
                 "'order' will go away in 2021.",
@@ -463,7 +522,6 @@ class DiscretizationCollection:
 
 class DGDiscretizationWithBoundaries(DiscretizationCollection):
     def __init__(self, *args, **kwargs):
-        from warnings import warn
         warn("DGDiscretizationWithBoundaries is deprecated and will go away "
                 "in 2022. Use DiscretizationCollection instead.",
                 DeprecationWarning, stacklevel=2)

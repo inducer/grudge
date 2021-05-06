@@ -537,21 +537,21 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
 
         if isinstance(expr.op, op.MassOperator) and has_quad_operand:
             return op.QuadratureMassOperator(
-                    field_repr_tag.quadrature_tag)(self.rec(expr.field))
+                    field_repr_tag.discretization_tag)(self.rec(expr.field))
 
         elif isinstance(expr.op, op.RefMassOperator) and has_quad_operand:
             return op.RefQuadratureMassOperator(
-                    field_repr_tag.quadrature_tag)(self.rec(expr.field))
+                    field_repr_tag.discretization_tag)(self.rec(expr.field))
 
         elif (isinstance(expr.op, op.StiffnessTOperator) and has_quad_operand):
             return op.QuadratureStiffnessTOperator(
-                    expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
+                    expr.op.xyz_axis, field_repr_tag.discretization_tag)(
                             self.rec(expr.field))
 
         elif (isinstance(expr.op, op.RefStiffnessTOperator)
                 and has_quad_operand):
             return op.RefQuadratureStiffnessTOperator(
-                    expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
+                    expr.op.xyz_axis, field_repr_tag.discretization_tag)(
                             self.rec(expr.field))
 
         elif (isinstance(expr.op, op.QuadratureGridUpsampler)
@@ -560,11 +560,11 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
             # if (isinstance(expr.field, OperatorBinding)
             #        and isinstance(expr.field.op, RestrictToBoundary)):
             #    return QuadratureRestrictToBoundary(
-            #            expr.field.op.tag, expr.op.quadrature_tag)(
+            #            expr.field.op.tag, expr.op.discretization_tag)(
             #                    self.rec(expr.field.field))
 
             return op.QuadratureBoundaryGridUpsampler(
-                    expr.op.quadrature_tag, field_type.boundary_tag)(expr.field)
+                expr.op.discretization_tag, field_type.boundary_tag)(expr.field)
         # }}}
 
         elif isinstance(expr.op, op.RestrictToBoundary) and has_quad_operand:
@@ -612,7 +612,7 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 
         jac_in = sym.area_element(self.ambient_dim, dim, dd=dd_in)
         jac_noquad = sym.area_element(self.ambient_dim, dim,
-                dd=dd_in.with_qtag(dof_desc.QTAG_NONE))
+                dd=dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
             def imd(rst):
@@ -713,12 +713,12 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         else:
             result = fmt(dd.domain_tag)
 
-        if dd.quadrature_tag is None:
+        if dd.discretization_tag is None:
             pass
-        elif dd.quadrature_tag is dof_desc.QTAG_NONE:
+        elif dd.discretization_tag is dof_desc.DISCR_TAG_BASE:
             result += "q"
         else:
-            result += "Q"+fmt(dd.quadrature_tag)
+            result += "Q"+fmt(dd.discretization_tag)
 
         return result
 
@@ -868,23 +868,24 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
     """Checks whether all quadratu
     """
 
-    def __init__(self, quad_tag_to_group_factory):
+    def __init__(self, discr_tag_to_group_factory):
         IdentityMapper.__init__(self)
         CSECachingMapperMixin.__init__(self)
-        self.quad_tag_to_group_factory = quad_tag_to_group_factory
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
     def _process_dd(self, dd, location_descr):
-        if dd.quadrature_tag is not dof_desc.QTAG_NONE:
-            if dd.quadrature_tag not in self.quad_tag_to_group_factory:
-                raise ValueError("found unknown quadrature tag '%s' in '%s'"
-                        % (dd.quadrature_tag, location_descr))
 
-            grp_factory = self.quad_tag_to_group_factory[dd.quadrature_tag]
+        if dd.discretization_tag is not dof_desc.DISCR_TAG_BASE:
+            if dd.discretization_tag not in self.discr_tag_to_group_factory:
+                raise ValueError("found unknown quadrature tag '%s' in '%s'"
+                        % (dd.discretization_tag, location_descr))
+
+            grp_factory = self.discr_tag_to_group_factory[dd.discretization_tag]
             if grp_factory is None:
-                dd = dof_desc.DOFDesc(dd.domain_tag, dof_desc.QTAG_NONE)
+                dd = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
 
         return dd
 
