@@ -796,7 +796,7 @@ def aggregate_assignments(inf_mapper, instructions, result,
             schedulable.sort()
 
             if schedulable:
-                for key, name, expr in schedulable:
+                for _key, name, expr in schedulable:
                     ordered_names_exprs.append((name, expr))
                     available_names.add(name)
             else:

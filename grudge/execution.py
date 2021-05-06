@@ -628,7 +628,7 @@ class BoundOperator:
             else:
                 pass
 
-        for key, val in context.items():
+        for val in context.values():
             look_for_array_contexts(val)
 
         if array_contexts:
