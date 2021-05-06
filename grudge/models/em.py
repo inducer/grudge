@@ -327,7 +327,9 @@ class MaxwellOperator(HyperbolicOperator):
                     1 / sym.sqrt(self.epsilon * self.mu)
                     )
 
-    def max_eigenvalue(self, t, fields=None, discr=None, context={}):
+    def max_eigenvalue(self, t, fields=None, discr=None, context=None):
+        if context is None:
+            context = {}
         if self.fixed_material:
             return self.max_eigenvalue_expr()
         else:
