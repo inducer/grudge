@@ -200,11 +200,12 @@ def v_dot_n_tpair(velocity, dd=None):
         dd = DOFDesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = len(velocity)
-    normal = sym.normal(dd.with_qtag(None), ambient_dim, dim=ambient_dim - 2)
+    normal = sym.normal(dd.with_discr_tag(None),
+                        ambient_dim, dim=ambient_dim - 2)
 
     return sym.int_tpair(velocity.dot(normal),
-            qtag=dd.quadrature_tag,
-            from_dd=dd.with_qtag(None))
+            qtag=dd.discretization_tag,
+            from_dd=dd.with_discr_tag(None))
 
 
 def surface_advection_weak_flux(flux_type, u, velocity):
@@ -231,7 +232,7 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
     def flux(self, u):
         from grudge.dof_desc import DD_VOLUME
 
-        surf_v = sym.project(DD_VOLUME, u.dd.with_qtag(None))(self.v)
+        surf_v = sym.project(DD_VOLUME, u.dd.with_discr_tag(None))(self.v)
         return surface_advection_weak_flux(self.flux_type, u, surf_v)
 
     def sym_operator(self):

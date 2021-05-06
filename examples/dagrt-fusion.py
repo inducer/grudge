@@ -523,7 +523,7 @@ def test_stepper_equivalence(ctx_factory, order=4):
 
     fused_steps = fused_stepper.run(ic, t_start, dt, t_end)
 
-    for t_ref, (u_ref, v_ref) in stepper.run(ic, t_start, dt, t_end):
+    for t_ref, (u_ref, _v_ref) in stepper.run(ic, t_start, dt, t_end):
         step += 1
         logger.debug("step %d/%d", step, nsteps)
         t, (u, v) = next(fused_steps)
@@ -620,7 +620,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                         expr.op, expr.field, profile_data)
 
             else:
-                assert False, ("unknown operator: %s" % expr.op)
+                raise AssertionError("unknown operator: %s" % expr.op)
 
         else:
             logger.debug("assignment not profiled: %s", expr)
@@ -811,7 +811,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     step = 0
 
     nsteps = int(np.ceil((t_end + 1e-9) / dt))
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         step += 1
         logger.info("step %d/%d", step, nsteps)
@@ -984,7 +984,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
     import time
     t = time.time()
     nsteps = int(np.ceil((t_end + 1e-9) / dt))
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         step += 1
         tn = time.time()
@@ -1146,7 +1146,7 @@ def mem_ops_results(actx, dims):
 
     result = {}
 
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 
@@ -1164,7 +1164,7 @@ def mem_ops_results(actx, dims):
             result["nonfused_bytes_read_by_scalar_assignments"] \
             + result["nonfused_bytes_written_by_scalar_assignments"]
 
-    for (_, _, profile_data) in fused_stepper.run(
+    for (_, _, profile_data) in fused_stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 

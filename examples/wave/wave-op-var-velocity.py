@@ -33,7 +33,7 @@ from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import QTAG_NONE, DOFDesc
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
@@ -43,7 +43,7 @@ from grudge.symbolic.primitives import TracePair
 
 def wave_flux(dcoll, c, w_tpair):
     dd = w_tpair.dd
-    dd_quad = dd.with_qtag("vel_prod")
+    dd_quad = dd.with_discr_tag(DISCR_TAG_QUAD)
 
     u = w_tpair[0]
     v = w_tpair[1:]
@@ -78,13 +78,13 @@ def wave_operator(dcoll, c, w):
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
-    dd_quad = DOFDesc("vol", "vel_prod")
+    dd_quad = DOFDesc("vol", DISCR_TAG_QUAD)
     c_quad = op.project(dcoll, "vol", dd_quad, c)
     w_quad = op.project(dcoll, "vol", dd_quad, w)
     u_quad = w_quad[0]
     v_quad = w_quad[1:]
 
-    dd_allfaces_quad = DOFDesc("all_faces", "vel_prod")
+    dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
 
     return (
             op.inverse_mass(dcoll,
@@ -161,11 +161,13 @@ def main():
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
             PolynomialWarpAndBlendGroupFactory
-    dcoll = DiscretizationCollection(actx, mesh,
-            quad_tag_to_group_factory={
-                QTAG_NONE: PolynomialWarpAndBlendGroupFactory(order),
-                "vel_prod": QuadratureSimplexGroupFactory(3*order),
-                })
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
+        }
+    )
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
