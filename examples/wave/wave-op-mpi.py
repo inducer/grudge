@@ -157,7 +157,7 @@ def main():
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
-        dt = 0.75/(nel_1d*order**2)
+        dt = 0.7/(nel_1d*order**2)
     elif dim == 3:
         # no deep meaning here, just a fudge factor
         dt = 0.45/(nel_1d*order**2)
@@ -181,7 +181,9 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, op.norm(dcoll, fields[0], p=2))
+            if comm.rank == 0:
+                print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
+                      f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
             vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
@@ -192,6 +194,8 @@ def main():
 
         t += dt
         istep += 1
+
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":
