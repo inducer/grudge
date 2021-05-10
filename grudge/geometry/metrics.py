@@ -26,7 +26,7 @@ THE SOFTWARE.
 import numpy as np
 
 from grudge.dof_desc import (
-    DD_VOLUME, DOFDesc, QTAG_NONE
+    DD_VOLUME, DOFDesc, DISCR_TAG_BASE
 )
 from meshmode.dof_array import thaw
 from pymbolic.geometric_algebra import MultiVector
@@ -54,7 +54,7 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     if dd is None:
         dd = DD_VOLUME
 
-    inner_dd = dd.with_qtag(QTAG_NONE)
+    inner_dd = dd.with_discr_tag(DISCR_TAG_BASE)
 
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
@@ -234,13 +234,7 @@ def _signed_face_ones(actx, dcoll, dd):
     return signed_face_ones
 
 
-def parametrization_derivative(actx, dcoll, dd):
-
-    if dd.is_volume():
-        dim = dcoll.dim
-    else:
-        dim = dcoll.dim - 1
-
+def parametrization_derivative(actx, dcoll, dim, dd):
     if dim == 0:
         from pymbolic.geometric_algebra import get_euclidean_space
 
@@ -257,32 +251,36 @@ def parametrization_derivative(actx, dcoll, dd):
     )
 
 
-def pseudoscalar(actx, dcoll, dd=None):
+def pseudoscalar(actx, dcoll, dim=None, dd=None):
     if dd is None:
         dd = DD_VOLUME
 
+    if dim is None:
+        dim = dcoll.discr_from_dd(dd).dim
+
     return parametrization_derivative(
-        actx, dcoll, dd
+        actx, dcoll, dim, dd
     ).project_max_grade()
 
 
-def area_element(actx, dcoll, dd=None):
+def area_element(actx, dcoll, dim=None, dd=None):
 
     return actx.np.sqrt(
-        pseudoscalar(actx, dcoll, dd=dd).norm_squared()
+        pseudoscalar(actx, dcoll, dim=dim, dd=dd).norm_squared()
     )
 
 
-def surface_normal(actx, dcoll, dd=None, dim=None):
+def surface_normal(actx, dcoll, dim=None, dd=None):
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
-    dim = dim or dcoll.dim
+    dim = dim or dcoll.discr_from_dd(dd).dim
 
     # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
 
-    pder = pseudoscalar(actx, dcoll, dd=dd) / area_element(actx, dcoll, dd=dd)
+    pder = pseudoscalar(actx, dcoll, dim=dim, dd=dd) \
+        / area_element(actx, dcoll, dim=dim, dd=dd)
 
     # Dorst Section 3.7.2
     return pder << pder.I.inv()
@@ -296,11 +294,11 @@ def mv_normal(actx, dcoll, dd):
     if not dd.is_trace():
         raise ValueError("may only request normals on boundaries")
 
-    dim = dcoll.dim
+    dim = dcoll.discr_from_dd(dd).dim
     ambient_dim = dcoll.ambient_dim
 
     if dim == ambient_dim - 1:
-        return surface_normal(actx, dcoll, dd=dd)
+        return surface_normal(actx, dcoll, dim=dim, dd=dd)
 
     # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
     # enough information on the face to decide what an "exterior face normal"
@@ -317,8 +315,8 @@ def mv_normal(actx, dcoll, dd):
 
     volm_normal = project(dcoll, dof_desc.DD_VOLUME, dd,
                           surface_normal(actx, dcoll,
-                                         dd=dof_desc.DD_VOLUME,
-                                         dim=dim + 1))
+                                         dim=dim + 1,
+                                         dd=dof_desc.DD_VOLUME))
     pder = pseudoscalar(actx, dcoll, dd=dd)
 
     mv = -(volm_normal ^ pder) << volm_normal.I.inv()
@@ -327,4 +325,4 @@ def mv_normal(actx, dcoll, dd):
 
 
 def normal(actx, dcoll, dd):
-    return mv_normal(actx, dcoll, dd).as_vector()
+    return mv_normal(actx, dcoll, dd).as_vector(dtype=object)

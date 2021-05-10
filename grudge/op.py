@@ -135,15 +135,23 @@ def nodes(dcoll, dd=None):
 
 @memoize_on_first_arg
 def normal(dcoll, dd):
-    """Get unit normal to specified surface discretization, *dd*.
+    """Get the unit normal to the specified surface discretization, *dd*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
     """
     from grudge.geometry import normal
-    surface_discr = dcoll.discr_from_dd(dd)
-    actx = surface_discr._setup_actx
-    return actx.freeze(normal(actx, dcoll, dd))
+    from pytools.obj_array import make_obj_array
+
+    actx = dcoll.discr_from_dd(dd)._setup_actx
+    # Now freeze by running over the subarrays and freezing
+    # because actx.freeze(normals) does not do the job.
+    # FIXME: Why does this NOT work?!
+    # normals = actx.freeze(normal(actx, dcoll, dd))
+    return make_obj_array(
+        [DOFArray(None, data=tuple(actx.freeze(subary) for subary in ary))
+         for ary in normal(actx, dcoll, dd)]
+    )
 
 # }}}
 
@@ -270,8 +278,14 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
             mmat = reference_mass_matrix(actx, out_grp, in_grp)
-            return [dmat.T.dot(mmat.T)
-                    for dmat in reference_derivative_matrices(actx, in_grp)]
+
+            return [
+                actx.freeze(
+                    actx.from_numpy(
+                        actx.to_numpy(dmat.T).dot(actx.to_numpy(mmat.T))
+                    )
+                ) for dmat in reference_derivative_matrices(actx, in_grp)
+            ]
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
