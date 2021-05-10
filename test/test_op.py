@@ -127,7 +127,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
-                -op.weak_local_grad(dcoll, u, nested=nested)
+                -op.weak_local_grad(dcoll, u, nested=nested)  # pylint: disable=E1130
                 +  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
