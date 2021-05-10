@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 # {{{ gradient
 
+@pytest.mark.parametrize("form", ["weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
