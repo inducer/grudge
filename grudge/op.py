@@ -757,51 +757,30 @@ def face_mass(dcoll, *args):
 # }}}
 
 
-# {{{ reductions
-
-@memoize_on_first_arg
-def _norm(dcoll, p, dd):
-    return bind(dcoll,
-            sym.norm(p, sym.var("arg", dd=dd), dd=dd),
-            local_only=True)
-
+# {{{ Nodal reductions
 
 def norm(dcoll, vec, p, dd=None):
-    if dd is None:
-        dd = "vol"
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(
-                    norm(dcoll, vec[idx], p, dd=dd)**2
-                    for idx in np.ndindex(vec.shape))**0.5
-        elif p == np.inf:
-            return max(
-                    norm(dcoll, vec[idx], np.inf, dd=dd)
-                    for idx in np.ndindex(vec.shape))
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, p, dd)(arg=vec)
-
-
-@memoize_on_first_arg
-def _nodal_reduction(dcoll, operator, dd):
-    return bind(dcoll, operator(dd)(sym.var("arg")), local_only=True)
+    # Raise a warning if `dd` is not None?
+    actx = vec.array_context
+    return actx.np.linalg.norm(vec, ord=p)
 
 
 def nodal_sum(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalSum, dd)(arg=vec)
+    # Raise a warning if `dd` is not None?
+    actx = vec.array_context
+    return np.sum([actx.np.sum(vec_i) for vec_i in vec])
 
 
 def nodal_min(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalMin, dd)(arg=vec)
+    # Raise a warning if `dd` is not None?
+    actx = vec.array_context
+    return np.min([actx.np.min(vec_i) for vec_i in vec])
 
 
 def nodal_max(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalMax, dd)(arg=vec)
+    # Raise a warning if `dd` is not None?
+    actx = vec.array_context
+    return np.max([actx.np.max(vec_i) for vec_i in vec])
 
 # }}}
 
