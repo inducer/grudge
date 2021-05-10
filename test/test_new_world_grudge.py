@@ -31,7 +31,7 @@ from meshmode.array_context import (  # noqa
         as pytest_generate_tests)
 import meshmode.mesh.generation as mgen
 
-import grudge.operators as op
+import grudge.op as op
 
 from grudge import DiscretizationCollection
 import grudge.dof_desc as dof_desc
@@ -140,14 +140,14 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     f_quad = f(x_quad)
     ones_quad = quad_disc.zeros(actx) + 1
 
-    mop_1 = op.mass_operator(dcoll, dd_quad, f_quad)
+    mop_1 = op.mass(dcoll, dd_quad, f_quad)
     num_integral_1 = np.dot(actx.to_numpy(flatten(ones_volm)),
                             actx.to_numpy(flatten(mop_1)))
 
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 1e-9, err_1
 
-    mop_2 = op.mass_operator(dcoll, dd_quad, ones_quad)
+    mop_2 = op.mass(dcoll, dd_quad, ones_quad)
     num_integral_2 = np.dot(actx.to_numpy(flatten(f_volm)),
                             actx.to_numpy(flatten(mop_2)))
 
@@ -232,7 +232,7 @@ def test_mass_surface_area(actx_factory, name):
 
         dd = dof_desc.DD_VOLUME
         ones_volm = volume_discr.zeros(actx) + 1
-        flattened_mass_weights = flatten(op.mass_operator(dcoll, dd, ones_volm))
+        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
         approx_surface_area = np.dot(actx.to_numpy(flatten(ones_volm)),
                                      actx.to_numpy(flattened_mass_weights))
 
@@ -300,8 +300,8 @@ def test_surface_mass_operator_inverse(actx_factory, name):
         x_volm = thaw(actx, volume_discr.nodes())
         f_volm = f(x_volm)
 
-        res = op.inverse_mass_operator(
-            dcoll, op.mass_operator(dcoll, dd, f_volm)
+        res = op.inverse_mass(
+            dcoll, op.mass(dcoll, dd, f_volm)
         )
 
         inv_error = actx.np.linalg.norm(res - f_volm, ord=2)
@@ -311,7 +311,7 @@ def test_surface_mass_operator_inverse(actx_factory, name):
         # {{{ compute h_max from mass weights
 
         ones_volm = volume_discr.zeros(actx) + 1
-        flattened_mass_weights = flatten(op.mass_operator(dcoll, dd, ones_volm))
+        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
         h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
 
         # }}}
@@ -359,7 +359,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
         for axis in range(dim):
 
-            df_num = op.local_gradient(dcoll, f(x, axis))[axis]
+            df_num = op.local_grad(dcoll, f(x, axis))[axis]
             df_volm = df(x, axis)
 
             linf_error = actx.np.linalg.norm(df_num - df_volm, ord=np.inf)
