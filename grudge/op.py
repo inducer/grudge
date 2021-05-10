@@ -718,8 +718,8 @@ def _apply_face_mass_operator(dcoll, dd, vec):
                 0<=idof<nvol_nodes and
                 0<=j<nface_nodes}""",
             """
-            result[iel,idof] = sum(f, sum(j, mat[idof, f, j]       \
-                                             * jac_surf[f, iel, j] \
+            result[iel,idof] = sum(f, sum(j, mat[idof, f, j]        \
+                                             * jac_surf[f, iel, j]  \
                                              * vec[f, iel, j]))
             """,
             name="face_mass"
@@ -737,7 +737,7 @@ def _apply_face_mass_operator(dcoll, dd, vec):
             vol_element_group=volgrp,
             dtype=dtype
         )
-        input_view = result[afgrp.index].reshape(
+        input_view = vec[afgrp.index].reshape(
             nfaces, volgrp.nelements, afgrp.nunit_dofs
         )
         jac_surf = surf_area_elements[afgrp.index].reshape(
