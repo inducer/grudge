@@ -66,14 +66,14 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         dcoll = DiscretizationCollection(actx, mesh, order=order)
 
         def f(x):
-            result = dcoll.zeros(actx) + 1.
+            result = dcoll.zeros(actx) + 1
             for i in range(dim-1):
                 result *= actx.np.sin(np.pi*x[i])
             result *= actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def grad_f(x):
-            result = make_obj_array([dcoll.zeros(actx) + 1. for _ in range(dim)])
+            result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
                     result[i] *= actx.np.sin(np.pi*x[j])
@@ -89,7 +89,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         x = thaw(actx, op.nodes(dcoll))
 
         if vectorize:
-            u = make_obj_array([(idim+1)*f(x) for idim in range(dim)])
+            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
         else:
             u = f(x)
 
@@ -137,7 +137,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
         if vectorize:
             expected_grad_u = make_obj_array(
-                [(idim+1)*grad_f(x) for idim in range(dim)])
+                [(i+1)*grad_f(x) for i in range(dim)])
             if not nested:
                 expected_grad_u = np.stack(expected_grad_u, axis=0)
         else:
