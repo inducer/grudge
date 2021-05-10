@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
     (True, False),
     (True, True)
     ])
-def test_gradient(actx_factory, dim, form, order, vectorize, nested):
+def test_gradient(actx_factory, form, dim, order, vectorize, nested,
+        visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -141,6 +142,18 @@ def test_gradient(actx_factory, dim, form, order, vectorize, nested):
                 expected_grad_u = np.stack(expected_grad_u, axis=0)
         else:
             expected_grad_u = grad_f(x)
+
+        if visualize:
+            from grudge.shortcuts import make_visualizer
+            vis = make_visualizer(dcoll, vis_order=order if dim == 3 else dim+3)
+
+            filename = (f"test_gradient_{form}_{dim}_{order}"
+                f"{'_vec' if vectorize else ''}{'_nested' if nested else ''}.vtu")
+            vis.write_vtk_file(filename, [
+                ("u", u),
+                ("grad_u", grad_u),
+                ("expected_grad_u", expected_grad_u),
+                ], overwrite=True)
 
         rel_linf_err = (
             op.norm(dcoll, grad_u - expected_grad_u, np.inf)
