@@ -189,7 +189,8 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, op.norm(dcoll, fields[0], p=2))
+            print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
+                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-var-velocity-%04d.vtu" % istep,
                     [
                         ("c", c),
@@ -199,6 +200,8 @@ def main():
 
         t += dt
         istep += 1
+
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":
