@@ -168,6 +168,129 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 # }}}
 
 
+# {{{ divergence
+
+@pytest.mark.parametrize("form", ["weak"])
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize(("vectorize", "nested"), [
+    (False, False),
+    (True, False),
+    (True, True)
+    ])
+def test_divergence(actx_factory, form, dim, order, vectorize, nested,
+        visualize=False):
+    actx = actx_factory()
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    for n in [4, 6, 8]:
+        mesh = mgen.generate_regular_rect_mesh(
+                a=(-1,)*dim, b=(1,)*dim,
+                nelements_per_axis=(n,)*dim)
+
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
+
+        def f(x):
+            result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
+            for i in range(dim-1):
+                result *= actx.np.sin(np.pi*x[i])
+            result *= actx.np.cos(np.pi/2*x[dim-1])
+            return result
+
+        def div_f(x):
+            result = dcoll.zeros(actx)
+            for i in range(dim-1):
+                deriv = dcoll.zeros(actx) + (i+1)
+                for j in range(i):
+                    deriv *= actx.np.sin(np.pi*x[j])
+                deriv *= np.pi*actx.np.cos(np.pi*x[i])
+                for j in range(i+1, dim-1):
+                    deriv *= actx.np.sin(np.pi*x[j])
+                deriv *= actx.np.cos(np.pi/2*x[dim-1])
+                result += deriv
+            deriv = dcoll.zeros(actx) + dim
+            for j in range(dim-1):
+                deriv *= actx.np.sin(np.pi*x[j])
+            deriv *= -np.pi/2*actx.np.sin(np.pi/2*x[dim-1])
+            result += deriv
+            return result
+
+        x = thaw(actx, op.nodes(dcoll))
+
+        if vectorize:
+            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
+            if not nested:
+                u = np.stack(u, axis=0)
+        else:
+            u = f(x)
+
+        def get_flux(u_tpair):
+            dd = u_tpair.dd
+            dd_allfaces = dd.with_dtag("all_faces")
+            normal = thaw(actx, op.normal(dcoll, dd))
+            flux = u_tpair.avg @ normal
+            return op.project(dcoll, dd, dd_allfaces, flux)
+
+        dd_intfaces = DOFDesc("int_faces")
+        dd_allfaces = DOFDesc("all_faces")
+
+        if form == "strong":
+            # FIXME: this doesn't work
+            u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
+            div_u = op.inverse_mass(dcoll,
+                op.local_div(dcoll, u)
+                -  # noqa: W504
+                op.face_mass(dcoll,
+                    dd_allfaces,
+                    # Note: no boundary flux terms here because u_ext == u_int == 0
+                    get_flux(sym.TracePair(dd_intfaces,
+                        interior=u_intfaces,
+                        exterior=u_intfaces))
+                    -  # noqa: W504
+                    get_flux(op.interior_trace_pair(dcoll, u)))
+                )
+        elif form == "weak":
+            div_u = op.inverse_mass(dcoll,
+                -op.weak_local_div(dcoll, u)
+                +  # noqa: W504
+                op.face_mass(dcoll,
+                    dd_allfaces,
+                    # Note: no boundary flux terms here because u_ext == u_int == 0
+                    get_flux(op.interior_trace_pair(dcoll, u)))
+                )
+
+        if vectorize:
+            expected_div_u = make_obj_array([(i+1)*div_f(x) for i in range(dim)])
+        else:
+            expected_div_u = div_f(x)
+
+        if visualize:
+            from grudge.shortcuts import make_visualizer
+            vis = make_visualizer(dcoll, vis_order=order if dim == 3 else dim+3)
+
+            filename = (f"test_divergence_{form}_{dim}_{order}"
+                f"{'_vec' if vectorize else ''}{'_nested' if nested else ''}.vtu")
+            vis.write_vtk_file(filename, [
+                ("u", u),
+                ("div_u", div_u),
+                ("expected_div_u", expected_div_u),
+                ], overwrite=True)
+
+        rel_linf_err = (
+            op.norm(dcoll, div_u - expected_div_u, np.inf)
+            / op.norm(dcoll, expected_div_u, np.inf))
+        eoc_rec.add_data_point(1./n, rel_linf_err)
+
+    print("L^inf error:")
+    print(eoc_rec)
+    assert(eoc_rec.order_estimate() >= order - 0.5
+                or eoc_rec.max_error() < 1e-11)
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 

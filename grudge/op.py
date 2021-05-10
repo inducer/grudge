@@ -180,15 +180,19 @@ def _div_helper(dcoll, diff_func, vecs):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
 
-    if vecs.shape[-1] != dcoll.ambient_dim:
-        raise ValueError("last dimension of *vecs* argument must match "
-                "ambient dimension")
+    if isinstance(vecs[(0,)*vecs.ndim], np.ndarray):
+        div_shape = vecs.shape
+    else:
+        if vecs.shape[-1] != dcoll.ambient_dim:
+            raise ValueError("last dimension of *vecs* argument doesn't match "
+                    "ambient dimension")
+        div_shape = vecs.shape[:-1]
 
-    if len(vecs.shape) == 1:
+    if len(div_shape) == 0:
         return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
     else:
-        result = np.zeros(vecs.shape[:-1], dtype=object)
-        for idx in np.ndindex(vecs.shape[:-1]):
+        result = np.zeros(div_shape, dtype=object)
+        for idx in np.ndindex(div_shape):
             result[idx] = sum(
                     diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
         return result
