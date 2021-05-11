@@ -110,9 +110,9 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(u=event.state_component[0]),
-                    time()-t_last_step)
             if step % 10 == 0:
+                print(f"step: {step} t: {time()-t_last_step} "
+                      f"L2: {norm(u=event.state_component[0])}")
                 vis.write_vtk_file("fld-var-propogation-speed-%04d.vtu" % step,
                         [
                             ("u", event.state_component[0]),
@@ -120,6 +120,7 @@ def main(write_output=True, order=4):
                             ("c", c_eval),
                             ])
             t_last_step = time()
+            assert norm(u=event.state_component[0]) < 1
 
 
 if __name__ == "__main__":

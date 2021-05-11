@@ -129,7 +129,7 @@ def main():
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
-        dt = 0.75/(nel_1d*order**2)
+        dt = 0.7/(nel_1d*order**2)
     elif dim == 3:
         # no deep meaning here, just a fudge factor
         dt = 0.45/(nel_1d*order**2)
@@ -158,7 +158,7 @@ def main():
 
         if istep % 10 == 0:
             print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
-                    f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
+                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),
@@ -167,6 +167,8 @@ def main():
 
         t += dt
         istep += 1
+
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":
