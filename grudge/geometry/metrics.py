@@ -34,6 +34,8 @@ from pytools.obj_array import make_obj_array
 from pytools import memoize_on_first_arg
 
 
+# {{{ Metric computations
+
 def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     r"""
     Pointwise metric derivatives representing repeated derivatives to *vec*
@@ -272,6 +274,10 @@ def area_element(actx, dcoll, dim=None, dd=None):
         pseudoscalar(actx, dcoll, dim=dim, dd=dd).norm_squared()
     )
 
+# }}}
+
+
+# {{{ Surface normal vectors
 
 def surface_normal(actx, dcoll, dim=None, dd=None):
     import grudge.dof_desc as dof_desc
@@ -329,3 +335,8 @@ def mv_normal(actx, dcoll, dd):
 
 def normal(actx, dcoll, dd):
     return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
+
+# }}}
+
+
+# vim: foldmethod=marker
