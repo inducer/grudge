@@ -158,9 +158,12 @@ def reference_derivative_matrices(actx, element_group):
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
-        return tuple(
-            actx.freeze(actx.from_numpy(dfmat))
-            for dfmat in diff_matrices(grp)
+        return actx.freeze(
+            actx.from_numpy(
+                np.asarray(
+                    [dfmat for dfmat in diff_matrices(grp)]
+                )
+            )
         )
     return get_ref_derivative_mats(element_group)
 
@@ -172,26 +175,30 @@ def _compute_local_gradient(dcoll, vec, xyz_axis):
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
-    # FIXME: Each individual term comes out as (result,)
-    inverse_jac_t = [
-        inverse_surface_metric_derivative(
-            actx, dcoll, rst_axis, xyz_axis
-        )[0] for rst_axis in range(dcoll.dim)
-    ]
-
-    data = []
-    for grp, vec_i in zip(discr.groups, vec):
-        data.append(sum(
-            actx.einsum(
-                "ij,ej,ej->ei",
-                reference_derivative_matrices(actx, grp)[rst_axis],
-                vec_i,
-                inverse_jac_t[rst_axis],
-                arg_names=("ref_diff_mat", "vec", "inv_jac_t"),
-                tagged=(HasElementwiseMatvecTag(),)
-            ) for rst_axis in range(dcoll.dim))
+    # Convert to 3D tensor
+    # FIXME: Is there a better/more efficient way to do this?
+    inverse_jac_t = actx.from_numpy(
+        np.asarray(
+            [actx.to_numpy(
+                inverse_surface_metric_derivative(
+                    actx, dcoll, rst_axis, xyz_axis
+                )[0]
+            ) for rst_axis in range(dcoll.dim)]
         )
-    return DOFArray(actx, data=tuple(data))
+    )
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("dij,ej,dej->ei",
+                        reference_derivative_matrices(actx, grp),
+                        vec_i,
+                        inverse_jac_t,
+                        arg_names=("ref_diff_mat", "vec", "inv_jac_t"),
+                        tagged=(HasElementwiseMatvecTag(),))
+
+            for grp, vec_i in zip(discr.groups, vec)
+        )
+    )
 
 
 def local_grad(dcoll, vec):
@@ -264,7 +271,6 @@ def local_div(dcoll, vecs):
 # {{{ Weak derivative operators
 
 def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_group):
-    # FIXME: Think about how to compose this better with existing functions
     @keyed_memoize_in(
         actx, reference_stiffness_transpose_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
@@ -273,13 +279,14 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
         if in_grp == out_grp:
             mmat = reference_mass_matrix(actx, out_grp, in_grp)
 
-            return [
-                actx.freeze(
-                    actx.from_numpy(
-                        actx.to_numpy(dmat.T).dot(actx.to_numpy(mmat.T))
+            return actx.freeze(
+                actx.from_numpy(
+                    np.asarray(
+                        [actx.to_numpy(dmat.T).dot(actx.to_numpy(mmat.T))
+                         for dmat in reference_derivative_matrices(actx, in_grp)]
                     )
-                ) for dmat in reference_derivative_matrices(actx, in_grp)
-            ]
+                )
+            )
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -299,7 +306,7 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
                     weights,
                     vand_inv_t,
                     grad_vand
-                )
+                ).copy()  # contigify the array
             )
         )
     return get_ref_stiffness_transpose_mat(out_element_group,
@@ -315,34 +322,38 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
-    # FIXME: Each individual term comes out as (result,)
-    inverse_jac_t = [
-        inverse_surface_metric_derivative(
-            actx, dcoll, rst_axis, xyz_axis
-        )[0] for rst_axis in range(dcoll.dim)
-    ]
-    data = []
-    for out_grp, in_grp, vec_i, ae_i in zip(out_discr.groups,
-                                            in_discr.groups,
-                                            vec,
-                                            area_elements):
-        ref_stiffness_t = reference_stiffness_transpose_matrix(
-            actx,
-            out_element_group=out_grp,
-            in_element_group=in_grp
+    # Convert to 3D tensor
+    # FIXME: Is there a better/more efficient way to do this?
+    inverse_jac_t = actx.from_numpy(
+        np.asarray(
+            [actx.to_numpy(
+                inverse_surface_metric_derivative(
+                    actx, dcoll, rst_axis, xyz_axis, dd=dd_in
+                )[0]
+            ) for rst_axis in range(dcoll.dim)]
         )
-        data.append(sum(
-            actx.einsum(
-                "ej,ij,ej,ej->ei",
-                inverse_jac_t[rst_axis],
-                ref_stiffness_t[rst_axis],
-                vec_i,
-                ae_i,
-                arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", "jac"),
-                tagged=(HasElementwiseMatvecTag(),)
-            ) for rst_axis in range(dcoll.dim))
+    )
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("dej,dij,ej,ej->ei",
+                        inverse_jac_t,
+                        reference_stiffness_transpose_matrix(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        vec_i,
+                        ae_i,
+                        arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", "jac"),
+                        tagged=(HasElementwiseMatvecTag(),))
+
+            for out_grp, in_grp, vec_i, ae_i in zip(out_discr.groups,
+                                                    in_discr.groups,
+                                                    vec,
+                                                    area_elements)
         )
-    return DOFArray(actx, data=tuple(data))
+    )
 
 
 def weak_local_grad(dcoll, *args):
@@ -479,17 +490,16 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
     return DOFArray(
         actx,
         tuple(
-            actx.einsum(
-                "ij,ej,ej->ei",
-                reference_mass_matrix(
-                    actx,
-                    out_element_group=out_grp,
-                    in_element_group=in_grp
-                ),
-                ae_i,
-                vec_i,
-                arg_names=("mass_mat", "jac_det", "vec"),
-                tagged=(MassOperatorTag(),))
+            actx.einsum("ij,ej,ej->ei",
+                        reference_mass_matrix(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        ae_i,
+                        vec_i,
+                        arg_names=("mass_mat", "jac_det", "vec"),
+                        tagged=(MassOperatorTag(),))
 
             for in_grp, out_grp, ae_i, vec_i in zip(
                     in_discr.groups, out_discr.groups, area_elements, vec)
