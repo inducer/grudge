@@ -31,6 +31,7 @@ from grudge.dof_desc import (
 from meshmode.dof_array import thaw
 from pymbolic.geometric_algebra import MultiVector
 from pytools.obj_array import make_obj_array
+from pytools import memoize_on_first_arg
 
 
 def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
@@ -195,6 +196,7 @@ def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
     return result
 
 
+@memoize_on_first_arg
 def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
 
     dim = dcoll.dim
@@ -263,6 +265,7 @@ def pseudoscalar(actx, dcoll, dim=None, dd=None):
     ).project_max_grade()
 
 
+@memoize_on_first_arg
 def area_element(actx, dcoll, dim=None, dd=None):
 
     return actx.np.sqrt(
