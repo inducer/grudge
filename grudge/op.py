@@ -277,13 +277,14 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            mmat = reference_mass_matrix(actx, out_grp, in_grp)
+            from meshmode.discretization.poly_element import \
+                mass_matrix, diff_matrices
 
+            mmat = mass_matrix(out_grp)
             return actx.freeze(
                 actx.from_numpy(
                     np.asarray(
-                        [actx.to_numpy(dmat.T).dot(actx.to_numpy(mmat.T))
-                         for dmat in reference_derivative_matrices(actx, in_grp)]
+                        [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]
                     )
                 )
             )
