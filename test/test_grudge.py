@@ -1,4 +1,7 @@
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,6 +35,8 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 from grudge import sym, bind, DiscretizationCollection
 
 import grudge.dof_desc as dof_desc
+import grudge.op as op
+
 
 import pytest
 from meshmode.array_context import (  # noqa
@@ -67,17 +72,13 @@ def test_inverse_metric(actx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    discr = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    sym_op = (
-            sym.forward_metric_derivative_mat(mesh.dim)
-            .dot(
-                sym.inverse_metric_derivative_mat(mesh.dim)
-                )
-            .reshape(-1))
+    from grudge.geometry import \
+        forward_metric_derivative_mat, inverse_metric_derivative_mat
 
-    op = bind(discr, sym_op)
-    mat = op(actx).reshape(mesh.dim, mesh.dim)
+    mat = forward_metric_derivative_mat(actx, dcoll).dot(
+        inverse_metric_derivative_mat(actx, dcoll))
 
     for i in range(mesh.dim):
         for j in range(mesh.dim):
@@ -120,48 +121,50 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(
+    dcoll = DiscretizationCollection(
         actx, mesh, order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
-    def _get_variables_on(dd):
-        sym_f = sym.var("f", dd=dd)
-        sym_x = sym.nodes(ambient_dim, dd=dd)
-        sym_ones = sym.Ones(dd)
+    def f(x):
+        return actx.np.sin(x[0])**2
 
-        return sym_f, sym_x, sym_ones
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    x_volm = thaw(actx, volm_disc.nodes())
+    f_volm = f(x_volm)
+    ones_volm = volm_disc.zeros(actx) + 1
 
-    sym_f, sym_x, sym_ones = _get_variables_on(dof_desc.DD_VOLUME)
-    f_volm = actx.to_numpy(flatten(bind(discr, sym.cos(sym_x[0])**2)(actx)))
-    ones_volm = actx.to_numpy(flatten(bind(discr, sym_ones)(actx)))
+    quad_disc = dcoll.discr_from_dd(dd_quad)
+    x_quad = thaw(actx, quad_disc.nodes())
+    f_quad = f(x_quad)
+    ones_quad = quad_disc.zeros(actx) + 1
 
-    sym_f, sym_x, sym_ones = _get_variables_on(dd_quad)
-    f_quad = bind(discr, sym.cos(sym_x[0])**2)(actx)
-    ones_quad = bind(discr, sym_ones)(actx)
+    mop_1 = op.mass(dcoll, dd_quad, f_quad)
+    num_integral_1 = np.dot(actx.to_numpy(flatten(ones_volm)),
+                            actx.to_numpy(flatten(mop_1)))
 
-    mass_op = bind(discr, sym.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
-
-    num_integral_1 = np.dot(ones_volm, actx.to_numpy(flatten(mass_op(f=f_quad))))
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 1e-9, err_1
 
-    num_integral_2 = np.dot(f_volm, actx.to_numpy(flatten(mass_op(f=ones_quad))))
+    mop_2 = op.mass(dcoll, dd_quad, ones_quad)
+    num_integral_2 = np.dot(actx.to_numpy(flatten(f_volm)),
+                            actx.to_numpy(flatten(mop_2)))
+
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 1.0e-9, err_2
 
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-        num_integral_3 = bind(discr,
-                sym.integral(sym_f, dd=dd_quad))(f=f_quad)
+        num_integral_3 = np.dot(actx.to_numpy(flatten(f_quad)),
+                                actx.to_numpy(flatten(mop_2)))
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5.0e-10, err_3
 
 # }}}
 
 
-# {{{ mass operator surface area
+# {{{ mass operator on surface
 
 def _ellipse_surface_area(radius, aspect_ratio):
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
@@ -226,8 +229,8 @@ def test_mass_surface_area(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
@@ -235,8 +238,10 @@ def test_mass_surface_area(actx_factory, name):
         # {{{ compute surface area
 
         dd = dof_desc.DD_VOLUME
-        sym_op = sym.NodalSum(dd)(sym.MassOperator(dd, dd)(sym.Ones(dd)))
-        approx_surface_area = bind(discr, sym_op)(actx)
+        ones_volm = volume_discr.zeros(actx) + 1
+        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
+        approx_surface_area = np.dot(actx.to_numpy(flatten(ones_volm)),
+                                     actx.to_numpy(flattened_mass_weights))
 
         logger.info("surface: got {:.5e} / expected {:.5e}".format(
             approx_surface_area, surface_area))
@@ -244,21 +249,24 @@ def test_mass_surface_area(actx_factory, name):
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
-        eoc.add_data_point(h_max, area_error + 1.0e-16)
+        # {{{ compute h_max using mass weights
+
+        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
+
+        # }}}
+
+        eoc.add_data_point(h_max, area_error)
 
     # }}}
 
     logger.info("surface area error\n%s", str(eoc))
 
-    assert eoc.max_error() < 1.0e-14 \
-            or eoc.order_estimate() > builder.order
+    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
 
 # }}}
 
 
-# {{{ surface mass inverse
+# {{{ mass inverse on surfaces
 
 @pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
 def test_surface_mass_operator_inverse(actx_factory, name):
@@ -284,39 +292,44 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute inverse mass
 
+        def f(x):
+            return actx.np.cos(4.0 * x[0])
+
         dd = dof_desc.DD_VOLUME
-        sym_f = sym.cos(4.0 * sym.nodes(mesh.ambient_dim, dd)[0])
-        sym_op = sym.InverseMassOperator(dd, dd)(
-                sym.MassOperator(dd, dd)(sym.var("f")))
+        x_volm = thaw(actx, volume_discr.nodes())
+        f_volm = f(x_volm)
 
-        f = bind(discr, sym_f)(actx)
-        f_inv = bind(discr, sym_op)(actx, f=f)
+        res = op.inverse_mass(
+            dcoll, op.mass(dcoll, dd, f_volm)
+        )
 
-        inv_error = bind(discr,
-                sym.norm(2, sym.var("x") - sym.var("y"))
-                / sym.norm(2, sym.var("y")))(actx, x=f_inv, y=f)
+        inv_error = actx.np.linalg.norm(res - f_volm, ord=2)
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        # {{{ compute h_max from mass weights
+
+        ones_volm = volume_discr.zeros(actx) + 1
+        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
+        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
+
+        # }}}
+
         eoc.add_data_point(h_max, inv_error)
 
     # }}}
 
     logger.info("inverse mass error\n%s", str(eoc))
 
-    # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
-    # safe side, choose a slightly larger tolerance
-    assert eoc.max_error() < 1.0e-14
+    assert eoc.max_error() < 5e-13
 
 # }}}
 
@@ -422,24 +435,25 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
     from pytools.convergence import EOCRecorder
     axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
 
+    def f(x, axis):
+        return actx.np.sin(3*x[axis])
+
+    def df(x, axis):
+        return 3*actx.np.cos(3*x[axis])
+
     for n in [4, 8, 16]:
         mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 nelements_per_axis=(n,)*dim, order=4)
 
-        discr = DiscretizationCollection(actx, mesh, order=4)
-        nabla = sym.nabla(dim)
+        dcoll = DiscretizationCollection(actx, mesh, order=4)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        x = thaw(actx, volume_discr.nodes())
 
         for axis in range(dim):
-            x = sym.nodes(dim)
+            df_num = op.local_grad(dcoll, f(x, axis))[axis]
+            df_volm = df(x, axis)
 
-            f = bind(discr, sym.sin(3*x[axis]))(actx)
-            df = bind(discr, 3*sym.cos(3*x[axis]))(actx)
-
-            sym_op = nabla[axis](sym.var("f"))
-            bound_op = bind(discr, sym_op)
-            df_num = bound_op(f=f)
-
-            linf_error = actx.np.linalg.norm(df_num - df, ord=np.inf)
+            linf_error = actx.np.linalg.norm(df_num - df_volm, ord=np.inf)
             axis_eoc_recs[axis].add_data_point(1/n, linf_error)
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
