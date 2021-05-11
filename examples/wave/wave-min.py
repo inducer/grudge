@@ -110,15 +110,16 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(u=event.state_component[0]),
-                    time()-t_last_step)
             if step % 10 == 0:
+                print(f"step: {step} t: {time()-t_last_step} "
+                      f"L2: {norm(u=event.state_component[0])}")
                 vis.write_vtk_file("fld-wave-min-%04d.vtu" % step,
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
                             ])
             t_last_step = time()
+            assert norm(u=event.state_component[0]) < 1
 
 
 if __name__ == "__main__":
