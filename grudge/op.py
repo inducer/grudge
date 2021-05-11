@@ -66,7 +66,7 @@ import numpy as np
 import grudge.dof_desc as dof_desc
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.dof_array import flatten, unflatten
+from meshmode.dof_array import freeze, flatten, unflatten
 
 from grudge.symbolic.primitives import TracePair
 from grudge import sym, bind
@@ -143,17 +143,9 @@ def normal(dcoll, dd):
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
     """
     from grudge.geometry import normal
-    from pytools.obj_array import make_obj_array
 
     actx = dcoll.discr_from_dd(dd)._setup_actx
-    # Now freeze by running over the subarrays and freezing
-    # because actx.freeze(normals) does not do the job.
-    # FIXME: Why does this NOT work?!
-    # normals = actx.freeze(normal(actx, dcoll, dd))
-    return make_obj_array(
-        [DOFArray(None, data=tuple(actx.freeze(subary) for subary in ary))
-         for ary in normal(actx, dcoll, dd)]
-    )
+    return freeze(normal(actx, dcoll, dd))
 
 # }}}
 
