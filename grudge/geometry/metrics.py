@@ -313,7 +313,7 @@ def mv_normal(actx, dcoll, dd):
     # correct exterior face normal vector.
     assert dim == ambient_dim - 2
 
-    from grudge.operators import project
+    from grudge.op import project
     import grudge.dof_desc as dof_desc
 
     volm_normal = project(dcoll, dof_desc.DD_VOLUME, dd,
