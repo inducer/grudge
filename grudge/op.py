@@ -54,7 +54,7 @@ from numbers import Number
 from pytools import (
     memoize_in,
     memoize_on_first_arg,
-    # keyed_memoize_in
+    keyed_memoize_in
 )
 from pytools.obj_array import obj_array_vectorize
 from meshmode.array_context import (
@@ -66,9 +66,10 @@ import numpy as np
 import grudge.dof_desc as dof_desc
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.dof_array import freeze, flatten, unflatten
+from meshmode.dof_array import flatten, unflatten
 
 from grudge.symbolic.primitives import TracePair
+from grudge import sym, bind
 
 
 # {{{ tags
@@ -118,6 +119,7 @@ def project(dcoll, src, tgt, vec):
 
 # }}}
 
+
 # {{{ geometric properties
 
 def nodes(dcoll, dd=None):
@@ -159,9 +161,9 @@ def normal(dcoll, dd):
 # {{{ Derivative operators
 
 def reference_derivative_matrices(actx, element_group):
-    # @keyed_memoize_in(
-    #     actx, reference_derivative_matrices,
-    #     lambda grp: grp.discretization_key())
+    @keyed_memoize_in(
+        actx, reference_derivative_matrices,
+        lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
         return tuple(
@@ -271,10 +273,10 @@ def local_div(dcoll, vecs):
 
 def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_group):
     # FIXME: Think about how to compose this better with existing functions
-    # @keyed_memoize_in(
-    #     actx, reference_stiffness_transpose_matrix,
-    #     lambda out_grp, in_grp: (out_grp.discretization_key(),
-    #                              in_grp.discretization_key()))
+    @keyed_memoize_in(
+        actx, reference_stiffness_transpose_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
             mmat = reference_mass_matrix(actx, out_grp, in_grp)
@@ -438,10 +440,10 @@ def weak_local_div(dcoll, *args):
 # {{{ Mass operator
 
 def reference_mass_matrix(actx, out_element_group, in_element_group):
-    # @keyed_memoize_in(
-    #     actx, reference_mass_matrix,
-    #     lambda out_grp, in_grp: (out_grp.discretization_key(),
-    #                              in_grp.discretization_key()))
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
@@ -525,9 +527,9 @@ def mass(dcoll, *args):
 # {{{ Mass inverse operator
 
 def reference_inverse_mass_matrix(actx, element_group):
-    # @keyed_memoize_in(
-    #     actx, reference_inverse_mass_matrix,
-    #     lambda grp: grp.discretization_key())
+    @keyed_memoize_in(
+        actx, reference_inverse_mass_matrix,
+        lambda grp: grp.discretization_key())
     def get_ref_inv_mass_mat(grp):
         from modepy import inverse_mass_matrix
         basis = grp.basis_obj()
@@ -614,10 +616,10 @@ def inverse_mass(dcoll, vec):
 
 def reference_face_mass_matrix(actx, face_element_group, vol_element_group, dtype):
 
-    # @keyed_memoize_in(
-    #     actx, reference_mass_matrix,
-    #     lambda face_grp, vol_grp: (face_grp.discretization_key(),
-    #                                vol_grp.discretization_key()))
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda face_grp, vol_grp: (face_grp.discretization_key(),
+                                   vol_grp.discretization_key()))
     def get_ref_face_mass_mat(face_grp, vol_grp):
         nfaces = vol_grp.mesh_el_group.nfaces
         assert (face_grp.nelements
@@ -771,30 +773,63 @@ def face_mass(dcoll, *args):
 # }}}
 
 
-# {{{ Nodal reductions
+# {{{ Nodal reductions TODO: Convert these over
 
 def norm(dcoll, vec, p, dd=None):
     # Raise a warning if `dd` is not None?
-    actx = vec.array_context
-    return actx.np.linalg.norm(vec, ord=p)
+    # actx = vec.array_context
+    # return actx.np.linalg.norm(vec, ord=p)
+    if dd is None:
+        dd = "vol"
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    if isinstance(vec, np.ndarray):
+        if p == 2:
+            return sum(norm(dcoll, vec[idx], p, dd=dd)**2
+                       for idx in np.ndindex(vec.shape))**0.5
+        elif p == np.inf:
+            return max(norm(dcoll, vec[idx], np.inf, dd=dd)
+                       for idx in np.ndindex(vec.shape))
+        else:
+            raise ValueError("unsupported norm order")
+
+    return _norm(dcoll, p, dd)(arg=vec)
+    # actx = vec.array_context
+    # return actx.np.linalg.norm(vec, ord=p)
+
+
+@memoize_on_first_arg
+def _norm(dcoll, p, dd):
+    return bind(dcoll,
+            sym.norm(p, sym.var("arg", dd=dd), dd=dd),
+            local_only=True)
 
 
 def nodal_sum(dcoll, dd, vec):
     # Raise a warning if `dd` is not None?
-    actx = vec.array_context
-    return np.sum([actx.np.sum(vec_i) for vec_i in vec])
+    # actx = vec.array_context
+    # return np.sum([actx.np.sum(vec_i) for vec_i in vec])
+    return _nodal_reduction(dcoll, sym.NodalSum, dd)(arg=vec)
 
 
 def nodal_min(dcoll, dd, vec):
     # Raise a warning if `dd` is not None?
-    actx = vec.array_context
-    return np.min([actx.np.min(vec_i) for vec_i in vec])
+    # actx = vec.array_context
+    # return np.min([actx.np.min(vec_i) for vec_i in vec])
+    return _nodal_reduction(dcoll, sym.NodalMin, dd)(arg=vec)
 
 
 def nodal_max(dcoll, dd, vec):
     # Raise a warning if `dd` is not None?
-    actx = vec.array_context
-    return np.max([actx.np.max(vec_i) for vec_i in vec])
+    # actx = vec.array_context
+    # return np.max([actx.np.max(vec_i) for vec_i in vec])
+    return _nodal_reduction(dcoll, sym.NodalMax, dd)(arg=vec)
+
+
+@memoize_on_first_arg
+def _nodal_reduction(dcoll, operator, dd):
+    return bind(dcoll, operator(dd)(sym.var("arg")), local_only=True)
 
 # }}}
 
@@ -899,6 +934,8 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
     :class:`~meshmode.dof_array.DOFArray`, or an object
     array of ``DOFArray``\ s of arbitrary shape.
     """
+    from pytools.obj_array import make_obj_array
+
     if isinstance(ary, np.ndarray):
         oshape = ary.shape
         comm_vec = ary.flatten()
