@@ -70,7 +70,6 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
 from meshmode.dof_array import freeze, flatten, unflatten
 
 from grudge.symbolic.primitives import TracePair
-from grudge import sym, bind
 
 
 # {{{ tags

@@ -168,7 +168,7 @@ def main():
         t += dt
         istep += 1
 
-        assert op.norm(dcoll, fields[0], 2) < 1
+        assert op.norm(dcoll, fields[0], 2) < 10
 
 
 if __name__ == "__main__":
