@@ -175,16 +175,9 @@ def _compute_local_gradient(dcoll, vec, xyz_axis):
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
-    # Convert to 3D tensor
-    # FIXME: Is there a better/more efficient way to do this?
-    inverse_jac_t = actx.from_numpy(
-        np.asarray(
-            [actx.to_numpy(
-                inverse_surface_metric_derivative(
-                    actx, dcoll, rst_axis, xyz_axis
-                )[0]
-            ) for rst_axis in range(dcoll.dim)]
-        )
+    inverse_jac_t = actx.np.stack(
+        [inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis)
+         for rst_axis in range(dcoll.dim)]
     )
     return DOFArray(
         actx,
@@ -192,11 +185,11 @@ def _compute_local_gradient(dcoll, vec, xyz_axis):
             actx.einsum("dij,ej,dej->ei",
                         reference_derivative_matrices(actx, grp),
                         vec_i,
-                        inverse_jac_t,
+                        inv_jac_t_i,
                         arg_names=("ref_diff_mat", "vec", "inv_jac_t"),
                         tagged=(HasElementwiseMatvecTag(),))
 
-            for grp, vec_i in zip(discr.groups, vec)
+            for grp, vec_i, inv_jac_t_i in zip(discr.groups, vec, inverse_jac_t)
         )
     )
 
@@ -323,22 +316,16 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
-    # Convert to 3D tensor
-    # FIXME: Is there a better/more efficient way to do this?
-    inverse_jac_t = actx.from_numpy(
-        np.asarray(
-            [actx.to_numpy(
-                inverse_surface_metric_derivative(
-                    actx, dcoll, rst_axis, xyz_axis, dd=dd_in
-                )[0]
-            ) for rst_axis in range(dcoll.dim)]
-        )
+    inverse_jac_t = actx.np.stack(
+        [inverse_surface_metric_derivative(actx, dcoll,
+                                           rst_axis, xyz_axis, dd=dd_in)
+         for rst_axis in range(dcoll.dim)]
     )
     return DOFArray(
         actx,
         data=tuple(
             actx.einsum("dej,dij,ej,ej->ei",
-                        inverse_jac_t,
+                        inv_jac_t_i,
                         reference_stiffness_transpose_matrix(
                             actx,
                             out_element_group=out_grp,
@@ -349,10 +336,11 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
                         arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", "jac"),
                         tagged=(HasElementwiseMatvecTag(),))
 
-            for out_grp, in_grp, vec_i, ae_i in zip(out_discr.groups,
-                                                    in_discr.groups,
-                                                    vec,
-                                                    area_elements)
+            for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
+                                                                 in_discr.groups,
+                                                                 vec,
+                                                                 area_elements,
+                                                                 inverse_jac_t)
         )
     )
 
