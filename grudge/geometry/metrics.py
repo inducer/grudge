@@ -104,10 +104,12 @@ def forward_metric_derivative_mv(actx, dcoll, rst_axis, dd=None):
     )
 
 
-def forward_metric_derivative_mat(actx, dcoll, dd=None):
+def forward_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
 
     ambient_dim = dcoll.ambient_dim
-    dim = dcoll.dim
+
+    if dim is None:
+        dim = dcoll.dim
 
     result = np.zeros((ambient_dim, dim), dtype=object)
     for j in range(dim):
@@ -116,17 +118,22 @@ def forward_metric_derivative_mat(actx, dcoll, dd=None):
     return result
 
 
-def first_fundamental_form(actx, dcoll, dd):
+def first_fundamental_form(actx, dcoll, dim=None, dd=None):
 
-    mder = forward_metric_derivative_mat(actx, dcoll, dd)
+    if dim is None:
+        dim = dcoll.ambient_dim - 1
+
+    mder = forward_metric_derivative_mat(actx, dcoll, dim=dim, dd=dd)
 
     return mder.T.dot(mder)
 
 
-def inverse_metric_derivative_mat(actx, dcoll, dd=None):
+def inverse_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
 
     ambient_dim = dcoll.ambient_dim
-    dim = dcoll.dim
+
+    if dim is None:
+        dim = dcoll.dim
 
     result = np.zeros((ambient_dim, dim), dtype=object)
     for i in range(dim):
@@ -138,22 +145,24 @@ def inverse_metric_derivative_mat(actx, dcoll, dd=None):
     return result
 
 
-def inverse_first_fundamental_form(actx, dcoll, dd):
+def inverse_first_fundamental_form(actx, dcoll, dim=None, dd=None):
 
-    dim = dcoll.dim
+    if dim is None:
+        dim = dcoll.dim
+
     if dcoll.ambient_dim == dim:
-        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dd)
+        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dim=dim, dd=dd)
         inv_form1 = inv_mder.dot(inv_mder.T)
     else:
-        form1 = first_fundamental_form(actx, dcoll, dd)
+        form1 = first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
 
         if dim == 1:
-            inv_form1 = np.array([[1.0/form1[0, 0]]], dtype=object)
+            inv_form1 = 1.0 / form1
         elif dim == 2:
             (E, F), (_, G) = form1      # noqa: N806
-            inv_form1 = 1.0 / (E * G - F * F) * np.array(
-                [[G, -F],
-                 [-F, E]], dtype=object
+            inv_form1 = 1.0 / (E * G - F * F) * np.stack(
+                [make_obj_array([G, -F]),
+                 make_obj_array([-F, E])]
             )
         else:
             raise ValueError("%dD surfaces not supported" % dim)
@@ -207,7 +216,7 @@ def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
             actx, dcoll, rst_axis, xyz_axis, dd=dd
         )
     else:
-        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
         imd = sum(
             inv_form1[rst_axis, d]*forward_metric_nth_derivative(
                 actx, dcoll, d, rst_axis, dd=dd
@@ -283,7 +292,9 @@ def surface_normal(actx, dcoll, dim=None, dd=None):
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
-    dim = dim or dcoll.discr_from_dd(dd).dim
+
+    if dim is None:
+        dim = dcoll.discr_from_dd(dd).dim
 
     # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
@@ -339,6 +350,73 @@ def mv_normal(actx, dcoll, dd):
 
 def normal(actx, dcoll, dd):
     return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
+
+# }}}
+
+
+# {{{ Curvature computations
+
+def second_fundamental_form(actx, dcoll, dim=None, dd=None):
+
+    if dim is None:
+        dim = dcoll.ambient_dim - 1
+
+    normal = surface_normal(actx, dcoll, dim=dim, dd=dd).as_vector(dtype=object)
+
+    if dim == 1:
+        second_ref_axes = [((0, 2),)]
+    elif dim == 2:
+        second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
+    else:
+        raise ValueError("%dD surfaces not supported" % dim)
+
+    from pytools import flatten
+
+    form2 = np.empty((dim, dim), dtype=object)
+
+    for ref_axes in second_ref_axes:
+        i, j = flatten([rst_axis] * n for rst_axis, n in ref_axes)
+
+        ruv = make_obj_array(
+            [forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=dd)
+             for xyz_axis in range(dcoll.ambient_dim)]
+        )
+        form2[i, j] = form2[j, i] = normal.dot(ruv)
+
+    return form2
+
+
+def shape_operator(actx, dcoll, dim=None, dd=None):
+
+    if dim is None:
+        dim = dcoll.ambient_dim - 1
+
+    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
+    form2 = second_fundamental_form(actx, dcoll, dim=dim, dd=dd)
+
+    return -form2.dot(inv_form1)
+
+
+def summed_curvature(actx, dcoll, dim=None, dd=None):
+    """Sum of the principal curvatures"""
+
+    if dim is None:
+        dim = dcoll.ambient_dim - 1
+
+    if dcoll.ambient_dim == 1:
+        return 0.0
+
+    if dcoll.ambient_dim == dim:
+        return 0.0
+
+    return np.trace(shape_operator(actx, dcoll, dim=dim, dd=dd))
+
+
+def mean_curvature(actx, dcoll, dim=None, dd=None):
+    """Averaged (by dimension) sum of the principal curvatures."""
+
+    return (1.0 / (dcoll.ambient_dim - 1)
+            * summed_curvature(actx, dcoll, dim=dim, dd=dd))
 
 # }}}
 

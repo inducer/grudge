@@ -30,7 +30,8 @@ from grudge.geometry.metrics import (
     pseudoscalar,
     area_element,
     surface_normal,
-    normal
+    normal,
+    summed_curvature
 )
 
 __all__ = (
@@ -40,5 +41,6 @@ __all__ = (
     "pseudoscalar",
     "area_element",
     "surface_normal",
-    "normal"
+    "normal",
+    "summed_curvature"
 )
