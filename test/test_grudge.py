@@ -553,6 +553,13 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
                 3.0 * sym.cos(x[0] / 2) + sym.cos(x[1]),
                 )[:ambient_dim]
 
+    def fn(x):
+        return flat_obj_array(
+            actx.np.sin(3*x[1]) + actx.np.cos(3*x[0]) + 1.0,
+            actx.np.sin(2*x[0]) + actx.np.cos(x[1]),
+            3.0 * actx.np.cos(x[0] / 2) + actx.np.cos(x[1]),
+        )[:ambient_dim]
+
     from pytools.convergence import EOCRecorder
     eoc_global = EOCRecorder()
     eoc_local = EOCRecorder()
@@ -582,39 +589,62 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         from meshmode.discretization.poly_element import \
                 QuadratureSimplexGroupFactory
-        discr = DiscretizationCollection(
+
+        qtag = dof_desc.DISCR_TAG_QUAD
+        dcoll = DiscretizationCollection(
             actx, mesh, order=builder.order,
             discr_tag_to_group_factory={
-                    "product": QuadratureSimplexGroupFactory(2 * builder.order)
+                qtag: QuadratureSimplexGroupFactory(2 * builder.order)
             }
         )
 
-        volume = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
         logger.info("ndofs:     %d", volume.ndofs)
         logger.info("nelements: %d", volume.mesh.nelements)
 
         dd = dof_desc.DD_VOLUME
-        dq = dd.with_discr_tag("product")
+        dq = dd.with_discr_tag(qtag)
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
-        ambient_dim = discr.ambient_dim
-        dim = discr.dim
+        ambient_dim = dcoll.ambient_dim
+        dim = dcoll.dim
 
         # variables
         sym_f = f(sym.nodes(ambient_dim, dd=dd))
         sym_f_quad = f(sym.nodes(ambient_dim, dd=dq))
+
+        f_num = fn(thaw(actx, op.nodes(dcoll, dd=dd)))
+        f_quad_num = fn(thaw(actx, op.nodes(dcoll, dd=dq)))
+
         sym_kappa = sym.summed_curvature(ambient_dim, dim=dim, dd=dq)
         sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
 
+        from grudge.geometry import surface_normal, summed_curvature
+
+        kappa = summed_curvature(actx, dcoll, dim=dim, dd=dq)
+        normal = surface_normal(actx, dcoll,
+                                dim=dim, dd=dq).as_vector(dtype=object)
+
         sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
         sym_face_f = sym.project(dd, df)(sym_f)
+
+        face_normal = thaw(actx, op.normal(dcoll, df))
+        face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
         sym_stiff = sum(
                 sym.StiffnessOperator(d)(f) for d, f in enumerate(sym_f)
                 )
+
+        stiff = op.mass(dcoll, sum(op.local_d_dx(dcoll, i, f_num_i)
+                                   for i, f_num_i in enumerate(f_num)))
+
         sym_stiff_t = sum(
                 sym.StiffnessTOperator(d)(f) for d, f in enumerate(sym_f)
                 )
+
+        stiff_t = sum(op.weak_local_d_dx(dcoll, i, f_num_i)
+                      for i, f_num_i in enumerate(f_num))
+
         sym_k = sym.MassOperator(dq, dd)(sym_kappa * sym_f_quad.dot(sym_normal))
         sym_flux = sym.FaceMassOperator()(sym_face_f.dot(sym_face_normal))
 
