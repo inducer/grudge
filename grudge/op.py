@@ -1,6 +1,8 @@
 """
 .. autofunction:: project
+
 .. autofunction:: nodes
+.. autofunction:: normal
 
 .. autofunction:: local_grad
 .. autofunction:: local_d_dx
@@ -10,7 +12,6 @@
 .. autofunction:: weak_local_d_dx
 .. autofunction:: weak_local_div
 
-.. autofunction:: normal
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
@@ -89,7 +90,7 @@ class MassOperatorTag(HasElementwiseMatvecTag):
 def interp(dcoll, src, tgt, vec):
     from warnings import warn
     warn("using 'interp' is deprecated, use 'project' instead.",
-            DeprecationWarning, stacklevel=2)
+         DeprecationWarning, stacklevel=2)
 
     return project(dcoll, src, tgt, vec)
 
@@ -99,6 +100,7 @@ def project(dcoll, src, tgt, vec):
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
     :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
@@ -125,6 +127,7 @@ def project(dcoll, src, tgt, vec):
 def nodes(dcoll, dd=None):
     r"""Return the nodes of a discretization.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
@@ -139,6 +142,7 @@ def nodes(dcoll, dd=None):
 def normal(dcoll, dd):
     """Get the unit normal to the specified surface discretization, *dd*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
     """
@@ -198,6 +202,7 @@ def local_grad(dcoll, vec):
     r"""Return the element-local gradient of the volume function represented by
     *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
     """
@@ -212,6 +217,7 @@ def local_d_dx(dcoll, xyz_axis, vec):
     r"""Return the element-local derivative along axis *xyz_axis* of the volume
     function represented by *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
@@ -245,6 +251,7 @@ def local_div(dcoll, vecs):
     r"""Return the element-local divergence of the vector volume function
     represented by *vecs*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: an object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
@@ -351,6 +358,7 @@ def weak_local_grad(dcoll, *args):
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
@@ -380,6 +388,7 @@ def weak_local_d_dx(dcoll, *args):
 
     May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
@@ -404,6 +413,7 @@ def weak_local_div(dcoll, *args):
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a object array of
@@ -764,63 +774,88 @@ def face_mass(dcoll, *args):
 # }}}
 
 
-# {{{ Nodal reductions TODO: Convert these over
+# {{{ Nodal reductions
 
 def norm(dcoll, vec, p, dd=None):
-    # Raise a warning if `dd` is not None?
-    # actx = vec.array_context
-    # return actx.np.linalg.norm(vec, ord=p)
+    r"""Return the p-norm (integral norm) of a function represented
+    by its vector of degrees of freedom *vec*.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg vec: a object array of
+        a :class:`~meshmode.dof_array.DOFArray`\ s,
+        where the last axis of the array must have length
+        matching the volume dimension.
+    :arg p: an integer denoting the order of the integral norm. For example,
+        `p` can be 1, 2, or `numpy.inf`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: an integer denoting the norm.
+    """
     if dd is None:
         dd = "vol"
 
+    actx = vec.array_context
     dd = dof_desc.as_dofdesc(dd)
+    vec = project(dcoll, "vol", dd, vec)
 
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(norm(dcoll, vec[idx], p, dd=dd)**2
-                       for idx in np.ndindex(vec.shape))**0.5
-        elif p == np.inf:
-            return max(norm(dcoll, vec[idx], np.inf, dd=dd)
-                       for idx in np.ndindex(vec.shape))
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, p, dd)(arg=vec)
-    # actx = vec.array_context
-    # return actx.np.linalg.norm(vec, ord=p)
-
-
-@memoize_on_first_arg
-def _norm(dcoll, p, dd):
-    return bind(dcoll,
-            sym.norm(p, sym.var("arg", dd=dd), dd=dd),
-            local_only=True)
+    return actx.np.linalg.norm(vec, ord=p)
 
 
 def nodal_sum(dcoll, dd, vec):
-    # Raise a warning if `dd` is not None?
-    # actx = vec.array_context
-    # return np.sum([actx.np.sum(vec_i) for vec_i in vec])
-    return _nodal_reduction(dcoll, sym.NodalSum, dd)(arg=vec)
+    r"""Return the nodal sum of a vector of degrees of freedom *vec*.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a object array of
+        a :class:`~meshmode.dof_array.DOFArray`\ s,
+        where the last axis of the array must have length
+        matching the volume dimension.
+    :returns: an integer denoting the nodal sum.
+    """
+    actx = vec.array_context
+    dd = dof_desc.as_dofdesc(dd)
+    vec = project(dcoll, "vol", dd, vec)
+
+    return np.sum([actx.np.sum(vec_i) for vec_i in vec])
 
 
 def nodal_min(dcoll, dd, vec):
-    # Raise a warning if `dd` is not None?
-    # actx = vec.array_context
-    # return np.min([actx.np.min(vec_i) for vec_i in vec])
-    return _nodal_reduction(dcoll, sym.NodalMin, dd)(arg=vec)
+    r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a object array of
+        a :class:`~meshmode.dof_array.DOFArray`\ s,
+        where the last axis of the array must have length
+        matching the volume dimension.
+    :returns: an integer denoting the nodal minimum.
+    """
+    actx = vec.array_context
+    dd = dof_desc.as_dofdesc(dd)
+    vec = project(dcoll, "vol", dd, vec)
+
+    return np.min([actx.np.min(vec_i) for vec_i in vec])
 
 
 def nodal_max(dcoll, dd, vec):
-    # Raise a warning if `dd` is not None?
-    # actx = vec.array_context
-    # return np.max([actx.np.max(vec_i) for vec_i in vec])
-    return _nodal_reduction(dcoll, sym.NodalMax, dd)(arg=vec)
+    r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a object array of
+        a :class:`~meshmode.dof_array.DOFArray`\ s,
+        where the last axis of the array must have length
+        matching the volume dimension.
+    :returns: an integer denoting the nodal maximum.
+    """
+    actx = vec.array_context
+    dd = dof_desc.as_dofdesc(dd)
+    vec = project(dcoll, "vol", dd, vec)
 
-@memoize_on_first_arg
-def _nodal_reduction(dcoll, operator, dd):
-    return bind(dcoll, operator(dd)(sym.var("arg")), local_only=True)
+    return np.max([actx.np.max(vec_i) for vec_i in vec])
 
 # }}}
 
