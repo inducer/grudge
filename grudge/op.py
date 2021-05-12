@@ -508,7 +508,7 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
 def mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -862,6 +862,26 @@ def nodal_max(dcoll, dd, vec):
     vec = project(dcoll, "vol", dd, vec)
 
     return np.max([actx.np.max(vec_i) for vec_i in vec])
+
+
+def integral(dcoll, vec, dd=None):
+
+    if dd is None:
+        dd = dof_desc.DD_VOLUME
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd(dd)
+    ones = discr.zeros(actx) + 1
+
+    # TODO: Use actx.np.dot once it's added to the array context
+    flattened_mass_weights = actx.to_numpy(
+        flatten(_apply_mass_operator(dcoll, dd, dd, ones))
+    )
+    flattened_vec = actx.to_numpy(flatten(vec))
+
+    return np.dot(flattened_vec, flattened_mass_weights)
 
 # }}}
 
