@@ -322,10 +322,14 @@ def mv_normal(actx, dcoll, dd):
     from grudge.op import project
     import grudge.dof_desc as dof_desc
 
-    volm_normal = project(dcoll, dof_desc.DD_VOLUME, dd,
-                          surface_normal(actx, dcoll,
-                                         dim=dim + 1,
-                                         dd=dof_desc.DD_VOLUME))
+    volm_normal = MultiVector(
+        project(dcoll, dof_desc.DD_VOLUME, dd,
+                surface_normal(
+                    actx, dcoll,
+                    dim=dim + 1,
+                    dd=dof_desc.DD_VOLUME
+                ).as_vector(dtype=object))
+    )
     pder = pseudoscalar(actx, dcoll, dd=dd)
 
     mv = -(volm_normal ^ pder) << volm_normal.I.inv()
