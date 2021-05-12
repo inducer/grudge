@@ -185,11 +185,11 @@ def _compute_local_gradient(dcoll, vec, xyz_axis):
     return DOFArray(
         actx,
         data=tuple(
-            actx.einsum("dij,ej,dej->ei",
+            actx.einsum("dej,dij,ej->ei",
+                        inv_jac_t_i,
                         reference_derivative_matrices(actx, grp),
                         vec_i,
-                        inv_jac_t_i,
-                        arg_names=("ref_diff_mat", "vec", "inv_jac_t"),
+                        arg_names=("inv_jac_t", "ref_diff_mat", "vec"),
                         tagged=(HasElementwiseMatvecTag(),))
 
             for grp, vec_i, inv_jac_t_i in zip(discr.groups, vec, inverse_jac_t)
@@ -337,9 +337,9 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
                             out_element_group=out_grp,
                             in_element_group=in_grp
                         ),
-                        vec_i,
                         ae_i,
-                        arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", "jac"),
+                        vec_i,
+                        arg_names=("inv_jac_t", "ref_stiffT_mat", "jac", "vec"),
                         tagged=(HasElementwiseMatvecTag(),))
 
             for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
@@ -488,15 +488,15 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
     return DOFArray(
         actx,
         tuple(
-            actx.einsum("ij,ej,ej->ei",
+            actx.einsum("ej,ij,ej->ei",
+                        ae_i,
                         reference_mass_matrix(
                             actx,
                             out_element_group=out_grp,
                             in_element_group=in_grp
                         ),
-                        ae_i,
                         vec_i,
-                        arg_names=("mass_mat", "jac_det", "vec"),
+                        arg_names=("jac", "mass_mat", "vec"),
                         tagged=(MassOperatorTag(),))
 
             for in_grp, out_grp, ae_i, vec_i in zip(
@@ -583,14 +583,14 @@ def _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec):
         return DOFArray(
             actx,
             tuple(
-                actx.einsum("ij,ej,ej->ei",
+                actx.einsum("ej,ij,ej->ei",
+                            iae_i,
                             reference_inverse_mass_matrix(
                                 actx,
                                 element_group=grp
                             ),
-                            iae_i,
                             vec_i,
-                            arg_names=("mass_inv_mat", "jac_det_inv", "vec"),
+                            arg_names=("jac_det_inv", "mass_inv_mat", "vec"),
                             tagged=(MassOperatorTag(),))
 
                 for grp, iae_i, vec_i in zip(discr.groups,
