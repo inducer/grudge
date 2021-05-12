@@ -485,25 +485,24 @@ def test_2d_gauss_theorem(actx_factory):
 
     actx = actx_factory()
 
-    discr = DiscretizationCollection(actx, mesh, order=2)
+    dcoll = DiscretizationCollection(actx, mesh, order=2)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    x_volm = thaw(actx, volm_disc.nodes())
 
     def f(x):
         return flat_obj_array(
-                sym.sin(3*x[0])+sym.cos(3*x[1]),
-                sym.sin(2*x[0])+sym.cos(x[1]))
+            actx.np.sin(3*x[0]) + actx.np.cos(3*x[1]),
+            actx.np.sin(2*x[0]) + actx.np.cos(x[1])
+        )
 
-    gauss_err = bind(discr,
-            sym.integral((
-                sym.nabla(2) * f(sym.nodes(2))
-                ).sum())
-            -  # noqa: W504
-            sym.integral(
-                sym.project("vol", BTAG_ALL)(f(sym.nodes(2)))
-                .dot(sym.normal(BTAG_ALL, 2)),
-                dd=BTAG_ALL)
-            )(actx)
+    f_volm = f(x_volm)
+    int_1 = op.integral(dcoll, op.local_div(dcoll, f_volm))
 
-    assert abs(gauss_err) < 1e-13
+    prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
+    normal = thaw(actx, op.normal(dcoll, BTAG_ALL))
+    int_2 = op.integral(dcoll, prj_f.dot(normal), dd=BTAG_ALL)
+
+    assert abs(int_1 - int_2) < 1e-13
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
