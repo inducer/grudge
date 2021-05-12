@@ -353,16 +353,17 @@ def test_face_normal_surface(actx_factory, mesh_name):
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
     mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
-    discr = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
 
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:    %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
     # }}}
 
-    # {{{ symbolic
+    # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+    from grudge.geometry import surface_normal
 
     dv = dof_desc.DD_VOLUME
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
@@ -370,33 +371,32 @@ def test_face_normal_surface(actx_factory, mesh_name):
     ambient_dim = mesh.ambient_dim
     dim = mesh.dim
 
-    sym_surf_normal = sym.project(dv, df)(
-            sym.surface_normal(ambient_dim, dim=dim, dd=dv).as_vector()
-            )
-    sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
+    surf_normal = op.project(
+        dcoll, dv, df,
+        surface_normal(actx, dcoll,
+                       dim=dim, dd=dv).as_vector(dtype=object)
+    )
+    surf_normal = surf_normal / op.norm(dcoll, surf_normal, 2)
 
-    sym_face_normal_i = sym.normal(df, ambient_dim, dim=dim - 1)
-    sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
+    face_normal_i = thaw(actx, op.normal(dcoll, df))
+    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
 
     if mesh.ambient_dim == 3:
+        from grudge.geometry import pseudoscalar, area_element
         # NOTE: there's only one face tangent in 3d
-        sym_face_tangent = (
-                sym.pseudoscalar(ambient_dim, dim - 1, dd=df)
-                / sym.area_element(ambient_dim, dim - 1, dd=df)).as_vector()
+        face_tangent = (
+            pseudoscalar(actx, dcoll, dim=dim-1, dd=df)
+            / area_element(actx, dcoll, dim=dim-1, dd=df)
+        ).as_vector(dtype=object)
 
     # }}}
 
     # {{{ checks
 
     def _eval_error(x):
-        return bind(discr, sym.norm(np.inf, sym.var("x", dd=df), dd=df))(actx, x=x)
+        return op.norm(dcoll, x, np.inf)
 
     rtol = 1.0e-14
-
-    surf_normal = bind(discr, sym_surf_normal)(actx)
-
-    face_normal_i = bind(discr, sym_face_normal_i)(actx)
-    face_normal_e = bind(discr, sym_face_normal_e)(actx)
 
     # check interpolated surface normal is orthogonal to face normal
     error = _eval_error(surf_normal.dot(face_normal_i))
@@ -410,8 +410,6 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     # check orthogonality with face tangent
     if ambient_dim == 3:
-        face_tangent = bind(discr, sym_face_tangent)(actx)
-
         error = _eval_error(face_tangent.dot(face_normal_i))
         logger.info("error[t_dot_i]:  %.5e", error)
         assert error < 5 * rtol
