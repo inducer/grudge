@@ -797,6 +797,9 @@ def norm(dcoll, vec, p, dd=None):
     if dd is None:
         dd = "vol"
 
+    if isinstance(vec, np.ndarray):
+        return sum(norm(dcoll, vec_i, p, dd=dd) for vec_i in vec)
+
     actx = vec.array_context
     dd = dof_desc.as_dofdesc(dd)
     vec = project(dcoll, "vol", dd, vec)
