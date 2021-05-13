@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["weak"])
+@pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
@@ -111,19 +111,20 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         dd_allfaces = DOFDesc("all_faces")
 
         if form == "strong":
-            # FIXME: this doesn't work
             u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
-            grad_u = op.inverse_mass(dcoll,
+            grad_u = (
                 op.local_grad(dcoll, u, nested=nested)
                 -  # noqa: W504
-                op.face_mass(dcoll,
-                    dd_allfaces,
-                    # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(sym.TracePair(dd_intfaces,
-                        interior=u_intfaces,
-                        exterior=u_intfaces))
-                    -  # noqa: W504
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                op.inverse_mass(dcoll,
+                    op.face_mass(dcoll,
+                        dd_allfaces,
+                        # Note: no boundary flux terms here because
+                        # u_ext == u_int == 0
+                        get_flux(sym.TracePair(dd_intfaces,
+                            interior=u_intfaces,
+                            exterior=u_intfaces))
+                        -  # noqa: W504
+                        get_flux(op.interior_trace_pair(dcoll, u))))
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
@@ -170,7 +171,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
 # {{{ divergence
 
-@pytest.mark.parametrize("form", ["weak"])
+@pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
@@ -237,19 +238,20 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         dd_allfaces = DOFDesc("all_faces")
 
         if form == "strong":
-            # FIXME: this doesn't work
             u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
-            div_u = op.inverse_mass(dcoll,
+            div_u = (
                 op.local_div(dcoll, u)
                 -  # noqa: W504
-                op.face_mass(dcoll,
-                    dd_allfaces,
-                    # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(sym.TracePair(dd_intfaces,
-                        interior=u_intfaces,
-                        exterior=u_intfaces))
-                    -  # noqa: W504
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                op.inverse_mass(dcoll,
+                    op.face_mass(dcoll,
+                        dd_allfaces,
+                        # Note: no boundary flux terms here because
+                        # u_ext == u_int == 0
+                        get_flux(sym.TracePair(dd_intfaces,
+                            interior=u_intfaces,
+                            exterior=u_intfaces))
+                        -  # noqa: W504
+                        get_flux(op.interior_trace_pair(dcoll, u))))
                 )
         elif form == "weak":
             div_u = op.inverse_mass(dcoll,
