@@ -135,6 +135,8 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
                     get_flux(op.interior_trace_pair(dcoll, u)))
                 )
+        else:
+            raise ValueError("Invalid form argument.")
 
         if vectorize:
             expected_grad_u = make_obj_array(
@@ -262,6 +264,8 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
                     get_flux(op.interior_trace_pair(dcoll, u)))
                 )
+        else:
+            raise ValueError("Invalid form argument.")
 
         if vectorize:
             expected_div_u = make_obj_array([(i+1)*div_f(x) for i in range(dim)])
