@@ -20,6 +20,9 @@
 .. autofunction:: nodal_sum
 .. autofunction:: nodal_min
 .. autofunction:: nodal_max
+.. autofunction:: integral
+
+.. autofunction:: elementwise_sum
 
 .. autofunction:: interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
@@ -762,7 +765,7 @@ def _apply_face_mass_operator(dcoll, dd, vec):
 def face_mass(dcoll, *args):
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("all_faces", dof_desc.QTAG_NONE)
+        dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -865,6 +868,15 @@ def nodal_max(dcoll, dd, vec):
 
 
 def integral(dcoll, vec, dd=None):
+    """Numerically integrates a function represented by a
+    :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: an integer denoting the evaluated integral.
+    """
 
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -882,6 +894,58 @@ def integral(dcoll, vec, dd=None):
     flattened_vec = actx.to_numpy(flatten(vec))
 
     return np.dot(flattened_vec, flattened_mass_weights)
+
+# }}}
+
+
+# {{{  Elementwise reductions
+
+def elementwise_sum(dcoll, *args):
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the sum of DOFs on that element.
+
+    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+    """
+
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    if isinstance(vec, np.ndarray):
+        return sum(elementwise_sum(dcoll, dd, vec_i) for vec_i in vec)
+
+    actx = vec.array_context
+    vec = project(dcoll, "vol", dd, vec)
+
+    @memoize_in(actx, (elementwise_sum, "elementwise_sum_prg"))
+    def prg():
+        return make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
+            ],
+            """
+                result[iel, idof] = sum(jdof, operand[iel, jdof])
+            """,
+            name="grudge_elementwise_sum_knl"
+        )
+
+    return DOFArray(
+        actx,
+        tuple(actx.call_loopy(prg(), operand=vec_i)["result"] for vec_i in vec)
+    )
 
 # }}}
 
