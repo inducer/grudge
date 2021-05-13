@@ -249,11 +249,8 @@ def test_mass_surface_area(actx_factory, name):
 
         # }}}
 
-        # {{{ compute h_max using mass weights
-
-        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
-
-        # }}}
+        # compute max element size
+        h_max = op.h_max_from_volume(dcoll)
 
         eoc.add_data_point(h_max, area_error)
 
@@ -315,13 +312,8 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
         # }}}
 
-        # {{{ compute h_max from mass weights
-
-        ones_volm = volume_discr.zeros(actx) + 1
-        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
-        h_max = actx.np.max(flattened_mass_weights) ** (1/dcoll.dim)
-
-        # }}}
+        # compute max element size
+        h_max = op.h_max_from_volume(dcoll)
 
         eoc.add_data_point(h_max, inv_error)
 
@@ -630,9 +622,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
-        ones_volm = volume.zeros(actx) + 1
-        sum_mass_weights = op.elementwise_sum(dcoll, op.mass(dcoll, dd, ones_volm))
-        h_max = op.nodal_max(dcoll, dd, sum_mass_weights) ** (1/dcoll.dim)
+        h_max = op.h_max_from_volume(dcoll)
 
         eoc_global.add_data_point(h_max, err_global)
         eoc_local.add_data_point(h_max, err_local)
