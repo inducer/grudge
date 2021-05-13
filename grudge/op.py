@@ -819,7 +819,7 @@ def norm(dcoll, vec, p, dd=None):
         where the last axis of the array must have length
         matching the volume dimension.
     :arg p: an integer denoting the order of the integral norm. For example,
-        `p` can be 1, 2, or `numpy.inf`.
+        `p` can be 2, or `numpy.inf`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: an integer denoting the norm.
