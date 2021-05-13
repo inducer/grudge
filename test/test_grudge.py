@@ -548,13 +548,6 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
     def f(x):
         return flat_obj_array(
-                sym.sin(3*x[1]) + sym.cos(3*x[0]) + 1.0,
-                sym.sin(2*x[0]) + sym.cos(x[1]),
-                3.0 * sym.cos(x[0] / 2) + sym.cos(x[1]),
-                )[:ambient_dim]
-
-    def fn(x):
-        return flat_obj_array(
             actx.np.sin(3*x[1]) + actx.np.cos(3*x[0]) + 1.0,
             actx.np.sin(2*x[0]) + actx.np.cos(x[1]),
             3.0 * actx.np.cos(x[0] / 2) + actx.np.cos(x[1]),
@@ -609,68 +602,44 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         dim = dcoll.dim
 
         # variables
-        sym_f = f(sym.nodes(ambient_dim, dd=dd))
-        sym_f_quad = f(sym.nodes(ambient_dim, dd=dq))
-
-        f_num = fn(thaw(actx, op.nodes(dcoll, dd=dd)))
-        f_quad_num = fn(thaw(actx, op.nodes(dcoll, dd=dq)))
-
-        sym_kappa = sym.summed_curvature(ambient_dim, dim=dim, dd=dq)
-        sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
+        f_num = f(thaw(actx, op.nodes(dcoll, dd=dd)))
+        f_quad_num = f(thaw(actx, op.nodes(dcoll, dd=dq)))
 
         from grudge.geometry import surface_normal, summed_curvature
 
         kappa = summed_curvature(actx, dcoll, dim=dim, dd=dq)
         normal = surface_normal(actx, dcoll,
                                 dim=dim, dd=dq).as_vector(dtype=object)
-
-        sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
-        sym_face_f = sym.project(dd, df)(sym_f)
-
         face_normal = thaw(actx, op.normal(dcoll, df))
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
-        sym_stiff = sum(
-                sym.StiffnessOperator(d)(f) for d, f in enumerate(sym_f)
-                )
-
         stiff = op.mass(dcoll, sum(op.local_d_dx(dcoll, i, f_num_i)
                                    for i, f_num_i in enumerate(f_num)))
-
-        sym_stiff_t = sum(
-                sym.StiffnessTOperator(d)(f) for d, f in enumerate(sym_f)
-                )
-
         stiff_t = sum(op.weak_local_d_dx(dcoll, i, f_num_i)
                       for i, f_num_i in enumerate(f_num))
-
-        sym_k = sym.MassOperator(dq, dd)(sym_kappa * sym_f_quad.dot(sym_normal))
-        sym_flux = sym.FaceMassOperator()(sym_face_f.dot(sym_face_normal))
+        kterm = op.mass(dcoll, dq, kappa * f_quad_num.dot(normal))
+        flux = op.face_mass(dcoll, face_f.dot(face_normal))
 
         # sum everything up
-        sym_op_global = sym.NodalSum(dd)(
-                sym_stiff - (sym_stiff_t + sym_k))
-        sym_op_local = sym.ElementwiseSumOperator(dd)(
-                sym_stiff - (sym_stiff_t + sym_k + sym_flux))
-
-        # evaluate
-        op_global = bind(discr, sym_op_global)(actx)
-        op_local = bind(discr, sym_op_local)(actx)
+        op_global = op.nodal_sum(dcoll, dd, stiff - (stiff_t + kterm))
+        op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)
-        err_local = bind(discr, sym.norm(np.inf, sym.var("x")))(actx, x=op_local)
+        err_local = bind(dcoll, sym.norm(np.inf, sym.var("x")))(actx, x=op_local)
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        ones_volm = volume.zeros(actx) + 1
+        sum_mass_weights = op.elementwise_sum(dcoll, op.mass(dcoll, dd, ones_volm))
+        h_max = op.nodal_max(dcoll, dd, sum_mass_weights) ** (1/dcoll.dim)
+
         eoc_global.add_data_point(h_max, err_global)
         eoc_local.add_data_point(h_max, err_local)
 
         if visualize:
             from grudge.shortcuts import make_visualizer
-            vis = make_visualizer(discr, vis_order=builder.order)
+            vis = make_visualizer(dcoll, vis_order=builder.order)
 
             filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
             vis.write_vtk_file(filename, [
