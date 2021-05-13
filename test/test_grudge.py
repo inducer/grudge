@@ -369,7 +369,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
         surface_normal(actx, dcoll,
                        dim=dim, dd=dv).as_vector(dtype=object)
     )
-    surf_normal = surf_normal / op.norm(dcoll, surf_normal, 2)
+    surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
     face_normal_i = thaw(actx, op.normal(dcoll, df))
     face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
