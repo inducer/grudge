@@ -303,12 +303,11 @@ def test_surface_mass_operator_inverse(actx_factory, name):
         dd = dof_desc.DD_VOLUME
         x_volm = thaw(actx, volume_discr.nodes())
         f_volm = f(x_volm)
-
-        res = op.inverse_mass(
+        f_inv = op.inverse_mass(
             dcoll, op.mass(dcoll, dd, f_volm)
         )
 
-        inv_error = actx.np.linalg.norm(res - f_volm, ord=2)
+        inv_error = op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2)
 
         # }}}
 
@@ -321,7 +320,9 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
     logger.info("inverse mass error\n%s", str(eoc))
 
-    assert eoc.max_error() < 5e-13
+    # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
+    # safe side, choose a slightly larger tolerance
+    assert eoc.max_error() < 1.0e-14
 
 # }}}
 
@@ -386,7 +387,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ checks
 
     def _eval_error(x):
-        return op.norm(dcoll, x, np.inf)
+        return op.norm(dcoll, x, np.inf, dd=df)
 
     rtol = 1.0e-14
 
@@ -618,7 +619,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)
-        err_local = bind(dcoll, sym.norm(np.inf, sym.var("x")))(actx, x=op_local)
+        err_local = op.norm(dcoll, op_local, np.inf)
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
