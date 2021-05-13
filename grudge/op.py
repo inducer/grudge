@@ -185,7 +185,7 @@ def _compute_local_gradient(dcoll, vec, xyz_axis):
     return DOFArray(
         actx,
         data=tuple(
-            actx.einsum("dej,dij,ej->ei",
+            actx.einsum("dei,dij,ej->ei",
                         inv_jac_t_i,
                         reference_derivative_matrices(actx, grp),
                         vec_i,
@@ -330,8 +330,7 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
     return DOFArray(
         actx,
         data=tuple(
-            actx.einsum("dej,dij,ej,ej->ei",
-                        inv_jac_t_i,
+            actx.einsum("dij,ej,ej,dej->ei",
                         reference_stiffness_transpose_matrix(
                             actx,
                             out_element_group=out_grp,
@@ -339,7 +338,8 @@ def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
                         ),
                         ae_i,
                         vec_i,
-                        arg_names=("inv_jac_t", "ref_stiffT_mat", "jac", "vec"),
+                        inv_jac_t_i,
+                        arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
                         tagged=(HasElementwiseMatvecTag(),))
 
             for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
