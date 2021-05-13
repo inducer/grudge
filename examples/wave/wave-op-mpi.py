@@ -182,8 +182,11 @@ def main():
 
         if istep % 10 == 0:
             if comm.rank == 0:
-                print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
-                      f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
+                print(f"step: {istep} t: {t} "
+                      f"L2: {op.norm(dcoll, fields[0], 2)} "
+                      f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
+                      f"sol max: {op.nodal_maximum(fields[0])} "
+                      f"sol min: {op.nodal_minimum(fields[0])}")
             vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
@@ -195,7 +198,7 @@ def main():
         t += dt
         istep += 1
 
-        assert op.norm(dcoll, fields[0], 2) < 10
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":

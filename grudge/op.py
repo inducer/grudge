@@ -18,9 +18,9 @@
 .. autofunction:: face_mass
 
 .. autofunction:: norm
-.. autofunction:: nodal_sum
-.. autofunction:: nodal_min
-.. autofunction:: nodal_max
+.. autofunction:: nodal_summation
+.. autofunction:: nodal_minimum
+.. autofunction:: nodal_maximum
 .. autofunction:: integral
 
 .. autofunction:: elementwise_sum
@@ -90,12 +90,12 @@ class MassOperatorTag(HasElementwiseMatvecTag):
 
 # {{{ Interpolation and projection
 
-def interp(dcoll, src, tgt, vec):
-    from warnings import warn
-    warn("using 'interp' is deprecated, use 'project' instead.",
-         DeprecationWarning, stacklevel=2)
-
-    return project(dcoll, src, tgt, vec)
+# def interp(dcoll, src, tgt, vec):
+#     from warnings import warn
+#     warn("using 'interp' is deprecated, use 'project' instead.",
+#          DeprecationWarning, stacklevel=2)
+#
+#     return project(dcoll, src, tgt, vec)
 
 
 def project(dcoll, src, tgt, vec):
@@ -810,7 +810,7 @@ def face_mass(dcoll, *args):
 # {{{ Nodal reductions
 
 def norm(dcoll, vec, p, dd=None):
-    r"""Return the p-norm (integral norm) of a function represented
+    r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
@@ -825,73 +825,80 @@ def norm(dcoll, vec, p, dd=None):
     :returns: an integer denoting the norm.
     """
     if dd is None:
-        dd = "vol"
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if isinstance(vec, np.ndarray):
-        return sum(norm(dcoll, vec_i, p, dd=dd) for vec_i in vec)
+        if p == np.inf:
+            return np.max([norm(dcoll, vec_i, p, dd=dd) for vec_i in vec])
+        else:
+            return np.sum([norm(dcoll, vec_i, p, dd=dd) for vec_i in vec])
 
-    actx = vec.array_context
-    dd = dof_desc.as_dofdesc(dd)
-    vec = project(dcoll, "vol", dd, vec)
-
-    return actx.np.linalg.norm(vec, ord=p)
+    if p == 2:
+        return np.sqrt(
+            nodal_summation(vec * _apply_mass_operator(dcoll, dd, dd, vec))
+        )
+    elif p == np.inf:
+        return nodal_maximum(vec.array_context.np.fabs(vec))
+    else:
+        raise NotImplementedError("Unsupported value of p")
 
 
 def nodal_sum(dcoll, dd, vec):
+    from warnings import warn
+    warn("Using 'nodal_sum' is deprecated, use 'nodal_summation' instead.",
+         DeprecationWarning, stacklevel=2)
+    return nodal_summation(vec)
+
+
+def nodal_summation(vec):
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
-    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
     :arg vec: a object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: an integer denoting the nodal sum.
     """
-    actx = vec.array_context
-    dd = dof_desc.as_dofdesc(dd)
-    vec = project(dcoll, "vol", dd, vec)
-
-    return np.sum([actx.np.sum(vec_i) for vec_i in vec])
+    return np.sum([vec.array_context.np.sum(vec_i) for vec_i in vec])
 
 
 def nodal_min(dcoll, dd, vec):
+    from warnings import warn
+    warn("Using 'nodal_min' is deprecated, use 'nodal_minimum' instead.",
+         DeprecationWarning, stacklevel=2)
+    return nodal_minimum(vec)
+
+
+def nodal_minimum(vec):
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
-    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
     :arg vec: a object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: an integer denoting the nodal minimum.
     """
-    actx = vec.array_context
-    dd = dof_desc.as_dofdesc(dd)
-    vec = project(dcoll, "vol", dd, vec)
-
-    return np.min([actx.np.min(vec_i) for vec_i in vec])
+    return np.min([vec.array_context.np.min(vec_i) for vec_i in vec])
 
 
 def nodal_max(dcoll, dd, vec):
+    from warnings import warn
+    warn("Using 'nodal_max' is deprecated, use 'nodal_maximum' instead.",
+         DeprecationWarning, stacklevel=2)
+    return nodal_maximum(vec)
+
+
+def nodal_maximum(vec):
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
-    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
     :arg vec: a object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: an integer denoting the nodal maximum.
     """
-    actx = vec.array_context
-    dd = dof_desc.as_dofdesc(dd)
-    vec = project(dcoll, "vol", dd, vec)
-
-    return np.max([actx.np.max(vec_i) for vec_i in vec])
+    return np.max([vec.array_context.np.max(vec_i) for vec_i in vec])
 
 
 def integral(dcoll, vec, dd=None):
@@ -910,17 +917,10 @@ def integral(dcoll, vec, dd=None):
 
     dd = dof_desc.as_dofdesc(dd)
 
-    actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd)
-    ones = discr.zeros(actx) + 1
-
-    # TODO: Use actx.np.dot once it's added to the array context
-    flattened_mass_weights = actx.to_numpy(
-        flatten(_apply_mass_operator(dcoll, dd, dd, ones))
+    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
+    return nodal_summation(
+        vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
-    flattened_vec = actx.to_numpy(flatten(vec))
-
-    return np.dot(flattened_vec, flattened_mass_weights)
 
 # }}}
 
