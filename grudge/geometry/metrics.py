@@ -219,7 +219,7 @@ def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
         inv_form1 = inverse_first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
         imd = sum(
             inv_form1[rst_axis, d]*forward_metric_nth_derivative(
-                actx, dcoll, d, rst_axis, dd=dd
+                actx, dcoll, xyz_axis, d, dd=dd
             ) for d in range(dim)
         )
     return imd
