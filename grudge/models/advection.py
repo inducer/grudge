@@ -27,7 +27,6 @@ THE SOFTWARE.
 
 
 import numpy as np
-import numpy.linalg as la
 import grudge.op as op
 import types
 
@@ -182,50 +181,85 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 # {{{ variable-coefficient advection
 
 class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
-    def __init__(self, v, inflow_u, flux_type="central", quad_tag="product"):
-        super().__init__(
-                v, inflow_u, flux_type=flux_type)
+    def __init__(self, dcoll, v, inflow_u, flux_type="central", quad_tag=None):
+        super().__init__(dcoll, v, inflow_u, flux_type=flux_type)
+
+        if quad_tag is None:
+            from grudge.dof_desc import DISCR_TAG_BASE
+            quad_tag = DISCR_TAG_BASE
 
         self.quad_tag = quad_tag
 
-    def flux(self, u):
+    def flux(self, u_tpair):
         from grudge.dof_desc import DD_VOLUME
 
-        surf_v = sym.project(DD_VOLUME, u.dd)(self.v)
-        return advection_weak_flux(self.flux_type, u, surf_v)
+        surf_v = op.project(self.dcoll, DD_VOLUME, u_tpair.dd, self.v)
+        return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, surf_v)
 
-    def sym_operator(self):
+    def operator(self, t, u):
         from grudge.dof_desc import DOFDesc, DD_VOLUME, DTAG_VOLUME_ALL
         from meshmode.mesh import BTAG_ALL
-        from meshmode.discretization.connection import FACE_RESTR_ALL
-
-        u = sym.var("u")
-
-        def flux(pair):
-            return sym.project(pair.dd, face_dd)(self.flux(pair))
+        from meshmode.discretization.connection import \
+            FACE_RESTR_ALL, FACE_RESTR_INTERIOR
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
         boundary_dd = DOFDesc(BTAG_ALL, self.quad_tag)
         quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.project(DD_VOLUME, quad_dd)
-        stiff_t_op = sym.stiffness_t(self.ambient_dim,
-                dd_in=quad_dd, dd_out=DD_VOLUME)
+        dcoll = self.dcoll
+        inflow_u = self.inflow_u(t)
+
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, face_dd, self.flux(tpair))
+
+        def to_quad(arg):
+            return op.project(dcoll, DD_VOLUME, quad_dd, arg)
+
+        def to_quad_int_tpair(arg, quad_tag):
+            trace_dd = DOFDesc(FACE_RESTR_INTERIOR, quad_tag)
+            i = op.project(dcoll, DD_VOLUME,
+                           trace_dd.with_discr_tag(None), arg)
+            e = dcoll.opposite_face_connection()(i)
+            if trace_dd.uses_quadrature():
+                i = op.project(dcoll, trace_dd.with_discr_tag(None),
+                               trace_dd, i)
+                e = op.project(dcoll, trace_dd.with_discr_tag(None),
+                               trace_dd, e)
+            return TracePair(trace_dd, interior=i, exterior=e)
 
         quad_v = to_quad(self.v)
         quad_u = to_quad(u)
 
-        return sym.InverseMassOperator()(
-                sum(stiff_t_op[n](quad_u * quad_v[n])
-                    for n in range(self.ambient_dim))
-                - sym.FaceMassOperator(face_dd, DD_VOLUME)(
-                    flux(sym.int_tpair(u, self.quad_tag))
-                    + flux(sym.bv_tpair(boundary_dd, u, self.inflow_u))
+        return (
+            op.inverse_mass(
+                dcoll,
+                sum(op.weak_local_d_dx(dcoll, quad_dd, d, quad_u * quad_v[d])
+                    for d in range(dcoll.dim))
+                - op.face_mass(
+                    dcoll,
+                    face_dd,
+                    flux(to_quad_int_tpair(u, self.quad_tag))
+                    + flux(TracePair(boundary_dd,
+                                     interior=op.project(
+                                         dcoll, DD_VOLUME, boundary_dd, u
+                                     ),
+                                     exterior=inflow_u))
 
-                    # FIXME: Add back support for inflow/outflow tags
-                    #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
-                    #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
-                ))
+                    # FIXME: Add support for inflow/outflow tags
+                    # + flux(TracePair(self.inflow_tag,
+                    #                  interior=op.project(
+                    #                      dcoll, DD_VOLUME, self.inflow_tag, u
+                    #                  ),
+                    #                  exterior=bc_in))
+                    # + flux(TracePair(self.outflow_tag,
+                    #                  interior=op.project(
+                    #                      dcoll, DD_VOLUME, self.outflow_tag, u
+                    #                  ),
+                    #                  exterior=bc_out))
+                )
+            )
+        )
+
 # }}}
 
 
