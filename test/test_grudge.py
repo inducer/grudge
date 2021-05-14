@@ -728,39 +728,38 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         norm_v = la.norm(v)
 
         def f(x):
-            return sym.sin(10*x)
+            return actx.np.sin(10*x)
 
-        def u_analytic(x):
-            return f(
-                    -v.dot(x)/norm_v
-                    + sym.var("t", dof_desc.DD_SCALAR)*norm_v)
+        def u_analytic(x, t=0):
+            return f(-v.dot(x)/norm_v + t*norm_v)
 
         from grudge.models.advection import (
-                StrongAdvectionOperator, WeakAdvectionOperator)
+            StrongAdvectionOperator, WeakAdvectionOperator
+        )
         from meshmode.mesh import BTAG_ALL
 
-        discr = DiscretizationCollection(actx, mesh, order=order)
-        op_class = {
-                "strong": StrongAdvectionOperator,
-                "weak": WeakAdvectionOperator,
-                }[op_type]
-        op = op_class(v,
-                inflow_u=u_analytic(sym.nodes(dim, BTAG_ALL)),
-                flux_type=flux_type)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        op_class = {"strong": StrongAdvectionOperator,
+                    "weak": WeakAdvectionOperator}[op_type]
+        adv_operator = op_class(dcoll, v,
+                                inflow_u=lambda t: u_analytic(
+                                    thaw(actx, op.nodes(dcoll, dd=BTAG_ALL)),
+                                    t=t
+                                ),
+                                flux_type=flux_type)
 
-        bound_op = bind(discr, op.sym_operator())
-
-        u = bind(discr, u_analytic(sym.nodes(dim)))(actx, t=0)
+        nodes = thaw(actx, op.nodes(dcoll))
+        u = u_analytic(nodes, t=0)
 
         def rhs(t, u):
-            return bound_op(t=t, u=u)
+            return adv_operator.operator(t, u)
 
         if dim == 3:
             final_time = 0.1
         else:
             final_time = 0.2
 
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(actx)
+        h_max = op.h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
         dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
@@ -771,7 +770,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         last_u = None
 
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr, vis_order=order)
+        vis = make_visualizer(dcoll, vis_order=order)
 
         step = 0
 
@@ -784,12 +783,16 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                 last_u = event.state_component
 
                 if visualize:
-                    vis.write_vtk_file("fld-%s-%04d.vtu" % (mesh_par, step),
-                            [("u", event.state_component)])
+                    vis.write_vtk_file(
+                        "fld-%s-%04d.vtu" % (mesh_par, step),
+                        [("u", event.state_component)]
+                    )
 
-        error_l2 = bind(discr,
-            sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
-                t=last_t, u=last_u)
+        error_l2 = op.norm(
+            dcoll,
+            last_u - u_analytic(nodes, t=last_t),
+            2
+        )
         logger.info("h_max %.5e error %.5e", h_max, error_l2)
         eoc_rec.add_data_point(h_max, error_l2)
 
