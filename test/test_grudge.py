@@ -933,7 +933,7 @@ def test_improvement_quadrature(actx_factory, order):
             nodes = thaw(actx, op.nodes(dcoll))
 
             def zero_inflow(dtag, t=0):
-                dd = dof_desc.DOFDesc(BTAG_ALL, qtag)
+                dd = dof_desc.DOFDesc(dtag, qtag)
                 return dcoll.discr_from_dd(dd).zeros(actx)
 
             adv_op = VariableCoefficientAdvectionOperator(
