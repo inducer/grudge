@@ -939,7 +939,7 @@ def test_improvement_quadrature(actx_factory, order):
             adv_op = VariableCoefficientAdvectionOperator(
                 dcoll,
                 flat_obj_array(-1*nodes[1], nodes[0]),
-                lambda t: zero_inflow(BTAG_ALL, t=t),
+                inflow_u=lambda t: zero_inflow(BTAG_ALL, t=t),
                 flux_type="upwind",
                 quad_tag=qtag
             )
