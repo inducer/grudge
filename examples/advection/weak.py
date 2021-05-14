@@ -30,9 +30,8 @@ from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import thaw, flatten
 from meshmode.mesh import BTAG_ALL
 
-from grudge import bind, sym
-
 import grudge.dof_desc as dof_desc
+import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,9 +40,9 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, actx, discr, order, visualize=True, ylim=None):
+    def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
         self.actx = actx
-        self.dim = discr.ambient_dim
+        self.dim = dcoll.ambient_dim
 
         self.visualize = visualize
         if not self.visualize:
@@ -54,11 +53,11 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
-            volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
             self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr)
+            self.vis = make_visualizer(dcoll)
 
     def __call__(self, evt, basename, overwrite=True):
         if not self.visualize:
@@ -131,29 +130,36 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             order=order)
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh, order=order)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     # }}}
 
-    # {{{ symbolic operators
+    # {{{ weak advection operator
 
     def f(x):
-        return sym.sin(3 * x)
+        return actx.np.sin(3 * x)
 
-    def u_analytic(x):
-        t = sym.var("t", dof_desc.DD_SCALAR)
+    def u_analytic(x, t=0):
         return f(-np.dot(c, x) / norm_c + t * norm_c)
 
     from grudge.models.advection import WeakAdvectionOperator
-    op = WeakAdvectionOperator(c,
-        inflow_u=u_analytic(sym.nodes(dim, BTAG_ALL)),
-        flux_type=flux_type)
 
-    bound_op = bind(discr, op.sym_operator())
-    u = bind(discr, u_analytic(sym.nodes(dim)))(actx, t=0)
+    adv_operator = WeakAdvectionOperator(
+        dcoll,
+        c,
+        inflow_u=lambda t: u_analytic(
+            thaw(actx, op.nodes(dcoll, dd=BTAG_ALL)),
+            t=t
+        ),
+        flux_type=flux_type
+    )
+
+    nodes = thaw(actx, op.nodes(dcoll))
+    u = u_analytic(nodes, t=0)
 
     def rhs(t, u):
-        return bound_op(t=t, u=u)
+        return adv_operator.operator(t, u)
 
     # }}}
 
@@ -161,10 +167,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-    plot = Plotter(actx, discr, order, visualize=visualize,
+    plot = Plotter(actx, dcoll, order, visualize=visualize,
             ylim=[-1.1, 1.1])
-
-    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     step = 0
     norm_u = 0.0
@@ -173,7 +177,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             continue
 
         if step % 10 == 0:
-            norm_u = norm(u=event.state_component)
+            norm_u = op.norm(dcoll, event.state_component, 2)
             plot(event, "fld-weak-%04d" % step)
 
         step += 1
