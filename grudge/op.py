@@ -4,6 +4,7 @@
 .. autofunction:: nodes
 .. autofunction:: normal
 .. autofunction:: h_max_from_volume
+.. autofunction:: h_min_from_volume
 
 .. autofunction:: local_grad
 .. autofunction:: local_d_dx
@@ -157,16 +158,16 @@ def normal(dcoll, dd):
 
 @memoize_on_first_arg
 def h_max_from_volume(dcoll, dim=None, dd=None):
-    """Returns a characteristic length based on the volume of the elements.
-    This length may not be representative if the elements have very high
-    aspect ratios.
+    """Returns a (maximum) characteristic length based on the volume of the
+    elements. This length may not be representative if the elements have very
+    high aspect ratios.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dim: an integer denoting topological dimension. If *None*, the
         spatial dimension specified by :attr:`dcoll.dim` is used.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: an integer denoting the characteristic length.
+    :returns: an integer denoting the maximum characteristic length.
     """
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -177,6 +178,32 @@ def h_max_from_volume(dcoll, dim=None, dd=None):
 
     ones_volm = dcoll._volume_discr.zeros(dcoll._setup_actx) + 1.0
     return nodal_max(
+        dcoll, dd, elementwise_sum(dcoll, mass(dcoll, dd, ones_volm))
+    ) ** (1.0 / dim)
+
+
+@memoize_on_first_arg
+def h_min_from_volume(dcoll, dim=None, dd=None):
+    """Returns a (minimum) characteristic length based on the volume of the
+    elements. This length may not be representative if the elements have very
+    high aspect ratios.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting topological dimension. If *None*, the
+        spatial dimension specified by :attr:`dcoll.dim` is used.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: an integer denoting the minimum characteristic length.
+    """
+    if dd is None:
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
+
+    if dim is None:
+        dim = dcoll.dim
+
+    ones_volm = dcoll._volume_discr.zeros(dcoll._setup_actx) + 1.0
+    return nodal_min(
         dcoll, dd, elementwise_sum(dcoll, mass(dcoll, dd, ones_volm))
     ) ** (1.0 / dim)
 
