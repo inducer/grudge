@@ -889,26 +889,26 @@ def test_improvement_quadrature(actx_factory, order):
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+    from meshmode.mesh import BTAG_ALL
 
     actx = actx_factory()
 
     dims = 2
-    sym_nds = sym.nodes(dims)
-    advec_v = flat_obj_array(-1*sym_nds[1], sym_nds[0])
 
-    flux = "upwind"
-    op = VariableCoefficientAdvectionOperator(advec_v, 0, flux_type=flux)
-
-    def gaussian_mode():
+    def gaussian_mode(x):
         source_width = 0.1
-        sym_x = sym.nodes(2)
-        return sym.exp(-np.dot(sym_x, sym_x) / source_width**2)
+        return actx.np.exp(-np.dot(x, x) / source_width**2)
 
     def conv_test(descr, use_quad):
         logger.info("-" * 75)
         logger.info(descr)
         logger.info("-" * 75)
         eoc_rec = EOCRecorder()
+
+        if use_quad:
+            qtag = dof_desc.DISCR_TAG_QUAD
+        else:
+            qtag = None
 
         ns = [20, 25]
         for n in ns:
@@ -920,22 +920,33 @@ def test_improvement_quadrature(actx_factory, order):
 
             if use_quad:
                 discr_tag_to_group_factory = {
-                    "product": QuadratureSimplexGroupFactory(order=4*order)
+                    qtag: QuadratureSimplexGroupFactory(order=4*order)
                 }
             else:
-                discr_tag_to_group_factory = {"product": None}
+                discr_tag_to_group_factory = {}
 
-            discr = DiscretizationCollection(
+            dcoll = DiscretizationCollection(
                 actx, mesh, order=order,
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
 
-            bound_op = bind(discr, op.sym_operator())
-            fields = bind(discr, gaussian_mode())(actx, t=0)
-            norm = bind(discr, sym.norm(2, sym.var("u")))
+            nodes = thaw(actx, op.nodes(dcoll))
 
-            esc = bound_op(u=fields)
-            total_error = norm(u=esc)
+            def zero_inflow(dtag, t=0):
+                dd = dof_desc.DOFDesc(BTAG_ALL, qtag)
+                return dcoll.discr_from_dd(dd).zeros(actx)
+
+            adv_op = VariableCoefficientAdvectionOperator(
+                dcoll,
+                flat_obj_array(-1*nodes[1], nodes[0]),
+                lambda t: zero_inflow(BTAG_ALL, t=t),
+                flux_type="upwind",
+                quad_tag=qtag
+            )
+
+            total_error = op.norm(
+                dcoll, adv_op.operator(0, gaussian_mode(nodes)), 2
+            )
             eoc_rec.add_data_point(1.0/n, total_error)
 
         logger.info("\n%s", eoc_rec.pretty_print(
