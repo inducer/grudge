@@ -112,7 +112,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         if form == "strong":
             grad_u = (
                 op.local_grad(dcoll, u, nested=nested)
-                # No flux terms because u is smooth
+                # No flux terms because u doesn't have inter-el jumps
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
@@ -229,7 +229,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         if form == "strong":
             div_u = (
                 op.local_div(dcoll, u)
-                # No flux terms because u is smooth
+                # No flux terms because u doesn't have inter-el jumps
                 )
         elif form == "weak":
             div_u = op.inverse_mass(dcoll,
