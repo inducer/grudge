@@ -25,13 +25,21 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+
 from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import thaw
+
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
+
 from mpi4py import MPI
 
+from pytools.obj_array import flat_obj_array
 
-def main(write_output=True, order=4):
+import grudge.op as op
+
+
+def main(write_output=False, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -61,7 +69,7 @@ def main(write_output=True, order=4):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    discr = DiscretizationCollection(actx, local_mesh, order=order,
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
             mpi_communicator=comm)
 
     if local_mesh.dim == 2:
@@ -69,58 +77,78 @@ def main(write_output=True, order=4):
     elif local_mesh.dim == 3:
         dt = 0.02
 
-    source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
-    source_width = 0.05
-    source_omega = 3
-
-    sym_x = sym.nodes(local_mesh.dim)
-    sym_source_center_dist = sym_x - source_center
-    sym_t = sym.ScalarVariable("t")
+    def source_f(actx, dcoll, t=0):
+        source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
+        source_width = 0.05
+        source_omega = 3
+        nodes = thaw(actx, op.nodes(dcoll))
+        source_center_dist = flat_obj_array(
+            [nodes[i] - source_center[i] for i in range(dcoll.dim)]
+        )
+        return (
+            np.sin(source_omega*t)
+            * actx.np.exp(
+                -np.dot(source_center_dist, source_center_dist)
+                / source_width**2
+            )
+        )
 
     from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = WeakWaveOperator(0.1, discr.dim,
-            source_f=(
-                sym.sin(source_omega*sym_t)
-                * sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2)),
-            dirichlet_tag=BTAG_NONE,
-            neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_ALL,
-            flux_type="upwind")
 
-    from pytools.obj_array import flat_obj_array
+    wave_op = WeakWaveOperator(
+        dcoll,
+        0.1,
+        source_f=source_f,
+        dirichlet_tag=BTAG_NONE,
+        neumann_tag=BTAG_NONE,
+        radiation_tag=BTAG_ALL,
+        flux_type="upwind"
+    )
+
     fields = flat_obj_array(
-            discr.zeros(actx),
-            [discr.zeros(actx) for i in range(discr.dim)])
+        dcoll.zeros(actx),
+        [dcoll.zeros(actx) for i in range(dcoll.dim)]
+    )
 
     # FIXME
-    #dt = op.estimate_rk4_timestep(discr, fields=fields)
+    # dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
-    op.check_bc_coverage(local_mesh)
-
-    # print(sym.pretty(op.sym_operator()))
-    bound_op = bind(discr, op.sym_operator())
+    wave_op.check_bc_coverage(local_mesh)
 
     def rhs(t, w):
-        return bound_op(t=t, w=w)
+        return wave_op.operator(t, w)
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 10
     nsteps = int(final_t/dt)
-    print("dt=%g nsteps=%d" % (dt, nsteps))
+
+    if comm.rank == 0:
+        print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr)
+    vis = make_visualizer(dcoll)
 
     step = 0
 
-    norm = bind(discr, sym.norm(2, sym.var("u")))
+    def norm(u):
+        return op.norm(dcoll, u, 2)
 
     from time import time
     t_last_step = time()
+
+    if write_output:
+        u = fields[0]
+        v = fields[1:]
+        vis.write_parallel_vtk_file(
+            comm,
+            f"fld-wave-min-mpi-{{rank:03d}}-{step:04d}.vtu",
+            [
+                ("u", u),
+                ("v", v),
+            ]
+        )
 
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
@@ -129,16 +157,17 @@ def main(write_output=True, order=4):
             step += 1
 
             if step % 10 == 0:
-                if comm.rank == 0:
-                    print(f"step: {step} t: {time()-t_last_step} "
-                          f"L2: {norm(u=event.state_component[0])}")
-                vis.write_parallel_vtk_file(
+                print(f"step: {step} t: {time()-t_last_step} "
+                        f"L2: {norm(u=event.state_component[0])}")
+                if write_output:
+                    vis.write_parallel_vtk_file(
                         comm,
                         f"fld-wave-min-mpi-{{rank:03d}}-{step:04d}.vtu",
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
-                            ])
+                        ]
+                    )
             t_last_step = time()
             assert norm(u=event.state_component[0]) < 1
 
