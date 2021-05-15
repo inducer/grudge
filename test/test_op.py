@@ -28,7 +28,7 @@ from meshmode.dof_array import thaw
 
 from pytools.obj_array import make_obj_array
 
-from grudge import sym, op, DiscretizationCollection
+from grudge import op, DiscretizationCollection
 from grudge.dof_desc import DOFDesc
 
 import pytest
@@ -107,24 +107,12 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 flux = u_avg * normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_intfaces = DOFDesc("int_faces")
         dd_allfaces = DOFDesc("all_faces")
 
         if form == "strong":
-            u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
             grad_u = (
                 op.local_grad(dcoll, u, nested=nested)
-                -  # noqa: W504
-                op.inverse_mass(dcoll,
-                    op.face_mass(dcoll,
-                        dd_allfaces,
-                        # Note: no boundary flux terms here because
-                        # u_ext == u_int == 0
-                        get_flux(sym.TracePair(dd_intfaces,
-                            interior=u_intfaces,
-                            exterior=u_intfaces))
-                        -  # noqa: W504
-                        get_flux(op.interior_trace_pair(dcoll, u))))
+                # No flux terms because u is smooth
                 )
         elif form == "weak":
             grad_u = op.inverse_mass(dcoll,
@@ -236,24 +224,12 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_intfaces = DOFDesc("int_faces")
         dd_allfaces = DOFDesc("all_faces")
 
         if form == "strong":
-            u_intfaces = op.project(dcoll, "vol", dd_intfaces, u)
             div_u = (
                 op.local_div(dcoll, u)
-                -  # noqa: W504
-                op.inverse_mass(dcoll,
-                    op.face_mass(dcoll,
-                        dd_allfaces,
-                        # Note: no boundary flux terms here because
-                        # u_ext == u_int == 0
-                        get_flux(sym.TracePair(dd_intfaces,
-                            interior=u_intfaces,
-                            exterior=u_intfaces))
-                        -  # noqa: W504
-                        get_flux(op.interior_trace_pair(dcoll, u))))
+                # No flux terms because u is smooth
                 )
         elif form == "weak":
             div_u = op.inverse_mass(dcoll,
