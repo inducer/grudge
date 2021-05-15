@@ -32,7 +32,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -814,6 +814,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
+    from grudge import sym, bind
 
     actx = actx_factory()
 
@@ -965,35 +966,6 @@ def test_improvement_quadrature(actx_factory, order):
 # }}}
 
 
-# {{{ operator collector determinism
-
-def test_op_collector_order_determinism():
-    class TestOperator(sym.Operator):
-
-        def __init__(self):
-            sym.Operator.__init__(self, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME)
-
-        mapper_method = "map_test_operator"
-
-    from grudge.symbolic.mappers import BoundOperatorCollector
-
-    class TestBoundOperatorCollector(BoundOperatorCollector):
-
-        def map_test_operator(self, expr):
-            return self.map_operator(expr)
-
-    v0 = sym.var("v0")
-    ob0 = sym.OperatorBinding(TestOperator(), v0)
-
-    v1 = sym.var("v1")
-    ob1 = sym.OperatorBinding(TestOperator(), v1)
-
-    # The output order isn't significant, but it should always be the same.
-    assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
-
-# }}}
-
-
 # {{{ bessel
 
 def test_bessel(actx_factory):
@@ -1006,26 +978,31 @@ def test_bessel(actx_factory):
             b=(1.0,)*dims,
             nelements_per_axis=(8,)*dims)
 
-    discr = DiscretizationCollection(actx, mesh, order=3)
+    dcoll = DiscretizationCollection(actx, mesh, order=3)
 
-    nodes = sym.nodes(dims)
-    r = sym.cse(sym.sqrt(nodes[0]**2 + nodes[1]**2))
+    nodes = thaw(actx, op.nodes(dcoll))
+    r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
+
+    # FIXME: Bessel functions need to brought out of the symbolic
+    # layer. Related issue: https://github.com/inducer/grudge/issues/93
+    def bessel_j(actx, n, r):
+        from grudge import sym, bind
+        return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
     n = 3
-    bessel_zero = (
-            sym.bessel_j(n+1, r)
-            + sym.bessel_j(n-1, r)
-            - 2*n/r * sym.bessel_j(n, r))
+    bessel_zero = (bessel_j(actx, n+1, r)
+                   + bessel_j(actx, n-1, r)
+                   - 2*n/r * bessel_j(actx, n, r))
 
-    z = bind(discr, sym.norm(2, bessel_zero))(actx)
+    z = op.norm(dcoll, bessel_zero, 2)
 
     assert z < 1e-15
 
 # }}}
 
 
-# {{{ function symbol
+# {{{ functions
 
 def test_external_call(actx_factory):
     actx = actx_factory()
@@ -1033,35 +1010,30 @@ def test_external_call(actx_factory):
     def double(queue, x):
         return 2 * x
 
+    from grudge.function_registry import \
+        base_function_registry, register_external_function
+
+    freg = register_external_function(base_function_registry,
+                                      "ext_double_fct",
+                                      implementation=double,
+                                      dd=dof_desc.DD_VOLUME)
+
     dims = 2
 
     mesh = mgen.generate_regular_rect_mesh(
             a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
-    discr = DiscretizationCollection(actx, mesh, order=1)
+    dcoll = DiscretizationCollection(actx, mesh, order=1)
 
-    ones = sym.Ones(dof_desc.DD_VOLUME)
-    op = (
-            ones * 3
-            + sym.FunctionSymbol("double")(ones))
+    ones = dcoll.discr_from_dd(dof_desc.DD_VOLUME).zeros(actx) + 1.0
 
-    from grudge.function_registry import (
-            base_function_registry, register_external_function)
+    result = 3*ones + freg["ext_double_fct"](actx, ones)
 
-    freg = register_external_function(
-            base_function_registry,
-            "double",
-            implementation=double,
-            dd=dof_desc.DD_VOLUME)
-
-    bound_op = bind(discr, op, function_registry=freg)
-
-    result = bound_op(actx, double=double)
     assert actx.to_numpy(flatten(result) == 5).all()
 
 
 @pytest.mark.parametrize("array_type", ["scalar", "vector"])
-def test_function_symbol_array(actx_factory, array_type):
-    """Test if `FunctionSymbol` distributed properly over object arrays."""
+def test_function_array(actx_factory, array_type):
+    """Test if functions distribute properly over object arrays."""
 
     actx = actx_factory()
 
@@ -1069,19 +1041,17 @@ def test_function_symbol_array(actx_factory, array_type):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    nodes = op.nodes(dcoll)
 
     if array_type == "scalar":
-        sym_x = sym.var("x")
-        x = thaw(actx, actx.np.cos(volume_discr.nodes()[0]))
+        x = thaw(actx, actx.np.cos(nodes[0]))
     elif array_type == "vector":
-        sym_x = sym.make_sym_array("x", dim)
-        x = thaw(actx, volume_discr.nodes())
+        x = thaw(actx, actx.np.cos(nodes))
     else:
         raise ValueError("unknown array type")
 
-    norm = bind(discr, sym.norm(2, sym_x))(x=x)
+    norm = op.norm(dcoll, x, 2)
     assert isinstance(norm, float)
 
 # }}}
@@ -1122,23 +1092,6 @@ def test_norm_obj_array(actx_factory, p):
     # }}}
 
 
-def test_map_if(actx_factory):
-    """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
-    of scalar conditions.
-    """
-
-    actx = actx_factory()
-
-    dim = 2
-    mesh = mgen.generate_regular_rect_mesh(
-            a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-
-    sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
-    bind(discr, sym_if)(actx)
-
-
 def test_empty_boundary(actx_factory):
     # https://github.com/inducer/grudge/issues/54
 
@@ -1150,19 +1103,66 @@ def test_empty_boundary(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-    normal = bind(discr,
-            sym.normal(BTAG_NONE, dim, dim=dim - 1))(actx)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    normal = op.normal(dcoll, BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)
-        assert len(component) == len(discr.discr_from_dd(BTAG_NONE).groups)
+        assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
+
+
+# {{{ Deprecated symbolic tests
+
+def test_op_collector_order_determinism():
+    from grudge import sym
+
+    class TestOperator(sym.Operator):
+
+        def __init__(self):
+            sym.Operator.__init__(self, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME)
+
+        mapper_method = "map_test_operator"
+
+    from grudge.symbolic.mappers import BoundOperatorCollector
+
+    class TestBoundOperatorCollector(BoundOperatorCollector):
+
+        def map_test_operator(self, expr):
+            return self.map_operator(expr)
+
+    v0 = sym.var("v0")
+    ob0 = sym.OperatorBinding(TestOperator(), v0)
+
+    v1 = sym.var("v1")
+    ob1 = sym.OperatorBinding(TestOperator(), v1)
+
+    # The output order isn't significant, but it should always be the same.
+    assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
+
+
+def test_map_if(actx_factory):
+    """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
+    of scalar conditions.
+    """
+    from grudge import sym, bind
+
+    actx = actx_factory()
+
+    dim = 2
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(8,)*dim, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+
+    sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
+    bind(dcoll, sym_if)(actx)
 
 
 def test_operator_compiler_overwrite(actx_factory):
     """Tests that the same expression in ``eval_code`` and ``discr_code``
     does not confuse the OperatorCompiler in grudge/symbolic/compiler.py.
     """
+    from grudge import sym, bind
 
     actx = actx_factory()
 
@@ -1173,15 +1173,15 @@ def test_operator_compiler_overwrite(actx_factory):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
             n=(8,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=target_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=target_order)
 
     # {{{ test
 
     sym_u = sym.nodes(ambient_dim)
     sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
 
-    div_u = bind(discr, sym_div_u)(actx)
-    error = bind(discr, sym.norm(2, sym.var("x")))(actx, x=div_u - discr.dim)
+    div_u = bind(dcoll, sym_div_u)(actx)
+    error = bind(dcoll, sym.norm(2, sym.var("x")))(actx, x=div_u - dcoll.dim)
     logger.info("error: %.5e", error)
 
     # }}}
@@ -1196,6 +1196,7 @@ def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
     """Tests that the greedy assignemnt aggregation code works on a non-trivial
     expression (on which it didn't work at the time of writing).
     """
+    from grudge import sym, bind
 
     actx = actx_factory()
 
@@ -1205,7 +1206,7 @@ def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
             n=(8,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=target_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=target_order)
 
     # {{{ test with a relative norm
 
@@ -1221,7 +1222,7 @@ def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
 
     # FIXME: this shouldn't raise a RuntimeError
     with pytest.raises(RuntimeError):
-        bind(discr, sym_op)(actx, x=1.0, y=discr.discr_from_dd(dd).nodes())
+        bind(dcoll, sym_op)(actx, x=1.0, y=dcoll.discr_from_dd(dd).nodes())
 
     # }}}
 
@@ -1237,9 +1238,11 @@ def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
     logger.info("%s", sym.pretty(sym_op))
 
     # FIXME: this shouldn't raise a RuntimeError either
-    bind(discr, sym_op)(actx, y=discr.discr_from_dd(dd).nodes())
+    bind(dcoll, sym_op)(actx, y=dcoll.discr_from_dd(dd).nodes())
 
     # }}}
+
+# }}}
 
 
 # You can test individual routines by typing
