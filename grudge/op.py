@@ -834,6 +834,21 @@ def face_mass(dcoll, *args):
 
 # {{{ Nodal reductions
 
+def _norm(dcoll, vec, p, dd):
+    if isinstance(vec, Number):
+        return np.fabs(vec)
+    if p == 2:
+        return np.sqrt(
+            nodal_summation(
+                vec * _apply_mass_operator(dcoll, dd, dd, vec)
+            )
+        )
+    elif p == np.inf:
+        return nodal_maximum(dcoll._setup_actx.np.fabs(vec))
+    else:
+        raise NotImplementedError("Unsupported value of p")
+
+
 def norm(dcoll, vec, p, dd=None):
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
@@ -851,35 +866,22 @@ def norm(dcoll, vec, p, dd=None):
     """
     if dd is None:
         dd = dof_desc.DD_VOLUME
+
     dd = dof_desc.as_dofdesc(dd)
 
-    if p == 2:
-        norm_squared = nodal_summation(
-            vec * _apply_mass_operator(dcoll, dd, dd, vec)
-        )
+    if isinstance(vec, np.ndarray):
+        if p == 2:
+            return sum(
+                    norm(dcoll, vec[idx], p, dd=dd)**2
+                    for idx in np.ndindex(vec.shape))**0.5
+        elif p == np.inf:
+            return max(
+                    norm(dcoll, vec[idx], np.inf, dd=dd)
+                    for idx in np.ndindex(vec.shape))
+        else:
+            raise ValueError("unsupported norm order")
 
-        if isinstance(norm_squared, np.ndarray):
-            if len(norm_squared.shape) != 1:
-                raise NotImplementedError("Can only take the norm of vectors")
-
-            norm_squared = sum(norm_squared)
-
-        return np.sqrt(norm_squared)
-
-    elif p == np.inf:
-        actx = dcoll._setup_actx
-        result = nodal_maximum(actx.np.fabs(vec))
-
-        if isinstance(result, np.ndarray):
-            if len(result.shape) != 1:
-                raise NotImplementedError("Can only take the norm of vectors")
-
-            result = np.max(result)
-
-        return result
-
-    else:
-        raise NotImplementedError("Unsupported value of p")
+    return _norm(dcoll, vec, p, dd)
 
 
 def nodal_sum(dcoll, dd, vec):
@@ -1115,7 +1117,6 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
     :class:`~meshmode.dof_array.DOFArray`, or an object
     array of ``DOFArray``\ s of arbitrary shape.
     """
-
     if isinstance(ary, np.ndarray):
         oshape = ary.shape
         comm_vec = ary.flatten()

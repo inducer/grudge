@@ -1089,7 +1089,7 @@ def test_function_symbol_array(actx_factory, array_type):
 
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_obj_array(actx_factory, p):
-    """Test :func:`grudge.symbolic.operators.norm` for object arrays."""
+    """Test :func:`grudge.op.norm` for object arrays."""
 
     actx = actx_factory()
 
@@ -1097,14 +1097,13 @@ def test_norm_obj_array(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
     w = make_obj_array([1.0, 2.0, 3.0])[:dim]
 
     # {{ scalar
 
-    sym_w = sym.var("w")
-    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w[0])
+    norm = op.norm(dcoll, w[0], p)
 
     norm_exact = w[0]
     logger.info("norm: %.5e %.5e", norm, norm_exact)
@@ -1114,8 +1113,7 @@ def test_norm_obj_array(actx_factory, p):
 
     # {{{ vector
 
-    sym_w = sym.make_sym_array("w", dim)
-    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w)
+    norm = op.norm(dcoll, w, p)
 
     norm_exact = np.sqrt(np.sum(w**2)) if p == 2 else np.max(w)
     logger.info("norm: %.5e %.5e", norm, norm_exact)
