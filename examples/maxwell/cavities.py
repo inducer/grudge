@@ -27,17 +27,20 @@ import numpy as np
 import pyopencl as cl
 
 from meshmode.array_context import PyOpenCLArrayContext
+from meshmode.dof_array import thaw
 
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
 
 from grudge.models.em import get_rectangular_cavity_mode
+
+import grudge.op as op
 
 
 STEPS = 60
 
 
-def main(dims, write_output=True, order=4):
+def main(dims, write_output=False, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -48,7 +51,7 @@ def main(dims, write_output=True, order=4):
             b=(1.0,)*dims,
             nelements_per_axis=(4,)*dims)
 
-    discr = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     if 0:
         epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)
@@ -60,25 +63,30 @@ def main(dims, write_output=True, order=4):
         mu = 1
 
     from grudge.models.em import MaxwellOperator
-    op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
 
-    if dims == 3:
-        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
-        fields = bind(discr, sym_mode)(actx, t=0, epsilon=epsilon, mu=mu)
-    else:
-        sym_mode = get_rectangular_cavity_mode(1, (2, 3))
-        fields = bind(discr, sym_mode)(actx, t=0)
+    maxwell_operator = MaxwellOperator(
+        dcoll,
+        epsilon,
+        mu,
+        flux_type=0.5,
+        dimensions=dims
+    )
+
+    def cavity_mode(x, t=0):
+        if dims == 3:
+            return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
+        else:
+            return get_rectangular_cavity_mode(actx, x, t, 1, (2, 3))
+
+    fields = cavity_mode(thaw(actx, op.nodes(dcoll)), t=0)
 
     # FIXME
-    #dt = op.estimate_rk4_timestep(discr, fields=fields)
+    # dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)
 
-    op.check_bc_coverage(mesh)
-
-    # print(sym.pretty(op.sym_operator()))
-    bound_op = bind(discr, op.sym_operator())
+    maxwell_operator.check_bc_coverage(mesh)
 
     def rhs(t, w):
-        return bound_op(t=t, w=w)
+        return maxwell_operator.operator(t, w)
 
     if mesh.dim == 2:
         dt = 0.004
@@ -93,18 +101,19 @@ def main(dims, write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr)
+    vis = make_visualizer(dcoll)
 
     step = 0
 
-    norm = bind(discr, sym.norm(2, sym.var("u")))
+    def norm(u):
+        return op.norm(dcoll, u, 2)
 
     from time import time
     t_last_step = time()
 
-    e, h = op.split_eh(fields)
+    e, h = maxwell_operator.split_eh(fields)
 
-    if 1:
+    if write_output:
         vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
                 [
                     ("e", e),
@@ -121,7 +130,7 @@ def main(dims, write_output=True, order=4):
                     norm(u=h[0]), norm(u=h[1]),
                     time()-t_last_step)
             if step % 10 == 0:
-                e, h = op.split_eh(event.state_component)
+                e, h = maxwell_operator.split_eh(event.state_component)
                 vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
                         [
                             ("e", e),

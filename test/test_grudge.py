@@ -814,7 +814,6 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
-    from grudge import sym, bind
 
     actx = actx_factory()
 
@@ -829,24 +828,32 @@ def test_convergence_maxwell(actx_factory,  order):
                 b=(1.0,)*dims,
                 nelements_per_axis=(n,)*dims)
 
-        discr = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
 
         epsilon = 1
         mu = 1
 
         from grudge.models.em import get_rectangular_cavity_mode
-        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
 
-        analytic_sol = bind(discr, sym_mode)
-        fields = analytic_sol(actx, t=0, epsilon=epsilon, mu=mu)
+        def analytic_sol(x, t=0):
+            return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
+
+        nodes = thaw(actx, op.nodes(dcoll))
+        fields = analytic_sol(nodes, t=0)
 
         from grudge.models.em import MaxwellOperator
-        op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
-        op.check_bc_coverage(mesh)
-        bound_op = bind(discr, op.sym_operator())
+
+        maxwell_operator = MaxwellOperator(
+            dcoll,
+            epsilon,
+            mu,
+            flux_type=0.5,
+            dimensions=dims
+        )
+        maxwell_operator.check_bc_coverage(mesh)
 
         def rhs(t, w):
-            return bound_op(t=t, w=w)
+            return maxwell_operator.operator(t, w)
 
         dt = 0.002
         final_t = dt * 5
@@ -857,8 +864,6 @@ def test_convergence_maxwell(actx_factory,  order):
 
         logger.info("dt %.5e nsteps %5d", dt, nsteps)
 
-        norm = bind(discr, sym.norm(2, sym.var("u")))
-
         step = 0
         for event in dt_stepper.run(t_end=final_t):
             if isinstance(event, dt_stepper.StateComputed):
@@ -868,9 +873,8 @@ def test_convergence_maxwell(actx_factory,  order):
                 step += 1
                 logger.debug("[%04d] t = %.5e", step, event.t)
 
-        sol = analytic_sol(actx, mu=mu, epsilon=epsilon, t=step * dt)
-        vals = [norm(u=(esc[i] - sol[i])) / norm(u=sol[i]) for i in range(5)] # noqa E501
-        total_error = sum(vals)
+        sol = analytic_sol(nodes, t=step * dt)
+        total_error = op.norm(dcoll, esc - sol, 2)
         eoc_rec.add_data_point(1.0/n, total_error)
 
     logger.info("\n%s", eoc_rec.pretty_print(
