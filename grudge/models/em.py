@@ -301,6 +301,10 @@ class MaxwellOperator(HyperbolicOperator):
                 op.face_mass(
                     dcoll,
                     flux(op.interior_trace_pair(dcoll, w))
+                    # communication of interface fluxes between
+                    # parallel boundaries
+                    + sum(flux(tpair)
+                          for tpair in op.cross_rank_trace_pairs(dcoll, w))
                     + sum(flux(bv_tpair(tag, w, bc))
                           for tag, bc in tags_and_bcs)
                 )

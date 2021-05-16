@@ -121,7 +121,12 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
                 dcoll,
                 op.face_mass(
                     dcoll,
-                    flux(op.interior_trace_pair(dcoll, u)) + inflow_flux
+                    flux(op.interior_trace_pair(dcoll, u))
+                    # communication of interface fluxes between
+                    # parallel boundaries
+                    + sum(flux(tpair)
+                          for tpair in op.cross_rank_trace_pairs(dcoll, u))
+                    + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
                     # + flux(TracePair(self.inflow_tag,
@@ -166,7 +171,12 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
                 np.dot(self.v, op.weak_local_grad(dcoll, u))
                 - op.face_mass(
                     dcoll,
-                    flux(op.interior_trace_pair(dcoll, u)) + inflow_flux
+                    flux(op.interior_trace_pair(dcoll, u))
+                    # communication of interface fluxes between
+                    # parallel boundaries
+                    + sum(flux(tpair)
+                          for tpair in op.cross_rank_trace_pairs(dcoll, u))
+                    + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
                     # + flux(TracePair(self.inflow_tag,
@@ -269,6 +279,11 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
                     dcoll,
                     face_dd,
                     flux(to_quad_int_tpair(dcoll, u, self.quad_tag))
+                    # communication of interface fluxes between
+                    # parallel boundaries
+                    + sum(flux(tpair)
+                          for tpair in op.cross_rank_trace_pairs(dcoll, u,
+                                                                 self.quad_tag))
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
@@ -371,6 +386,11 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                     dcoll,
                     face_dd,
                     flux(to_quad_int_tpair(dcoll, u, self.quad_tag))
+                    # communication of interface fluxes between
+                    # parallel boundaries
+                    + sum(flux(tpair)
+                          for tpair in op.cross_rank_trace_pairs(dcoll, u,
+                                                                 self.quad_tag))
                 )
             )
         )
