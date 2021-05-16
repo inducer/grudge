@@ -114,11 +114,13 @@ def main(dims, write_output=False, order=4):
     e, h = maxwell_operator.split_eh(fields)
 
     if write_output:
-        vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
-                [
-                    ("e", e),
-                    ("h", h),
-                    ])
+        vis.write_vtk_file(
+            "fld-cavities-%04d.vtu" % step,
+            [
+                ("e", e),
+                ("h", h),
+            ]
+        )
 
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
@@ -130,12 +132,15 @@ def main(dims, write_output=False, order=4):
                     norm(u=h[0]), norm(u=h[1]),
                     time()-t_last_step)
             if step % 10 == 0:
-                e, h = maxwell_operator.split_eh(event.state_component)
-                vis.write_vtk_file("fld-cavities-%04d.vtu" % step,
+                if write_output:
+                    e, h = maxwell_operator.split_eh(event.state_component)
+                    vis.write_vtk_file(
+                        "fld-cavities-%04d.vtu" % step,
                         [
                             ("e", e),
                             ("h", h),
-                            ])
+                        ]
+                    )
             t_last_step = time()
 
 
