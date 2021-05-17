@@ -1,6 +1,9 @@
 """Wave equation operators."""
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2009 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy

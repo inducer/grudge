@@ -4,6 +4,7 @@ __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner
 Copyright (C) 2010 David Powell
 Copyright (C) 2017 Bogdan Enache
+Copyright (C) 2021 University of Illinois Board of Trustees
 """
 
 __license__ = """
