@@ -144,14 +144,14 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
                             actx.to_numpy(flatten(mop_1)))
 
     err_1 = abs(num_integral_1 - true_integral)
-    assert err_1 < 1e-9, err_1
+    assert err_1 < 2e-9, err_1
 
     mop_2 = op.mass(dcoll, dd_quad, ones_quad)
     num_integral_2 = np.dot(actx.to_numpy(flatten(f_volm)),
                             actx.to_numpy(flatten(mop_2)))
 
     err_2 = abs(num_integral_2 - true_integral)
-    assert err_2 < 1.0e-9, err_2
+    assert err_2 < 2e-9, err_2
 
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
@@ -159,7 +159,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
         num_integral_3 = np.dot(actx.to_numpy(flatten(f_quad)),
                                 actx.to_numpy(flatten(mop_2)))
         err_3 = abs(num_integral_3 - true_integral)
-        assert err_3 < 5.0e-10, err_3
+        assert err_3 < 5e-10, err_3
 
 # }}}
 
