@@ -461,7 +461,7 @@ def get_wave_op_with_discr(actx, dims=2, order=4):
 
     discr = DiscretizationCollection(actx, mesh, order=order)
 
-    from grudge.models.wave import WeakWaveOperator
+    from symbolic_wave_op import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
     op = WeakWaveOperator(0.1, dims,
             source_f=_get_source_term(dims),
