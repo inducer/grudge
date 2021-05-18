@@ -87,20 +87,26 @@ def wave_operator(dcoll, c, w):
     dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
 
     return (
-            op.inverse_mass(dcoll,
-                flat_obj_array(
-                    -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
-                    -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
-                    # pylint: disable=E1130
-                    )
-                +  # noqa: W504
-                op.face_mass(dcoll,
-                    dd_allfaces_quad,
-                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
-                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
-                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    ))
+        op.inverse_mass(
+            dcoll,
+            flat_obj_array(
+                -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
+                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
+            ) + op.face_mass(
+                dcoll,
+                dd_allfaces_quad,
+                wave_flux(
+                    dcoll, c=c,
+                    w_tpair=TracePair(BTAG_ALL,
+                                      interior=dir_bval,
+                                      exterior=dir_bc)
+                ) + sum(
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    for tpair in op.interior_trace_pairs(dcoll, w)
                 )
+            )
+        )
+    )
 
 # }}}
 
@@ -133,7 +139,7 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
             / width**2))
 
 
-def main():
+def main(write_output=False):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -195,12 +201,15 @@ def main():
                   f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
                   f"sol max: {op.nodal_maximum(fields[0])} "
                   f"sol min: {op.nodal_minimum(fields[0])}")
-            vis.write_vtk_file("fld-wave-eager-var-velocity-%04d.vtu" % istep,
+            if write_output:
+                vis.write_vtk_file(
+                    "fld-wave-eager-var-velocity-%04d.vtu" % istep,
                     [
                         ("c", c),
                         ("u", fields[0]),
                         ("v", fields[1:]),
-                        ])
+                    ]
+                )
 
         t += dt
         istep += 1

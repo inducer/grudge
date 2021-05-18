@@ -70,18 +70,27 @@ def wave_operator(dcoll, c, w):
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            op.inverse_mass(dcoll,
-                flat_obj_array(
-                    -c*op.weak_local_div(dcoll, v),
-                    -c*op.weak_local_grad(dcoll, u)
-                    )
-                +  # noqa: W504
-                op.face_mass(dcoll,
-                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
-                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
-                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    ))
+        op.inverse_mass(
+            dcoll,
+            flat_obj_array(
+                -c*op.weak_local_div(dcoll, v),
+                -c*op.weak_local_grad(dcoll, u)
+            )
+            + op.face_mass(
+                dcoll,
+                sum(
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    for tpair in op.interior_trace_pairs(dcoll, w)
                 )
+                + wave_flux(
+                    dcoll, c=c,
+                    w_tpair=TracePair(BTAG_ALL,
+                                      interior=dir_bval,
+                                      exterior=dir_bc)
+                )
+            )
+        )
+    )
 
 # }}}
 
@@ -112,7 +121,7 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main():
+def main(write_output=False):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -162,11 +171,14 @@ def main():
                   f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
                   f"sol max: {op.nodal_maximum(fields[0])} "
                   f"sol min: {op.nodal_minimum(fields[0])}")
-            vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
+            if write_output:
+                vis.write_vtk_file(
+                    "fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
-                        ])
+                    ]
+                )
 
         t += dt
         istep += 1

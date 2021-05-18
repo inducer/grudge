@@ -72,22 +72,26 @@ def wave_operator(dcoll, c, w):
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            op.inverse_mass(dcoll,
-                flat_obj_array(
-                    -c*op.weak_local_div(dcoll, v),
-                    -c*op.weak_local_grad(dcoll, u)
-                    )
-                +  # noqa: W504
-                op.face_mass(dcoll,
-                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
-                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
-                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    + sum(
-                        wave_flux(dcoll, c=c, w_tpair=tpair)
-                        for tpair in op.cross_rank_trace_pairs(dcoll, w))
-                    )
+        op.inverse_mass(
+            dcoll,
+            flat_obj_array(
+                -c*op.weak_local_div(dcoll, v),
+                -c*op.weak_local_grad(dcoll, u)
+            )
+            + op.face_mass(
+                dcoll,
+                wave_flux(
+                    dcoll, c=c,
+                    w_tpair=TracePair(BTAG_ALL,
+                                      interior=dir_bval,
+                                      exterior=dir_bc)
+                ) + sum(
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    for tpair in op.interior_trace_pairs(dcoll, w)
                 )
-                )
+            )
+        )
+    )
 
 # }}}
 
@@ -118,7 +122,7 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main():
+def main(write_output=False):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -187,13 +191,15 @@ def main():
                       f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
                       f"sol max: {op.nodal_maximum(fields[0])} "
                       f"sol min: {op.nodal_minimum(fields[0])}")
-            vis.write_parallel_vtk_file(
+            if write_output:
+                vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
-                        ])
+                    ]
+                )
 
         t += dt
         istep += 1
