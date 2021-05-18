@@ -1045,17 +1045,17 @@ def elementwise_sum(dcoll, *args):
 # }}}
 
 
-@memoize_on_first_arg
-def connected_ranks(dcoll):
-    from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(dcoll._volume_discr.mesh)
+# {{{ Interior trace pairs
 
-
-# {{{ interior_trace_pair
-
-def interior_trace_pair(dcoll, vec):
+def _interior_trace_pair(dcoll, vec):
     """Return a :class:`grudge.sym.TracePair` for the interior faces of
-    *dcoll*.
+    *dcoll* with a discretization tag specified by *discr_tag*.
+    This does not include interior faces on different MPI ranks.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`grudge.sym.TracePair` object.
     """
     i = project(dcoll, "vol", "int_faces", vec)
 
@@ -1069,10 +1069,41 @@ def interior_trace_pair(dcoll, vec):
 
     return TracePair("int_faces", interior=i, exterior=e)
 
+
+def interior_trace_pairs(dcoll, vec):
+    """Return a :class:`list` of :class:`grudge.sym.TracePair` objects defined
+    on the interior faces of *dcoll* and any faces connected to a parallel
+    boundary.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`list` of :class:`grudge.sym.TracePair` objects.
+    """
+    return (
+        [_interior_trace_pair(dcoll, vec)]
+        + cross_rank_trace_pairs(dcoll, vec)
+    )
+
+
+def interior_trace_pair(dcoll, vec):
+    from warnings import warn
+    warn("`interior_trace_pair` is deprecated and will be dropped "
+         "in version 2022.x. Use `interior_trace_pairs` instead, ",
+         "which includes contributions from different MPI ranks.",
+         DeprecationWarning, stacklevel=2)
+    return _interior_trace_pair(dcoll, vec)
+
 # }}}
 
 
-# {{{ distributed-memory functionality
+# {{{ Distributed-memory functionality
+
+@memoize_on_first_arg
+def connected_ranks(dcoll):
+    from meshmode.distributed import get_connected_partitions
+    return get_connected_partitions(dcoll._volume_discr.mesh)
+
 
 class _RankBoundaryCommunication:
     base_tag = 1273
