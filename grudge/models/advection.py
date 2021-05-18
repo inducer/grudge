@@ -121,11 +121,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
                 dcoll,
                 op.face_mass(
                     dcoll,
-                    flux(op.interior_trace_pair(dcoll, u))
-                    # communication of interface fluxes between
-                    # parallel boundaries
-                    + sum(flux(tpair)
-                          for tpair in op.cross_rank_trace_pairs(dcoll, u))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
@@ -171,11 +167,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
                 np.dot(self.v, op.weak_local_grad(dcoll, u))
                 - op.face_mass(
                     dcoll,
-                    flux(op.interior_trace_pair(dcoll, u))
-                    # communication of interface fluxes between
-                    # parallel boundaries
-                    + sum(flux(tpair)
-                          for tpair in op.cross_rank_trace_pairs(dcoll, u))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
@@ -196,31 +188,25 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 # }}}
 
 
-def to_quad_int_tpair(dcoll, arg, quad_tag, from_dd=None):
-    from grudge.dof_desc import DOFDesc, DD_VOLUME
-    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+def to_quad_int_tpairs(dcoll, u, quad_tag):
+    from grudge.dof_desc import DISCR_TAG_QUAD
 
-    if from_dd is None:
-        from_dd = DD_VOLUME
-    assert not from_dd.uses_quadrature()
-
-    trace_dd = DOFDesc(FACE_RESTR_INTERIOR, quad_tag)
-
-    if from_dd.domain_tag == trace_dd.domain_tag:
-        i = arg
+    if issubclass(quad_tag, DISCR_TAG_QUAD):
+        return [
+            TracePair(
+                tpair.dd.with_discr_tag(quad_tag),
+                interior=op.project(
+                    dcoll, tpair.dd,
+                    tpair.dd.with_discr_tag(quad_tag), tpair.int
+                ),
+                exterior=op.project(
+                    dcoll, tpair.dd,
+                    tpair.dd.with_discr_tag(quad_tag), tpair.ext
+                )
+            ) for tpair in op.interior_trace_pairs(dcoll, u)
+        ]
     else:
-        i = op.project(dcoll, from_dd,
-                       trace_dd.with_discr_tag(None), arg)
-
-    e = dcoll.opposite_face_connection()(i)
-
-    if trace_dd.uses_quadrature():
-        i = op.project(dcoll, trace_dd.with_discr_tag(None),
-                        trace_dd, i)
-        e = op.project(dcoll, trace_dd.with_discr_tag(None),
-                        trace_dd, e)
-
-    return TracePair(trace_dd, interior=i, exterior=e)
+        return op.interior_trace_pairs(dcoll, u)
 
 
 # {{{ variable-coefficient advection
@@ -278,12 +264,9 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
                 - op.face_mass(
                     dcoll,
                     face_dd,
-                    flux(to_quad_int_tpair(dcoll, u, self.quad_tag))
-                    # communication of interface fluxes between
-                    # parallel boundaries
-                    + sum(flux(tpair)
-                          for tpair in op.cross_rank_trace_pairs(dcoll, u,
-                                                                 self.quad_tag))
+                    sum(flux(quad_tpair)
+                        for quad_tpair in to_quad_int_tpairs(dcoll, u,
+                                                             self.quad_tag))
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
@@ -306,25 +289,27 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 
 # {{{ closed surface advection
 
-def v_dot_n_tpair(actx, dcoll, velocity, dd=None):
-    from grudge.dof_desc import DOFDesc
+def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
+    from grudge.dof_desc import DTAG_BOUNDARY
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    if dd is None:
-        dd = DOFDesc(FACE_RESTR_INTERIOR)
+    normal = thaw(actx, op.normal(dcoll, trace_dd.with_discr_tag(None)))
+    v_dot_n = velocity.dot(normal)
+    i = op.project(dcoll, trace_dd.with_discr_tag(None), trace_dd, v_dot_n)
 
-    normal = thaw(actx, op.normal(dcoll,
-                                  dd.with_discr_tag(None)))
+    if trace_dd.domain_tag is FACE_RESTR_INTERIOR:
+        e = dcoll.opposite_face_connection()(i)
+    elif isinstance(trace_dd.domain_tag, DTAG_BOUNDARY):
+        e = dcoll.get_distributed_boundary_swap_connection(trace_dd)(i)
+    else:
+        raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
 
-    return to_quad_int_tpair(dcoll,
-                             velocity.dot(normal),
-                             quad_tag=dd.discretization_tag,
-                             from_dd=dd.with_discr_tag(None))
+    return TracePair(trace_dd, interior=i, exterior=e)
 
 
 def surface_advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
     actx = u_tpair.int.array_context
-    v_dot_n = v_dot_n_tpair(actx, dcoll, velocity, dd=u_tpair.dd)
+    v_dot_n = v_dot_n_tpair(actx, dcoll, velocity, trace_dd=u_tpair.dd)
     # NOTE: the normals in v_dot_n point to the exterior of their respective
     # elements, so this is actually just an average
     v_dot_n = 0.5 * (v_dot_n.int - v_dot_n.ext)
@@ -385,12 +370,9 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                 - op.face_mass(
                     dcoll,
                     face_dd,
-                    flux(to_quad_int_tpair(dcoll, u, self.quad_tag))
-                    # communication of interface fluxes between
-                    # parallel boundaries
-                    + sum(flux(tpair)
-                          for tpair in op.cross_rank_trace_pairs(dcoll, u,
-                                                                 self.quad_tag))
+                    sum(flux(quad_tpair)
+                        for quad_tpair in to_quad_int_tpairs(dcoll, u,
+                                                             self.quad_tag))
                 )
             )
         )
