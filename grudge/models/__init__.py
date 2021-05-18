@@ -31,18 +31,6 @@ class Operator:
     documentation, to group related classes together in an inheritance
     tree.
     """
-    pass
-
-
-class TimeDependentOperator(Operator):
-    """A base class for time-dependent Discontinuous Galerkin operators.
-
-    You may derive your own operators from this class, but, at present
-    this class provides no functionality. Its function is merely as
-    documentation, to group related classes together in an inheritance
-    tree.
-    """
-    pass
 
 
 class HyperbolicOperator(Operator):
