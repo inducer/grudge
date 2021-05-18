@@ -8,6 +8,7 @@ Contents:
 
     discretization
     dof_desc
+    operators
     symbolic
     misc
     🚀 Github <https://github.com/inducer/grudge>

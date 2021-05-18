@@ -1,37 +1,3 @@
-"""
-.. autoclass:: HasElementwiseMatvecTag
-
-.. autofunction:: project
-
-.. autofunction:: nodes
-.. autofunction:: normal
-.. autofunction:: h_max_from_volume
-.. autofunction:: h_min_from_volume
-
-.. autofunction:: local_grad
-.. autofunction:: local_d_dx
-.. autofunction:: local_div
-
-.. autofunction:: weak_local_grad
-.. autofunction:: weak_local_d_dx
-.. autofunction:: weak_local_div
-
-.. autofunction:: mass
-.. autofunction:: inverse_mass
-.. autofunction:: face_mass
-
-.. autofunction:: norm
-.. autofunction:: nodal_summation
-.. autofunction:: nodal_minimum
-.. autofunction:: nodal_maximum
-.. autofunction:: integral
-
-.. autofunction:: elementwise_sum
-
-.. autofunction:: interior_trace_pair
-.. autofunction:: cross_rank_trace_pairs
-"""
-
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -79,6 +45,77 @@ import grudge.dof_desc as dof_desc
 from grudge.symbolic.primitives import TracePair
 
 
+__doc__ = """
+Metadata and geometry
+^^^^^^^^^^^^^^^^^^^^^
+
+Kernel tags
+-----------
+
+.. autoclass:: HasElementwiseMatvecTag
+
+Projection and interpolation
+----------------------------
+
+.. autofunction:: project
+
+Geometric quantities
+--------------------
+
+.. autofunction:: nodes
+.. autofunction:: normal
+.. autofunction:: h_max_from_volume
+.. autofunction:: h_min_from_volume
+
+Core DG routines
+^^^^^^^^^^^^^^^^
+
+Elementwise differentiation
+---------------------------
+
+.. autofunction:: local_grad
+.. autofunction:: local_d_dx
+.. autofunction:: local_div
+
+Weak derivative operators
+-------------------------
+
+.. autofunction:: weak_local_grad
+.. autofunction:: weak_local_d_dx
+.. autofunction:: weak_local_div
+
+Mass, inverse mass, and face mass operators
+-------------------------------------------
+
+.. autofunction:: mass
+.. autofunction:: inverse_mass
+.. autofunction:: face_mass
+
+Support functions
+^^^^^^^^^^^^^^^^^
+
+Nodal reductions
+----------------
+
+.. autofunction:: norm
+.. autofunction:: nodal_summation
+.. autofunction:: nodal_minimum
+.. autofunction:: nodal_maximum
+.. autofunction:: integral
+
+Elementwise reductions
+----------------------
+
+.. autofunction:: elementwise_sum
+
+Distributed-memory functionality
+--------------------------------
+
+.. autofunction:: interior_trace_pairs
+.. autofunction:: cross_rank_trace_pairs
+"""
+
+
 # {{{ Kernel tags
 
 class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
@@ -111,9 +148,9 @@ def project(dcoll, src, tgt, vec):
     quadrature discretization.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
-    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
-    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     """
     src = dof_desc.as_dofdesc(src)
     tgt = dof_desc.as_dofdesc(tgt)
@@ -140,7 +177,7 @@ def nodes(dcoll, dd=None):
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -171,7 +208,8 @@ def h_max_from_volume(dcoll, dim=None, dd=None):
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dim: an integer denoting topological dimension. If *None*, the
-        spatial dimension specified by :attr:`dcoll.dim` is used.
+        spatial dimension specified by
+        :attr:`grudge.discretization.DiscretizationCollection.dim` is used.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: an integer denoting the maximum characteristic length.
@@ -197,7 +235,8 @@ def h_min_from_volume(dcoll, dim=None, dd=None):
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dim: an integer denoting topological dimension. If *None*, the
-        spatial dimension specified by :attr:`dcoll.dim` is used.
+        spatial dimension specified by
+        :attr:`grudge.discretization.DiscretizationCollection.dim` is used.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: an integer denoting the minimum characteristic length.
@@ -266,11 +305,11 @@ def local_grad(dcoll, vec, *, nested=False):
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :arg nested: return nested object arrays instead of a single multidimensional
-        array if *vec* is non-scalar
+        array if *vec* is non-scalar.
     :returns: an object array (possibly nested) of
-        :class:`~meshmode.dof_array.DOFArray`\ s
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
@@ -290,9 +329,9 @@ def local_d_dx(dcoll, xyz_axis, vec):
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg xyz_axis: an integer indicating the axis along which the derivative
-        is taken
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        is taken.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     return _compute_local_gradient(dcoll, vec, xyz_axis)
 
@@ -329,7 +368,7 @@ def local_div(dcoll, vecs):
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
-    :returns: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray`.
     """
 
     return _div_helper(dcoll,
@@ -433,11 +472,11 @@ def weak_local_grad(dcoll, *args, nested=False):
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :arg nested: return nested object arrays instead of a single multidimensional
         array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
-        :class:`~meshmode.dof_array.DOFArray`\ s
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if len(args) == 1:
         vec, = args
@@ -472,8 +511,8 @@ def weak_local_d_dx(dcoll, *args):
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if len(args) == 2:
         xyz_axis, vec = args
@@ -501,7 +540,7 @@ def weak_local_div(dcoll, *args):
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
-    :returns: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray`.
     """
     if len(args) == 1:
         vecs, = args
@@ -593,6 +632,23 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
 
 
 def mass(dcoll, *args):
+    r"""Return the action of the DG mass matrix on a vector (or vectors)
+    of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
+    *vec* being an object array of :class:`~meshmode.dof_array.DOFArray`\ s,
+    the mass operator is applied in the Kronecker sense (component-wise).
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
@@ -689,6 +745,19 @@ def _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec):
 
 
 def inverse_mass(dcoll, vec):
+    r"""Return the action of the DG mass matrix inverse on a vector
+    (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
+    In the case of *vec* being an object array of
+    :class:`~meshmode.dof_array.DOFArray`\ s, the inverse mass operator is
+    applied in the Kronecker sense (component-wise).
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the inverse mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
 
     return _apply_inverse_mass_operator(
         dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
@@ -847,6 +916,23 @@ def _apply_face_mass_operator(dcoll, dd, vec):
 
 
 def face_mass(dcoll, *args):
+    r"""Return the action of the DG face mass matrix on a vector (or vectors)
+    of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
+    *vec* being an object array of :class:`~meshmode.dof_array.DOFArray`\ s,
+    the mass operator is applied in the Kronecker sense (component-wise).
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base 'all_faces' discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the face mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
@@ -882,12 +968,12 @@ def norm(dcoll, vec, p, dd=None):
     by its vector of degrees of freedom *vec*.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
-    :arg vec: a object array of
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
     :arg p: an integer denoting the order of the integral norm. Currently,
-        only `p` values of 2 or `numpy.inf` are supported.
+        only values of 2 or `numpy.inf` are supported.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: an integer denoting the norm.
@@ -922,13 +1008,11 @@ def nodal_sum(dcoll, dd, vec):
 def nodal_summation(vec):
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
-    :arg vec: a object array of
-        a :class:`~meshmode.dof_array.DOFArray`\ s,
-        where the last axis of the array must have length
-        matching the volume dimension.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal sum.
     """
-    return np.sum([vec.array_context.np.sum(vec_i) for vec_i in vec])
+    return np.sum([vec.array_context.np.sum(grp_ary)
+                   for grp_ary in vec])
 
 
 def nodal_min(dcoll, dd, vec):
@@ -941,13 +1025,11 @@ def nodal_min(dcoll, dd, vec):
 def nodal_minimum(vec):
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
-    :arg vec: a object array of
-        a :class:`~meshmode.dof_array.DOFArray`\ s,
-        where the last axis of the array must have length
-        matching the volume dimension.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal minimum.
     """
-    return np.min([vec.array_context.np.min(vec_i) for vec_i in vec])
+    return np.min([vec.array_context.np.min(grp_ary)
+                   for grp_ary in vec])
 
 
 def nodal_max(dcoll, dd, vec):
@@ -960,13 +1042,11 @@ def nodal_max(dcoll, dd, vec):
 def nodal_maximum(vec):
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
-    :arg vec: a object array of
-        a :class:`~meshmode.dof_array.DOFArray`\ s,
-        where the last axis of the array must have length
-        matching the volume dimension.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal maximum.
     """
-    return np.max([vec.array_context.np.max(vec_i) for vec_i in vec])
+    return np.max([vec.array_context.np.max(grp_ary)
+                   for grp_ary in vec])
 
 
 def integral(dcoll, vec, dd=None):
@@ -1005,7 +1085,8 @@ def elementwise_sum(dcoll, *args):
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+        denote the element-wise sum of *vec*.
     """
 
     if len(args) == 1:
@@ -1048,13 +1129,13 @@ def elementwise_sum(dcoll, *args):
 # {{{ Interior trace pairs
 
 def _interior_trace_pair(dcoll, vec):
-    """Return a :class:`grudge.sym.TracePair` for the interior faces of
+    r"""Return a :class:`grudge.sym.TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`.
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`grudge.sym.TracePair` object.
     """
     i = project(dcoll, "vol", "int_faces", vec)
@@ -1071,13 +1152,13 @@ def _interior_trace_pair(dcoll, vec):
 
 
 def interior_trace_pairs(dcoll, vec):
-    """Return a :class:`list` of :class:`grudge.sym.TracePair` objects defined
+    r"""Return a :class:`list` of :class:`grudge.sym.TracePair` objects defined
     on the interior faces of *dcoll* and any faces connected to a parallel
     boundary.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`.
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`list` of :class:`grudge.sym.TracePair` objects.
     """
     return (
@@ -1159,7 +1240,7 @@ def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
 
 
 def cross_rank_trace_pairs(dcoll, ary, tag=None):
-    r"""Get a list of *ary* trace pairs for each partition boundary.
+    r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
     communicated to/from the neighboring partition. Presumably, this
@@ -1167,14 +1248,16 @@ def cross_rank_trace_pairs(dcoll, ary, tag=None):
     routine is agnostic to the underlying communication, see e.g.
     _cross_rank_trace_pairs_scalar_field).
 
-    For each face on each partition boundary, a :class:`TracePair` is
-    created with the locally, and remotely owned partition boundary face
+    For each face on each partition boundary, a :class:`grudge.sym.TracePair`
+    is created with the locally, and remotely owned partition boundary face
     data as the `internal`, and `external` components, respectively.
     Each of the TracePair components are structured like *ary*.
 
-    The input field data *ary* may be a single
-    :class:`~meshmode.dof_array.DOFArray`, or an object
-    array of ``DOFArray``\ s of arbitrary shape.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg ary: a single :class:`~meshmode.dof_array.DOFArray`, or an object
+        array of :class:`~meshmode.dof_array.DOFArray`\ s
+        of arbitrary shape.
+    :returns: a :class:`list` of :class:`grudge.sym.TracePair` objects.
     """
     if isinstance(ary, np.ndarray):
         oshape = ary.shape
