@@ -28,7 +28,6 @@ THE SOFTWARE.
 import numpy as np
 
 from grudge.models import HyperbolicOperator
-from grudge.symbolic.primitives import TracePair
 
 from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -146,10 +145,6 @@ class WeakWaveOperator(HyperbolicOperator):
         def flux(tpair):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
-        def bv_tpair(tag, w, bc):
-            return TracePair(tag, interior=op.project(dcoll, "vol", tag, w),
-                             exterior=bc)
-
         result = (
             op.inverse_mass(
                 dcoll,
@@ -161,9 +156,9 @@ class WeakWaveOperator(HyperbolicOperator):
                     dcoll,
                     + sum(flux(tpair)
                           for tpair in op.interior_trace_pairs(dcoll, w))
-                    + flux(bv_tpair(self.dirichlet_tag, w, dir_bc))
-                    + flux(bv_tpair(self.neumann_tag, w, neu_bc))
-                    + flux(bv_tpair(self.radiation_tag, w, rad_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))
                 )
             )
         )
@@ -303,10 +298,6 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         def flux(tpair):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
-        def bv_tpair(tag, w, bc):
-            return TracePair(tag, interior=op.project(dcoll, "vol", tag, w),
-                             exterior=bc)
-
         result = (
             op.inverse_mass(
                 dcoll,
@@ -318,9 +309,12 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     dcoll,
                     + sum(flux(tpair)
                           for tpair in op.interior_trace_pairs(dcoll, flux_w))
-                    + flux(bv_tpair(self.dirichlet_tag, flux_w, dir_bc))
-                    + flux(bv_tpair(self.neumann_tag, flux_w, neu_bc))
-                    + flux(bv_tpair(self.radiation_tag, flux_w, rad_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag,
+                                            flux_w, dir_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.neumann_tag,
+                                            flux_w, neu_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.radiation_tag,
+                                            flux_w, rad_bc))
                 )
             )
         )

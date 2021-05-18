@@ -31,7 +31,6 @@ import grudge.op as op
 import types
 
 from grudge.models import HyperbolicOperator
-from grudge.symbolic.primitives import TracePair
 
 from meshmode.dof_array import thaw
 
@@ -107,11 +106,10 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
-            inflow_flux = flux(TracePair(BTAG_ALL,
-                                         interior=op.project(
-                                             dcoll, "vol", BTAG_ALL, u
-                                         ),
-                                         exterior=self.inflow_u(t)))
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                BTAG_ALL,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
         else:
             inflow_flux = 0
 
@@ -125,16 +123,14 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
-                    # + flux(TracePair(self.inflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, "vol", self.inflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_in))
-                    # + flux(TracePair(self.outflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, "vol", self.outflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_out))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
                 )
             )
         )
@@ -153,11 +149,10 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
-            inflow_flux = flux(TracePair(BTAG_ALL,
-                                         interior=op.project(
-                                             dcoll, "vol", BTAG_ALL, u
-                                         ),
-                                         exterior=self.inflow_u(t)))
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                BTAG_ALL,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
         else:
             inflow_flux = 0
 
@@ -171,16 +166,14 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
-                    # + flux(TracePair(self.inflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, "vol", self.inflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_in))
-                    # + flux(TracePair(self.outflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, "vol", self.outflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_out))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
                 )
             )
         )
@@ -190,6 +183,7 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
 
 def to_quad_int_tpairs(dcoll, u, quad_tag):
     from grudge.dof_desc import DISCR_TAG_QUAD
+    from grudge.trace_pair import TracePair
 
     if issubclass(quad_tag, DISCR_TAG_QUAD):
         return [
@@ -245,11 +239,10 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, DD_VOLUME, quad_dd, arg)
 
         if self.inflow_u is not None:
-            inflow_flux = flux(TracePair(boundary_dd,
-                                         interior=op.project(
-                                             dcoll, DD_VOLUME, boundary_dd, u
-                                         ),
-                                         exterior=self.inflow_u(t)))
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                boundary_dd,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
         else:
             inflow_flux = 0
 
@@ -270,16 +263,14 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
                     + inflow_flux
 
                     # FIXME: Add support for inflow/outflow tags
-                    # + flux(TracePair(self.inflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, DD_VOLUME, self.inflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_in))
-                    # + flux(TracePair(self.outflow_tag,
-                    #                  interior=op.project(
-                    #                      dcoll, DD_VOLUME, self.outflow_tag, u
-                    #                  ),
-                    #                  exterior=bc_out))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
                 )
             )
         )
@@ -291,6 +282,7 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 
 def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     from grudge.dof_desc import DTAG_BOUNDARY
+    from grudge.trace_pair import TracePair
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
     normal = thaw(actx, op.normal(dcoll, trace_dd.with_discr_tag(None)))
@@ -378,5 +370,6 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         )
 
 # }}}
+
 
 # vim: foldmethod=marker

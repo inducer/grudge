@@ -1,4 +1,9 @@
-__copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
+"""Minimal example of a grudge driver."""
+
+__copyright__ = """
+Copyright (C) 2020 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -36,7 +41,6 @@ from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
-from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits
@@ -98,9 +102,10 @@ def wave_operator(dcoll, c, w):
                 dd_allfaces_quad,
                 wave_flux(
                     dcoll, c=c,
-                    w_tpair=TracePair(BTAG_ALL,
-                                      interior=dir_bval,
-                                      exterior=dir_bc)
+                    w_tpair=op.bdry_trace_pair(dcoll,
+                                               BTAG_ALL,
+                                               interior=dir_bval,
+                                               exterior=dir_bc)
                 ) + sum(
                     wave_flux(dcoll, c=c, w_tpair=tpair)
                     for tpair in op.interior_trace_pairs(dcoll, w)

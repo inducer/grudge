@@ -30,7 +30,6 @@ THE SOFTWARE.
 from pytools import memoize_method
 
 from grudge.models import HyperbolicOperator
-from grudge.symbolic.primitives import TracePair
 
 from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -291,10 +290,6 @@ class MaxwellOperator(HyperbolicOperator):
         def flux(pair):
             return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
 
-        def bv_tpair(tag, w, bc):
-            return TracePair(tag, interior=op.project(dcoll, "vol", tag, w),
-                             exterior=bc)
-
         return (
             - self.local_derivatives(w)
             - op.inverse_mass(
@@ -303,7 +298,7 @@ class MaxwellOperator(HyperbolicOperator):
                     dcoll,
                     + sum(flux(tpair)
                           for tpair in op.interior_trace_pairs(dcoll, w))
-                    + sum(flux(bv_tpair(tag, w, bc))
+                    + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
                           for tag, bc in tags_and_bcs)
                 )
             )

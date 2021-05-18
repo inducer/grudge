@@ -121,8 +121,10 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                    sum(get_flux(utpair)
+                        for utpair in op.interior_trace_pairs(dcoll, u))
                 )
+            )
         else:
             raise ValueError("Invalid form argument.")
 
@@ -238,8 +240,10 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                    sum(get_flux(utpair)
+                        for utpair in op.interior_trace_pairs(dcoll, u))
                 )
+            )
         else:
             raise ValueError("Invalid form argument.")
 
