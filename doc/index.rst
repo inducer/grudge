@@ -8,6 +8,7 @@ Contents:
 
     discretization
     dof_desc
+    geometry
     operators
     symbolic
     misc

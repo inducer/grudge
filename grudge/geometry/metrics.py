@@ -34,18 +34,58 @@ from pytools.obj_array import make_obj_array
 from pytools import memoize_on_first_arg
 
 
+__doc__ = """
+Coordinate transformations
+--------------------------
+
+.. autofunction:: forward_metric_nth_derivative
+.. autofunction:: forward_metric_derivative_mat
+.. autofunction:: inverse_metric_derivative_mat
+
+.. autofunction:: first_fundamental_form
+.. autofunction:: inverse_first_fundamental_form
+
+Geometry terms
+--------------
+
+.. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: pseudoscalar
+.. autofunction:: area_element
+
+Normal vectors
+--------------
+
+.. autofunction:: surface_normal
+.. autofunction:: normal
+
+Curvature tensors
+-----------------
+
+.. autofunction:: second_fundamental_form
+.. autofunction:: shape_operator
+.. autofunction:: summed_curvature
+"""
+
+
 # {{{ Metric computations
 
 def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
-    r"""
-    Pointwise metric derivatives representing repeated derivatives to *vec*
+    r"""Pointwise metric derivatives representing repeated derivatives of the
+    physical coordinate enumerated by *xyz_axis*: :math:`x_{\mathrm{xyz\_axis}}`
+    with respect to the coordiantes on the reference element :math:`\xi_i`:
 
     .. math::
 
-        \frac{\partial^n x_{\mathrm{xyz\_axis}} }{\partial r_{\mathrm{ref\_axes}}}
+        D^\alpha x_{\mathrm{xyz\_axis}} =
+        \frac{\partial^{|\alpha|} x_{\mathrm{xyz\_axis}}}{
+            \partial \xi_1^{\alpha_1}\cdots \partial \xi_m^{\alpha_m}}
 
-    where *ref_axes* is a multi-index description.
+    where :math:`\alpha` is a multi-index described by *ref_axes*.
 
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg xyz_axis: an integer denoting which physical coordinate to
+        differentiate.
     :arg ref_axes: a :class:`tuple` of tuples indicating indices of
         coordinate axes of the reference element to the number of derivatives
         which will be taken. For example, the value ``((0, 2), (1, 1))``
@@ -53,6 +93,10 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
         axis and the first derivative with respect to the second
         axis. Each axis must occur only once and the tuple must be sorted
         by the axis index.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the pointwise
+        metric derivative at each nodal coordinate.
     """
     if dd is None:
         dd = DD_VOLUME
@@ -89,7 +133,19 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
 
 
 def forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=None):
+    r"""Computes an object array containing the forward metric derivatives
+    of each physical coordinate.
 
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg rst_axis: a :class:`tuple` of tuples indicating indices of
+        coordinate axes of the reference element to the number of derivatives
+        which will be taken.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        containing the pointwise metric derivatives at each nodal coordinate.
+    """
     return make_obj_array([
         forward_metric_nth_derivative(actx, dcoll, i, rst_axis, dd=dd)
         for i in range(dcoll.ambient_dim)
@@ -98,14 +154,49 @@ def forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=None):
 
 
 def forward_metric_derivative_mv(actx, dcoll, rst_axis, dd=None):
+    r"""Computes a :class:`pymbolic.geometric_algebra.MultiVector` containing
+    the forward metric derivatives of each physical coordinate.
 
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg rst_axis: a :class:`tuple` of tuples indicating indices of
+        coordinate axes of the reference element to the number of derivatives
+        which will be taken.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`pymbolic.geometric_algebra.MultiVector` containing
+        the forward metric derivatives in each physical coordinate.
+    """
     return MultiVector(
         forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=dd)
     )
 
 
 def forward_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
+    r"""Computes the forward metric derivative matrix, also commonly
+    called the Jacobian matrix, with entries defined as the
+    forward metric derivatives:
 
+    .. math::
+
+        J = \left\lbrack
+            \frac{\partial x_i}{\partial \xi_j}
+            \right\rbrack_{(0, 0) \leq (i, j) \leq (n, m)}
+
+    where :math:`x_1, \cdots, x_n` denote the physical coordinates and
+    :math:`\xi_1, \cdots, \xi_m` denote coordinates on the reference element.
+    Note that, in the case of immersed manifolds, `J` is not necessarily
+    a square matrix.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a matrix containing the evaluated forward metric derivatives
+        of each physical coordinate, with respect to each reference coordinate.
+    """
     ambient_dim = dcoll.ambient_dim
 
     if dim is None:
@@ -119,7 +210,32 @@ def forward_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
 
 
 def first_fundamental_form(actx, dcoll, dim=None, dd=None):
+    r"""Computes the first fundamental form using the Jacobian matrix:
 
+    .. math::
+
+        \begin{bmatrix}
+            E & F \\ F & G
+        \end{bmatrix} :=
+        \begin{bmatrix}
+            (\partial_u x)^2 & \partial_u x \partial_v x \\
+            \partial_u x \partial_v x & (\partial_v x)^2
+        \end{bmatrix} =
+        J^T \cdot J
+
+    where :math:`u, v` are coordinates on the parameterized surface and
+    :math:`x(u, v)` defines a parameterized region. Here, :math:`J` is the
+    corresponding Jacobian matrix.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a matrix containing coefficients of the first fundamental
+        form.
+    """
     if dim is None:
         dim = dcoll.ambient_dim - 1
 
@@ -129,7 +245,17 @@ def first_fundamental_form(actx, dcoll, dim=None, dd=None):
 
 
 def inverse_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
+    r"""Computes the inverse metric derivative matrix, which is
+    the inverse of the Jacobian (forward metric derivative) matrix.
 
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a matrix containing the evaluated inverse metric derivatives.
+    """
     ambient_dim = dcoll.ambient_dim
 
     if dim is None:
@@ -146,7 +272,29 @@ def inverse_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
 
 
 def inverse_first_fundamental_form(actx, dcoll, dim=None, dd=None):
+    r"""Computes the inverse of the first fundamental form:
 
+    .. math::
+
+        \begin{bmatrix}
+            E & F \\ F & G
+        \end{bmatrix}^{-1} =
+        \frac{1}{E G - F^2}
+        \begin{bmatrix}
+            G & -F \\ -F & E
+        \end{bmatrix}
+
+    where :math:`E, F, G` are coefficients of the first fundamental form.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a matrix containing coefficients of the inverse of the
+        first fundamental form.
+    """
     if dim is None:
         dim = dcoll.dim
 
@@ -171,6 +319,19 @@ def inverse_first_fundamental_form(actx, dcoll, dim=None, dd=None):
 
 
 def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
+    r"""Computes the inverse metric derivative of the physical
+    coordinate enumerated by *xyz_axis* with respect to the
+    reference axis *rst_axis*.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg rst_axis: an integer denoting the reference coordinate axis.
+    :arg xyz_axis: an integer denoting the physical coordinate axis.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        inverse metric derivative at each nodal coordinate.
+    """
 
     dim = dcoll.dim
     if dim != dcoll.ambient_dim:
@@ -209,7 +370,20 @@ def inverse_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd):
 
 @memoize_on_first_arg
 def inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis, dd=None):
+    r"""Computes the inverse surface metric derivative of the physical
+    coordinate enumerated by *xyz_axis* with respect to the
+    reference axis *rst_axis*. These geometric terms are used in the
+    transformation of physical gradients.
 
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg rst_axis: an integer denoting the reference coordinate axis.
+    :arg xyz_axis: an integer denoting the physical coordinate axis.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        inverse metric derivative at each nodal coordinate.
+    """
     dim = dcoll.dim
     if dcoll.ambient_dim == dim:
         imd = inverse_metric_derivative(
@@ -248,6 +422,18 @@ def _signed_face_ones(actx, dcoll, dd):
 
 
 def parametrization_derivative(actx, dcoll, dim, dd):
+    r"""Computes the product of forward metric derivatives spanning the
+    tangent space with topological dimension *dim*.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`pymbolic.geometric_algebra.MultiVector` containing
+        the product of metric derivatives.
+    """
     if dim == 0:
         from pymbolic.geometric_algebra import get_euclidean_space
 
@@ -265,6 +451,18 @@ def parametrization_derivative(actx, dcoll, dim, dd):
 
 
 def pseudoscalar(actx, dcoll, dim=None, dd=None):
+    r"""Computes a signed volume of a region subtended by the forward
+    metric differentials on a surface.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing signed volumes
+        for each element.
+    """
     if dd is None:
         dd = DD_VOLUME
 
@@ -278,6 +476,19 @@ def pseudoscalar(actx, dcoll, dim=None, dd=None):
 
 @memoize_on_first_arg
 def area_element(actx, dcoll, dim=None, dd=None):
+    r"""Computes the measure of a transformed element. These are used
+    to transform integrals from global to reference space, and are
+    commonly referred to as Jacobian determinants.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
+        volumes for each element.
+    """
 
     return actx.np.sqrt(
         pseudoscalar(actx, dcoll, dim=dim, dd=dd).norm_squared()
@@ -289,6 +500,16 @@ def area_element(actx, dcoll, dim=None, dd=None):
 # {{{ Surface normal vectors
 
 def surface_normal(actx, dcoll, dim=None, dd=None):
+    r"""Computes surface normals at each nodal location.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the spatial dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.dim`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the surface
+        normals at each nodal point.
+    """
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
@@ -307,7 +528,13 @@ def surface_normal(actx, dcoll, dim=None, dd=None):
 
 
 def mv_normal(actx, dcoll, dd):
-    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`."""
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
+        containing the unit normals.
+    """
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
@@ -349,6 +576,13 @@ def mv_normal(actx, dcoll, dd):
 
 
 def normal(actx, dcoll, dd):
+    """Get the unit normal to the specified surface discretization, *dd*.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
+        containing the unit normals at each nodal location.
+    """
     return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
 
 # }}}
@@ -357,6 +591,25 @@ def normal(actx, dcoll, dd):
 # {{{ Curvature computations
 
 def second_fundamental_form(actx, dcoll, dim=None, dd=None):
+    r"""Computes the second fundamental form:
+
+    .. math::
+
+        S(x) = \begin{bmatrix}
+            \partial_{uu} x\cdot n & \partial_{uv} x\cdot n \\
+            \partial_{uv} x\cdot n & \partial_{vv} x\cdot n
+        \end{bmatrix}
+
+    where :math:`n` is the surface normal, :math:`x(u, v)` defines a parameterized
+    surface, and :math:`u,v` are coordinates on the parameterized surface.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the surface dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.ambient_dim` - 1.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :returns: a rank-2 object array describing second fundamental form.
+    """
 
     if dim is None:
         dim = dcoll.ambient_dim - 1
@@ -387,6 +640,26 @@ def second_fundamental_form(actx, dcoll, dim=None, dd=None):
 
 
 def shape_operator(actx, dcoll, dim=None, dd=None):
+    r"""Computes the shape operator (also called the curvature tensor) containing
+    second order derivatives:
+
+    .. math::
+
+        C(x) = \begin{bmatrix}
+            \partial_{uu} x & \partial_{uv} x \\
+            \partial_{uv} x & \partial_{vv} x
+        \end{bmatrix}
+
+    where :math:`x(u, v)` defines a parameterized surface, and :math:`u,v` are
+    coordinates on the parameterized surface.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the surface dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.ambient_dim` - 1.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :returns: a rank-2 object array describing the shape operator.
+    """
 
     if dim is None:
         dim = dcoll.ambient_dim - 1
@@ -398,7 +671,24 @@ def shape_operator(actx, dcoll, dim=None, dd=None):
 
 
 def summed_curvature(actx, dcoll, dim=None, dd=None):
-    """Sum of the principal curvatures"""
+    r"""Computes the sum of the principal curvatures:
+
+    .. math::
+
+        \kappa = \mathrm{Trace}(C(x))
+
+    where :math:`x(u, v)` defines a parameterized surface, :math:`u,v` are
+    coordinates on the parameterized surface, and :math:`C(x)` is the shape
+    operator.
+
+    :arg actx: an :class:`~meshmode.array_context.ArrayContext`.
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dim: an integer denoting the surface dimension. Defaults to the
+        :attr:`grudge.discretization.DiscretizationCollection.ambient_dim` - 1.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the summed
+        curvature at each nodal coordinate.
+    """
 
     if dim is None:
         dim = dcoll.ambient_dim - 1
@@ -410,13 +700,6 @@ def summed_curvature(actx, dcoll, dim=None, dd=None):
         return 0.0
 
     return np.trace(shape_operator(actx, dcoll, dim=dim, dd=dd))
-
-
-def mean_curvature(actx, dcoll, dim=None, dd=None):
-    """Averaged (by dimension) sum of the principal curvatures."""
-
-    return (1.0 / (dcoll.ambient_dim - 1)
-            * summed_curvature(actx, dcoll, dim=dim, dd=dd))
 
 # }}}
 
