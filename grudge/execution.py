@@ -644,6 +644,11 @@ class ExecutionMapper(mappers.Evaluator,
             fp_format = field.entry_dtype
             program = diff_prg(noperators, n_elem, n_in, field.entry_dtype)
 
+            if noperators == 3 or noperators == 1:
+                import traceback
+                traceback.print_stack()
+                #exit()
+
             self.array_context.call_loopy(
                     program,
                     diff_mat=matrices_ary_dev,

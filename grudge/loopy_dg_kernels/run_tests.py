@@ -29,6 +29,8 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
+
+from grudge.grudge_array_context import set_memory_layout
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
     generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
 
@@ -459,10 +461,11 @@ def analyze_knl_bandwidth(knl, avg_time):
         print(arg.shape)
         print(type(arg.dtype))
         entries = np.prod((arg.shape))
-        fp_bytes = 8 if arg.dtype.dtype == np.float64 else 4
+        fp_bytes = arg.dtype.dtype.itemsize
         nbytes += fp_bytes * entries
     bw = nbytes / avg_time / 1e9
     print("Time: {}, Bytes: {}, Bandwidth: {} GB/s".format(avg_time, nbytes, bw))
+    return bw
 
 
 def analyzeResult(n_out, n_in, n_elem, peak_gflops, device_memory_bandwidth,
@@ -530,6 +533,7 @@ def verifyResultFortran(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
 
 
 def k_inner_inner_options(reverse=True):
+    #return [32]
     return sorted([8, 16, 32], reverse=reverse)
 
 
@@ -559,6 +563,7 @@ def i_inner_outer_options(n_out, i_inner_inner, reverse=False):
 def j_inner_options(n_in, reverse=False):
     factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
     return sorted(factors, reverse=reverse)
+    #return [10] # For order 2 is is always best
 
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95):
@@ -566,7 +571,6 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     # Imports
     from random import choice
     from grudge.grudge_tags import ParameterValue
-    from grudge.grudge_array_context import set_memory_layout
 
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
@@ -613,6 +617,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     result_saved = None
     
     # Iterate over five search dimensions
+    result_list = []
     start = time.time()
     for kii in k_inner_inner_opt:
         # This prevents shared memory from overflowing when running with the face mass kernel
@@ -645,6 +650,22 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                         dev_arrays, avg_time = test_fn(queue, knl)
 
                         # Analyze the results
+
+                        print((kio, kii, iio, iii, ji))
+                        if device_memory_bandwidth is not None:  # noqa
+                            #frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
+                            #    n_in, n_elem, max_gflops, device_memory_bandwidth,
+                            #    avg_time)
+                            bw  = analyze_knl_bandwidth(knl, avg_time)
+                            frac_peak_GBps = bw / device_memory_bandwidth
+                            result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
+                            if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+                                # Should validate result here
+                                pass
+                                #print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+                                #return (kio, kii, iio, iii, ji)
+                        """
+                        # TODO: Fix flop calculation
                         if max_gflops is not None and device_memory_bandwidth is not None:  # noqa
                             frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
                                 n_in, n_elem, max_gflops, device_memory_bandwidth,
@@ -653,11 +674,17 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                                 # Should validate result here
                                 print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
                                 return (kio, kii, iio, iii, ji)
+                        """
                         if avg_time < avg_time_saved:
                             avg_time_saved = avg_time
                             result_saved = (kio, kii, iio, iii, ji)
-                        if time.time() - start > time_limit:
+                        if time.time() - start > time_limit: 
                             return result_saved
+    result_list.sort()
+    for entry in result_list:
+        print(entry)
+    print()
+    #print(result_list)
 
     print("Suggested loop splittings")
     print(f"iel: {kio}")
@@ -751,13 +778,24 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
             dev_arrays, avg_time = test_fn(queue, knl)
             tested.append(choices)
 
-            if max_gflops is not None and device_memory_bandwidth is not None:
-                frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out, n_in, n_elem,
-                    max_gflops, device_memory_bandwidth, avg_time)
-                if frac_peak_gflops >= gflops_cutoff or frac_peak_GBps >= bandwidth_cutoff:  # noqa
+            print((kio, kii, iio, iii, ji))
+            if device_memory_bandwidth is not None:  # noqa
+                bw  = analyze_knl_bandwidth(knl, avg_time)
+                frac_peak_GBps = bw / device_memory_bandwidth
+                if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
                     # Should validate result here
-                    print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
-                    return choices
+                    print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+                    return (kio, kii, iio, iii, ji)
+
+            # Fix flop calculation
+            #if max_gflops is not None and device_memory_bandwidth is not None:
+            #    frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out, n_in, n_elem,
+            #        max_gflops, device_memory_bandwidth, avg_time)
+            #    if frac_peak_gflops >= gflops_cutoff or frac_peak_GBps >= bandwidth_cutoff:  # noqa
+            #        # Should validate result here
+            #        print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+            #        return choices
+
             if avg_time < avg_time_saved:
                 avg_time_saved = avg_time
                 result_saved = choices
@@ -845,9 +883,9 @@ if __name__ == "__main__":
 
     """
     #testBandwidth()
-    """
+    #"""
     # Test elwise linear
-    pn = 3
+    pn = 4
     n_out = len(equidistant_nodes(pn,3)[1])
     n_in = n_out
     n_elem = 178746
@@ -857,12 +895,14 @@ if __name__ == "__main__":
 
     hjson_file = open("elwise_linear_transform.hjson")
     trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(pn)])
+
+    knl = set_memory_layout(knl)
     knl = apply_transformation_list(knl, trans)
     #print(knl)
     _, avg_time = test_elwise_linear(queue, knl, backend="OPENCL", nruns=10, warmup=True)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
-    """
+    #"""
     """
     # Test face_mass            
     pn = 3
@@ -885,12 +925,14 @@ if __name__ == "__main__":
     analyze_knl_bandwidth(knl, avg_time)
     """
 
+    """
     # Test autotuner
     from grudge.execution import diff_prg, elwise_linear_prg, face_mass_prg
-    knl = diff_prg(1, 178746, 20, np.float64)
-    knl = elwise_linear_prg(178746, 20, np.float64)
-    # Figure out the actual dimensions
+    #knl = diff_prg(3, 178746, 35, np.float64)
+    knl = elwise_linear_prg(178746, 35, np.float64)
+    ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
-    #print(knl)
-    #exit()
-    exhaustive_search(queue, knl, test_elwise_linear, time_limit=60, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=0.95)    
+
+    #result = exhaustive_search(queue, knl, test_diff, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0)
+    #print(result)
+    """

@@ -364,27 +364,36 @@ def generate_transformation_list_old(k_inner_outer, k_inner_inner, i_inner_outer
                             {"temporary_name": "mat3fp", "default_tag": "unr"}))
     return tuple(transformations)
 
+# This is rather nvidia specific at present
+# And also specific to the diff kernel
+# May need different ones of these for different kernels
 def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
                                 i_inner_inner, j_inner):
     transformations = []
     # transformation name, list of args, dict of keyward args
-    transformations.append(("tag_array_axes", ["diff_mat", "sep,c,c"]))
-    transformations.append(("tag_array_axes", ["result", "sep,f,f"]))
-    transformations.append(("tag_inames", [[("m", "ilp")]]))
-    transformations.append(("split_iname", ["k", k_inner_outer], {"outer_tag": "g.0",
-                            "slabs": (0, 0)}))
-    transformations.append(("split_iname", ["k_inner", k_inner_inner],
+
+    # Set data layouts
+    # This should be handled by the array context?
+    #transformations.append(("tag_array_axes", ["diff_mat", "sep,c,c"]))
+    #transformations.append(("tag_array_axes", ["result", "sep,f,f"]))
+
+    # Split and tag inames
+    transformations.append(("tag_inames", [[("imatrix", "ilp")]]))
+    transformations.append(("split_iname", ["iel", k_inner_outer], {"outer_tag": "g.0",
+                            "slabs": (0, 1)}))
+    transformations.append(("split_iname", ["iel_inner", k_inner_inner],
                             {"outer_tag": "ilp", "inner_tag": "l.0"}))
-    transformations.append(("split_iname", ["j", j_inner]))
-    transformations.append(("split_iname", ["i", i_inner_outer],
+    transformations.append(("split_iname", ["idof", i_inner_outer],
                             {"outer_tag": "g.1"}))
-    transformations.append(("split_iname", ["i_inner", i_inner_inner],
+    transformations.append(("split_iname", ["idof_inner", i_inner_inner],
                             {"outer_tag": "ilp", "inner_tag": "l.1"}))
+    transformations.append(("split_iname", ["j", j_inner]))
+
+    # Prefetching
     transformations.append(("add_prefetch", ["vec",
-                            "j_outer,j_inner,k_inner_outer,k_inner_inner"],
+                            "j_outer,j_inner,iel_inner_outer,iel_inner_inner"],
                             {"temporary_name": "vecf", "default_tag": "l.auto"}))
-    transformations.append(("add_prefetch", ["diff_mat", "j_inner"],
-                            {"temporary_name": "matfp", "default_tag": "unr"}))
+    transformations.append(("tag_array_axes", ["vecf", "f,f"]))
     return tuple(transformations)
 
 #@memoize_method

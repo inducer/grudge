@@ -79,24 +79,33 @@
         FP64: {
           2:[
               # Format: [Transformation, args, kwargs]
-              ["split_iname", ["iel", 128], {outer_tag: "g.0", slabs:[0,1]}],
+              #["split_iname", ["iel", 128], {outer_tag: "g.0", slabs:[0,1]}],
+              #["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              #["split_iname", ["idof", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
+              #["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              ["split_iname", ["iel", 96], {outer_tag: "g.0", slabs:[0,1]}],
               ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
-              ["split_iname", ["idof", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["split_iname", ["idof", 10], {outer_tag: "g.1", slabs:[0,0]}],
+              ["split_iname", ["idof_inner", 10], {outer_tag: "ilp", inner_tag: "l.1", slabs:[0,0]}], 
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
-              ["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for"}],
+
           ],
           3:[
-              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel", 128], {outer_tag: "g.0", slabs:[0,1]}],
               # For tests uncomment this
               #["split_iname", ["iel", 32], {outer_tag: "g.0", slabs:[0,1]}],
               ["split_iname", ["iel_inner",  32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,0]}],
               #["split_iname", ["idof", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
               ["split_iname", ["idof", 20], {outer_tag: "g.1"}], 
-              ["split_iname", ["idof_inner", 5], {outer_tag: "ilp", inner_tag: "l.1"}], 
+              ["split_iname", ["idof_inner", 10], {outer_tag: "ilp", inner_tag: "l.1"}], 
               # For tests comment this
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
               #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}],  
-              ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for", slabs:[0,0]}],
+              ["split_iname", ["j", 20], {outer_tag: "for", inner_tag: "for", slabs:[0,0]}],
                 ["tag_array_axes", ["vecf", "f,f"]],
           ],
           4:[
@@ -105,8 +114,8 @@
               #["tag_array_axes", ["result", "sep,f,f"]],
               #["tag_array_axes", ["vec", "f,f"]],
 
-              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
-              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["iel", 56], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 8], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
               # See if these pass the tests
               #["split_iname", ["iel", 12], {outer_tag: "g.0", slabs:[0,1]}],
               #["split_iname", ["iel_inner", 4], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
@@ -114,8 +123,11 @@
               #["split_iname", ["idof", 35], {outer_tag: "g.1", inner_tag: "l.1"}],
               ["split_iname", ["idof", 35], {outer_tag: "g.1"}], 
               ["split_iname", ["idof_inner", 7], {outer_tag: "ilp", inner_tag: "l.1"}], 
- 
+
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["split_iname", ["j", 35], {outer_tag: "for", inner_tag: "for"}], 
+ 
               #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
           ],
           5:[
