@@ -1089,7 +1089,7 @@ def interior_trace_pairs(dcoll, vec):
 def interior_trace_pair(dcoll, vec):
     from warnings import warn
     warn("`interior_trace_pair` is deprecated and will be dropped "
-         "in version 2022.x. Use `interior_trace_pairs` instead, ",
+         "in version 2022.x. Use `interior_trace_pairs` instead, "
          "which includes contributions from different MPI ranks.",
          DeprecationWarning, stacklevel=2)
     return _interior_trace_pair(dcoll, vec)
