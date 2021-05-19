@@ -67,8 +67,7 @@ class TracePair:
     .. attribute:: dd
 
         an instance of :class:`grudge.dof_desc.DOFDesc` describing the
-        discretization on which :attr:`interior` and :attr:`exterior`
-        live.
+        discretization on which :attr:`int` and :attr:`ext` live.
 
     .. autoattribute:: int
     .. autoattribute:: ext

@@ -44,6 +44,7 @@ import grudge.dof_desc as dof_desc
 from grudge.trace_pair import (  # noqa
     interior_trace_pair,
     interior_trace_pairs,
+    connected_ranks,
     cross_rank_trace_pairs,
     bdry_trace_pair,
     bv_trace_pair
