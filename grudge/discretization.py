@@ -1,4 +1,7 @@
-__copyright__ = "Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache"
+__copyright__ = """
+Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -40,18 +43,25 @@ __doc__ = """
 
 
 class DiscretizationCollection:
-    """
-    .. automethod :: __init__
+    """A collection of discretizations on various mesh entities
+    (volume, interior facets, boundaries) and associated element
+    groups.
 
-    .. automethod :: discr_from_dd
-    .. automethod :: connection_from_dds
+    .. automethod:: __init__
 
-    .. autoattribute :: dim
-    .. autoattribute :: ambient_dim
-    .. autoattribute :: mesh
+    .. autoattribute:: dim
+    .. autoattribute:: ambient_dim
+    .. autoattribute:: mesh
+    .. autoattribute:: real_dtype
+    .. autoattribute:: complex_dtype
 
-    .. automethod :: empty
-    .. automethod :: zeros
+    .. automethod:: discr_from_dd
+    .. automethod:: connection_from_dds
+    .. automethod:: opposite_face_connection
+    .. automethod:: get_distributed_boundary_swap_connection
+
+    .. automethod:: empty
+    .. automethod:: zeros
     """
 
     def __init__(self, array_context, mesh, order=None,
@@ -197,6 +207,18 @@ class DiscretizationCollection:
         return boundary_connections
 
     def get_distributed_boundary_swap_connection(self, dd):
+        """Provides a mapping from the base volume discretization
+        to the exterior boundary restriction on a parallel boundary
+        partition described by *dd*. This connection is used to
+        communicate across element boundaries in different parallel
+        partitions during distributed runs.
+
+        :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+            convertible to one. The domain tag must be a subclass
+            of :class:`grudge.dof_desc.DTAG_BOUNDARY` with an
+            associated :class:`meshmode.mesh.BTAG_PARTITION`
+            corresponding to a particular communication rank.
+        """
         if dd.discretization_tag is not DISCR_TAG_BASE:
             # FIXME
             raise NotImplementedError(
@@ -211,6 +233,12 @@ class DiscretizationCollection:
 
     @memoize_method
     def discr_from_dd(self, dd):
+        """Provides a :class:`meshmode.discretization.Discretization`
+        object from *dd*.
+
+        :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+            convertible to one.
+        """
         dd = as_dofdesc(dd)
 
         discr_tag = dd.discretization_tag
@@ -246,6 +274,16 @@ class DiscretizationCollection:
 
     @memoize_method
     def connection_from_dds(self, from_dd, to_dd):
+        """Provides a mapping (connection) from one discretization to
+        another, e.g. from the volume to the boundary, or from the
+        base to the an overintegrated quadrature discretization, or from
+        a nodal representation to a modal representation.
+
+        :arg from_dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+            convertible to one.
+        :arg to_dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+            convertible to one.
+        """
         from_dd = as_dofdesc(from_dd)
         to_dd = as_dofdesc(to_dd)
 
@@ -453,6 +491,10 @@ class DiscretizationCollection:
 
     @memoize_method
     def opposite_face_connection(self):
+        """Provides a mapping from the base volume discretization
+        to the exterior boundary restriction on a neighboring element.
+        This does not take into account parallel partitions.
+        """
         from meshmode.discretization.connection import \
                 make_opposite_face_connection
 
@@ -482,28 +524,49 @@ class DiscretizationCollection:
 
     @property
     def dim(self):
+        """Return the topological dimension."""
         return self._volume_discr.dim
 
     @property
     def ambient_dim(self):
+        """Return the geometric dimension."""
         return self._volume_discr.ambient_dim
 
     @property
     def real_dtype(self):
+        """Return the data type used for real-valued arithmetic."""
         return self._volume_discr.real_dtype
 
     @property
     def complex_dtype(self):
+        """Return the data type used for complex-valued arithmetic."""
         return self._volume_discr.complex_dtype
 
     @property
     def mesh(self):
+        """Return a :class:`meshmode.mesh.Mesh` over which the discretization
+        collection is built.
+        """
         return self._volume_discr.mesh
 
     def empty(self, array_context: ArrayContext, dtype=None):
+        """Return an empty :class:`~meshmode.dof_array.DOFArray`.
+
+        :arg array_context: a :class:`~meshmode.array_context.ArrayContext`.
+        :arg dtype: type special value 'c' will result in a
+            vector of dtype :attr:`complex_dtype`. If
+            *None* (the default), a real vector will be returned.
+        """
         return self._volume_discr.empty(array_context, dtype)
 
     def zeros(self, array_context: ArrayContext, dtype=None):
+        """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`.
+
+        :arg array_context: a :class:`~meshmode.array_context.ArrayContext`.
+        :arg dtype: type special value 'c' will result in a
+            vector of dtype :attr:`complex_dtype`. If
+            *None* (the default), a real vector will be returned.
+        """
         return self._volume_discr.zeros(array_context, dtype)
 
     def is_volume_where(self, where):
