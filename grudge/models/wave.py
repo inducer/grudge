@@ -154,8 +154,7 @@ class WeakWaveOperator(HyperbolicOperator):
                 )
                 - op.face_mass(
                     dcoll,
-                    + sum(flux(tpair)
-                          for tpair in op.interior_trace_pairs(dcoll, w))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
                     + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
                     + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
                     + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))
@@ -307,8 +306,8 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                 )
                 - op.face_mass(
                     dcoll,
-                    + sum(flux(tpair)
-                          for tpair in op.interior_trace_pairs(dcoll, flux_w))
+                    sum(flux(tpair)
+                        for tpair in op.interior_trace_pairs(dcoll, flux_w))
                     + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag,
                                             flux_w, dir_bc))
                     + flux(op.bv_trace_pair(dcoll, self.neumann_tag,

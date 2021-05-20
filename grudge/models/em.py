@@ -296,8 +296,7 @@ class MaxwellOperator(HyperbolicOperator):
                 dcoll,
                 op.face_mass(
                     dcoll,
-                    + sum(flux(tpair)
-                          for tpair in op.interior_trace_pairs(dcoll, w))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
                     + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
                           for tag, bc in tags_and_bcs)
                 )
