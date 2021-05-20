@@ -1011,8 +1011,9 @@ def nodal_summation(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal sum.
     """
-    return np.sum([vec.array_context.np.sum(grp_ary)
-                   for grp_ary in vec])
+    # FIXME: The call to np.sum on the outside is not lazy-eval safe
+    actx = vec.array_context
+    return np.sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
 def nodal_min(dcoll, dd, vec):
@@ -1028,8 +1029,9 @@ def nodal_minimum(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal minimum.
     """
-    return np.min([vec.array_context.np.min(grp_ary)
-                   for grp_ary in vec])
+    # FIXME: The call to np.min on the outside is not lazy-eval safe
+    actx = vec.array_context
+    return np.min([actx.np.min(grp_ary) for grp_ary in vec])
 
 
 def nodal_max(dcoll, dd, vec):
@@ -1045,8 +1047,9 @@ def nodal_maximum(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal maximum.
     """
-    return np.max([vec.array_context.np.max(grp_ary)
-                   for grp_ary in vec])
+    # FIXME: The call to np.max on the outside is not lazy-eval safe
+    actx = vec.array_context
+    return np.max([actx.np.max(grp_ary) for grp_ary in vec])
 
 
 def integral(dcoll, vec, dd=None):
@@ -1075,6 +1078,23 @@ def integral(dcoll, vec, dd=None):
 
 # {{{  Elementwise reductions
 
+def _map_elementwise_reduction(actx, op_name):
+    @memoize_in(actx, (_map_elementwise_reduction,
+                       "elementwise_%s_prg" % op_name))
+    def prg():
+        return make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
+            ],
+            """
+                result[iel, idof] = %s(jdof, operand[iel, jdof])
+            """ % op_name,
+            name="grudge_elementwise_%s_knl" % op_name
+        )
+    return prg()
+
+
 def elementwise_sum(dcoll, *args):
     r"""Returns a vector of DOFs with all entries on each element set
     to the sum of DOFs on that element.
@@ -1100,27 +1120,22 @@ def elementwise_sum(dcoll, *args):
     dd = dof_desc.as_dofdesc(dd)
 
     if isinstance(vec, np.ndarray):
-        return sum(elementwise_sum(dcoll, dd, vec_i) for vec_i in vec)
+        return obj_array_vectorize(
+            lambda vi: elementwise_sum(dcoll, dd, vi), vec
+        )
 
     actx = vec.array_context
     vec = project(dcoll, "vol", dd, vec)
 
-    @memoize_in(actx, (elementwise_sum, "elementwise_sum_prg"))
-    def prg():
-        return make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
-            ],
-            """
-                result[iel, idof] = sum(jdof, operand[iel, jdof])
-            """,
-            name="grudge_elementwise_sum_knl"
-        )
-
     return DOFArray(
         actx,
-        tuple(actx.call_loopy(prg(), operand=vec_i)["result"] for vec_i in vec)
+        tuple(
+            actx.call_loopy(
+                _map_elementwise_reduction(actx, "sum"),
+                operand=vec_i
+            )["result"]
+            for vec_i in vec
+        )
     )
 
 # }}}
