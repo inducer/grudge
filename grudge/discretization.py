@@ -75,8 +75,7 @@ class DiscretizationCollection:
             discr_tag_to_group_factory=None, mpi_communicator=None,
             # FIXME: `quad_tag_to_group_factory` is deprecated
             quad_tag_to_group_factory=None):
-        """Constructor for the
-        :class:`~grudge.discretization.DiscretizationCollection` object.
+        """Constructor for the :class:`DiscretizationCollection` object.
 
         :arg actx: an :class:`~arraycontext.context.ArrayContext`.
         :arg mesh: a :class:`~meshmode.mesh.Mesh` object.
@@ -563,7 +562,7 @@ class DiscretizationCollection:
     def empty(self, array_context: ArrayContext, dtype=None):
         """Return an empty :class:`~meshmode.dof_array.DOFArray`.
 
-        :arg array_context: a :class:`~meshmode.array_context.ArrayContext`.
+        :arg array_context: an :class:`~arraycontext.context.ArrayContext`.
         :arg dtype: type special value 'c' will result in a
             vector of dtype :attr:`complex_dtype`. If
             *None* (the default), a real vector will be returned.
@@ -573,7 +572,7 @@ class DiscretizationCollection:
     def zeros(self, array_context: ArrayContext, dtype=None):
         """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`.
 
-        :arg array_context: a :class:`~meshmode.array_context.ArrayContext`.
+        :arg array_context: an :class:`~arraycontext.context.ArrayContext`.
         :arg dtype: type special value 'c' will result in a
             vector of dtype :attr:`complex_dtype`. If
             *None* (the default), a real vector will be returned.
