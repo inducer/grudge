@@ -30,6 +30,8 @@ from arraycontext.container.traversal import freeze
 
 from numbers import Number
 
+from functools import reduce
+
 from pytools import (
     memoize_in,
     memoize_on_first_arg,
@@ -1012,9 +1014,8 @@ def nodal_summation(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal sum.
     """
-    # FIXME: The call to np.sum on the outside is not lazy-eval safe
     actx = vec.array_context
-    return np.sum([actx.np.sum(grp_ary) for grp_ary in vec])
+    return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
 def nodal_min(dcoll, dd, vec):
@@ -1030,9 +1031,9 @@ def nodal_minimum(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal minimum.
     """
-    # FIXME: The call to np.min on the outside is not lazy-eval safe
     actx = vec.array_context
-    return np.min([actx.np.min(grp_ary) for grp_ary in vec])
+    return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
+                  vec, -np.inf)
 
 
 def nodal_max(dcoll, dd, vec):
@@ -1048,9 +1049,9 @@ def nodal_maximum(vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal maximum.
     """
-    # FIXME: The call to np.max on the outside is not lazy-eval safe
     actx = vec.array_context
-    return np.max([actx.np.max(grp_ary) for grp_ary in vec])
+    return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
+                  vec, -np.inf)
 
 
 def integral(dcoll, vec, dd=None):
