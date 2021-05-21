@@ -70,22 +70,22 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def f(x):
             result = dcoll.zeros(actx) + 1
             for i in range(dim-1):
-                result *= actx.np.sin(np.pi*x[i])
-            result *= actx.np.cos(np.pi/2*x[dim-1])
+                result = result * actx.np.sin(np.pi*x[i])
+            result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def grad_f(x):
             result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
-                    result[i] *= actx.np.sin(np.pi*x[j])
-                result[i] *= np.pi*actx.np.cos(np.pi*x[i])
+                    result[i] = result[i] * actx.np.sin(np.pi*x[j])
+                result[i] = result[i] * np.pi*actx.np.cos(np.pi*x[i])
                 for j in range(i+1, dim-1):
-                    result[i] *= actx.np.sin(np.pi*x[j])
-                result[i] *= actx.np.cos(np.pi/2*x[dim-1])
+                    result[i] = result[i] * actx.np.sin(np.pi*x[j])
+                result[i] = result[i] * actx.np.cos(np.pi/2*x[dim-1])
             for j in range(dim-1):
-                result[dim-1] *= actx.np.sin(np.pi*x[j])
-            result[dim-1] *= -np.pi/2*actx.np.sin(np.pi/2*x[dim-1])
+                result[dim-1] = result[dim-1] * actx.np.sin(np.pi*x[j])
+            result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
         x = thaw(op.nodes(dcoll), actx)
@@ -190,8 +190,8 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def f(x):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
-                result *= actx.np.sin(np.pi*x[i])
-            result *= actx.np.cos(np.pi/2*x[dim-1])
+                result = result * actx.np.sin(np.pi*x[i])
+            result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def div_f(x):
@@ -199,17 +199,17 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
                 for j in range(i):
-                    deriv *= actx.np.sin(np.pi*x[j])
-                deriv *= np.pi*actx.np.cos(np.pi*x[i])
+                    deriv = deriv * actx.np.sin(np.pi*x[j])
+                deriv = deriv * np.pi*actx.np.cos(np.pi*x[i])
                 for j in range(i+1, dim-1):
-                    deriv *= actx.np.sin(np.pi*x[j])
-                deriv *= actx.np.cos(np.pi/2*x[dim-1])
-                result += deriv
+                    deriv = deriv * actx.np.sin(np.pi*x[j])
+                deriv = deriv * actx.np.cos(np.pi/2*x[dim-1])
+                result = result + deriv
             deriv = dcoll.zeros(actx) + dim
             for j in range(dim-1):
-                deriv *= actx.np.sin(np.pi*x[j])
-            deriv *= -np.pi/2*actx.np.sin(np.pi/2*x[dim-1])
-            result += deriv
+                deriv = deriv * actx.np.sin(np.pi*x[j])
+            deriv = deriv * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
+            result = result + deriv
             return result
 
         x = thaw(op.nodes(dcoll), actx)
