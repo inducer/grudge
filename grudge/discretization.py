@@ -24,14 +24,21 @@ THE SOFTWARE.
 """
 
 from pytools import memoize_method
+
 from grudge.dof_desc import (
     DISCR_TAG_BASE, DISCR_TAG_MODAL,
     DTAG_BOUNDARY, DOFDesc, as_dofdesc
 )
+
 import numpy as np  # noqa: F401
-from meshmode.array_context import ArrayContext
-from meshmode.discretization.connection import \
-    FACE_RESTR_INTERIOR, FACE_RESTR_ALL, make_face_restriction
+
+from arraycontext.context import ArrayContext
+
+from meshmode.discretization.connection import (
+    FACE_RESTR_INTERIOR,
+    FACE_RESTR_ALL,
+    make_face_restriction
+)
 from meshmode.mesh import BTAG_PARTITION
 
 from warnings import warn
@@ -68,8 +75,12 @@ class DiscretizationCollection:
             discr_tag_to_group_factory=None, mpi_communicator=None,
             # FIXME: `quad_tag_to_group_factory` is deprecated
             quad_tag_to_group_factory=None):
-        """
-        :param discr_tag_to_group_factory: A mapping from discretization tags
+        """Constructor for the
+        :class:`~grudge.discretization.DiscretizationCollection` object.
+
+        :arg actx: an :class:`~arraycontext.context.ArrayContext`.
+        :arg mesh: a :class:`~meshmode.mesh.Mesh` object.
+        :arg discr_tag_to_group_factory: A mapping from discretization tags
             (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
             :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
             :class:`grudge.dof_desc.DISCR_TAG_QUAD`) to a

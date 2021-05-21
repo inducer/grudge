@@ -27,13 +27,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools import memoize_method
+
+from arraycontext.container.traversal import thaw
 
 from grudge.models import HyperbolicOperator
 
-from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
+from pytools import memoize_method
 from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.op as op
@@ -118,7 +119,7 @@ class MaxwellOperator(HyperbolicOperator):
         As per Hesthaven and Warburton page 433.
         """
 
-        normal = thaw(self.dcoll._setup_actx, op.normal(self.dcoll, wtpair.dd))
+        normal = thaw(op.normal(self.dcoll, wtpair.dd), self.dcoll._setup_actx)
 
         if self.fixed_material:
             e, h = self.split_eh(wtpair)
@@ -218,8 +219,8 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        absorb_normal = thaw(self.dcoll._setup_actx,
-                             op.normal(self.dcoll, dd=self.absorb_tag))
+        absorb_normal = thaw(op.normal(self.dcoll, dd=self.absorb_tag),
+                             self.dcoll._setup_actx)
 
         e, h = self.split_eh(w)
 

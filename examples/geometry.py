@@ -28,19 +28,23 @@ THE SOFTWARE.
 
 import numpy as np  # noqa
 import pyopencl as cl
+import pyopencl.tools as cl_tools
+
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
 
 import grudge.op as op
 
 from grudge import DiscretizationCollection, shortcuts
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
-
 
 def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.generation import generate_warped_rect_mesh
@@ -48,9 +52,9 @@ def main(write_output=True):
 
     dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    nodes = thaw(actx, op.nodes(dcoll))
-    bdry_nodes = thaw(actx, op.nodes(dcoll, dd=BTAG_ALL))
-    bdry_normals = thaw(actx, op.normal(dcoll, dd=BTAG_ALL))
+    nodes = thaw(op.nodes(dcoll), actx)
+    bdry_nodes = thaw(op.nodes(dcoll, dd=BTAG_ALL), actx)
+    bdry_normals = thaw(op.normal(dcoll, dd=BTAG_ALL), actx)
 
     if write_output:
         vis = shortcuts.make_visualizer(dcoll)

@@ -54,13 +54,15 @@ import os
 import sys
 import pyopencl as cl
 import pyopencl.array  # noqa
+import pyopencl.tools as cl_tools
 import pytest
 
 import dagrt.language as lang
 import pymbolic.primitives as p
 
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+
 from meshmode.dof_array import DOFArray
-from meshmode.array_context import PyOpenCLArrayContext
 
 import grudge.dof_desc as dof_desc
 import grudge.symbolic.mappers as gmap
@@ -486,7 +488,10 @@ def get_wave_component(state_component):
 def test_stepper_equivalence(ctx_factory, order=4):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     dims = 2
 
@@ -750,7 +755,10 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 def test_assignment_memory_model(ctx_factory):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     _, discr = get_wave_op_with_discr(actx, dims=2, order=3)
 
@@ -778,7 +786,10 @@ def test_assignment_memory_model(ctx_factory):
 def test_stepper_mem_ops(ctx_factory, use_fusion):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     dims = 2
 
@@ -949,7 +960,10 @@ def test_stepper_timing(ctx_factory, use_fusion):
     queue = cl.CommandQueue(
             cl_ctx,
             properties=cl.command_queue_properties.PROFILING_ENABLE)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     dims = 3
 
@@ -1072,7 +1086,10 @@ else:
 def problem_stats(order=3):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     with open_output_file("grudge-problem-stats.txt") as outf:
         _, dg_discr_2d = get_wave_op_with_discr(
@@ -1097,7 +1114,10 @@ def problem_stats(order=3):
 def statement_counts_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     fused_stepper = get_example_stepper(actx, use_fusion=True)
     stepper = get_example_stepper(actx, use_fusion=False)
@@ -1188,7 +1208,10 @@ def mem_ops_results(actx, dims):
 def scalar_assignment_percent_of_total_mem_ops_table():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     result2d = mem_ops_results(actx, 2)
     result3d = mem_ops_results(actx, 3)

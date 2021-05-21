@@ -29,9 +29,12 @@ import os
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw, flatten
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
+
+from meshmode.dof_array import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
 from pytools.obj_array import make_obj_array
@@ -59,7 +62,7 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            x = thaw(actx, dcoll.discr_from_dd(dof_desc.DD_VOLUME).nodes())
+            x = thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME).nodes(), actx)
             self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
@@ -102,7 +105,10 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     # {{{ parameters
 
@@ -169,7 +175,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ Surface advection operator
 
     # velocity field
-    x = thaw(actx, op.nodes(dcoll))
+    x = thaw(op.nodes(dcoll), actx)
     c = make_obj_array([-x[1], x[0], 0.0])[:dim]
 
     def f_initial_condition(x):
@@ -237,7 +243,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
-        face_normal = thaw(actx, op.normal(dcoll, dd=df))
+        face_normal = thaw(op.normal(dcoll, dd=df), actx)
 
         from meshmode.discretization.visualization import make_visualizer
         vis = make_visualizer(actx, face_discr)

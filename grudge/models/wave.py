@@ -25,11 +25,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
 import numpy as np
+
+from arraycontext.container.traversal import thaw
 
 from grudge.models import HyperbolicOperator
 
-from meshmode.dof_array import thaw
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
 from pytools.obj_array import flat_obj_array
@@ -88,7 +90,7 @@ class WeakWaveOperator(HyperbolicOperator):
         u = wtpair[0]
         v = wtpair[1:]
         actx = u.int.array_context
-        normal = thaw(actx, op.normal(self.dcoll, wtpair.dd))
+        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
 
         central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
@@ -131,7 +133,7 @@ class WeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(actx, op.normal(dcoll, dd=self.radiation_tag))
+        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
 
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
@@ -231,7 +233,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         u = wtpair[1]
         v = wtpair[2:]
         actx = u.int.array_context
-        normal = thaw(actx, op.normal(self.dcoll, wtpair.dd))
+        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
 
         flux_central_weak = -0.5 * flat_obj_array(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
@@ -280,7 +282,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(actx, op.normal(dcoll, dd=self.radiation_tag))
+        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
 
         rad_c = op.project(dcoll, "vol", self.radiation_tag, self.c)
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)

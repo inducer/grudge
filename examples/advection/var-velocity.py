@@ -29,9 +29,12 @@ import os
 import numpy as np
 
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw, flatten
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
+
+from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
 
 from pytools.obj_array import flat_obj_array
@@ -60,7 +63,7 @@ class Plotter:
             self.ylim = ylim
 
             volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
+            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -99,7 +102,10 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     # {{{ parameters
 
@@ -172,7 +178,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    x = thaw(actx, op.nodes(dcoll))
+    x = thaw(op.nodes(dcoll), actx)
 
     # velocity field
     if dim == 1:

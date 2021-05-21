@@ -24,6 +24,10 @@ THE SOFTWARE.
 """
 
 
+from arraycontext.metadata import FirstAxisIsElementsTag
+from arraycontext.loopy import make_loopy_program
+from arraycontext.container.traversal import freeze
+
 from numbers import Number
 
 from pytools import (
@@ -33,10 +37,7 @@ from pytools import (
 )
 from pytools.obj_array import obj_array_vectorize, make_obj_array
 
-from meshmode.array_context import (
-    FirstAxisIsElementsTag, make_loopy_program
-)
-from meshmode.dof_array import DOFArray, freeze
+from meshmode.dof_array import DOFArray
 
 import numpy as np
 import grudge.dof_desc as dof_desc

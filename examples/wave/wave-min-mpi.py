@@ -28,9 +28,10 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -45,7 +46,10 @@ import grudge.op as op
 def main(write_output=False, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -84,7 +88,7 @@ def main(write_output=False, order=4):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
         source_omega = 3
-        nodes = thaw(actx, op.nodes(dcoll))
+        nodes = thaw(op.nodes(dcoll), actx)
         source_center_dist = flat_obj_array(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )

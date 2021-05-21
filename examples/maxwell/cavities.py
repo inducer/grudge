@@ -28,9 +28,10 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -46,7 +47,10 @@ STEPS = 60
 def main(dims, write_output=False, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -81,7 +85,7 @@ def main(dims, write_output=False, order=4):
         else:
             return get_rectangular_cavity_mode(actx, x, t, 1, (2, 3))
 
-    fields = cavity_mode(thaw(actx, op.nodes(dcoll)), t=0)
+    fields = cavity_mode(thaw(op.nodes(dcoll), actx), t=0)
 
     # FIXME
     # dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)

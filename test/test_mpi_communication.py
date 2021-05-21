@@ -30,8 +30,8 @@ import numpy as np
 import pyopencl as cl
 import logging
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
@@ -39,6 +39,8 @@ logger.setLevel(logging.INFO)
 
 from grudge import DiscretizationCollection
 from grudge.shortcuts import set_up_rk4
+
+from meshmode.dof_array import flat_norm
 
 from pytools.obj_array import flat_obj_array
 
@@ -74,7 +76,7 @@ def simple_mpi_communication_entrypoint():
     dcoll = DiscretizationCollection(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
-    x = thaw(actx, op.nodes(dcoll))
+    x = thaw(op.nodes(dcoll), actx)
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
     from grudge.dof_desc import as_dofdesc
@@ -97,7 +99,7 @@ def simple_mpi_communication_entrypoint():
               for tpair in op.cross_rank_trace_pairs(dcoll, myfunc))
     ) - (all_faces_func - bdry_faces_func)
 
-    error = actx.np.linalg.norm(hopefully_zero, ord=np.inf)
+    error = flat_norm(hopefully_zero, ord=np.inf)
 
     print(__file__)
     with np.printoptions(threshold=100000000, suppress=True):
@@ -145,7 +147,7 @@ def mpi_communication_entrypoint():
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
         source_omega = 3
-        nodes = thaw(actx, op.nodes(dcoll))
+        nodes = thaw(op.nodes(dcoll), actx)
         source_center_dist = flat_obj_array(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
