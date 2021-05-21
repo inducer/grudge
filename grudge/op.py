@@ -135,13 +135,25 @@ def _bound_grad(dcoll):
     return bind(dcoll, sym.nabla(dcoll.dim) * sym.Variable("u"), local_only=True)
 
 
-def local_grad(dcoll, vec):
+def local_grad(dcoll, vec, *, nested=False):
     r"""Return the element-local gradient of the volume function represented by
     *vec*.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`
+    :arg nested: return nested object arrays instead of a single multidimensional
+        array if *vec* is non-scalar
+    :returns: an object array (possibly nested) of
+        :class:`~meshmode.dof_array.DOFArray`\ s
     """
+    if isinstance(vec, np.ndarray):
+        grad = obj_array_vectorize(
+                lambda el: local_grad(dcoll, el, nested=nested), vec)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
+
     return _bound_grad(dcoll)(u=vec)
 
 
@@ -168,15 +180,19 @@ def _div_helper(dcoll, diff_func, vecs):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
 
-    if vecs.shape[-1] != dcoll.ambient_dim:
-        raise ValueError("last dimension of *vecs* argument must match "
-                "ambient dimension")
+    if isinstance(vecs[(0,)*vecs.ndim], np.ndarray):
+        div_shape = vecs.shape
+    else:
+        if vecs.shape[-1] != dcoll.ambient_dim:
+            raise ValueError("last dimension of *vecs* argument doesn't match "
+                    "ambient dimension")
+        div_shape = vecs.shape[:-1]
 
-    if len(vecs.shape) == 1:
+    if len(div_shape) == 0:
         return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
     else:
-        result = np.zeros(vecs.shape[:-1], dtype=object)
-        for idx in np.ndindex(vecs.shape[:-1]):
+        result = np.zeros(div_shape, dtype=object)
+        for idx in np.ndindex(div_shape):
             result[idx] = sum(
                     diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
         return result
@@ -205,7 +221,7 @@ def _bound_weak_grad(dcoll, dd):
             local_only=True)
 
 
-def weak_local_grad(dcoll, *args):
+def weak_local_grad(dcoll, *args, nested=False):
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -213,8 +229,12 @@ def weak_local_grad(dcoll, *args):
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        `~meshmode.dof_array.DOFArray`
+    :arg nested: return nested object arrays instead of a single multidimensional
+        array if *vec* is non-scalar
+    :returns: an object array (possibly nested) of
+        :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if len(args) == 1:
         vec, = args
@@ -223,6 +243,14 @@ def weak_local_grad(dcoll, *args):
         dd, vec = args
     else:
         raise TypeError("invalid number of arguments")
+
+    if isinstance(vec, np.ndarray):
+        grad = obj_array_vectorize(
+                lambda el: weak_local_grad(dcoll, dd, el, nested=nested), vec)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
 
     return _bound_weak_grad(dcoll, dd)(u=vec)
 
