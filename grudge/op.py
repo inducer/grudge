@@ -616,7 +616,7 @@ def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
     area_elements = area_element(actx, dcoll, dd=dd_in)
     return DOFArray(
         actx,
-        tuple(
+        data=tuple(
             actx.einsum("ij,ej,ej->ei",
                         reference_mass_matrix(
                             actx,
@@ -703,48 +703,49 @@ def _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec):
             "between different element groups; inverse is not "
             "guaranteed to be well-defined"
         )
-    discr = dcoll.discr_from_dd(dd_in)
-    use_wadg = not all(grp.is_affine for grp in discr.groups)
 
     actx = vec.array_context
+    discr = dcoll.discr_from_dd(dd_in)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in)
-    if use_wadg:
-        # FIXME: Think of how to compose existing functions here...
-        # NOTE: Rewritten for readability/debuggability
-        grps = discr.groups
-        data = []
-        for grp, jac_inv, x in zip(grps, inv_area_elements, vec):
-            ref_mass = reference_mass_matrix(actx,
-                                             out_element_group=grp,
-                                             in_element_group=grp)
-            ref_mass_inv = reference_inverse_mass_matrix(actx,
+    group_data = []
+    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
+
+        ref_mass_inverse = reference_inverse_mass_matrix(actx,
                                                          element_group=grp)
-            data.append(
+
+        # NOTE: Some discretizations can have both affine and non-affine
+        # groups. For example, discretizations on hybrid simplex-hex meshes.
+        if not grp.is_affine:
+            group_data.append(
                 # Based on https://arxiv.org/pdf/1608.03836.pdf
                 # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
                 actx.einsum("ik,km,em,mj,ej->ei",
-                            ref_mass_inv, ref_mass, jac_inv, ref_mass_inv, x,
+                            # FIXME: Should we manually create a temporary for
+                            # the mass inverse?
+                            ref_mass_inverse,
+                            reference_mass_matrix(
+                                actx,
+                                out_element_group=grp,
+                                in_element_group=grp
+                            ),
+                            jac_inv,
+                            # FIXME: Should we manually create a temporary for
+                            # the mass inverse?
+                            ref_mass_inverse,
+                            vec_i,
                             tagged=(HasElementwiseMatvecTag(),))
             )
-        return DOFArray(actx, data=tuple(data))
-    else:
-        return DOFArray(
-            actx,
-            tuple(
+        else:
+            group_data.append(
                 actx.einsum("ij,ej,ej->ei",
-                            reference_inverse_mass_matrix(
-                                actx,
-                                element_group=grp
-                            ),
-                            iae_i,
+                            ref_mass_inverse,
+                            jac_inv,
                             vec_i,
                             arg_names=("mass_inv_mat", "jac_det_inv", "vec"),
                             tagged=(HasElementwiseMatvecTag(),))
-
-                for grp, iae_i, vec_i in zip(discr.groups,
-                                             inv_area_elements, vec)
             )
-        )
+
+    return DOFArray(actx, data=tuple(group_data))
 
 
 def inverse_mass(dcoll, vec):
@@ -1131,7 +1132,7 @@ def elementwise_sum(dcoll, *args):
 
     return DOFArray(
         actx,
-        tuple(
+        data=tuple(
             actx.call_loopy(
                 _map_elementwise_reduction(actx, "sum"),
                 operand=vec_i
