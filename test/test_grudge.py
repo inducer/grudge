@@ -618,7 +618,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         flux = op.face_mass(dcoll, face_f.dot(face_normal))
 
         # sum everything up
-        op_global = op.nodal_summation(stiff - (stiff_t + kterm))
+        op_global = op.nodal_summation(dcoll, stiff - (stiff_t + kterm))
         op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)

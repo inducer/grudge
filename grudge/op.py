@@ -226,6 +226,7 @@ def h_max_from_volume(dcoll, dim=None, dd=None):
 
     ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
     return nodal_maximum(
+        dcoll,
         elementwise_sum(dcoll, mass(dcoll, dd, ones))
     ) ** (1.0 / dim)
 
@@ -253,6 +254,7 @@ def h_min_from_volume(dcoll, dim=None, dd=None):
 
     ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
     return nodal_minimum(
+        dcoll,
         elementwise_sum(dcoll, mass(dcoll, dd, ones))
     ) ** (1.0 / dim)
 
@@ -958,11 +960,12 @@ def _norm(dcoll, vec, p, dd):
     if p == 2:
         return np.sqrt(
             nodal_summation(
+                dcoll,
                 vec * _apply_mass_operator(dcoll, dd, dd, vec)
             )
         )
     elif p == np.inf:
-        return nodal_maximum(dcoll._setup_actx.np.fabs(vec))
+        return nodal_maximum(dcoll, dcoll._setup_actx.np.fabs(vec))
     else:
         raise NotImplementedError("Unsupported value of p")
 
@@ -1006,15 +1009,17 @@ def nodal_sum(dcoll, dd, vec):
     from warnings import warn
     warn("Using 'nodal_sum' is deprecated, use 'nodal_summation' instead.",
          DeprecationWarning, stacklevel=2)
-    return nodal_summation(vec)
+    return nodal_summation(dcoll, vec)
 
 
-def nodal_summation(vec):
+def nodal_summation(dcoll, vec):
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal sum.
     """
+    # FIXME: Make MPI-aware
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -1023,15 +1028,17 @@ def nodal_min(dcoll, dd, vec):
     from warnings import warn
     warn("Using 'nodal_min' is deprecated, use 'nodal_minimum' instead.",
          DeprecationWarning, stacklevel=2)
-    return nodal_minimum(vec)
+    return nodal_minimum(dcoll, vec)
 
 
-def nodal_minimum(vec):
+def nodal_minimum(dcoll, vec):
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal minimum.
     """
+    # FIXME: Make MPI-aware
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
                   vec, -np.inf)
@@ -1041,15 +1048,17 @@ def nodal_max(dcoll, dd, vec):
     from warnings import warn
     warn("Using 'nodal_max' is deprecated, use 'nodal_maximum' instead.",
          DeprecationWarning, stacklevel=2)
-    return nodal_maximum(vec)
+    return nodal_maximum(dcoll, vec)
 
 
-def nodal_maximum(vec):
+def nodal_maximum(dcoll, vec):
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: an integer denoting the nodal maximum.
     """
+    # FIXME: Make MPI-aware
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
                   vec, -np.inf)
@@ -1073,7 +1082,7 @@ def integral(dcoll, vec, dd=None):
 
     ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
     return nodal_summation(
-        vec * _apply_mass_operator(dcoll, dd, dd, ones)
+        dcoll, vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
 
 # }}}
