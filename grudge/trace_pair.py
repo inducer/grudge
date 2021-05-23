@@ -23,6 +23,15 @@ THE SOFTWARE.
 """
 
 
+from arraycontext import (
+    ArrayContainer,
+    map_array_container,
+    with_container_arithmetic,
+    dataclass_array_container
+)
+
+from dataclasses import dataclass
+
 from numbers import Number
 
 from pytools import memoize_on_first_arg
@@ -60,6 +69,11 @@ Interior and cross-rank trace functions
 
 # {{{ Trace pair container class
 
+@with_container_arithmetic(
+    bcast_obj_array=False, eq_comparison=False, rel_comparison=False
+)
+@dataclass_array_container
+@dataclass(init=False, frozen=True)
 class TracePair:
     """A container class for data (both interior and exterior restrictions)
     on the boundaries of mesh elements.
@@ -78,10 +92,21 @@ class TracePair:
         :class:`TracePair` is currently used both by the symbolic (deprecated)
         and the current interfaces, with symbolic information or concrete data.
     """
+
+    dd: dof_desc.DOFDesc
+    interior: ArrayContainer
+    exterior: ArrayContainer
+
     def __init__(self, dd, *, interior, exterior):
-        self.dd = dof_desc.as_dofdesc(dd)
-        self.interior = interior
-        self.exterior = exterior
+        object.__setattr__(self, "dd", dof_desc.as_dofdesc(dd))
+        object.__setattr__(self, "interior", interior)
+        object.__setattr__(self, "exterior", exterior)
+
+    def __getattr__(self, name):
+        return map_array_container(
+            lambda ary: getattr(ary, name),
+            self
+        )
 
     def __getitem__(self, index):
         return TracePair(self.dd,
