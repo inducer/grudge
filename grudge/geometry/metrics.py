@@ -27,6 +27,7 @@ import numpy as np
 
 from grudge import DiscretizationCollection
 from arraycontext import thaw, ArrayContext
+from meshmode.dof_array import DOFArray
 
 from grudge.dof_desc import (
     DD_VOLUME, DOFDesc, DISCR_TAG_BASE
@@ -77,7 +78,7 @@ Curvature tensors
 
 def forward_metric_nth_derivative(
         actx: ArrayContext, dcoll: DiscretizationCollection,
-        xyz_axis, ref_axes, dd=None):
+        xyz_axis, ref_axes, dd=None) -> DOFArray:
     r"""Pointwise metric derivatives representing repeated derivatives of the
     physical coordinate enumerated by *xyz_axis*: :math:`x_{\mathrm{xyz\_axis}}`
     with respect to the coordiantes on the reference element :math:`\xi_i`:
@@ -139,7 +140,8 @@ def forward_metric_nth_derivative(
 
 
 def forward_metric_derivative_vector(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None
+        ) -> np.ndarray:
     r"""Computes an object array containing the forward metric derivatives
     of each physical coordinate.
 
@@ -159,7 +161,8 @@ def forward_metric_derivative_vector(
 
 
 def forward_metric_derivative_mv(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None
+        ) -> MultiVector:
     r"""Computes a :class:`pymbolic.geometric_algebra.MultiVector` containing
     the forward metric derivatives of each physical coordinate.
 
@@ -177,7 +180,8 @@ def forward_metric_derivative_mv(
 
 
 def forward_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> np.ndarray:
     r"""Computes the forward metric derivative matrix, also commonly
     called the Jacobian matrix, with entries defined as the
     forward metric derivatives:
@@ -213,7 +217,7 @@ def forward_metric_derivative_mat(
 
 
 def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None):
+        dim=None, dd=None) -> np.ndarray:
     r"""Computes the first fundamental form using the Jacobian matrix:
 
     .. math::
@@ -247,7 +251,8 @@ def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 
 def inverse_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> np.ndarray:
     r"""Computes the inverse metric derivative matrix, which is
     the inverse of the Jacobian (forward metric derivative) matrix.
 
@@ -273,7 +278,8 @@ def inverse_metric_derivative_mat(
 
 
 def inverse_first_fundamental_form(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> np.ndarray:
     r"""Computes the inverse of the first fundamental form:
 
     .. math::
@@ -319,7 +325,8 @@ def inverse_first_fundamental_form(
 
 
 def inverse_metric_derivative(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, xyz_axis, dd):
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, xyz_axis, dd
+        ) -> DOFArray:
     r"""Computes the inverse metric derivative of the physical
     coordinate enumerated by *xyz_axis* with respect to the
     reference axis *rst_axis*.
@@ -398,7 +405,9 @@ def inverse_surface_metric_derivative(
     return imd
 
 
-def _signed_face_ones(actx, dcoll, dd):
+def _signed_face_ones(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd
+        ) -> DOFArray:
 
     assert dd.is_trace()
 
@@ -421,7 +430,8 @@ def _signed_face_ones(actx, dcoll, dd):
 
 
 def parametrization_derivative(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim, dd):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim, dd
+        ) -> MultiVector:
     r"""Computes the product of forward metric derivatives spanning the
     tangent space with topological dimension *dim*.
 
@@ -449,16 +459,16 @@ def parametrization_derivative(
 
 
 def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None):
-    r"""Computes a signed volume of a region subtended by the forward
-    metric differentials on a surface.
+        dim=None, dd=None) -> MultiVector:
+    r"""Computes the field of pseudoscalars for the domain/discretization
+    identified by *dd*
 
     :arg dim: an integer denoting the spatial dimension. Defaults to the
         :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing signed volumes
-        for each element.
+    :returns: A :class:`~pymbolic.geometric_algebra.MultiVector` of
+        :class:`~meshmode.dof_array.DOFArray`\ s
     """
     if dd is None:
         dd = DD_VOLUME
@@ -473,7 +483,8 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 @memoize_on_first_arg
 def area_element(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> DOFArray:
     r"""Computes the measure of a transformed element. These are used
     to transform integrals from global to reference space, and are
     commonly referred to as Jacobian determinants.
@@ -496,14 +507,13 @@ def area_element(
 # {{{ Surface normal vectors
 
 def surface_normal(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> MultiVector:
     r"""Computes surface normals at each nodal location.
 
     :arg dim: an integer denoting the spatial dimension. Defaults to the
         :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the surface
-        normals at each nodal point.
     """
     import grudge.dof_desc as dof_desc
 
@@ -522,7 +532,9 @@ def surface_normal(
     return pder << pder.I.inv()
 
 
-def mv_normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
+def mv_normal(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd
+        ) -> MultiVector:
     """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
 
     :arg actx: an :class:`~arraycontext.context.ArrayContext`.
@@ -574,8 +586,6 @@ def mv_normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
 def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
     """Get the unit normal to the specified surface discretization, *dd*.
 
-    :arg actx: an :class:`~arraycontext.context.ArrayContext`.
-    :arg dcoll: a :class:`grudge.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
         containing the unit normals at each nodal location.
@@ -588,7 +598,8 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
 # {{{ Curvature computations
 
 def second_fundamental_form(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        ) -> np.ndarray:
     r"""Computes the second fundamental form:
 
     .. math::
@@ -636,7 +647,7 @@ def second_fundamental_form(
 
 
 def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None):
+        dim=None, dd=None) -> np.ndarray:
     r"""Computes the shape operator (also called the curvature tensor) containing
     second order derivatives:
 
@@ -666,7 +677,7 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None):
+        dim=None, dd=None) -> DOFArray:
     r"""Computes the sum of the principal curvatures:
 
     .. math::
