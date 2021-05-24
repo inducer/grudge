@@ -89,8 +89,7 @@ from functools import reduce
 from arraycontext import (
     ArrayContext,
     FirstAxisIsElementsTag,
-    make_loopy_program,
-    freeze
+    make_loopy_program
 )
 
 from grudge.discretization import DiscretizationCollection
@@ -183,20 +182,16 @@ def nodes(dcoll: DiscretizationCollection, dd=None) -> np.ndarray:
         dd = dof_desc.DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
 
-    return dcoll.discr_from_dd(dd).nodes()
+    return dcoll.nodes(dd)
 
 
-@memoize_on_first_arg
 def normal(dcoll: DiscretizationCollection, dd) -> np.ndarray:
     r"""Get the unit normal to the specified surface discretization, *dd*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s.
     """
-    from grudge.geometry import normal
-
-    actx = dcoll.discr_from_dd(dd)._setup_actx
-    return freeze(normal(actx, dcoll, dd))
+    return dcoll.normal(dd)
 
 
 @memoize_on_first_arg
