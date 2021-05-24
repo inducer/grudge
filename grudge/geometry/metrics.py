@@ -537,8 +537,6 @@ def mv_normal(
         ) -> MultiVector:
     """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
 
-    :arg actx: an :class:`~arraycontext.context.ArrayContext`.
-    :arg dcoll: a :class:`grudge.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
         containing the unit normals.
