@@ -1009,61 +1009,6 @@ def test_bessel(actx_factory):
 # }}}
 
 
-# {{{ functions
-
-def test_external_call(actx_factory):
-    actx = actx_factory()
-
-    def double(queue, x):
-        return 2 * x
-
-    from grudge.function_registry import \
-        base_function_registry, register_external_function
-
-    freg = register_external_function(base_function_registry,
-                                      "ext_double_fct",
-                                      implementation=double,
-                                      dd=dof_desc.DD_VOLUME)
-
-    dims = 2
-
-    mesh = mgen.generate_regular_rect_mesh(
-            a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
-    dcoll = DiscretizationCollection(actx, mesh, order=1)
-
-    ones = dcoll.discr_from_dd(dof_desc.DD_VOLUME).zeros(actx) + 1.0
-
-    result = 3*ones + freg["ext_double_fct"](actx, ones)
-
-    assert actx.to_numpy(flatten(result) == 5).all()
-
-
-@pytest.mark.parametrize("array_type", ["scalar", "vector"])
-def test_function_array(actx_factory, array_type):
-    """Test if functions distribute properly over object arrays."""
-
-    actx = actx_factory()
-
-    dim = 2
-    mesh = mgen.generate_regular_rect_mesh(
-            a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(8,)*dim, order=4)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
-    nodes = op.nodes(dcoll)
-
-    if array_type == "scalar":
-        x = thaw(actx.np.cos(nodes[0]), actx)
-    elif array_type == "vector":
-        x = thaw(actx.np.cos(nodes), actx)
-    else:
-        raise ValueError("unknown array type")
-
-    norm = op.norm(dcoll, x, 2)
-    assert isinstance(norm, float)
-
-# }}}
-
-
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_obj_array(actx_factory, p):
     """Test :func:`grudge.op.norm` for object arrays."""
