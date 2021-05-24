@@ -213,7 +213,7 @@ def h_max_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
         :attr:`grudge.DiscretizationCollection.dim` is used.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: an integer denoting the maximum characteristic length.
+    :returns: a scalar denoting the maximum characteristic length.
     """
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -240,7 +240,7 @@ def h_min_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
         :attr:`grudge.DiscretizationCollection.dim` is used.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: an integer denoting the minimum characteristic length.
+    :returns: a scalar denoting the minimum characteristic length.
     """
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -1006,7 +1006,7 @@ def nodal_summation(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: an integer denoting the nodal sum.
+    :returns: a scalar denoting the nodal sum.
     """
     # FIXME: Make MPI-aware
     actx = vec.array_context
@@ -1024,7 +1024,7 @@ def nodal_minimum(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: an integer denoting the nodal minimum.
+    :returns: a scalar denoting the nodal minimum.
     """
     # FIXME: Make MPI-aware
     actx = vec.array_context
@@ -1043,7 +1043,7 @@ def nodal_maximum(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: an integer denoting the nodal maximum.
+    :returns: a scalar denoting the nodal maximum.
     """
     # FIXME: Make MPI-aware
     actx = vec.array_context
@@ -1058,7 +1058,7 @@ def integral(dcoll: DiscretizationCollection, vec, dd=None):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: an integer denoting the evaluated integral.
+    :returns: a scalar denoting the evaluated integral.
     """
 
     if dd is None:
