@@ -27,9 +27,12 @@ import pyopencl as cl
 
 from grudge.grudge_array_context import GrudgeArrayContext
 from meshmode.dof_array import thaw, flatten
+from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
 from grudge import bind, sym
 from pytools.obj_array import make_obj_array
+
+import grudge.dof_desc as dof_desc
 
 import logging
 logger = logging.getLogger(__name__)
@@ -51,11 +54,11 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            x = thaw(actx, discr.discr_from_dd(sym.DD_VOLUME).nodes())
+            x = thaw(actx, discr.discr_from_dd(dof_desc.DD_VOLUME).nodes())
             self.x = actx.to_numpy(flatten(actx.np.atan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr, vis_order=order)
+            self.vis = make_visualizer(discr)
         else:
             raise ValueError("unsupported dimension")
 
@@ -133,26 +136,30 @@ def main(ctx_factory, dim=2, order=3, product_tag=None, visualize=False):
     else:
         raise ValueError("unsupported dimension")
 
-    quad_tag_to_group_factory = {}
+    discr_tag_to_group_factory = {}
     if product_tag == "none":
         product_tag = None
+    else:
+        product_tag = dof_desc.DISCR_TAG_QUAD
 
     from meshmode.discretization.poly_element import \
             PolynomialWarpAndBlendGroupFactory, \
             QuadratureSimplexGroupFactory
 
-    quad_tag_to_group_factory[sym.QTAG_NONE] = \
-            PolynomialWarpAndBlendGroupFactory(order)
+    discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
+        PolynomialWarpAndBlendGroupFactory(order)
 
     if product_tag:
-        quad_tag_to_group_factory[product_tag] = \
-                QuadratureSimplexGroupFactory(order=4*order)
+        discr_tag_to_group_factory[product_tag] = \
+            QuadratureSimplexGroupFactory(order=4*order)
 
-    from grudge import DGDiscretizationWithBoundaries
-    discr = DGDiscretizationWithBoundaries(actx, mesh,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    from grudge import DiscretizationCollection
+    discr = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
-    volume_discr = discr.discr_from_dd(sym.DD_VOLUME)
+    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:     %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -175,7 +182,8 @@ def main(ctx_factory, dim=2, order=3, product_tag=None, visualize=False):
         return bound_op(actx, t=t, u=u)
 
     # check velocity is tangential
-    sym_normal = sym.surface_normal(dim, dim=dim - 1, dd=sym.DD_VOLUME).as_vector()
+    sym_normal = sym.surface_normal(dim, dim=dim - 1,
+                                    dd=dof_desc.DD_VOLUME).as_vector()
     error = bind(discr, sym.norm(2, c.dot(sym_normal)))(actx)
     logger.info("u_dot_n:   %.5e", error)
 
@@ -207,20 +215,20 @@ def main(ctx_factory, dim=2, order=3, product_tag=None, visualize=False):
 
     if visualize and dim == 3:
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr, vis_order=order)
+        vis = make_visualizer(discr)
         vis.write_vtk_file("fld-surface-velocity.vtu", [
             ("u", bind(discr, c)(actx)),
             ("n", bind(discr, sym_normal)(actx))
             ], overwrite=True)
 
-        df = sym.DOFDesc(sym.FACE_RESTR_INTERIOR)
-        face_discr = discr.connection_from_dds(sym.DD_VOLUME, df).to_discr
+        df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
+        face_discr = discr.connection_from_dds(dof_desc.DD_VOLUME, df).to_discr
 
         face_normal = bind(discr, sym.normal(
             df, face_discr.ambient_dim, dim=face_discr.dim))(actx)
 
         from meshmode.discretization.visualization import make_visualizer
-        vis = make_visualizer(actx, face_discr, vis_order=order)
+        vis = make_visualizer(actx, face_discr)
         vis.write_vtk_file("fld-surface-face-normals.vtu", [
             ("n", face_normal)
             ], overwrite=True)

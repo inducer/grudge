@@ -26,7 +26,7 @@ THE SOFTWARE.
 
 
 from pymbolic.mapper import RecursiveMapper, CSECachingMapperMixin
-from grudge.symbolic.primitives import DOFDesc, DTAG_SCALAR
+from grudge.dof_desc import DOFDesc, DTAG_SCALAR
 
 
 def unify_dofdescs(dd_a, dd_b, expr=None):
@@ -39,7 +39,6 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
     else:
         loc_str = ""
 
-    from grudge.symbolic.primitives import DTAG_SCALAR
     if dd_a.domain_tag != dd_b.domain_tag:
         if dd_a.domain_tag == DTAG_SCALAR:
             return dd_b
@@ -49,8 +48,8 @@ def unify_dofdescs(dd_a, dd_b, expr=None):
             raise ValueError("mismatched domain tags " + loc_str)
 
     # domain tags match
-    if dd_a.quadrature_tag != dd_b.quadrature_tag:
-        raise ValueError("mismatched quadrature tags " + loc_str)
+    if dd_a.discretization_tag != dd_b.discretization_tag:
+        raise ValueError("mismatched discretization tags " + loc_str)
 
     return dd_a
 

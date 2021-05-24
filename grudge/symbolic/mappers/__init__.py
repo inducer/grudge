@@ -34,6 +34,7 @@ import pymbolic.mapper.flop_counter
 from pymbolic.mapper import CSECachingMapperMixin
 
 from grudge import sym
+import grudge.dof_desc as dof_desc
 import grudge.symbolic.operators as op
 from grudge.tools import OrderedSet
 
@@ -435,8 +436,9 @@ class RankGeometryChanger(CSECachingMapperMixin, IdentityMapper):
     def __init__(self, i_remote_part):
         from meshmode.discretization.connection import FACE_RESTR_INTERIOR
         from meshmode.mesh import BTAG_PARTITION
-        self.prev_dd = sym.as_dofdesc(FACE_RESTR_INTERIOR)
-        self.new_dd = sym.as_dofdesc(BTAG_PARTITION(i_remote_part))
+
+        self.prev_dd = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
+        self.new_dd = dof_desc.as_dofdesc(BTAG_PARTITION(i_remote_part))
 
     def _raise_unable(self, expr):
         raise ValueError("encountered '%s' in updating subexpression for "
@@ -502,7 +504,7 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
             IdentityMapper.map_common_subexpression
 
     def map_operator_binding(self, expr):
-        from grudge.symbolic.primitives import BoundaryPair
+        from grudge.symbolic.primitives import TracePair
 
         from grudge.symbolic.mappers.type_inference import (
                 type_info, QuadratureRepresentation)
@@ -520,7 +522,7 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
                 field_repr_tag = field_type.repr_tag
             except AttributeError:
                 # boundary pairs are not assigned types
-                assert isinstance(expr.field, BoundaryPair)
+                assert isinstance(expr.field, TracePair)
                 has_quad_operand = False
             else:
                 has_quad_operand = isinstance(field_repr_tag,
@@ -535,21 +537,21 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
 
         if isinstance(expr.op, op.MassOperator) and has_quad_operand:
             return op.QuadratureMassOperator(
-                    field_repr_tag.quadrature_tag)(self.rec(expr.field))
+                    field_repr_tag.discretization_tag)(self.rec(expr.field))
 
         elif isinstance(expr.op, op.RefMassOperator) and has_quad_operand:
             return op.RefQuadratureMassOperator(
-                    field_repr_tag.quadrature_tag)(self.rec(expr.field))
+                    field_repr_tag.discretization_tag)(self.rec(expr.field))
 
         elif (isinstance(expr.op, op.StiffnessTOperator) and has_quad_operand):
             return op.QuadratureStiffnessTOperator(
-                    expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
+                    expr.op.xyz_axis, field_repr_tag.discretization_tag)(
                             self.rec(expr.field))
 
         elif (isinstance(expr.op, op.RefStiffnessTOperator)
                 and has_quad_operand):
             return op.RefQuadratureStiffnessTOperator(
-                    expr.op.xyz_axis, field_repr_tag.quadrature_tag)(
+                    expr.op.xyz_axis, field_repr_tag.discretization_tag)(
                             self.rec(expr.field))
 
         elif (isinstance(expr.op, op.QuadratureGridUpsampler)
@@ -558,11 +560,11 @@ class OperatorSpecializer(CSECachingMapperMixin, IdentityMapper):
             # if (isinstance(expr.field, OperatorBinding)
             #        and isinstance(expr.field.op, RestrictToBoundary)):
             #    return QuadratureRestrictToBoundary(
-            #            expr.field.op.tag, expr.op.quadrature_tag)(
+            #            expr.field.op.tag, expr.op.discretization_tag)(
             #                    self.rec(expr.field.field))
 
             return op.QuadratureBoundaryGridUpsampler(
-                    expr.op.quadrature_tag, field_type.boundary_tag)(expr.field)
+                expr.op.discretization_tag, field_type.boundary_tag)(expr.field)
         # }}}
 
         elif isinstance(expr.op, op.RestrictToBoundary) and has_quad_operand:
@@ -582,14 +584,14 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
     reference elements, together with explicit multiplication by geometric factors.
     """
 
-    def __init__(self, discrwb):
+    def __init__(self, dcoll):
         CSECachingMapperMixin.__init__(self)
         IdentityMapper.__init__(self)
 
-        self.ambient_dim = discrwb.ambient_dim
-        self.dim = discrwb.dim
+        self.ambient_dim = dcoll.ambient_dim
+        self.dim = dcoll.dim
 
-        volume_discr = discrwb.discr_from_dd(sym.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
         self.use_wadg = not all(grp.is_affine for grp in volume_discr.groups)
 
     map_common_subexpression_uncached = \
@@ -610,7 +612,7 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
 
         jac_in = sym.area_element(self.ambient_dim, dim, dd=dd_in)
         jac_noquad = sym.area_element(self.ambient_dim, dim,
-                dd=dd_in.with_qtag(sym.QTAG_NONE))
+                dd=dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE))
 
         def rewrite_derivative(ref_class, field,  dd_in, with_jacobian=True):
             def imd(rst):
@@ -698,9 +700,9 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
                 FACE_RESTR_ALL, FACE_RESTR_INTERIOR)
         if dd.domain_tag is None:
             result = "?"
-        elif dd.domain_tag is sym.DTAG_VOLUME_ALL:
+        elif dd.domain_tag is dof_desc.DTAG_VOLUME_ALL:
             result = "vol"
-        elif dd.domain_tag is sym.DTAG_SCALAR:
+        elif dd.domain_tag is dof_desc.DTAG_SCALAR:
             result = "scalar"
         elif dd.domain_tag is FACE_RESTR_ALL:
             result = "all_faces"
@@ -711,12 +713,12 @@ class StringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
         else:
             result = fmt(dd.domain_tag)
 
-        if dd.quadrature_tag is None:
+        if dd.discretization_tag is None:
             pass
-        elif dd.quadrature_tag is sym.QTAG_NONE:
+        elif dd.discretization_tag is dof_desc.DISCR_TAG_BASE:
             result += "q"
         else:
-            result += "Q"+fmt(dd.quadrature_tag)
+            result += "Q"+fmt(dd.discretization_tag)
 
         return result
 
@@ -866,24 +868,24 @@ class QuadratureCheckerAndRemover(CSECachingMapperMixin, IdentityMapper):
     """Checks whether all quadratu
     """
 
-    def __init__(self, quad_tag_to_group_factory):
+    def __init__(self, discr_tag_to_group_factory):
         IdentityMapper.__init__(self)
         CSECachingMapperMixin.__init__(self)
-        self.quad_tag_to_group_factory = quad_tag_to_group_factory
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
 
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
     def _process_dd(self, dd, location_descr):
-        from grudge.symbolic.primitives import DOFDesc, QTAG_NONE
-        if dd.quadrature_tag is not QTAG_NONE:
-            if dd.quadrature_tag not in self.quad_tag_to_group_factory:
-                raise ValueError("found unknown quadrature tag '%s' in '%s'"
-                        % (dd.quadrature_tag, location_descr))
 
-            grp_factory = self.quad_tag_to_group_factory[dd.quadrature_tag]
+        if dd.discretization_tag is not dof_desc.DISCR_TAG_BASE:
+            if dd.discretization_tag not in self.discr_tag_to_group_factory:
+                raise ValueError("found unknown quadrature tag '%s' in '%s'"
+                        % (dd.discretization_tag, location_descr))
+
+            grp_factory = self.discr_tag_to_group_factory[dd.discretization_tag]
             if grp_factory is None:
-                dd = DOFDesc(dd.domain_tag, QTAG_NONE)
+                dd = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
 
         return dd
 
@@ -974,7 +976,7 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
         if (isinstance(expr.op, sym.ProjectionOperator)
                 and expr.op.dd_out.is_boundary_or_partition_interface()):
             domain_tag = expr.op.dd_out.domain_tag
-            assert isinstance(domain_tag, sym.DTAG_BOUNDARY)
+            assert isinstance(domain_tag, dof_desc.DTAG_BOUNDARY)
             if is_boundary_tag_empty(self.mesh, domain_tag.tag):
                 return 0
 

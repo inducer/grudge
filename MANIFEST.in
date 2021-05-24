@@ -1,0 +1,13 @@
+include doc/*.rst
+include doc/Makefile
+include doc/*.py
+include doc/conf.py
+
+include examples/*.py
+include examples/*/*.py
+
+include test/*.py
+
+include pytest.ini
+
+recursive-include contrib *.tm *.mac *.fig *.cpp *.ts

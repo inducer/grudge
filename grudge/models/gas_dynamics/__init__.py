@@ -661,7 +661,7 @@ class GasDynamicsOperator(TimeDependentOperator):
                 result = RestrictToBoundary(tag)(self.sensor())
                 return cse(to_bdry_quad(result), "bdry_sensor")
 
-        from grudge.symbolic import SubstitutionMapper
+        from grudge.symbolic.mappers import SubstitutionMapper
         return SubstitutionMapper(subst_func)(expr)
 
     # }}}

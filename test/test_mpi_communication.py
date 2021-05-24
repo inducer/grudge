@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from grudge.shortcuts import set_up_rk4
 
 
@@ -45,6 +45,7 @@ def simple_mpi_communication_entrypoint():
     actx = GrudgeArrayContext(queue)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    from meshmode.mesh import BTAG_ALL
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -56,7 +57,7 @@ def simple_mpi_communication_entrypoint():
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-1,)*2,
                                           b=(1,)*2,
-                                          n=(3,)*2)
+                                          nelements_per_axis=(2,)*2)
 
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 
@@ -64,7 +65,7 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=5,
+    vol_discr = DiscretizationCollection(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
     sym_x = sym.nodes(local_mesh.dim)
@@ -76,8 +77,8 @@ def simple_mpi_communication_entrypoint():
     sym_int_faces_func = sym.cse(
         sym.project("vol", "int_faces")(sym.var("myfunc")))
     sym_bdry_faces_func = sym.cse(
-        sym.project(sym.BTAG_ALL, "all_faces")(
-            sym.project("vol", sym.BTAG_ALL)(sym.var("myfunc"))))
+        sym.project(BTAG_ALL, "all_faces")(
+            sym.project("vol", BTAG_ALL)(sym.var("myfunc"))))
 
     bound_face_swap = bind(vol_discr,
         sym.project("int_faces", "all_faces")(
@@ -118,7 +119,7 @@ def mpi_communication_entrypoint():
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim,
                                           b=(0.5,)*dim,
-                                          n=(16,)*dim)
+                                          nelements_per_axis=(16,)*dim)
 
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 
@@ -126,7 +127,7 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
+    vol_discr = DiscretizationCollection(actx, local_mesh, order=order,
                                                mpi_communicator=comm)
 
     source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]

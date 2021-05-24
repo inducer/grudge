@@ -28,24 +28,24 @@ import pyopencl as cl
 from pytools.obj_array import flat_obj_array
 
 from grudge.grudge_array_context import GrudgeArrayContext
+from meshmode.array_context import PyOpenCLArrayContext  # noqa F401
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.eager import (
-        EagerDGDiscretization, interior_trace_pair, cross_rank_trace_pairs)
+from grudge.discretization import DiscretizationCollection
+import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
-from mpi4py import MPI
 
 
 # {{{ wave equation bits
 
-def wave_flux(discr, c, w_tpair):
+def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, discr.normal(w_tpair.dd))
+    normal = thaw(u.int.array_context, op.normal(dcoll, w_tpair.dd))
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -53,40 +53,35 @@ def wave_flux(discr, c, w_tpair):
             )
 
     # upwind
-    v_jump = np.dot(normal, v.ext-v.int)
     flux_weak += flat_obj_array(
             0.5*(u.ext-u.int),
-            0.5*normal*v_jump,
+            0.5*normal*np.dot(normal, v.ext-v.int),
             )
 
-    return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
+    return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
-def wave_operator(discr, c, w):
+def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
 
-    dir_u = discr.project("vol", BTAG_ALL, u)
-    dir_v = discr.project("vol", BTAG_ALL, v)
+    dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
+    dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            discr.inverse_mass(
+            op.inverse_mass(dcoll,
                 flat_obj_array(
-                    -c*discr.weak_div(v),
-                    -c*discr.weak_grad(u)
+                    -c*op.weak_local_div(dcoll, v),
+                    -c*op.weak_local_grad(dcoll, u)
                     )
                 +  # noqa: W504
-                discr.face_mass(
-                    wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
-                    + wave_flux(discr, c=c, w_tpair=TracePair(
+                op.face_mass(dcoll,
+                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
+                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
                         BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    + sum(
-                        wave_flux(discr, c=c, w_tpair=tpair)
-                        for tpair in cross_rank_trace_pairs(discr, w))
-                    )
-                )
+                    ))
                 )
 
 # }}}
@@ -100,15 +95,15 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(actx, discr, t=0):
-    source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
+def bump(actx, dcoll, t=0):
+    source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, discr.nodes())
+    nodes = thaw(actx, op.nodes(dcoll))
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
-        for i in range(discr.dim)
+        for i in range(dcoll.dim)
         ])
 
     return (
@@ -120,71 +115,54 @@ def bump(actx, discr, t=0):
 
 def main():
     cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = GrudgeArrayContext(queue)
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+    from pyopencl.tools import ImmediateAllocator
+    actx = GrudgeArrayContext(queue, allocator=ImmediateAllocator(queue))
 
-    comm = MPI.COMM_WORLD
-    num_parts = comm.Get_size()
+    dim = 3
+    nel_1d = 2**5
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    mesh = generate_regular_rect_mesh(
+            coord_dtype=np.float64,
+            a=(-0.5,)*dim,
+            b=(0.5,)*dim,
+            nelements_per_axis=(nel_1d,)*dim)
 
-    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
-    mesh_dist = MPIMeshDistributor(comm)
-
-    dim = 2
-    nel_1d = 16
-
-    if mesh_dist.is_mananger_rank():
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(
-                a=(-0.5,)*dim,
-                b=(0.5,)*dim,
-                n=(nel_1d,)*dim)
-
-        print("%d elements" % mesh.nelements)
-
-        part_per_element = get_partition_by_pymetis(mesh, num_parts)
-
-        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
-
-        del mesh
-
-    else:
-        local_mesh = mesh_dist.receive_mesh_part()
-
-    order = 3
-
-    discr = EagerDGDiscretization(actx, local_mesh, order=order,
-                    mpi_communicator=comm)
+    order = 4
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
-        dt = 0.75/(nel_1d*order**2)
+        dt = 0.7/(nel_1d*order**2)
     elif dim == 3:
         # no deep meaning here, just a fudge factor
         dt = 0.45/(nel_1d*order**2)
     else:
         raise ValueError("don't have a stable time step guesstimate")
 
+    print("%d elements" % mesh.nelements)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
+
     fields = flat_obj_array(
-            bump(actx, discr),
-            [discr.zeros(actx) for i in range(discr.dim)]
+            bump(actx, dcoll),
+            [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(discr, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(discr, c=1, w=w)
+        return wave_operator(dcoll, c=1, w=w)
 
     t = 0
-    t_final = 3
+    t_final = dt + dt
     istep = 0
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, discr.norm(fields[0]))
-            vis.write_parallel_vtk_file(
-                    comm,
-                    f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
+            print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
+                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
+            vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
@@ -192,6 +170,8 @@ def main():
 
         t += dt
         istep += 1
+
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":

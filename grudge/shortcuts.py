@@ -39,16 +39,17 @@ def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
     return dt_stepper
 
 
-def make_visualizer(discrwb, vis_order):
+def make_visualizer(dcoll, vis_order=None, **kwargs):
     from meshmode.discretization.visualization import make_visualizer
     return make_visualizer(
-            discrwb._setup_actx,
-            discrwb.discr_from_dd("vol"), vis_order)
+            dcoll._setup_actx,
+            dcoll.discr_from_dd("vol"), vis_order, **kwargs)
 
 
-def make_boundary_visualizer(discrwb, vis_order):
+def make_boundary_visualizer(dcoll, vis_order=None, **kwargs):
     from meshmode.discretization.visualization import make_visualizer
-    from grudge import sym
+    from meshmode.mesh import BTAG_ALL
+
     return make_visualizer(
-            discrwb._setup_actx, discrwb.discr_from_dd(sym.BTAG_ALL),
-            vis_order)
+            dcoll._setup_actx, dcoll.discr_from_dd(BTAG_ALL),
+            vis_order, **kwargs)

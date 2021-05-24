@@ -25,7 +25,6 @@ from numbers import Number
 import numpy as np
 
 from pytools import memoize_in
-from pytools.obj_array import make_obj_array
 
 import loopy as lp
 import pyopencl as cl
@@ -165,7 +164,7 @@ class ExecutionMapper(mappers.Evaluator,
         mappers.LocalOpReducerMixin):
     def __init__(self, array_context, context, bound_op):
         super().__init__(context)
-        self.discrwb = bound_op.discrwb
+        self.dcoll = bound_op.dcoll
         self.bound_op = bound_op
         self.function_registry = bound_op.function_registry
         self.array_context = array_context
@@ -176,7 +175,7 @@ class ExecutionMapper(mappers.Evaluator,
         if expr.dd.is_scalar():
             return 1
 
-        discr = self.discrwb.discr_from_dd(expr.dd)
+        discr = self.dcoll.discr_from_dd(expr.dd)
 
         result = discr.empty(self.array_context)
         for grp_ary in result:
@@ -184,15 +183,23 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     def map_node_coordinate_component(self, expr):
-        discr = self.discrwb.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes()[expr.axis])
+        discr = self.dcoll.discr_from_dd(expr.dd)
+        return thaw(self.array_context, discr.nodes(
+            # only save volume nodes or boundary nodes
+            # (but not nodes for interior face discretizations, which are likely only
+            # used once to compute the normals)
+            cached=(
+                discr.ambient_dim == discr.dim
+                or expr.dd.is_boundary_or_partition_interface()
+                )
+            )[expr.axis])
 
     def map_grudge_variable(self, expr):
         from numbers import Number
 
         value = self.context[expr.name]
         if not expr.dd.is_scalar() and isinstance(value, Number):
-            discr = self.discrwb.discr_from_dd(expr.dd)
+            discr = self.dcoll.discr_from_dd(expr.dd)
             ary = discr.empty(self.array_context)
             for grp_ary in ary:
                 grp_ary.fill(value)
@@ -208,7 +215,7 @@ class ExecutionMapper(mappers.Evaluator,
 
             from numbers import Number
             if not dd.is_scalar() and isinstance(value, Number):
-                discr = self.discrwb.discr_from_dd(dd)
+                discr = self.dcoll.discr_from_dd(dd)
                 ary = discr.empty(self.array_context)
                 for grp_ary in ary:
                     grp_ary.fill(value)
@@ -240,7 +247,7 @@ class ExecutionMapper(mappers.Evaluator,
                 name="grudge_elementwise_%s" % op_name)
 
         field = self.rec(field_expr)
-        discr = self.discrwb.discr_from_dd(dd)
+        discr = self.dcoll.discr_from_dd(dd)
         assert field.shape == (len(discr.groups),)
 
         result = discr.empty(self.array_context, dtype=field.entry_dtype)
@@ -296,7 +303,7 @@ class ExecutionMapper(mappers.Evaluator,
         if isinstance(bool_crit, DOFArray):
             # continues below
             pass
-        elif isinstance(bool_crit, (np.bool_, np.bool, np.number)):
+        elif isinstance(bool_crit, (bool, np.bool_, np.number)):
             if bool_crit:
                 return self.rec(expr.then)
             else:
@@ -376,6 +383,21 @@ class ExecutionMapper(mappers.Evaluator,
         out, _ = self.map_insn_diff_batch_assign(insn)
         return out[0][1]
 
+    def _elwise_linear_loopy_prg(self):
+        @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
+        def prg():
+            result = make_loopy_program(
+                """{[iel, idof, j]:
+                    0<=iel<nelements and
+                    0<=idof<ndiscr_nodes_out and
+                    0<=j<ndiscr_nodes_in}""",
+                "result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])",
+                name="elwise_linear")
+
+            result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+            return result
+        return prg()
+
     def map_elementwise_linear(self, op, field_expr):
         field = self.rec(field_expr)
 
@@ -383,14 +405,13 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-
-        in_discr = self.discrwb.discr_from_dd(op.dd_in)
-        out_discr = self.discrwb.discr_from_dd(op.dd_out)
+        in_discr = self.dcoll.discr_from_dd(op.dd_in)
+        out_discr = self.dcoll.discr_from_dd(op.dd_out)
 
         result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
 
+        prg = self._elwise_linear_loopy_prg()
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
-
             cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
                 matrix = self.bound_op.operator_data_cache[cache_key]
@@ -417,17 +438,17 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     def map_projection(self, op, field_expr):
-        conn = self.discrwb.connection_from_dds(op.dd_in, op.dd_out)
+        conn = self.dcoll.connection_from_dds(op.dd_in, op.dd_out)
         return conn(self.rec(field_expr))
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-        bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(op.dd_in)
+        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
         return bdry_conn(remote_bdry_vec)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        return self.discrwb.opposite_face_connection()(self.rec(field_expr))
+        return self.dcoll.opposite_face_connection()(self.rec(field_expr))
 
     # }}}
 
@@ -441,7 +462,7 @@ class ExecutionMapper(mappers.Evaluator,
             return 0
 
 
-        all_faces_conn = self.discrwb.connection_from_dds("vol", op.dd_in)
+        all_faces_conn = self.dcoll.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
         vol_discr = all_faces_conn.from_discr
 
@@ -480,17 +501,19 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     def map_signed_face_ones(self, expr):
+        from grudge.dof_desc import DOFDesc, DD_VOLUME
+
         assert expr.dd.is_trace()
-        face_discr = self.discrwb.discr_from_dd(expr.dd)
+        face_discr = self.dcoll.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
 
         # NOTE: ignore quadrature_tags on expr.dd, since we only care about
         # the face_id here
-        all_faces_conn = self.discrwb.connection_from_dds(
-                sym.DD_VOLUME,
-                sym.DOFDesc(expr.dd.domain_tag))
+        all_faces_conn = self.dcoll.connection_from_dds(
+                DD_VOLUME,
+                DOFDesc(expr.dd.domain_tag))
 
-        field = face_discr.empty(self.array_context, dtype=self.discrwb.real_dtype)
+        field = face_discr.empty(self.array_context, dtype=self.dcoll.real_dtype)
         for grp_ary in field:
             grp_ary.fill(1)
 
@@ -509,7 +532,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_insn_rank_data_swap(self, insn, profile_data=None):
         local_data = self.array_context.to_numpy(flatten(self.rec(insn.field)))
-        comm = self.discrwb.mpi_communicator
+        comm = self.dcoll.mpi_communicator
 
         # print("Sending data to rank %d with tag %d"
         #             % (insn.i_remote_rank, insn.send_tag))
@@ -521,7 +544,7 @@ class ExecutionMapper(mappers.Evaluator,
         return [], [
                 MPIRecvFuture(
                     array_context=self.array_context,
-                    bdry_discr=self.discrwb.discr_from_dd(insn.dd_out),
+                    bdry_discr=self.dcoll.discr_from_dd(insn.dd_out),
                     recv_req=recv_req,
                     insn_name=insn.name,
                     remote_data_host=remote_data_host),
@@ -529,7 +552,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_insn_loopy_kernel(self, insn, profile_data=None):
         kdescr = insn.kernel_descriptor
-        discr = self.discrwb.discr_from_dd(kdescr.governing_dd)
+        discr = self.dcoll.discr_from_dd(kdescr.governing_dd)
 
         dof_array_kwargs = {}
         other_kwargs = {}
@@ -582,41 +605,50 @@ class ExecutionMapper(mappers.Evaluator,
         assignments = []
         for name, expr in zip(insn.names, insn.exprs):
             value = self.rec(expr)
-            self.discrwb._discr_scoped_subexpr_name_to_value[name] = value
+            self.dcoll._discr_scoped_subexpr_name_to_value[name] = value
             assignments.append((name, value))
 
         return assignments, []
 
     def map_insn_assign_from_discr_scoped(self, insn, profile_data=None):
         return [(insn.name,
-            self.discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
+            self.dcoll._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_diff_batch_assign(self, insn, profile_data=None):
         ifield = insn.field
         field = self.rec(ifield)
         repr_op = insn.operators[0]
-
-        # FIXME: There's no real reason why differentiation is special,
-        # execution-wise.
-        # This should be unified with map_elementwise_linear, which should
-        # be extended to support batching.
-        # Note: This is now mostly done
+        noperators = len(insn.operators)
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
-        noperators = len(insn.operators)
+        in_discr = self.dcoll.discr_from_dd(repr_op.dd_in)
+        out_discr = self.dcoll.discr_from_dd(repr_op.dd_out)
 
-        in_discr = self.discrwb.discr_from_dd(repr_op.dd_in)
-        out_discr = self.discrwb.discr_from_dd(repr_op.dd_out)
+        prg = self._elwise_linear_loopy_prg()
 
-        result = make_obj_array([
-            out_discr.empty(self.array_context, dtype=field.entry_dtype)
-            for idim in range(noperators)])
+        result = []
+        for name, op in zip(insn.names, insn.operators):
+            group_results = []
+            for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+                assert in_grp.nelements == out_grp.nelements
 
-        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
-            if in_grp.nelements == 0:
-                continue
+                # Cache operator
+                cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                    field.entry_dtype
+                try:
+                    matrices_dev = self.bound_op.operator_data_cache[cache_key]
+                except KeyError:
+                    matrices_dev = [self.array_context.from_numpy(mat)
+                            for mat in repr_op.matrices(out_grp, in_grp)]
+                    self.bound_op.operator_data_cache[cache_key] = matrices_dev
 
+                group_results.append(self.array_context.call_loopy(
+                        prg,
+                        mat=matrices_dev[op.rst_axis],
+                        vec=field[in_grp.index])["result"])
+
+            # Begin old version
             # Cache operator
             cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
                 field.entry_dtype
@@ -655,8 +687,13 @@ class ExecutionMapper(mappers.Evaluator,
                     result=make_obj_array([result[iop][out_grp.index]
                         for iop in range(noperators)]),
                     vec=field[in_grp.index])
+            # End old version
+    
+            # New master version
+            #result.append(
+            #        (name, DOFArray(self.array_context, tuple(group_results))))
 
-        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+        return result, []
 
     # }}}
 
@@ -702,9 +739,9 @@ class MPISendFuture:
 # {{{ bound operator
 
 class BoundOperator:
-    def __init__(self, discrwb, discr_code, eval_code, debug_flags,
+    def __init__(self, dcoll, discr_code, eval_code, debug_flags,
             function_registry, exec_mapper_factory):
-        self.discrwb = discrwb
+        self.dcoll = dcoll
         self.discr_code = discr_code
         self.eval_code = eval_code
         self.operator_data_cache = {}
@@ -755,7 +792,7 @@ class BoundOperator:
             else:
                 pass
 
-        for key, val in context.items():
+        for val in context.values():
             look_for_array_contexts(val)
 
         if array_contexts:
@@ -769,17 +806,17 @@ class BoundOperator:
 
         # }}}
 
-        # {{{ discrwb-scope evaluation
+        # {{{ dcoll-scope evaluation
 
         if any(
                 (result_var.name not in
-                    self.discrwb._discr_scoped_subexpr_name_to_value)
+                    self.dcoll._discr_scoped_subexpr_name_to_value)
                 for result_var in self.discr_code.result):
-            # need to do discrwb-scope evaluation
-            discrwb_eval_context: Dict[str, ResultType] = {}
+            # need to do dcoll-scope evaluation
+            dcoll_eval_context: Dict[str, ResultType] = {}
             self.discr_code.execute(
                     self.exec_mapper_factory(
-                        array_context, discrwb_eval_context, self))
+                        array_context, dcoll_eval_context, self))
 
         # }}}
 
@@ -793,7 +830,7 @@ class BoundOperator:
 
 # {{{ process_sym_operator function
 
-def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=None,
+def process_sym_operator(dcoll, sym_operator, post_bind_mapper=None, dumper=None,
         local_only=None):
     if local_only is None:
         local_only = False
@@ -808,7 +845,7 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
-    mappers.ErrorChecker(discrwb.mesh)(sym_operator)
+    mappers.ErrorChecker(dcoll.mesh)(sym_operator)
 
     sym_operator = \
             mappers.OppositeInteriorFaceSwapUniqueIDAssigner()(sym_operator)
@@ -818,17 +855,17 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
 
         # also make sure all ranks had same orig_sym_operator
 
-        if discrwb.mpi_communicator is not None:
+        if dcoll.mpi_communicator is not None:
             (mgmt_rank_orig_sym_operator, mgmt_rank_sym_operator) = \
-                    discrwb.mpi_communicator.bcast(
+                    dcoll.mpi_communicator.bcast(
                         (orig_sym_operator, sym_operator),
-                        discrwb.get_management_rank_index())
+                        dcoll.get_management_rank_index())
 
             if not np.array_equal(mgmt_rank_orig_sym_operator, orig_sym_operator):
                 raise ValueError("rank %d received a different symbolic "
                         "operator to bind from rank %d"
-                        % (discrwb.mpi_communicator.Get_rank(),
-                            discrwb.get_management_rank_index()))
+                        % (dcoll.mpi_communicator.Get_rank(),
+                            dcoll.get_management_rank_index()))
 
             sym_operator = mgmt_rank_sym_operator
 
@@ -839,14 +876,14 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
         sym_operator = post_bind_mapper(sym_operator)
 
     dumper("before-empty-flux-killer", sym_operator)
-    sym_operator = mappers.EmptyFluxKiller(discrwb.mesh)(sym_operator)
+    sym_operator = mappers.EmptyFluxKiller(dcoll.mesh)(sym_operator)
 
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
     dumper("before-qcheck", sym_operator)
     sym_operator = mappers.QuadratureCheckerAndRemover(
-            discrwb.quad_tag_to_group_factory)(sym_operator)
+            dcoll.discr_tag_to_group_factory)(sym_operator)
 
     # Work around https://github.com/numpy/numpy/issues/9438
     #
@@ -859,17 +896,17 @@ def process_sym_operator(discrwb, sym_operator, post_bind_mapper=None, dumper=No
 
     dumper("before-csize", sym_operator)
     sym_operator = mappers.ConstantToNumpyConversionMapper(
-            real_type=discrwb.real_dtype.type,
-            complex_type=discrwb.complex_dtype.type,
+            real_type=dcoll.real_dtype.type,
+            complex_type=dcoll.complex_dtype.type,
             )(sym_operator)
 
     dumper("before-global-to-reference", sym_operator)
-    sym_operator = mappers.GlobalToReferenceMapper(discrwb)(sym_operator)
+    sym_operator = mappers.GlobalToReferenceMapper(dcoll)(sym_operator)
 
     dumper("before-distributed", sym_operator)
 
     if not local_only:
-        volume_mesh = discrwb.discr_from_dd("vol").mesh
+        volume_mesh = dcoll.discr_from_dd("vol").mesh
         from meshmode.distributed import get_connected_partitions
         connected_parts = get_connected_partitions(volume_mesh)
 

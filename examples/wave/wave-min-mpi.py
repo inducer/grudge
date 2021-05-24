@@ -27,7 +27,7 @@ import numpy as np
 import pyopencl as cl
 from grudge.grudge_array_context import GrudgeArrayContext
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from mpi4py import MPI
 
 
@@ -48,7 +48,7 @@ def main(write_output=True, order=4):
         mesh = generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
-                n=(16,)*dims)
+                nelements_per_axis=(16,)*dims)
 
         print("%d elements" % mesh.nelements)
 
@@ -61,7 +61,7 @@ def main(write_output=True, order=4):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    discr = DGDiscretizationWithBoundaries(actx, local_mesh, order=order,
+    discr = DiscretizationCollection(actx, local_mesh, order=order,
             mpi_communicator=comm)
 
     if local_mesh.dim == 2:
@@ -113,7 +113,7 @@ def main(write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr, vis_order=order)
+    vis = make_visualizer(discr)
 
     step = 0
 
@@ -128,9 +128,10 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(u=event.state_component[0]),
-                    time()-t_last_step)
             if step % 10 == 0:
+                if comm.rank == 0:
+                    print(f"step: {step} t: {time()-t_last_step} "
+                          f"L2: {norm(u=event.state_component[0])}")
                 vis.write_parallel_vtk_file(
                         comm,
                         f"fld-wave-min-mpi-{{rank:03d}}-{step:04d}.vtu",
@@ -139,6 +140,7 @@ def main(write_output=True, order=4):
                             ("v", event.state_component[1:]),
                             ])
             t_last_step = time()
+            assert norm(u=event.state_component[0]) < 1
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 grudge
 ======
 
-.. image:: https://gitlab.tiker.net/inducer/grudge/badges/master/pipeline.svg
+.. image:: https://gitlab.tiker.net/inducer/grudge/badges/main/pipeline.svg
     :alt: Gitlab Build Status
-    :target: https://gitlab.tiker.net/inducer/grudge/commits/master
-.. image:: https://github.com/inducer/grudge/workflows/CI/badge.svg?branch=master&event=push
+    :target: https://gitlab.tiker.net/inducer/grudge/commits/main
+.. image:: https://github.com/inducer/grudge/workflows/CI/badge.svg?branch=main&event=push
     :alt: Github Build Status
-    :target: https://github.com/inducer/grudge/actions?query=branch%3Amaster+workflow%3ACI+event%3Apush
+    :target: https://github.com/inducer/grudge/actions?query=branch%3Amain+workflow%3ACI+event%3Apush
 
 ..
     .. image:: https://badge.fury.io/py/grudge.png
@@ -22,8 +22,6 @@ It relies on
 * `modepy <https://pypi.org/project/modepy>`_ for modes and nodes on simplices
 * `meshmode <https://pypi.org/project/meshmode>`_ for modes and nodes on simplices
 * `loopy <https://pypi.org/project/loopy>`_ for fast array operations
-* `leap <https://pypi.org/project/leap>`_ for time integration
-* `dagrt <https://pypi.org/project/dagrt>`_ as an execution runtime
 * `pytest <https://pypi.org/project/pytest>`_ for automated testing
 
 and, indirectly,

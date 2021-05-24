@@ -55,8 +55,8 @@ def main():
               "pymbolic>=2013.2",
               "loopy>=2020.2.2",
               "cgen>=2013.1.2",
-              "leap>=2019.1",
-              "dagrt>=2019.1",
+              #"leap>=2019.1",
+              #"dagrt>=2019.1",
               "hjson",
               #"gmsh",
               "import_resources; python_version<'3.7'"

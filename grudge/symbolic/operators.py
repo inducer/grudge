@@ -92,19 +92,19 @@ class Operator(pymbolic.primitives.Expression):
     """
     .. attribute:: dd_in
 
-        an instance of :class:`~grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.dof_desc.DOFDesc` describing the
         input discretization.
 
     .. attribute:: dd_out
 
-        an instance of :class:`~grudge.sym.DOFDesc` describing the
+        an instance of :class:`~grudge.dof_desc.DOFDesc` describing the
         output discretization.
     """
 
     def __init__(self, dd_in, dd_out):
-        import grudge.symbolic.primitives as prim
-        self.dd_in = prim.as_dofdesc(dd_in)
-        self.dd_out = prim.as_dofdesc(dd_out)
+        import grudge.dof_desc as dof_desc
+        self.dd_in = dof_desc.as_dofdesc(dd_in)
+        self.dd_out = dof_desc.as_dofdesc(dd_out)
 
     def stringifier(self):
         from grudge.symbolic.mappers import StringifyMapper
@@ -136,6 +136,9 @@ class Operator(pymbolic.primitives.Expression):
     def __getinitargs__(self):
         return (self.dd_in, self.dd_out,)
 
+    def make_stringifier(self, originating_stringifier=None):
+        from grudge.symbolic.mappers import StringifyMapper
+        return StringifyMapper()
 # }}}
 
 
@@ -228,8 +231,8 @@ class ElementwiseMaxOperator(ElementwiseReductionOperator):
 class NodalReductionOperator(Operator):
     def __init__(self, dd_in, dd_out=None):
         if dd_out is None:
-            import grudge.symbolic.primitives as prim
-            dd_out = prim.DD_SCALAR
+            import grudge.dof_desc as dof_desc
+            dd_out = dof_desc.DD_SCALAR
 
         assert dd_out.is_scalar()
 
@@ -256,14 +259,14 @@ class NodalMin(NodalReductionOperator):
 
 class DiffOperatorBase(Operator):
     def __init__(self, xyz_axis, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
         else:
-            dd_out = prim.as_dofdesc(dd_out)
+            dd_out = dof_desc.as_dofdesc(dd_out)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -314,12 +317,12 @@ class MInvSTOperator(WeakFormDiffOperatorBase):
 
 class RefDiffOperatorBase(ElementwiseLinearOperator):
     def __init__(self, rst_axis, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
-            dd_out = dd_in.with_qtag(prim.QTAG_NONE)
+            dd_out = dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("differentiation outputs are not on "
@@ -346,7 +349,8 @@ class RefDiffOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_element_group, in_element_group):
         assert in_element_group == out_element_group
-        return in_element_group.diff_matrices()
+        from meshmode.discretization.poly_element import diff_matrices
+        return diff_matrices(in_element_group)
 
 
 class RefStiffnessTOperator(RefDiffOperatorBase):
@@ -355,20 +359,23 @@ class RefStiffnessTOperator(RefDiffOperatorBase):
     @staticmethod
     def matrices(out_elem_grp, in_elem_grp):
         if in_elem_grp == out_elem_grp:
-            assert in_elem_grp.is_orthogonal_basis()
-            mmat = in_elem_grp.mass_matrix()
-            return [dmat.T.dot(mmat.T) for dmat in in_elem_grp.diff_matrices()]
+            assert in_elem_grp.is_orthonormal_basis()
+            from meshmode.discretization.poly_element import (mass_matrix,
+                                                              diff_matrices)
+            mmat = mass_matrix(in_elem_grp)
+            return [dmat.T.dot(mmat.T) for dmat in diff_matrices(in_elem_grp)]
 
         from modepy import vandermonde
-        vand = vandermonde(out_elem_grp.basis(), out_elem_grp.unit_nodes)
-        grad_vand = vandermonde(out_elem_grp.grad_basis(), in_elem_grp.unit_nodes)
+        basis = out_elem_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_elem_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, in_elem_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
             # NOTE: special case for 1d
             grad_vand = (grad_vand,)
 
-        weights = in_elem_grp.weights
+        weights = in_elem_grp.quadrature_rule().weights
         return np.einsum("c,bz,acz->abc", weights, vand_inv_t, grad_vand)
 
 
@@ -388,9 +395,9 @@ class FilterOperator(ElementwiseLinearOperator):
           (For example an instance of
           :class:`ExponentialFilterResponseFunction`.
         """
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
             dd_out = dd_in
@@ -417,21 +424,20 @@ class FilterOperator(ElementwiseLinearOperator):
             for mid in ldis.generate_mode_identifiers()]
 
         # build filter matrix
+        import numpy.linalg as la
         vdm = ldis.vandermonde()
-        from grudge.tools import leftsolve
         mat = np.asarray(
-            leftsolve(vdm,
-                np.dot(vdm, np.diag(filter_coeffs))),
-            order="C")
+                la.solve(vdm.T, np.diag(filter_coeffs) @ vdm.T).T,
+                order="C")
 
         return mat
 
 
 class AveragingOperator(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
 
         if dd_out is None:
             dd_out = dd_in
@@ -441,7 +447,7 @@ class AveragingOperator(ElementwiseLinearOperator):
         if dd_in != dd_out:
             raise ValueError("dd_in and dd_out must be identical")
 
-        super(FilterOperator, self).__init__(dd_in, dd_out)
+        super().__init__(dd_in, dd_out)
 
     def matrix(self, eg):
         # average matrix, so that AVE*fields = cellaverage(fields)
@@ -482,11 +488,11 @@ class MassOperatorBase(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        import grudge.dof_desc as dof_desc
         if dd_in is None:
-            dd_in = prim.DD_VOLUME
+            dd_in = dof_desc.DD_VOLUME
         if dd_out is None:
-            dd_out = prim.DD_VOLUME
+            dd_out = dof_desc.DD_VOLUME
 
         super().__init__(dd_in, dd_out)
 
@@ -507,14 +513,16 @@ class RefMassOperator(RefMassOperatorBase):
     @staticmethod
     def matrix(out_element_group, in_element_group):
         if out_element_group == in_element_group:
-            return in_element_group.mass_matrix()
+            from meshmode.discretization.poly_element import mass_matrix
+            return mass_matrix(in_element_group)
 
         from modepy import vandermonde
-        vand = vandermonde(out_element_group.basis(), out_element_group.unit_nodes)
-        o_vand = vandermonde(out_element_group.basis(), in_element_group.unit_nodes)
+        basis = out_element_group.basis_obj()
+        vand = vandermonde(basis.functions, out_element_group.unit_nodes)
+        o_vand = vandermonde(basis.functions, in_element_group.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
-        weights = in_element_group.weights
+        weights = in_element_group.quadrature_rule().weights
         return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
     @staticmethod
@@ -529,8 +537,9 @@ class RefInverseMassOperator(RefMassOperatorBase):
     def matrix(in_element_group, out_element_group):
         assert in_element_group == out_element_group
         import modepy as mp
+        basis = in_element_group.basis_obj()
         return mp.inverse_mass_matrix(
-                in_element_group.basis(),
+                basis.functions,
                 in_element_group.unit_nodes)
 
     @staticmethod
@@ -557,14 +566,16 @@ class OppositeInteriorFaceSwap(Operator):
     """
 
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
-        import grudge.symbolic.primitives as prim
+        from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+        import grudge.dof_desc as dof_desc
+
         if dd_in is None:
-            dd_in = prim.DOFDesc(prim.FACE_RESTR_INTERIOR, None)
+            dd_in = dof_desc.DOFDesc(FACE_RESTR_INTERIOR, None)
         if dd_out is None:
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if self.dd_in.domain_tag is not prim.FACE_RESTR_INTERIOR:
+        if self.dd_in.domain_tag is not FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -589,7 +600,8 @@ class OppositePartitionFaceSwap(Operator):
         MPI tag offset to keep different subexpressions apart in MPI traffic.
     """
     def __init__(self, dd_in=None, dd_out=None, unique_id=None):
-        import grudge.symbolic.primitives as prim
+        from meshmode.mesh import BTAG_PARTITION
+        import grudge.dof_desc as dof_desc
 
         if dd_in is None and dd_out is None:
             raise ValueError("dd_in or dd_out must be specified")
@@ -599,8 +611,8 @@ class OppositePartitionFaceSwap(Operator):
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if not (isinstance(self.dd_in.domain_tag, prim.DTAG_BOUNDARY)
-                and isinstance(self.dd_in.domain_tag.tag, prim.BTAG_PARTITION)):
+        if not (isinstance(self.dd_in.domain_tag, dof_desc.DTAG_BOUNDARY)
+                and isinstance(self.dd_in.domain_tag.tag, BTAG_PARTITION)):
             raise ValueError(
                     "dd_in must be a partition boundary faces domain, not '%s'"
                     % self.dd_in.domain_tag)
@@ -622,12 +634,14 @@ class OppositePartitionFaceSwap(Operator):
 
 class FaceMassOperatorBase(ElementwiseLinearOperator):
     def __init__(self, dd_in=None, dd_out=None):
-        import grudge.symbolic.primitives as prim
+        from meshmode.discretization.connection import FACE_RESTR_ALL
+        import grudge.dof_desc as dof_desc
+
         if dd_in is None:
-            dd_in = prim.DOFDesc(prim.FACE_RESTR_ALL, None)
+            dd_in = dof_desc.DOFDesc(FACE_RESTR_ALL, None)
 
         if dd_out is None or dd_out == "vol":
-            dd_out = prim.DOFDesc("vol", prim.QTAG_NONE)
+            dd_out = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
 
         if dd_out.uses_quadrature():
             raise ValueError("face mass operator outputs are not on "
@@ -635,7 +649,7 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
-        if dd_in.domain_tag is not prim.FACE_RESTR_ALL:
+        if dd_in.domain_tag is not FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
         super().__init__(dd_in, dd_out)
@@ -656,20 +670,68 @@ class RefFaceMassOperator(ElementwiseLinearOperator):
                     afgrp.nunit_dofs),
                 dtype=dtype)
 
-        from modepy.tools import UNIT_VERTICES
         import modepy as mp
-        for iface, fvi in enumerate(
-                volgrp.mesh_el_group.face_vertex_indices()):
-            face_vertices = UNIT_VERTICES[volgrp.dim][np.array(fvi)].T
-            matrix[:, iface, :] = mp.nodal_face_mass_matrix(
-                    volgrp.basis(), volgrp.unit_nodes, afgrp.unit_nodes,
-                    volgrp.order,
-                    face_vertices)
+        from meshmode.discretization import ElementGroupWithBasis
+        from meshmode.discretization.poly_element import \
+            QuadratureSimplexElementGroup
 
-        # np.set_printoptions(linewidth=200, precision=3)
-        # matrix[np.abs(matrix) < 1e-13] = 0
-        # print(matrix)
-        # 1/0
+        n = volgrp.order
+        m = afgrp.order
+        vol_basis = volgrp.basis_obj()
+        faces = mp.faces_for_shape(volgrp.shape)
+
+        for iface, face in enumerate(faces):
+            # If the face group is defined on a higher-order
+            # quadrature grid, use the underlying quadrature rule
+            if isinstance(afgrp, QuadratureSimplexElementGroup):
+                face_quadrature = afgrp.quadrature_rule()
+                if face_quadrature.exact_to < m:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {m}."
+                    )
+            else:
+                # NOTE: This handles the general case where
+                # volume and surface quadrature rules may have different
+                # integration orders
+                face_quadrature = mp.quadrature_for_space(
+                    mp.space_for_shape(face, 2*max(n, m)),
+                    face
+                )
+
+            # If the group has a nodal basis and is unisolvent,
+            # we use the basis on the face to compute the face mass matrix
+            if (isinstance(afgrp, ElementGroupWithBasis)
+                    and afgrp.space.space_dim == afgrp.nunit_dofs):
+
+                face_basis = afgrp.basis_obj()
+
+                # Sanity check for face quadrature accuracy. Not integrating
+                # degree N + M polynomials here is asking for a bad time.
+                if face_quadrature.exact_to < m + n:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {n+m}."
+                    )
+
+                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                    face, face_quadrature,
+                    face_basis.functions, vol_basis.functions,
+                    volgrp.unit_nodes, afgrp.unit_nodes,
+                )
+            else:
+                # Otherwise, we use a routine that is purely quadrature-based
+                # (no need for explicit face basis functions)
+                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
+                    face,
+                    face_quadrature,
+                    vol_basis.functions,
+                    volgrp.unit_nodes,
+                )
 
         return matrix
 
@@ -706,10 +768,11 @@ def stiffness_t(dim, dd_in=None, dd_out=None):
 
 def integral(arg, dd=None):
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
 
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     return NodalSum(dd)(
             arg * prim.cse(
@@ -723,10 +786,11 @@ def norm(p, arg, dd=None):
     :arg arg: is assumed to be a vector, i.e. have shape ``(n,)``.
     """
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
 
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if p == 2:
         norm_squared = NodalSum(dd_in=dd)(
@@ -763,9 +827,11 @@ def h_max_from_volume(ambient_dim, dim=None, dd=None):
     """
 
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
+
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if dim is None:
         dim = ambient_dim
@@ -784,9 +850,11 @@ def h_min_from_volume(ambient_dim, dim=None, dd=None):
     """
 
     import grudge.symbolic.primitives as prim
+    import grudge.dof_desc as dof_desc
+
     if dd is None:
-        dd = prim.DD_VOLUME
-    dd = prim.as_dofdesc(dd)
+        dd = dof_desc.DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     if dim is None:
         dim = ambient_dim

@@ -62,8 +62,10 @@ import pymbolic.primitives as p
 from meshmode.dof_array import DOFArray
 from grudge.grudge_array_context import GrudgeArrayContext
 
+import grudge.dof_desc as dof_desc
 import grudge.symbolic.mappers as gmap
 import grudge.symbolic.operators as sym_op
+
 from grudge.execution import ExecutionMapper
 from grudge.function_registry import base_function_registry
 from pymbolic.mapper import Mapper
@@ -72,7 +74,7 @@ from pymbolic.mapper.evaluator import EvaluationMapper \
 from pytools import memoize
 from pytools.obj_array import flat_obj_array
 
-from grudge import sym, bind, DGDiscretizationWithBoundaries
+from grudge import sym, bind, DiscretizationCollection
 from leap.rk import LSRK4MethodBuilder
 
 from pyopencl.tools import (  # noqa
@@ -187,8 +189,8 @@ def transcribe_phase(dag, field_var_name, field_components, phase_name,
     phase = dag.phases[phase_name]
 
     ctx = {
-            "<t>": sym.var("input_t", sym.DD_SCALAR),
-            "<dt>": sym.var("input_dt", sym.DD_SCALAR),
+            "<t>": sym.var("input_t", dof_desc.DD_SCALAR),
+            "<dt>": sym.var("input_dt", dof_desc.DD_SCALAR),
             f"<state>{field_var_name}": sym.make_sym_array(
                 f"input_{field_var_name}", field_components),
             "<p>residual": sym.make_sym_array(
@@ -378,9 +380,9 @@ class RK4TimeStepper(RK4TimeStepperBase):
         from grudge.symbolic.primitives import FunctionSymbol, Variable
         call = sym.cse(
                 FunctionSymbol("grudge_op")(*(
-                    (Variable("t", dd=sym.DD_SCALAR),)
+                    (Variable("t", dd=dof_desc.DD_SCALAR),)
                     + tuple(
-                        Variable(field_var_name, dd=sym.DD_VOLUME)[i]
+                        Variable(field_var_name, dd=dof_desc.DD_VOLUME)[i]
                         for i in range(num_fields)))))
         sym_rhs = flat_obj_array(*(call[i] for i in range(num_fields)))
 
@@ -392,7 +394,7 @@ class RK4TimeStepper(RK4TimeStepperBase):
                 base_function_registry,
                 "grudge_op",
                 implementation=self._bound_op,
-                dd=sym.DD_VOLUME)
+                dd=dof_desc.DD_VOLUME)
 
         self.set_up_stepper(
                 discr, field_var_name, sym_rhs, num_fields,
@@ -453,11 +455,11 @@ def get_wave_op_with_discr(actx, dims=2, order=4):
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
             b=(0.5,)*dims,
-            n=(16,)*dims)
+            nelements_per_axis=(16,)*dims)
 
     logger.debug("%d elements", mesh.nelements)
 
-    discr = DGDiscretizationWithBoundaries(actx, mesh, order=order)
+    discr = DiscretizationCollection(actx, mesh, order=order)
 
     from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -521,7 +523,7 @@ def test_stepper_equivalence(ctx_factory, order=4):
 
     fused_steps = fused_stepper.run(ic, t_start, dt, t_end)
 
-    for t_ref, (u_ref, v_ref) in stepper.run(ic, t_start, dt, t_end):
+    for t_ref, (u_ref, _v_ref) in stepper.run(ic, t_start, dt, t_end):
         step += 1
         logger.debug("step %d/%d", step, nsteps)
         t, (u, v) = next(fused_steps)
@@ -618,7 +620,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
                         expr.op, expr.field, profile_data)
 
             else:
-                assert False, ("unknown operator: %s" % expr.op)
+                raise AssertionError("unknown operator: %s" % expr.op)
 
         else:
             logger.debug("assignment not profiled: %s", expr)
@@ -634,7 +636,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
 
     def map_insn_loopy_kernel(self, insn, profile_data):
         kdescr = insn.kernel_descriptor
-        discr = self.inner_mapper.discrwb.discr_from_dd(kdescr.governing_dd)
+        discr = self.inner_mapper.dcoll.discr_from_dd(kdescr.governing_dd)
 
         dof_array_kwargs = {}
         other_kwargs = {}
@@ -705,7 +707,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
             logger.debug("assignment not profiled: %s <- %s", name, expr)
             inner_mapper = self.inner_mapper
             value = inner_mapper.rec(expr)
-            inner_mapper.discrwb._discr_scoped_subexpr_name_to_value[name] = value
+            inner_mapper.dcoll._discr_scoped_subexpr_name_to_value[name] = value
             assignments.append((name, value))
 
         return assignments, []
@@ -714,7 +716,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
         return [(
             insn.name,
             self.inner_mapper.
-                discrwb._discr_scoped_subexpr_name_to_value[insn.name])], []
+                dcoll._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_rank_data_swap(self, insn, profile_data):
         raise NotImplementedError("no profiling for instruction: %s" % insn)
@@ -755,8 +757,8 @@ def test_assignment_memory_model(ctx_factory):
     # Assignment instruction
     bound_op = bind(
             discr,
-            sym.Variable("input0", sym.DD_VOLUME)
-            + sym.Variable("input1", sym.DD_VOLUME),
+            sym.Variable("input0", dof_desc.DD_VOLUME)
+            + sym.Variable("input1", dof_desc.DD_VOLUME),
             exec_mapper_factory=ExecutionMapperWithMemOpCounting)
 
     input0 = discr.zeros(actx)
@@ -809,7 +811,7 @@ def test_stepper_mem_ops(ctx_factory, use_fusion):
     step = 0
 
     nsteps = int(np.ceil((t_end + 1e-9) / dt))
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         step += 1
         logger.info("step %d/%d", step, nsteps)
@@ -982,7 +984,7 @@ def test_stepper_timing(ctx_factory, use_fusion):
     import time
     t = time.time()
     nsteps = int(np.ceil((t_end + 1e-9) / dt))
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         step += 1
         tn = time.time()
@@ -1144,7 +1146,7 @@ def mem_ops_results(actx, dims):
 
     result = {}
 
-    for (_, _, profile_data) in stepper.run(
+    for (_, _, profile_data) in stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 
@@ -1162,7 +1164,7 @@ def mem_ops_results(actx, dims):
             result["nonfused_bytes_read_by_scalar_assignments"] \
             + result["nonfused_bytes_written_by_scalar_assignments"]
 
-    for (_, _, profile_data) in fused_stepper.run(
+    for (_, _, profile_data) in fused_stepper.run(  # noqa: B007
             ic, t_start, dt, t_end, return_profile_data=True):
         pass
 
@@ -1294,8 +1296,7 @@ def main():
     else:
         if not SKIP_TESTS:
             # Run tests.
-            from py.test import main
-            result = main([__file__])
+            result = pytest.main([__file__])
             assert result == 0
 
         # Run examples.

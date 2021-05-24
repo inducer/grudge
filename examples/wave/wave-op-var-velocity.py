@@ -28,23 +28,27 @@ import pyopencl as cl
 from pytools.obj_array import flat_obj_array
 
 from grudge.grudge_array_context import GrudgeArrayContext
-from meshmode.array_context import PyOpenCLArrayContext  # noqa F401
 from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.eager import EagerDGDiscretization, interior_trace_pair
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
+import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
 
 
 # {{{ wave equation bits
 
-def wave_flux(discr, c, w_tpair):
+def wave_flux(dcoll, c, w_tpair):
+    dd = w_tpair.dd
+    dd_quad = dd.with_discr_tag(DISCR_TAG_QUAD)
+
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, discr.normal(w_tpair.dd))
+    normal = thaw(u.int.array_context, op.normal(dcoll, dd))
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -57,28 +61,42 @@ def wave_flux(discr, c, w_tpair):
             0.5*normal*np.dot(normal, v.ext-v.int),
             )
 
-    return discr.project(w_tpair.dd, "all_faces", c*flux_weak)
+    # FIXME this flux is only correct for continuous c
+    dd_allfaces_quad = dd_quad.with_dtag("all_faces")
+    c_quad = op.project(dcoll, "vol", dd_quad, c)
+    flux_quad = op.project(dcoll, dd, dd_quad, flux_weak)
+
+    return op.project(dcoll, dd_quad, dd_allfaces_quad, c_quad*flux_quad)
 
 
-def wave_operator(discr, c, w):
+def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
 
-    dir_u = discr.project("vol", BTAG_ALL, u)
-    dir_v = discr.project("vol", BTAG_ALL, v)
+    dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
+    dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
+    dd_quad = DOFDesc("vol", DISCR_TAG_QUAD)
+    c_quad = op.project(dcoll, "vol", dd_quad, c)
+    w_quad = op.project(dcoll, "vol", dd_quad, w)
+    u_quad = w_quad[0]
+    v_quad = w_quad[1:]
+
+    dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
+
     return (
-            discr.inverse_mass(
+            op.inverse_mass(dcoll,
                 flat_obj_array(
-                    -c*discr.weak_div(v),
-                    -c*discr.weak_grad(u)
+                    -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
+                    -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
                     )
                 +  # noqa: W504
-                discr.face_mass(
-                    wave_flux(discr, c=c, w_tpair=interior_trace_pair(discr, w))
-                    + wave_flux(discr, c=c, w_tpair=TracePair(
+                op.face_mass(dcoll,
+                    dd_allfaces_quad,
+                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
+                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
                         BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     ))
                 )
@@ -94,40 +112,40 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def bump(actx, discr, t=0):
-    source_center = np.array([0.2, 0.35, 0.1])[:discr.dim]
-    source_width = 0.05
+def bump(actx, dcoll, t=0, width=0.05, center=None):
+    if center is None:
+        center = np.array([0.2, 0.35, 0.1])
+
+    center = center[:dcoll.dim]
     source_omega = 3
 
-    nodes = thaw(actx, discr.nodes())
+    nodes = thaw(actx, op.nodes(dcoll))
     center_dist = flat_obj_array([
-        nodes[i] - source_center[i]
-        for i in range(discr.dim)
+        nodes[i] - center[i]
+        for i in range(dcoll.dim)
         ])
 
     return (
         np.cos(source_omega*t)
         * actx.np.exp(
             -np.dot(center_dist, center_dist)
-            / source_width**2))
+            / width**2))
 
 
 def main():
     cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-    from pyopencl.tools import ImmediateAllocator
-    actx = GrudgeArrayContext(queue, allocator=ImmediateAllocator(queue))
+    queue = cl.CommandQueue(cl_ctx)
+    actx = GrudgeArrayContext(queue)
 
-    dim = 3
-    nel_1d = 2**5
+    dim = 2
+    nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            coord_dtype=np.float64,
             a=(-0.5,)*dim,
             b=(0.5,)*dim,
-            n=(nel_1d,)*dim)
+            nelements_per_axis=(nel_1d,)*dim)
 
-    order = 4
+    order = 3
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
@@ -140,35 +158,50 @@ def main():
 
     print("%d elements" % mesh.nelements)
 
-    discr = EagerDGDiscretization(actx, mesh, order=order)
+    from meshmode.discretization.poly_element import \
+            QuadratureSimplexGroupFactory, \
+            PolynomialWarpAndBlendGroupFactory
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
+        }
+    )
+
+    # bounded above by 1
+    c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
 
     fields = flat_obj_array(
-            bump(actx, discr),
-            [discr.zeros(actx) for i in range(discr.dim)]
+            bump(actx, dcoll, ),
+            [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
-    vis = make_visualizer(discr, order+3 if dim == 2 else order)
+    vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(discr, c=1, w=w)
+        return wave_operator(dcoll, c=c, w=w)
 
     t = 0
-    t_final = dt + dt
+    t_final = 3
     istep = 0
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(f"step: {istep} t: {t} L2: {discr.norm(fields[0])} "
-                    f"sol max: {discr.nodal_max('vol', fields[0])}")
-            vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
+            print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
+                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
+            vis.write_vtk_file("fld-wave-eager-var-velocity-%04d.vtu" % istep,
                     [
+                        ("c", c),
                         ("u", fields[0]),
                         ("v", fields[1:]),
                         ])
 
         t += dt
         istep += 1
+
+        assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":
