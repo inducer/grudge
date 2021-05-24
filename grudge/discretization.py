@@ -45,6 +45,8 @@ from warnings import warn
 
 
 __doc__ = """
+.. currentmodule:: grudge
+
 .. autoclass:: DiscretizationCollection
 """
 
