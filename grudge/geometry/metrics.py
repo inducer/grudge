@@ -188,8 +188,8 @@ def forward_metric_derivative_mat(actx, dcoll, dim=None, dd=None):
             \frac{\partial x_i}{\partial \xi_j}
             \right\rbrack_{(0, 0) \leq (i, j) \leq (n, m)}
 
-    where :math:`x_1, \cdots, x_n` denote the physical coordinates and
-    :math:`\xi_1, \cdots, \xi_m` denote coordinates on the reference element.
+    where :math:`x_1, \dots, x_n` denote the physical coordinates and
+    :math:`\xi_1, \dots, \xi_m` denote coordinates on the reference element.
     Note that, in the case of immersed manifolds, `J` is not necessarily
     a square matrix.
 
