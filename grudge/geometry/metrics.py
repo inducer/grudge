@@ -38,6 +38,8 @@ from pytools import memoize_on_first_arg
 
 
 __doc__ = """
+.. currentmodule:: grudge.geometry
+
 Coordinate transformations
 --------------------------
 

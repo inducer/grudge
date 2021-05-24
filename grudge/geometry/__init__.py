@@ -24,23 +24,41 @@ THE SOFTWARE.
 
 
 from grudge.geometry.metrics import (
+    forward_metric_nth_derivative,
     forward_metric_derivative_mat,
     inverse_metric_derivative_mat,
+
+    first_fundamental_form,
+    inverse_first_fundamental_form,
+
     inverse_surface_metric_derivative,
     pseudoscalar,
     area_element,
+
     surface_normal,
     normal,
+
+    second_fundamental_form,
+    shape_operator,
     summed_curvature
 )
 
 __all__ = (
+    "forward_metric_nth_derivative",
     "forward_metric_derivative_mat",
     "inverse_metric_derivative_mat",
+
+    "first_fundamental_form",
+    "inverse_first_fundamental_form",
+
     "inverse_surface_metric_derivative",
     "pseudoscalar",
     "area_element",
+
     "surface_normal",
     "normal",
-    "summed_curvature"
+
+    "second_fundamental_form",
+    "shape_operator",
+    "summed_curvature",
 )
