@@ -82,7 +82,7 @@ def forward_metric_nth_derivative(actx, dcoll, xyz_axis, ref_axes, dd=None):
     .. math::
 
         D^\alpha x_{\mathrm{xyz\_axis}} =
-        \frac{\partial^{|\alpha|} x_{\mathrm{xyz\_axis}}}{
+        \frac{\partial^{|\alpha|} x_{\mathrm{xyz\_axis}} }{
             \partial \xi_1^{\alpha_1}\cdots \partial \xi_m^{\alpha_m}}
 
     where :math:`\alpha` is a multi-index described by *ref_axes*.
