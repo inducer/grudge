@@ -60,7 +60,135 @@ def wave_flux(dcoll, c, w_tpair):
 
     return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
+#'''
+def wave_operator(discr, c, w):
+    from pyopencl import MemoryError
+    from pyopencl.array import Array
+    try:
 
+        u = w[0]
+        v = w[1:]
+
+        dir_u = op.project(discr, "vol", BTAG_ALL, u)
+        dir_v = op.project(discr, "vol", BTAG_ALL, v)
+        dir_bval = flat_obj_array(dir_u, dir_v)
+        neg_dir_u = -dir_u; del dir_u
+        dir_bc = flat_obj_array(neg_dir_u, dir_v)
+        #print(discr._discr_scoped_subexpr_name_to_value.keys())
+        div = op.weak_local_div(discr,v)
+
+        #print(discr._discr_scoped_subexpr_name_to_value.keys())
+
+        neg_c_div = (-c)*div; del div
+
+        #print(discr._discr_scoped_subexpr_name_to_value.keys())
+        grad = op.weak_local_grad(discr,u)
+
+        neg_c_grad = (-c)*grad; del grad
+        obj_array = flat_obj_array(neg_c_div, neg_c_grad)
+
+        trace_pair1 = op.interior_trace_pair(discr, w)
+        wave_flux1 = wave_flux(discr, c=c, w_tpair=trace_pair1)
+        del trace_pair1
+
+        trace_pair2 = TracePair(BTAG_ALL, interior=dir_bval, exterior=dir_bc)
+        wave_flux2 = wave_flux(discr, c=c, w_tpair=trace_pair2)
+        del trace_pair2
+        del dir_bc
+        del neg_dir_u
+        del dir_v
+        del dir_bval
+
+        wave_flux_sum = wave_flux1 + wave_flux2;
+        """
+        print("####################")
+        print(type(wave_flux_sum))
+        for entry in wave_flux_sum:
+            print(type(entry))
+            print(entry._data.shape)
+        """
+
+        del wave_flux1
+        del wave_flux2
+
+        face_mass = op.face_mass(discr, wave_flux_sum)
+        del wave_flux_sum
+
+        inverse_arg = obj_array + face_mass
+        """
+        print("@@@@@@@@@@@@@@@@@@@@@")
+        print(type(inverse_arg))
+        for entry in inverse_arg:
+            print(type(entry))
+            print(type(entry._data))
+            print(len(entry._data))
+            print(entry._data[0].shape)
+        exit()
+        """
+
+        del obj_array
+        del face_mass
+        del neg_c_div
+        del neg_c_grad
+
+        result = op.inverse_mass(discr,inverse_arg)
+        del inverse_arg
+
+        """
+        # Original version
+        dir_u = discr.project("vol", BTAG_ALL, u)
+        dir_v = discr.project("vol", BTAG_ALL, v)
+        dir_bval = flat_obj_array(dir_u, dir_v)
+        dir_bc = flat_obj_array(-dir_u, dir_v)
+     
+        return (
+                discr.inverse_mass(
+                    flat_obj_array(
+                        -c*discr.weak_div(v),
+                        -c*discr.weak_grad(u)
+                        )
+                    +  # noqa: W504
+                    discr.face_mass(
+                        wave_flux(discr, c=c, w_tpair=op.interior_trace_pair(discr, w))
+                        + wave_flux(discr, c=c, w_tpair=TracePair(
+                            BTAG_ALL, interior=dir_bval, exterior=dir_bc))
+                        ))
+                    )
+        """
+
+        from time import sleep
+        sleep(3)
+        #print_allocated_arrays() 
+
+        scoped = discr._discr_scoped_subexpr_name_to_value
+        print(len(scoped.items()))
+        print(scoped.keys())
+        sum = 0
+        for value in scoped.values():
+            #print(type(value))
+            if isinstance(value._data, tuple):
+                for entry in value._data:
+                    print(entry.shape)
+                    sum += entry.shape[0]*entry.shape[1]*8
+            else:
+                print(value._data.shape)
+                sum += value._data.shape[0]*value_data.shape[1]*8
+        print(sum / 1e9)
+        exit()
+
+    except MemoryError:
+        for key, value in Array.alloc_dict.items():
+            print("{} {}".format(key, value[1]/1e9))
+            for entry in value[0]:
+                print(entry)
+            print()
+        exit() 
+
+
+    return (result)
+#'''
+
+"""
 def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
@@ -83,16 +211,41 @@ def wave_operator(dcoll, c, w):
                         BTAG_ALL, interior=dir_bval, exterior=dir_bc))
                     ))
                 )
-
+"""
 # }}}
 
 
 def rk4_step(y, t, h, f):
     k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+    kSum = k1
+    h2k1 = (h/2)*k1
+    del k1
+    yph2k1 = y + h2k1
+    del h2k1
+    k2 = f(t+h/2, y + yph2k1)
+    #k2 = f(t+h/2, y + h/2*k1)
+    twok2 = 2*k2
+    kSum = kSum + twok2
+    del twok2
+    h2k2 = (h/2)*k2
+    del k2
+    yph2k2 = y + h2k2
+    k3 = f(t+h/2, yph2k2)
+    #k3 = f(t+h/2, y + h/2*k2)
+    twok3 = 2*k3
+    kSum = kSum + twok3
+    del twok3
+    hk3 = h*k3
+    del k3
+    yphk3 = y + hk3
+    del hk3
+    k4 = f(t+h, yphk3)
+    kSum = kSum + k4
+    del k4
+    h6kSum = (h/6)*kSum
+    del kSum
+    return y + h6kSum
+    #return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def bump(actx, dcoll, t=0):
@@ -128,7 +281,8 @@ def main():
             b=(0.5,)*dim,
             nelements_per_axis=(nel_1d,)*dim)
 
-    order = 4
+    order = 3
+
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
@@ -168,8 +322,8 @@ def main():
                         ("v", fields[1:]),
                         ])
 
-        t += dt
         istep += 1
+        t = istep*dt
 
         assert op.norm(dcoll, fields[0], 2) < 1
 
