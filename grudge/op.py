@@ -1,68 +1,6 @@
-__copyright__ = """
-Copyright (C) 2021 Andreas Kloeckner
-Copyright (C) 2021 University of Illinois Board of Trustees
 """
-
-__license__ = """
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
-
-
-from numbers import Number
-from functools import reduce
-
-from arraycontext import (
-        ArrayContext, FirstAxisIsElementsTag, make_loopy_program,
-        freeze)
-
-from grudge.discretization import DiscretizationCollection
-
-from pytools import (
-    memoize_in,
-    memoize_on_first_arg,
-    keyed_memoize_in
-)
-from pytools.obj_array import obj_array_vectorize, make_obj_array
-
-from meshmode.dof_array import DOFArray
-
-import numpy as np
-import grudge.dof_desc as dof_desc
-
-from grudge.trace_pair import (  # noqa
-    interior_trace_pair,
-    interior_trace_pairs,
-    connected_ranks,
-    cross_rank_trace_pairs,
-    bdry_trace_pair,
-    bv_trace_pair
-)
-
-
-__doc__ = """
-Metadata and geometry
-^^^^^^^^^^^^^^^^^^^^^
-
-Kernel tags
------------
-
-.. autoclass:: HasElementwiseMatvecTag
+Data transfer and geometry
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Projection and interpolation
 ----------------------------
@@ -108,9 +46,9 @@ Nodal reductions
 ----------------
 
 .. autofunction:: norm
-.. autofunction:: nodal_summation
-.. autofunction:: nodal_minimum
-.. autofunction:: nodal_maximum
+.. autofunction:: nodal_sum
+.. autofunction:: nodal_min
+.. autofunction:: nodal_max
 .. autofunction:: integral
 
 Elementwise reductions
@@ -118,6 +56,65 @@ Elementwise reductions
 
 .. autofunction:: elementwise_sum
 """
+
+__copyright__ = """
+Copyright (C) 2021 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
+
+from numbers import Number
+from functools import reduce
+
+from arraycontext import (
+    ArrayContext,
+    FirstAxisIsElementsTag,
+    make_loopy_program,
+    freeze
+)
+
+from grudge.discretization import DiscretizationCollection
+
+from pytools import (
+    memoize_in,
+    memoize_on_first_arg,
+    keyed_memoize_in
+)
+from pytools.obj_array import obj_array_vectorize, make_obj_array
+
+from meshmode.dof_array import DOFArray
+
+import numpy as np
+import grudge.dof_desc as dof_desc
+
+from grudge.trace_pair import (  # noqa
+    interior_trace_pair,
+    interior_trace_pairs,
+    connected_ranks,
+    cross_rank_trace_pairs,
+    bdry_trace_pair,
+    bv_trace_pair
+)
 
 
 # {{{ Kernel tags
@@ -138,7 +135,7 @@ class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
 # FIXME: Should reintroduce interp and make clear distinctions
 # between projection and interpolations.
 # Related issue: https://github.com/inducer/grudge/issues/38
-# def interp(dcoll, src, tgt, vec):
+# def interp(dcoll: DiscretizationCollection, src, tgt, vec):
 #     from warnings import warn
 #     warn("using 'interp' is deprecated, use 'project' instead.",
 #          DeprecationWarning, stacklevel=2)
@@ -190,7 +187,7 @@ def nodes(dcoll: DiscretizationCollection, dd=None) -> np.ndarray:
 
 
 @memoize_on_first_arg
-def normal(dcoll, dd):
+def normal(dcoll: DiscretizationCollection, dd):
     r"""Get the unit normal to the specified surface discretization, *dd*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
@@ -223,8 +220,9 @@ def h_max_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
         dim = dcoll.dim
 
     ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_maximum(
+    return nodal_max(
         dcoll,
+        dd,
         elementwise_sum(dcoll, mass(dcoll, dd, ones))
     ) ** (1.0 / dim)
 
@@ -250,8 +248,9 @@ def h_min_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
         dim = dcoll.dim
 
     ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_minimum(
+    return nodal_min(
         dcoll,
+        dd,
         elementwise_sum(dcoll, mass(dcoll, dd, ones))
     ) ** (1.0 / dim)
 
@@ -337,7 +336,7 @@ def local_d_dx(dcoll: DiscretizationCollection, xyz_axis, vec):
     return _compute_local_gradient(dcoll, vec, xyz_axis)
 
 
-def _div_helper(dcoll, diff_func, vecs):
+def _div_helper(dcoll: DiscretizationCollection, diff_func, vecs):
     if not isinstance(vecs, np.ndarray):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
@@ -380,7 +379,8 @@ def local_div(dcoll: DiscretizationCollection, vecs):
 
 # {{{ Weak derivative operators
 
-def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_group):
+def reference_stiffness_transpose_matrix(
+        actx: ArrayContext, out_element_group, in_element_group):
     @keyed_memoize_in(
         actx, reference_stiffness_transpose_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
@@ -424,7 +424,8 @@ def reference_stiffness_transpose_matrix(actx, out_element_group, in_element_gro
                                            in_element_group)
 
 
-def _apply_stiffness_transpose_operator(dcoll, dd_out, dd_in, vec, xyz_axis):
+def _apply_stiffness_transpose_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec, xyz_axis):
     from grudge.geometry import \
         inverse_surface_metric_derivative, area_element
 
@@ -593,7 +594,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
     return get_ref_mass_mat(out_element_group, in_element_group)
 
 
-def _apply_mass_operator(dcoll, dd_out, dd_in, vec):
+def _apply_mass_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
             lambda vi: _apply_mass_operator(dcoll,
@@ -874,8 +876,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                 "{[jdof]: 0 <= jdof < nface_nodes}"
             ],
             """
-            result[iel, idof] = sum(f, sum(jdof, mat[idof, f, jdof]        \
-                                                 * jac_surf[f, iel, jdof]  \
+            result[iel, idof] = sum(f, sum(jdof, mat[idof, f, jdof]
+                                                 * jac_surf[f, iel, jdof]
                                                  * vec[f, iel, jdof]))
             """,
             name="face_mass"
@@ -922,7 +924,7 @@ def face_mass(dcoll: DiscretizationCollection, *args):
     May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base 'all_faces' discretization if not provided.
+        Defaults to the base ``"all_faces"`` discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
@@ -945,18 +947,19 @@ def face_mass(dcoll: DiscretizationCollection, *args):
 
 # {{{ Nodal reductions
 
-def _norm(dcoll, vec, p, dd):
+def _norm(dcoll: DiscretizationCollection, vec, p, dd):
     if isinstance(vec, Number):
         return np.fabs(vec)
     if p == 2:
         return np.sqrt(
-            nodal_summation(
+            nodal_sum(
                 dcoll,
+                dd,
                 vec * _apply_mass_operator(dcoll, dd, dd, vec)
             )
         )
     elif p == np.inf:
-        return nodal_maximum(dcoll, dcoll._setup_actx.np.fabs(vec))
+        return nodal_max(dcoll, dd, dcoll._setup_actx.np.fabs(vec))
     else:
         raise NotImplementedError("Unsupported value of p")
 
@@ -975,6 +978,9 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None):
         Defaults to the base volume discretization if not provided.
     :returns: a nonegative scalar denoting the norm.
     """
+    # FIXME: Make MPI-aware
+    # NOTE: Must retain a way to do local reductions
+
     if dd is None:
         dd = dof_desc.DD_VOLUME
 
@@ -996,79 +1002,63 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None):
 
 
 def nodal_sum(dcoll: DiscretizationCollection, dd, vec):
-    from warnings import warn
-    warn("Using 'nodal_sum' is deprecated, use 'nodal_summation' instead.",
-         DeprecationWarning, stacklevel=2)
-    return nodal_summation(dcoll, vec)
-
-
-def nodal_summation(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal sum.
     """
     # FIXME: Make MPI-aware
+    # NOTE: Must retain a way to do local reductions
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
 def nodal_min(dcoll: DiscretizationCollection, dd, vec):
-    from warnings import warn
-    warn("Using 'nodal_min' is deprecated, use 'nodal_minimum' instead.",
-         DeprecationWarning, stacklevel=2)
-    return nodal_minimum(dcoll, vec)
-
-
-def nodal_minimum(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal minimum.
     """
     # FIXME: Make MPI-aware
+    # NOTE: Must retain a way to do local reductions
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
                   vec, -np.inf)
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec):
-    from warnings import warn
-    warn("Using 'nodal_max' is deprecated, use 'nodal_maximum' instead.",
-         DeprecationWarning, stacklevel=2)
-    return nodal_maximum(dcoll, vec)
-
-
-def nodal_maximum(dcoll: DiscretizationCollection, vec):
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal maximum.
     """
     # FIXME: Make MPI-aware
+    # NOTE: Must retain a way to do local reductions
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
                   vec, -np.inf)
 
 
-def integral(dcoll: DiscretizationCollection, vec, dd=None):
+def integral(dcoll: DiscretizationCollection, dd, vec):
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: a scalar denoting the evaluated integral.
     """
-
-    if dd is None:
-        dd = dof_desc.DD_VOLUME
 
     dd = dof_desc.as_dofdesc(dd)
 
     ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return nodal_summation(
-        dcoll, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+    return nodal_sum(
+        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
 
 # }}}
@@ -1076,7 +1066,7 @@ def integral(dcoll: DiscretizationCollection, vec, dd=None):
 
 # {{{  Elementwise reductions
 
-def _map_elementwise_reduction(actx, op_name):
+def _map_elementwise_reduction(actx: ArrayContext, op_name):
     @memoize_in(actx, (_map_elementwise_reduction,
                        "elementwise_%s_prg" % op_name))
     def prg():
