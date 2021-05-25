@@ -1,4 +1,4 @@
-"""Minimal example of a grudge driver."""
+"""Minimal example of a grudge driver for DG on surfaces."""
 
 __copyright__ = """
 Copyright (C) 2020 Alexandru Fikl
