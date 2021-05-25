@@ -333,7 +333,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
     def max_eigenvalue(self, t, fields=None, discr=None):
         actx = self.dcoll._setup_actx
-        return op.nodal_maximum(self.dcoll, actx.np.fabs(self.c))
+        return op.nodal_max(self.dcoll, "vol", actx.np.fabs(self.c))
 
 # }}}
 
