@@ -83,7 +83,10 @@
               ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
               ["split_iname", ["idof", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
-              ["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+              #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
           ],
           3:[
               ["split_iname", ["iel", 96], {outer_tag: "g.0", slabs:[0,1]}],
@@ -96,6 +99,7 @@
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
               ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for", slabs:[0,0]}],
               ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
           ],
           4:[
               # Move this to array context?
@@ -115,6 +119,9 @@
  
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
               #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
           ],
           5:[
               ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs: [0,1]}],

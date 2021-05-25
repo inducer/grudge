@@ -92,7 +92,7 @@
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
               ["tag_array_axes", ["vecf", "f,f"]],
               ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for"}],
-
+              ["add_inames_for_unused_hw_axes"],
           ],
           3:[
               ["split_iname", ["iel", 128], {outer_tag: "g.0", slabs:[0,1]}],
@@ -103,10 +103,17 @@
               ["split_iname", ["idof", 20], {outer_tag: "g.1"}], 
               ["split_iname", ["idof_inner", 10], {outer_tag: "ilp", inner_tag: "l.1"}], 
               # For tests comment this
-              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag:"l.auto"}],
+              #["split_iname", ["vec_dim_1_outer", "20"], {outer_tag:"g.1"}],
+              #["split_iname", ["vec_dim_1_outer", "20"], {outer_tag:"g.1", inner_tag:"ilp", slabs:[0,0]}],
+              #["tag_inames", [[ ["vec_dim_0_inner", "l.0"],
+              #                  ["vec_dim_1_inner", "l.1"], 
+              #                  ["vec_dim_1_outer","ilp"],
+              #                  ["vec_dim_0_outer","ilp"]]]],
               #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}],  
               ["split_iname", ["j", 20], {outer_tag: "for", inner_tag: "for", slabs:[0,0]}],
-                ["tag_array_axes", ["vecf", "f,f"]],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"],
           ],
           4:[
               # Move this to array context?
@@ -129,6 +136,7 @@
               ["split_iname", ["j", 35], {outer_tag: "for", inner_tag: "for"}], 
  
               #["add_prefetch", ["mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+              ["add_inames_for_unused_hw_axes"],
           ],
           5:[
               ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs: [0,1]}],

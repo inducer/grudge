@@ -79,6 +79,7 @@
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
               ["tag_array_axes", ["vecf", "f,f"]],
               ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for"}],
+              ["add_inames_for_unused_hw_axes"]
           ],
           20:[
               ["tag_inames", [[["imatrix", "ilp"]]]],
@@ -96,6 +97,7 @@
               #["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
               ["split_iname", ["j", 20], {outer_tag: "for", inner_tag: "for"}],
               ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
           ],
           35:[
               ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
@@ -103,6 +105,8 @@
               ["split_iname", ["idof", 35], {outer_tag: "g.1"}], 
               ["split_iname", ["idof_inner", 7], {outer_tag: "ilp", inner_tag: "l.1"}], 
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+
+              ["add_inames_for_unused_hw_axes"]
           ],
           56:[
               ["tag_inames", [[["imatrix", "ilp"]]]],

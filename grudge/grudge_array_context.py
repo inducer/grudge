@@ -93,7 +93,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         # This read could be slow
         transform_id = get_transformation_id(device_id)
 
-        if "diff" in program.name:
+        if "diff" in program.name and "diff_2" not in program.name:
             #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,
             # Rename this file
@@ -120,9 +120,9 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                 # Attempt to read from a transformation file in the current directory first,
                 # then try to read from the package files
                 #try:
-                hjson_file = open("test_write.hjson", "rt")
+                #hjson_file = open("test_write.hjson", "rt")
                 #except FileNotFoundError:
-                #    hjson_file = pkg_resources.open_text(dgk, "diff_{}d_transform.hjson2".format(dim))
+                hjson_file = pkg_resources.open_text(dgk, "diff_{}d_transform.hjson".format(dim))
 
                 # Probably need to generalize this
                 indices = [transform_id, fp_string, str(ndofs)]
@@ -208,6 +208,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file = pkg_resources.open_text(dgk, "elwise_linear_transform.hjson")
             pn = -1
             fp_format = None
+            print(program.args)
             for arg in program.args:
                 if arg.name == "mat":
                     pn = get_order_from_dofs(arg.shape[0])                    

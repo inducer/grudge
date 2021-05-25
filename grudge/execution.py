@@ -25,6 +25,7 @@ from numbers import Number
 import numpy as np
 
 from pytools import memoize_in
+from pytools.obj_array import make_obj_array
 
 import loopy as lp
 import pyopencl as cl
@@ -410,7 +411,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
 
-        prg = self._elwise_linear_loopy_prg()
+        #prg = self._elwise_linear_loopy_prg()
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
             cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
@@ -618,6 +619,73 @@ class ExecutionMapper(mappers.Evaluator,
         ifield = insn.field
         field = self.rec(ifield)
         repr_op = insn.operators[0]
+
+        # FIXME: There's no real reason why differentiation is special,
+        # execution-wise.
+        # This should be unified with map_elementwise_linear, which should
+        # be extended to support batching.
+        # Note: This is now mostly done
+
+        assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
+
+        noperators = len(insn.operators)
+        in_discr = self.dcoll.discr_from_dd(repr_op.dd_in)
+        out_discr = self.dcoll.discr_from_dd(repr_op.dd_out)
+
+        result = make_obj_array([
+            out_discr.empty(self.array_context, dtype=field.entry_dtype)
+            for idim in range(noperators)])
+
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+            if in_grp.nelements == 0:
+                continue
+
+            # Cache operator
+            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                field.entry_dtype
+            try:
+                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrices = repr_op.matrices(out_grp, in_grp)
+                matrices_ary = np.empty(
+                    (noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),
+                    dtype=field.entry_dtype)
+
+                for i, op in enumerate(insn.operators):
+                    # Is there a more flexible way to do this?
+                    if isinstance(op, RefInverseMassOperator) or \
+                       isinstance(op, RefMassOperator):
+                        matrices_ary[i] = matrices[0]
+                    else:
+                        matrices_ary[i] = matrices[op.rst_axis]
+
+                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
+
+            n_out, n_in = matrices_ary_dev[0].shape
+            n_elem = field[in_grp.index].shape[0]
+            fp_format = field.entry_dtype
+            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype)
+
+            if noperators == 3 or noperators == 1:
+                import traceback
+                traceback.print_stack()
+                #exit()
+
+            self.array_context.call_loopy(
+                    program,
+                    diff_mat=matrices_ary_dev,
+                    result=make_obj_array([result[iop][out_grp.index]
+                        for iop in range(noperators)]),
+                    vec=field[in_grp.index])
+
+        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+
+    '''
+    def map_insn_diff_batch_assign(self, insn, profile_data=None):
+        ifield = insn.field
+        field = self.rec(ifield)
+        repr_op = insn.operators[0]
         noperators = len(insn.operators)
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
@@ -625,29 +693,12 @@ class ExecutionMapper(mappers.Evaluator,
         in_discr = self.dcoll.discr_from_dd(repr_op.dd_in)
         out_discr = self.dcoll.discr_from_dd(repr_op.dd_out)
 
-        prg = self._elwise_linear_loopy_prg()
-
+        #"""
         result = []
-        for name, op in zip(insn.names, insn.operators):
-            group_results = []
-            for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
-                assert in_grp.nelements == out_grp.nelements
 
-                # Cache operator
-                cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
-                    field.entry_dtype
-                try:
-                    matrices_dev = self.bound_op.operator_data_cache[cache_key]
-                except KeyError:
-                    matrices_dev = [self.array_context.from_numpy(mat)
-                            for mat in repr_op.matrices(out_grp, in_grp)]
-                    self.bound_op.operator_data_cache[cache_key] = matrices_dev
-
-                group_results.append(self.array_context.call_loopy(
-                        prg,
-                        mat=matrices_dev[op.rst_axis],
-                        vec=field[in_grp.index])["result"])
-
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+            if in_grp.nelements == 0:
+                continue
             # Begin old version
             # Cache operator
             cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
@@ -687,14 +738,46 @@ class ExecutionMapper(mappers.Evaluator,
                     result=make_obj_array([result[iop][out_grp.index]
                         for iop in range(noperators)]),
                     vec=field[in_grp.index])
-            # End old version
-    
-            # New master version
-            #result.append(
-            #        (name, DOFArray(self.array_context, tuple(group_results))))
+ 
+        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+        # End old version
+        #"""
 
+        # New master version
+        """
+        #prg = self._elwise_linear_loopy_prg()
+        
+        for name, op in zip(insn.names, insn.operators):
+            group_results = []
+            for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+                assert in_grp.nelements == out_grp.nelements
+
+                # Cache operator
+                cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                    field.entry_dtype
+                try:
+                    matrices_dev = self.bound_op.operator_data_cache[cache_key]
+                except KeyError:
+                    matrices_dev = [self.array_context.from_numpy(mat)
+                            for mat in repr_op.matrices(out_grp, in_grp)]
+                    self.bound_op.operator_data_cache[cache_key] = matrices_dev
+
+                matrix = matrices_dev[0]
+                nnodes, _ = matrix.shape
+                nelements, _ = field[in_grp.index].shape
+                fp_format = matrix.dtype
+                prg = elwise_linear_prg(nelements, nnodes, fp_format)            
+
+                group_results.append(self.array_context.call_loopy(
+                        prg,
+                        mat=matrices_dev[op.rst_axis],
+                        vec=field[in_grp.index])["result"])
+   
+            result.append(
+                    (name, DOFArray(self.array_context, tuple(group_results))))
         return result, []
-
+        """
+    '''
     # }}}
 
 # }}}

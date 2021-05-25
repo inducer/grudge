@@ -398,12 +398,14 @@ def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
 
 #@memoize_method
 def apply_transformation_list(knl, transformations):
+    # Could just construct a string for the function handle and retrieve the function from that
     function_mapping = {"split_iname": lp.split_iname,
                         "add_prefetch": lp.add_prefetch,
                         "prioritize_loops": lp.prioritize_loops,
                         "rename_iname": lp.rename_iname,
                         "tag_array_axes": lp.tag_array_axes,
-                        "tag_inames": lp.tag_inames}
+                        "tag_inames": lp.tag_inames,
+                        "add_inames_for_unused_hw_axes": lp.add_inames_for_unused_hw_axes}
 
     # Maybe add some logic to add slabs=(0,0) if n_elem % k_inner_outer == 0
     # Maybe can do this based on tranformation name, loop variable, and loop variable
@@ -412,7 +414,9 @@ def apply_transformation_list(knl, transformations):
     for t in transformations:
         #print(t)
         func = function_mapping[t[0]]
-        args = [knl] + t[1]
+        args = [knl]
+        if len(t) > 1:
+            args = args + t[1]
         kwargs = t[2] if len(t) > 2 else {}
         #print(t)
         knl = func(*args, **kwargs)
