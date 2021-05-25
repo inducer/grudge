@@ -33,7 +33,7 @@ from arraycontext import (  # noqa
 from arraycontext.container.traversal import thaw
 
 from meshmode import _acf       # noqa: F401
-from meshmode.dof_array import flatten, flat_norm
+from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array, make_obj_array
@@ -143,15 +143,15 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     ones_quad = quad_disc.zeros(actx) + 1
 
     mop_1 = op.mass(dcoll, dd_quad, f_quad)
-    num_integral_1 = np.dot(actx.to_numpy(flatten(ones_volm)),
-                            actx.to_numpy(flatten(mop_1)))
+    num_integral_1 = op.nodal_sum(
+        dcoll, dof_desc.DD_VOLUME, ones_volm * mop_1
+    )
 
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 2e-9, err_1
 
     mop_2 = op.mass(dcoll, dd_quad, ones_quad)
-    num_integral_2 = np.dot(actx.to_numpy(flatten(f_volm)),
-                            actx.to_numpy(flatten(mop_2)))
+    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_volm * mop_2)
 
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 2e-9, err_2
@@ -159,8 +159,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-        num_integral_3 = np.dot(actx.to_numpy(flatten(f_quad)),
-                                actx.to_numpy(flatten(mop_2)))
+        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_quad * mop_2)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5e-10, err_3
 
@@ -242,9 +241,7 @@ def test_mass_surface_area(actx_factory, name):
 
         dd = dof_desc.DD_VOLUME
         ones_volm = volume_discr.zeros(actx) + 1
-        flattened_mass_weights = flatten(op.mass(dcoll, dd, ones_volm))
-        approx_surface_area = np.dot(actx.to_numpy(flatten(ones_volm)),
-                                     actx.to_numpy(flattened_mass_weights))
+        approx_surface_area = op.integral(dcoll, dd, ones_volm)
 
         logger.info("surface: got {:.5e} / expected {:.5e}".format(
             approx_surface_area, surface_area))
@@ -492,11 +489,11 @@ def test_2d_gauss_theorem(actx_factory):
         )
 
     f_volm = f(x_volm)
-    int_1 = op.integral(dcoll, op.local_div(dcoll, f_volm))
+    int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
     normal = thaw(op.normal(dcoll, BTAG_ALL), actx)
-    int_2 = op.integral(dcoll, prj_f.dot(normal), dd=BTAG_ALL)
+    int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
 
     assert abs(int_1 - int_2) < 1e-13
 
@@ -618,7 +615,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         flux = op.face_mass(dcoll, face_f.dot(face_normal))
 
         # sum everything up
-        op_global = op.nodal_summation(dcoll, stiff - (stiff_t + kterm))
+        op_global = op.nodal_sum(dcoll, dd, stiff - (stiff_t + kterm))
         op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)

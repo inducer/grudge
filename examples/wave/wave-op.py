@@ -179,8 +179,8 @@ def main(write_output=False):
             print(f"step: {istep} t: {t} "
                   f"L2: {op.norm(dcoll, fields[0], 2)} "
                   f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
-                  f"sol max: {op.nodal_maximum(dcoll, fields[0])} "
-                  f"sol min: {op.nodal_minimum(dcoll, fields[0])}")
+                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
+                  f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
             if write_output:
                 vis.write_vtk_file(
                     "fld-wave-eager-%04d.vtu" % istep,
