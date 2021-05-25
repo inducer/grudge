@@ -1,3 +1,9 @@
+"""
+.. currentmodule:: grudge
+
+.. autoclass:: DiscretizationCollection
+"""
+
 __copyright__ = """
 Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -44,13 +50,6 @@ from meshmode.mesh import BTAG_PARTITION
 from warnings import warn
 
 
-__doc__ = """
-.. currentmodule:: grudge
-
-.. autoclass:: DiscretizationCollection
-"""
-
-
 class DiscretizationCollection:
     """A collection of discretizations on various mesh entities
     (volume, interior facets, boundaries) and associated element
@@ -66,8 +65,6 @@ class DiscretizationCollection:
 
     .. automethod:: discr_from_dd
     .. automethod:: connection_from_dds
-    .. automethod:: opposite_face_connection
-    .. automethod:: get_distributed_boundary_swap_connection
 
     .. automethod:: empty
     .. automethod:: zeros
@@ -541,7 +538,7 @@ class DiscretizationCollection:
 
     @property
     def ambient_dim(self):
-        """Return the geometric dimension."""
+        """Return the dimension of the ambient space."""
         return self._volume_discr.ambient_dim
 
     @property
