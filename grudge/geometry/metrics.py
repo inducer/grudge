@@ -1,3 +1,37 @@
+"""
+.. currentmodule:: grudge.geometry
+
+Coordinate transformations
+--------------------------
+
+.. autofunction:: forward_metric_nth_derivative
+.. autofunction:: forward_metric_derivative_mat
+.. autofunction:: inverse_metric_derivative_mat
+
+.. autofunction:: first_fundamental_form
+.. autofunction:: inverse_first_fundamental_form
+
+Geometry terms
+--------------
+
+.. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: pseudoscalar
+.. autofunction:: area_element
+
+Normal vectors
+--------------
+
+.. autofunction:: surface_normal
+.. autofunction:: normal
+
+Curvature tensors
+-----------------
+
+.. autofunction:: second_fundamental_form
+.. autofunction:: shape_operator
+.. autofunction:: summed_curvature
+"""
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -37,41 +71,6 @@ from pymbolic.geometric_algebra import MultiVector
 
 from pytools.obj_array import make_obj_array
 from pytools import memoize_on_first_arg
-
-
-__doc__ = """
-.. currentmodule:: grudge.geometry
-
-Coordinate transformations
---------------------------
-
-.. autofunction:: forward_metric_nth_derivative
-.. autofunction:: forward_metric_derivative_mat
-.. autofunction:: inverse_metric_derivative_mat
-
-.. autofunction:: first_fundamental_form
-.. autofunction:: inverse_first_fundamental_form
-
-Geometry terms
---------------
-
-.. autofunction:: inverse_surface_metric_derivative
-.. autofunction:: pseudoscalar
-.. autofunction:: area_element
-
-Normal vectors
---------------
-
-.. autofunction:: surface_normal
-.. autofunction:: normal
-
-Curvature tensors
------------------
-
-.. autofunction:: second_fundamental_form
-.. autofunction:: shape_operator
-.. autofunction:: summed_curvature
-"""
 
 
 # {{{ Metric computations
@@ -461,14 +460,14 @@ def parametrization_derivative(
 def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
         dim=None, dd=None) -> MultiVector:
     r"""Computes the field of pseudoscalars for the domain/discretization
-    identified by *dd*
+    identified by *dd*.
 
     :arg dim: an integer denoting the spatial dimension. Defaults to the
         :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: A :class:`~pymbolic.geometric_algebra.MultiVector` of
-        :class:`~meshmode.dof_array.DOFArray`\ s
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if dd is None:
         dd = DD_VOLUME
@@ -485,9 +484,8 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
 def area_element(
         actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
         ) -> DOFArray:
-    r"""Computes the measure of a transformed element. These are used
-    to transform integrals from global to reference space, and are
-    commonly referred to as Jacobian determinants.
+    r"""Computes the scale factor used to transform integrals from reference
+    to global space.
 
     :arg dim: an integer denoting the spatial dimension. Defaults to the
         :attr:`grudge.DiscretizationCollection.dim`.
@@ -532,15 +530,9 @@ def surface_normal(
     return pder << pder.I.inv()
 
 
-def mv_normal(
+def _compute_mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd
         ) -> MultiVector:
-    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-    :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
-        containing the unit normals.
-    """
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
@@ -588,7 +580,7 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
         containing the unit normals at each nodal location.
     """
-    return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
+    return _compute_mv_normal(actx, dcoll, dd).as_vector(dtype=object)
 
 # }}}
 
