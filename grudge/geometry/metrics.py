@@ -552,11 +552,14 @@ def mv_normal(
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
-    if not dd.is_trace():
-        raise ValueError("may only request normals on boundaries")
 
     dim = dcoll.discr_from_dd(dd).dim
     ambient_dim = dcoll.ambient_dim
+
+    if dim == ambient_dim:
+        raise ValueError("may only request normals on domains whose topological "
+                f"dimension ({dim}) differs from "
+                f"their ambient dimension ({ambient_dim})")
 
     if dim == ambient_dim - 1:
         return rel_mv_normal(actx, dcoll, dd=dd)
