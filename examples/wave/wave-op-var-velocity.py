@@ -31,8 +31,7 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from pytools.obj_array import flat_obj_array
 
@@ -98,7 +97,7 @@ def wave_operator(dcoll, c, w):
             flat_obj_array(
                 -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
                 -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
-                # pylint: disable=E1130
+                # pylint: disable=invalid-unary-operand-type
             ) + op.face_mass(
                 dcoll,
                 dd_allfaces_quad,
@@ -214,7 +213,7 @@ def main(write_output=False):
                   f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
             if write_output:
                 vis.write_vtk_file(
-                    "fld-wave-eager-var-velocity-%04d.vtu" % istep,
+                    f"fld-wave-eager-var-velocity-{istep:04d}.vtu",
                     [
                         ("c", c),
                         ("u", fields[0]),

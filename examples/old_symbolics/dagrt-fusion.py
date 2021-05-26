@@ -60,7 +60,7 @@ import pytest
 import dagrt.language as lang
 import pymbolic.primitives as p
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext import PyOpenCLArrayContext
 
 from meshmode.dof_array import DOFArray
 

@@ -30,8 +30,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection

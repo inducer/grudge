@@ -30,8 +30,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -128,7 +127,7 @@ def main(write_output=False, order=4):
         u = fields[0]
         v = fields[1:]
         vis.write_vtk_file(
-            "fld-wave-min-%04d.vtu" % step,
+            f"fld-wave-min-{step:04d}.vtu",
             [
                 ("u", u),
                 ("v", v),
@@ -146,7 +145,7 @@ def main(write_output=False, order=4):
                       f"L2: {norm(u=event.state_component[0])}")
                 if write_output:
                     vis.write_vtk_file(
-                        "fld-wave-min-%04d.vtu" % step,
+                        f"fld-wave-min-{step:04d}.vtu",
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),

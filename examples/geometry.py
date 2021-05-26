@@ -30,8 +30,7 @@ import numpy as np  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 import grudge.op as op
 

@@ -31,8 +31,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
@@ -233,7 +232,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", default=2, type=int)
-    parser.add_argument("--use_quad", choices=[True, False], default=False)
+    parser.add_argument("--use-quad", action="store_false")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)

@@ -32,8 +32,7 @@ import numpy.linalg as la
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL

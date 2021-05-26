@@ -21,9 +21,7 @@ THE SOFTWARE.
 """
 
 
-from arraycontext.context import ArrayContext
-from arraycontext.loopy import make_loopy_program
-from arraycontext.container.traversal import thaw
+from arraycontext import ArrayContext, make_loopy_program, thaw
 
 from typing import Optional, Union, Dict
 from numbers import Number

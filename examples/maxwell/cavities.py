@@ -30,8 +30,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -122,7 +121,7 @@ def main(dims, write_output=False, order=4):
 
     if write_output:
         vis.write_vtk_file(
-            "fld-cavities-%04d.vtu" % step,
+            f"fld-cavities-{step:04d}.vtu",
             [
                 ("e", e),
                 ("h", h),
@@ -142,7 +141,7 @@ def main(dims, write_output=False, order=4):
                 if write_output:
                     e, h = maxwell_operator.split_eh(event.state_component)
                     vis.write_vtk_file(
-                        "fld-cavities-%04d.vtu" % step,
+                        f"fld-cavities-{step:04d}.vtu",
                         [
                             ("e", e),
                             ("h", h),

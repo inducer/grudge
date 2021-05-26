@@ -38,7 +38,7 @@ from grudge.dof_desc import (
 
 import numpy as np  # noqa: F401
 
-from arraycontext.context import ArrayContext
+from arraycontext import ArrayContext
 
 from meshmode.discretization.connection import (
     FACE_RESTR_INTERIOR,
