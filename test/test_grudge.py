@@ -356,7 +356,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-    from grudge.geometry import surface_normal
+    from grudge.geometry import normal
 
     dv = dof_desc.DD_VOLUME
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
@@ -366,8 +366,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     surf_normal = op.project(
         dcoll, dv, df,
-        surface_normal(actx, dcoll,
-                       dim=dim, dd=dv).as_vector(dtype=object)
+        normal(actx, dcoll, dd=dv)
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
@@ -598,11 +597,10 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         f_num = f(thaw(op.nodes(dcoll, dd=dd), actx))
         f_quad_num = f(thaw(op.nodes(dcoll, dd=dq), actx))
 
-        from grudge.geometry import surface_normal, summed_curvature
+        from grudge.geometry import normal, summed_curvature
 
         kappa = summed_curvature(actx, dcoll, dim=dim, dd=dq)
-        normal = surface_normal(actx, dcoll,
-                                dim=dim, dd=dq).as_vector(dtype=object)
+        normal = normal(actx, dcoll, dd=dq)
         face_normal = thaw(op.normal(dcoll, df), actx)
         face_f = op.project(dcoll, dd, df, f_num)
 

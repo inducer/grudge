@@ -21,7 +21,6 @@ Geometry terms
 Normal vectors
 --------------
 
-.. autofunction:: surface_normal
 .. autofunction:: normal
 
 Curvature tensors
@@ -513,21 +512,18 @@ def area_element(
 
 # {{{ Surface normal vectors
 
-def surface_normal(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
-        ) -> MultiVector:
-    r"""Computes surface normals at each nodal location.
+def rel_mv_normal(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None) -> MultiVector:
+    r"""Computes surface normals at each nodal location as a
+    :class:`~pymbolic.geometric_algebra.MultiVector` relative to the 'volume'
+    discretization's surface pseudoscalar.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     """
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
-
-    if dim is None:
-        dim = dcoll.discr_from_dd(dd).dim
+    dim = dcoll.discr_from_dd(dd).dim
 
     # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
@@ -539,10 +535,15 @@ def surface_normal(
     return pder << pder.I.inv()
 
 
-def _compute_mv_normal(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd
+def mv_normal(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd,
         ) -> MultiVector:
     """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
+    This supports both volume discretizations
+    (where ambient == topological dimension) and surface discretizations
+    (where ambient == topological dimension + 1). In the latter case, extra
+    processing ensures that the returned normal is in the local tangent space
+    of the element at the point where the normal is being evaluated.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
@@ -558,7 +559,7 @@ def _compute_mv_normal(
     ambient_dim = dcoll.ambient_dim
 
     if dim == ambient_dim - 1:
-        return surface_normal(actx, dcoll, dim=dim, dd=dd)
+        return rel_mv_normal(actx, dcoll, dd=dd)
 
     # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
     # enough information on the face to decide what an "exterior face normal"
@@ -575,9 +576,8 @@ def _compute_mv_normal(
 
     volm_normal = MultiVector(
         project(dcoll, dof_desc.DD_VOLUME, dd,
-                surface_normal(
+                rel_mv_normal(
                     actx, dcoll,
-                    dim=dim + 1,
                     dd=dof_desc.DD_VOLUME
                 ).as_vector(dtype=object))
     )
@@ -590,12 +590,17 @@ def _compute_mv_normal(
 
 def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
     """Get the unit normal to the specified surface discretization, *dd*.
+    This supports both volume discretizations
+    (where ambient == topological dimension) and surface discretizations
+    (where ambient == topological dimension + 1). In the latter case, extra
+    processing ensures that the returned normal is in the local tangent space
+    of the element at the point where the normal is being evaluated.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
         containing the unit normals at each nodal location.
     """
-    return _compute_mv_normal(actx, dcoll, dd).as_vector(dtype=object)
+    return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
 
 # }}}
 
@@ -626,7 +631,7 @@ def second_fundamental_form(
     if dim is None:
         dim = dcoll.ambient_dim - 1
 
-    normal = surface_normal(actx, dcoll, dim=dim, dd=dd).as_vector(dtype=object)
+    normal = rel_mv_normal(actx, dcoll, dd=dd).as_vector(dtype=object)
 
     if dim == 1:
         second_ref_axes = [((0, 2),)]

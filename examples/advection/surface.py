@@ -194,12 +194,9 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         return adv_operator.operator(t, u)
 
     # check velocity is tangential
-    from grudge.geometry import surface_normal
+    from grudge.geometry import normal
 
-    surf_normal = surface_normal(
-        actx, dcoll, dim=dim-1,
-        dd=dof_desc.DD_VOLUME
-    ).as_vector(dtype=object)
+    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME)
 
     error = op.norm(dcoll, c.dot(surf_normal), 2)
     logger.info("u_dot_n:   %.5e", error)
