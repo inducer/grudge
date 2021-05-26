@@ -302,8 +302,13 @@ def _compute_local_gradient(dcoll: DiscretizationCollection, vec, xyz_axis):
 
 def local_grad(
         dcoll: DiscretizationCollection, vec, *, nested=False) -> np.ndarray:
-    r"""Return the element-local gradient of the volume function represented by
-    *vec*.
+    r"""Return the element-local gradient of a function :math:`f` represented
+    by *vec*:
+
+    .. math::
+
+        \nabla|_E f = \left(
+            \partial_x|_E f, \partial_y|_E f, \partial_z|_E f \right)
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
@@ -325,8 +330,12 @@ def local_grad(
 
 
 def local_d_dx(dcoll: DiscretizationCollection, xyz_axis, vec):
-    r"""Return the element-local derivative along axis *xyz_axis* of the volume
-    function represented by *vec*.
+    r"""Return the element-local derivative along axis *xyz_axis* of a
+    function :math:`f` represented by *vec*:
+
+    .. math::
+
+        \frac{\partial f}{\partial \lbrace x,y,z\rbrace}\Big|_E
 
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken.
@@ -360,8 +369,12 @@ def _div_helper(dcoll: DiscretizationCollection, diff_func, vecs):
 
 
 def local_div(dcoll: DiscretizationCollection, vecs):
-    r"""Return the element-local divergence of the vector volume function
-    represented by *vecs*.
+    r"""Return the element-local divergence of the vector function
+    :math:`\mathbf{f}` represented by *vecs*:
+
+    .. math::
+
+        \nabla|_E \cdot \mathbf{f} = \sum_{i=1}^d \partial_{x_i}|_E \mathbf{f}_i
 
     :arg vec: an object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
@@ -469,6 +482,12 @@ def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
+    Specifically, the function returns an object array where the :math:`i`-th
+    component is the weak derivative with respect to the :math:`i`-th coordinate
+    of a scalar function :math:`f`. See :func:`weak_local_d_dx` for further
+    information. For non-scalar :math:`f`, the function will return a nested object
+    array containing the component-wise weak derivatives.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
@@ -508,6 +527,21 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args):
 
     May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
 
+    Specifically, this function computes the volume contribution of the
+    weak derivative in the :math:`i`-th component (specified by *xyz_axis*)
+    of a function :math:`f`, in each element :math:`E`, with respect to polynomial
+    test functions :math:`\phi`:
+
+    .. math::
+
+        \int_E \partial_i\phi\,f\,\mathrm{d}x \sim
+        \mathbf{D}_{E,i}^T \mathbf{M}_{E}^T\mathbf{f}|_E,
+
+    where :math:`\mathbf{D}_{E,i}` is the polynomial differentiation matrix on
+    an :math:`E` for the :math:`i`-th spatial coordinate, :math:`\mathbf{M}_E`
+    is the elemental mass matrix (see :func:`mass` for more information), and
+    :math:`\mathbf{f}|_E` is a vector of coefficients for :math:`f` on :math:`E`.
+
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
@@ -531,6 +565,19 @@ def weak_local_div(dcoll: DiscretizationCollection, *args):
     represented by *vecs*.
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+    Specifically, this function computes the volume contribution of the
+    weak divergence of a vector function :math:`\mathbf{f}`, in each element
+    :math:`E`, with respect to polynomial test functions :math:`\phi`:
+
+    .. math::
+
+        \int_E \nabla \phi \cdot \mathbf{f}\,\mathrm{d}x \sim
+        \sum_{i=1}^d \mathbf{D}_{E,i}^T \mathbf{M}_{E}^T\mathbf{f}_i|_E,
+
+    where :math:`\mathbf{D}_{E,i}` is the polynomial differentiation matrix on
+    an :math:`E` for the :math:`i`-th spatial coordinate, and :math:`\mathbf{M}_E`
+    is the elemental mass matrix (see :func:`mass` for more information).
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -637,6 +684,16 @@ def mass(dcoll: DiscretizationCollection, *args):
     the mass operator is applied in the Kronecker sense (component-wise).
 
     May be called with ``(vec)`` or ``(dd, vec)``.
+
+    Specifically, this function applies the mass matrix elementwise on a
+    vector of coefficients :math:`\mathbf{f}` via:
+    :math:`\mathbf{M}_{E}\mathbf{f}|_E`, where
+
+    .. math::
+
+        \left(\mathbf{M}_{E}\right)_{ij} = \int_E \phi_i \cdot \phi_j\,\mathrm{d}x,
+
+    where :math:`\phi_i` are local polynomial basis functions on :math:`E`.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -750,6 +807,30 @@ def inverse_mass(dcoll: DiscretizationCollection, vec):
     In the case of *vec* being an object array of
     :class:`~meshmode.dof_array.DOFArray`\ s, the inverse mass operator is
     applied in the Kronecker sense (component-wise).
+
+    For affine elements :math:`E`, the element-wise mass inverse
+    is computed directly as the inverse of the (physical) mass matrix:
+
+    .. math::
+
+        \left(\mathbf{M}_{J^e}\right)_{ij} =
+            \int_{\widehat{E}} \widehat{\phi}_i\cdot\widehat{\phi}_j J^e
+            \mathrm{d}\widehat{x},
+
+    where :math:`\widehat{\phi}_i` are basis functions over the reference
+    element :math:`\widehat{E}`, and :math:`J^e` is the (constant) Jacobian
+    scaling factor (see :func:`grudge.geometry.area_element`).
+
+    For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
+    weight-adjusted approximation is used instead:
+
+    .. math::
+
+        \mathbf{M}_{J^e}^{-1} \approx
+            \widehat{\mathbf{M}}^{-1}\mathbf{M}_{1/J^e}\widehat{\mathbf{M}}^{-1},
+
+    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
+    :math:`\widehat{E}`.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
@@ -922,6 +1003,25 @@ def face_mass(dcoll: DiscretizationCollection, *args):
     the mass operator is applied in the Kronecker sense (component-wise).
 
     May be called with ``(vec)`` or ``(dd, vec)``.
+
+    Specifically, this function applies the face mass matrix elementwise on a
+    vector of coefficients :math:`\mathbf{f}` as the sum of contributions for
+    each face :math:`f \subset \partial E`:
+
+    .. math::
+
+        \sum_{f=1}^{N_{\text{faces}}} \mathbf{M}_{f, E}\mathbf{f}|_f,
+
+    where
+
+    .. math::
+
+        \left(\mathbf{M}_{f, E}\right)_{ij} =
+            \int_{f \subset \partial E} \phi_i(s)\psi_j(s)\,\mathrm{d}s,
+
+    where :math:`\phi_i` are (volume) polynomial basis functions on :math:`E`
+    evaluated on the face :math:`f`, and :math:`\psi_j` are basis functions for
+    a polynomial space defined on :math:`f`.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base ``"all_faces"`` discretization if not provided.
