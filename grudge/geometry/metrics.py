@@ -59,7 +59,7 @@ THE SOFTWARE.
 import numpy as np
 
 from grudge import DiscretizationCollection
-from arraycontext import thaw, ArrayContext
+from arraycontext import thaw, freeze, ArrayContext
 from meshmode.dof_array import DOFArray
 
 from grudge.dof_desc import (
@@ -403,8 +403,8 @@ def inverse_surface_metric_derivative(
                     actx, dcoll, xyz_axis, d, dd=dd
                 ) for d in range(dim)
             )
-        return imd
-    return _inv_surf_metric_deriv()
+        return freeze(imd, actx)
+    return thaw(_inv_surf_metric_deriv(), actx)
 
 
 def _signed_face_ones(
@@ -498,10 +498,10 @@ def area_element(
                         "area_elements_adim%s_gdim%s"
                         % (dcoll.ambient_dim, dim)))
     def _area_elements():
-        return actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dd=dd).norm_squared()
-        )
-    return _area_elements()
+        return freeze(actx.np.sqrt(
+            pseudoscalar(actx, dcoll, dd=dd).norm_squared()), actx)
+
+    return thaw(_area_elements(), actx)
 
 # }}}
 
