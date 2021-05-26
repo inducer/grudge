@@ -318,7 +318,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(op.dd_in)
+        bdry_conn = self.dcoll.distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
         return bdry_conn(remote_bdry_vec)
 

@@ -298,7 +298,7 @@ class _RankBoundaryCommunication:
             actx.from_numpy(self.remote_data_host)
         )
 
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(
+        bdry_conn = self.dcoll.distributed_boundary_swap_connection(
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag))
         )
         swapped_remote_dof_array = bdry_conn(remote_dof_array)

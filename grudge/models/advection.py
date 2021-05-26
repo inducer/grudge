@@ -292,7 +292,7 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     if trace_dd.domain_tag is FACE_RESTR_INTERIOR:
         e = dcoll.opposite_face_connection()(i)
     elif isinstance(trace_dd.domain_tag, DTAG_BOUNDARY):
-        e = dcoll.get_distributed_boundary_swap_connection(trace_dd)(i)
+        e = dcoll.distributed_boundary_swap_connection(trace_dd)(i)
     else:
         raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
 
