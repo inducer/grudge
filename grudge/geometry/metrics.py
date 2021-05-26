@@ -511,8 +511,8 @@ def area_element(
 def rel_mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd=None) -> MultiVector:
     r"""Computes surface normals at each nodal location as a
-    :class:`~pymbolic.geometric_algebra.MultiVector` relative to the 'volume'
-    discretization's surface pseudoscalar.
+    :class:`~pymbolic.geometric_algebra.MultiVector` relative to the
+    pseudoscalar of the discretization described by *dd*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     """
