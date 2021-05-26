@@ -214,6 +214,8 @@ def main(write_output=False):
         t += dt
         istep += 1
 
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
         assert op.norm(dcoll, fields[0], 2) < 1
 
 

@@ -134,9 +134,13 @@ def main(dims, write_output=False, order=4):
 
             step += 1
 
-            print(step, event.t, norm(u=e[0]), norm(u=e[1]),
-                    norm(u=h[0]), norm(u=h[1]),
-                    time()-t_last_step)
+            norm_e0 = norm(u=e[0])
+            norm_e1 = norm(u=e[1])
+            norm_h0 = norm(u=h[0])
+            norm_h1 = norm(u=h[1])
+            print(step, event.t,
+                  norm_e0, norm_e1, norm_h0, norm_h1,
+                  time()-t_last_step)
             if step % 10 == 0:
                 if write_output:
                     e, h = maxwell_operator.split_eh(event.state_component)
@@ -148,6 +152,13 @@ def main(dims, write_output=False, order=4):
                         ]
                     )
             t_last_step = time()
+
+            # NOTE: These are here to ensure the solution is bounded for the
+            # time interval specified
+            assert norm_e0 < 0.5
+            assert norm_e1 < 0.5
+            assert norm_h0 < 0.5
+            assert norm_h1 < 0.5
 
 
 if __name__ == "__main__":

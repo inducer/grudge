@@ -193,6 +193,10 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
+        assert norm_u < 1
+
     # }}}
 
 

@@ -153,6 +153,9 @@ def main(write_output=False, order=4):
                         ]
                     )
             t_last_step = time()
+
+            # NOTE: These are here to ensure the solution is bounded for the
+            # time interval specified
             assert norm(u=event.state_component[0]) < 1
 
 
