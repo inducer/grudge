@@ -178,7 +178,7 @@ def forward_metric_derivative_mv(
 
 
 def forward_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
         ) -> np.ndarray:
     r"""Computes the forward metric derivative matrix, also commonly
     called the Jacobian matrix, with entries defined as the
@@ -195,8 +195,6 @@ def forward_metric_derivative_mat(
     Note that, in the case of immersed manifolds, `J` is not necessarily
     a square matrix.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a matrix containing the evaluated forward metric derivatives
@@ -204,8 +202,10 @@ def forward_metric_derivative_mat(
     """
     ambient_dim = dcoll.ambient_dim
 
-    if dim is None:
-        dim = dcoll.dim
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.discr_from_dd(dd).dim
 
     result = np.zeros((ambient_dim, dim), dtype=object)
     for j in range(dim):
@@ -215,7 +215,7 @@ def forward_metric_derivative_mat(
 
 
 def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None) -> np.ndarray:
+        dd=None) -> np.ndarray:
     r"""Computes the first fundamental form using the Jacobian matrix:
 
     .. math::
@@ -233,37 +233,35 @@ def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
     :math:`x(u, v)` defines a parameterized region. Here, :math:`J` is the
     corresponding Jacobian matrix.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a matrix containing coefficients of the first fundamental
         form.
     """
-    if dim is None:
-        dim = dcoll.ambient_dim - 1
+    if dd is None:
+        dd = DD_VOLUME
 
-    mder = forward_metric_derivative_mat(actx, dcoll, dim=dim, dd=dd)
+    mder = forward_metric_derivative_mat(actx, dcoll, dd=dd)
 
     return mder.T.dot(mder)
 
 
 def inverse_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
         ) -> np.ndarray:
     r"""Computes the inverse metric derivative matrix, which is
     the inverse of the Jacobian (forward metric derivative) matrix.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a matrix containing the evaluated inverse metric derivatives.
     """
     ambient_dim = dcoll.ambient_dim
 
-    if dim is None:
-        dim = dcoll.dim
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.discr_from_dd(dd).dim
 
     result = np.zeros((ambient_dim, dim), dtype=object)
     for i in range(dim):
@@ -276,7 +274,7 @@ def inverse_metric_derivative_mat(
 
 
 def inverse_first_fundamental_form(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
         ) -> np.ndarray:
     r"""Computes the inverse of the first fundamental form:
 
@@ -292,21 +290,21 @@ def inverse_first_fundamental_form(
 
     where :math:`E, F, G` are coefficients of the first fundamental form.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a matrix containing coefficients of the inverse of the
         first fundamental form.
     """
-    if dim is None:
-        dim = dcoll.dim
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.discr_from_dd(dd).dim
 
     if dcoll.ambient_dim == dim:
-        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dim=dim, dd=dd)
+        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dd=dd)
         inv_form1 = inv_mder.dot(inv_mder.T)
     else:
-        form1 = first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
+        form1 = first_fundamental_form(actx, dcoll, dd=dd)
 
         if dim == 1:
             inv_form1 = 1.0 / form1
@@ -317,7 +315,7 @@ def inverse_first_fundamental_form(
                  make_obj_array([-F, E])]
             )
         else:
-            raise ValueError("%dD surfaces not supported" % dim)
+            raise ValueError(f"{dim}D surfaces not supported" % dim)
 
     return inv_form1
 
@@ -399,7 +397,7 @@ def inverse_surface_metric_derivative(
                 actx, dcoll, rst_axis, xyz_axis, dd=dd
             )
         else:
-            inv_form1 = inverse_first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
+            inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
             imd = sum(
                 inv_form1[rst_axis, d]*forward_metric_nth_derivative(
                     actx, dcoll, xyz_axis, d, dd=dd
@@ -434,18 +432,20 @@ def _signed_face_ones(
 
 
 def parametrization_derivative(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim, dd
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd
         ) -> MultiVector:
     r"""Computes the product of forward metric derivatives spanning the
     tangent space with topological dimension *dim*.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a :class:`pymbolic.geometric_algebra.MultiVector` containing
         the product of metric derivatives.
     """
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.discr_from_dd(dd).dim
     if dim == 0:
         from pymbolic.geometric_algebra import get_euclidean_space
 
@@ -463,12 +463,10 @@ def parametrization_derivative(
 
 
 def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None) -> MultiVector:
+        dd=None) -> MultiVector:
     r"""Computes the field of pseudoscalars for the domain/discretization
     identified by *dd*.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: A :class:`~pymbolic.geometric_algebra.MultiVector` of
@@ -477,33 +475,31 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
     if dd is None:
         dd = DD_VOLUME
 
-    if dim is None:
-        dim = dcoll.discr_from_dd(dd).dim
-
-    return parametrization_derivative(
-        actx, dcoll, dim, dd
-    ).project_max_grade()
+    return parametrization_derivative(actx, dcoll, dd).project_max_grade()
 
 
 def area_element(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
         ) -> DOFArray:
     r"""Computes the scale factor used to transform integrals from reference
     to global space.
 
-    :arg dim: an integer denoting the spatial dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.dim`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
         volumes for each element.
     """
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.discr_from_dd(dd).dim
+
     @memoize_in(dcoll, (area_element, dd,
                         "area_elements_adim%s_gdim%s"
                         % (dcoll.ambient_dim, dim)))
     def _area_elements():
         return actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dim=dim, dd=dd).norm_squared()
+            pseudoscalar(actx, dcoll, dd=dd).norm_squared()
         )
     return _area_elements()
 
@@ -523,13 +519,11 @@ def rel_mv_normal(
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
-    dim = dcoll.discr_from_dd(dd).dim
 
     # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
 
-    pder = pseudoscalar(actx, dcoll, dim=dim, dd=dd) \
-        / area_element(actx, dcoll, dim=dim, dd=dd)
+    pder = pseudoscalar(actx, dcoll, dd=dd) / area_element(actx, dcoll, dd=dd)
 
     # Dorst Section 3.7.2
     return pder << pder.I.inv()
@@ -611,7 +605,7 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
 # {{{ Curvature computations
 
 def second_fundamental_form(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dim=None, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
         ) -> np.ndarray:
     r"""Computes the second fundamental form:
 
@@ -625,15 +619,14 @@ def second_fundamental_form(
     where :math:`n` is the surface normal, :math:`x(u, v)` defines a parameterized
     surface, and :math:`u,v` are coordinates on the parameterized surface.
 
-    :arg dim: an integer denoting the surface dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.ambient_dim` - 1.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :returns: a rank-2 object array describing second fundamental form.
     """
 
-    if dim is None:
-        dim = dcoll.ambient_dim - 1
+    if dd is None:
+        dd = DD_VOLUME
 
+    dim = dcoll.discr_from_dd(dd).dim
     normal = rel_mv_normal(actx, dcoll, dd=dd).as_vector(dtype=object)
 
     if dim == 1:
@@ -660,7 +653,7 @@ def second_fundamental_form(
 
 
 def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None) -> np.ndarray:
+        dd=None) -> np.ndarray:
     r"""Computes the shape operator (also called the curvature tensor) containing
     second order derivatives:
 
@@ -674,23 +667,18 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
     where :math:`x(u, v)` defines a parameterized surface, and :math:`u,v` are
     coordinates on the parameterized surface.
 
-    :arg dim: an integer denoting the surface dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.ambient_dim` - 1.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :returns: a rank-2 object array describing the shape operator.
     """
 
-    if dim is None:
-        dim = dcoll.ambient_dim - 1
-
-    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dim=dim, dd=dd)
-    form2 = second_fundamental_form(actx, dcoll, dim=dim, dd=dd)
+    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+    form2 = second_fundamental_form(actx, dcoll, dd=dd)
 
     return -form2.dot(inv_form1)
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dim=None, dd=None) -> DOFArray:
+        dd=None) -> DOFArray:
     r"""Computes the sum of the principal curvatures:
 
     .. math::
@@ -701,15 +689,15 @@ def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
     coordinates on the parameterized surface, and :math:`C(x)` is the shape
     operator.
 
-    :arg dim: an integer denoting the surface dimension. Defaults to the
-        :attr:`grudge.DiscretizationCollection.ambient_dim` - 1.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the summed
         curvature at each nodal coordinate.
     """
 
-    if dim is None:
-        dim = dcoll.ambient_dim - 1
+    if dd is None:
+        dd = DD_VOLUME
+
+    dim = dcoll.ambient_dim - 1
 
     if dcoll.ambient_dim == 1:
         return 0.0
@@ -717,7 +705,7 @@ def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
     if dcoll.ambient_dim == dim:
         return 0.0
 
-    return np.trace(shape_operator(actx, dcoll, dim=dim, dd=dd))
+    return np.trace(shape_operator(actx, dcoll, dd=dd))
 
 # }}}
 

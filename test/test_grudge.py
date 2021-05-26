@@ -362,7 +362,6 @@ def test_face_normal_surface(actx_factory, mesh_name):
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
-    dim = mesh.dim
 
     surf_normal = op.project(
         dcoll, dv, df,
@@ -377,8 +376,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
         from grudge.geometry import pseudoscalar, area_element
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
-            pseudoscalar(actx, dcoll, dim=dim-1, dd=df)
-            / area_element(actx, dcoll, dim=dim-1, dd=df)
+            pseudoscalar(actx, dcoll, dd=df) / area_element(actx, dcoll, dd=df)
         ).as_vector(dtype=object)
 
     # }}}
@@ -591,7 +589,6 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         dq = dd.with_discr_tag(qtag)
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
         ambient_dim = dcoll.ambient_dim
-        dim = dcoll.dim
 
         # variables
         f_num = f(thaw(op.nodes(dcoll, dd=dd), actx))
@@ -599,7 +596,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         from grudge.geometry import normal, summed_curvature
 
-        kappa = summed_curvature(actx, dcoll, dim=dim, dd=dq)
+        kappa = summed_curvature(actx, dcoll, dd=dq)
         normal = normal(actx, dcoll, dd=dq)
         face_normal = thaw(op.normal(dcoll, df), actx)
         face_f = op.project(dcoll, dd, df, f_num)
