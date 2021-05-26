@@ -187,7 +187,7 @@ def nodes(dcoll: DiscretizationCollection, dd=None) -> np.ndarray:
 
 
 @memoize_on_first_arg
-def normal(dcoll: DiscretizationCollection, dd):
+def normal(dcoll: DiscretizationCollection, dd) -> np.ndarray:
     r"""Get the unit normal to the specified surface discretization, *dd*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.

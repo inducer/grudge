@@ -542,6 +542,12 @@ def surface_normal(
 def _compute_mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd
         ) -> MultiVector:
+    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
+        containing the unit normals.
+    """
     import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
@@ -681,7 +687,7 @@ def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
 
     .. math::
 
-        \kappa = \mathrm{Trace}(C(x))
+        \kappa = \operatorname{Trace}(C(x))
 
     where :math:`x(u, v)` defines a parameterized surface, :math:`u,v` are
     coordinates on the parameterized surface, and :math:`C(x)` is the shape

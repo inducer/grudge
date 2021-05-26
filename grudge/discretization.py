@@ -45,13 +45,14 @@ from meshmode.discretization.connection import (
     FACE_RESTR_ALL,
     make_face_restriction
 )
-from meshmode.mesh import BTAG_PARTITION
+from meshmode.mesh import Mesh, BTAG_PARTITION
 
 from warnings import warn
 
 
 class DiscretizationCollection:
-    """A collection of discretizations on various mesh entities
+    """A collection of discretizations, defined on the same underlying
+    :class:`~meshmode.mesh.Mesh`, corresponding to various mesh entities
     (volume, interior facets, boundaries) and associated element
     groups.
 
@@ -70,14 +71,12 @@ class DiscretizationCollection:
     .. automethod:: zeros
     """
 
-    def __init__(self, array_context, mesh, order=None,
-            discr_tag_to_group_factory=None, mpi_communicator=None,
-            # FIXME: `quad_tag_to_group_factory` is deprecated
-            quad_tag_to_group_factory=None):
-        """Constructor for the :class:`DiscretizationCollection` object.
-
-        :arg actx: an :class:`~arraycontext.context.ArrayContext`.
-        :arg mesh: a :class:`~meshmode.mesh.Mesh` object.
+    def __init__(self, array_context: ArrayContext, mesh: Mesh,
+                 order=None,
+                 discr_tag_to_group_factory=None, mpi_communicator=None,
+                 # FIXME: `quad_tag_to_group_factory` is deprecated
+                 quad_tag_to_group_factory=None):
+        """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
             (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
             :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
@@ -145,6 +144,7 @@ class DiscretizationCollection:
             self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
         )
 
+        # NOTE: Can be removed when symbolics are completely removed
         # {{{ management of discretization-scoped common subexpressions
 
         from pytools import UniqueNameGenerator
@@ -553,13 +553,14 @@ class DiscretizationCollection:
 
     @property
     def mesh(self):
-        """Return a :class:`meshmode.mesh.Mesh` over which the discretization
+        """Return the :class:`meshmode.mesh.Mesh` over which the discretization
         collection is built.
         """
         return self._volume_discr.mesh
 
     def empty(self, array_context: ArrayContext, dtype=None):
-        """Return an empty :class:`~meshmode.dof_array.DOFArray`.
+        """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
+        the volume nodes: :class:`grudge.dof_desc.DD_VOLUME`.
 
         :arg array_context: an :class:`~arraycontext.context.ArrayContext`.
         :arg dtype: type special value 'c' will result in a
@@ -569,7 +570,8 @@ class DiscretizationCollection:
         return self._volume_discr.empty(array_context, dtype)
 
     def zeros(self, array_context: ArrayContext, dtype=None):
-        """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`.
+        """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`
+        defined at the volume nodes, :class:`grudge.dof_desc.DD_VOLUME`.
 
         :arg array_context: an :class:`~arraycontext.context.ArrayContext`.
         :arg dtype: type special value 'c' will result in a

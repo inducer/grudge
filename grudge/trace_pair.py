@@ -108,16 +108,16 @@ class TracePair:
         object.__setattr__(self, "exterior", exterior)
 
     def __getattr__(self, name):
-        """Return a :class:`TracePair` associated with the attributes
-        of the array containers defining :attr:`int` and :attr:`ext`.
+        """Return a new :class:`TracePair` resulting from executing attribute
+        lookup with *name* on :attr:`int` and :attr:`ext`.
         """
         return TracePair(self.dd,
                          interior=getattr(self.interior, name),
                          exterior=getattr(self.exterior, name))
 
     def __getitem__(self, index):
-        """Return a :class:`TracePair` associated with the subarrays
-        of :attr:`int` and :attr:`ext`, denoted by `index`.
+        """Return a new :class:`TracePair` resulting from executing
+        subscripting with *index* on :attr:`int` and :attr:`ext`.
         """
         return TracePair(self.dd,
                          interior=self.interior[index],
