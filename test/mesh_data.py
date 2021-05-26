@@ -113,7 +113,7 @@ class BoxMeshBuilder(MeshBuilder):
     ambient_dim = 2
 
     mesh_order = 1
-    resolutions = [8, 16, 32]
+    resolutions = [4, 8, 16]
 
     a = (-0.5, -0.5, -0.5)
     b = (+0.5, +0.5, +0.5)

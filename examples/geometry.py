@@ -1,6 +1,9 @@
-"""Minimal example of a grudge driver."""
+"""Minimal example of viewing geometric quantities."""
 
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,39 +28,40 @@ THE SOFTWARE.
 
 import numpy as np  # noqa
 import pyopencl as cl
-from grudge import sym, bind, DiscretizationCollection, shortcuts
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
+from arraycontext import PyOpenCLArrayContext, thaw
+
+import grudge.op as op
+
+from grudge import DiscretizationCollection, shortcuts
 
 
 def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.generation import generate_warped_rect_mesh
     mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
 
-    discr = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    sym_op = sym.normal(BTAG_ALL, mesh.dim)
-    # sym_op = sym.nodes(mesh.dim, dd=BTAG_ALL)
-    print(sym.pretty(sym_op))
-    op = bind(discr, sym_op)
-    print()
-    print(op.eval_code)
+    nodes = thaw(op.nodes(dcoll), actx)
+    bdry_nodes = thaw(op.nodes(dcoll, dd=BTAG_ALL), actx)
+    bdry_normals = thaw(op.normal(dcoll, dd=BTAG_ALL), actx)
 
-    vec = op(actx)
+    if write_output:
+        vis = shortcuts.make_visualizer(dcoll)
+        vis.write_vtk_file("geo.vtu", [("nodes", nodes)])
 
-    vis = shortcuts.make_visualizer(discr)
-    vis.write_vtk_file("geo.vtu", [
-        ])
-
-    bvis = shortcuts.make_boundary_visualizer(discr)
-    bvis.write_vtk_file("bgeo.vtu", [
-        ("normals", vec)
-        ])
+        bvis = shortcuts.make_boundary_visualizer(dcoll)
+        bvis.write_vtk_file("bgeo.vtu", [("bdry normals", bdry_normals),
+                                         ("bdry nodes", bdry_nodes)])
 
 
 if __name__ == "__main__":

@@ -20,6 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
+from arraycontext import ArrayContext, make_loopy_program, thaw
+
 from typing import Optional, Union, Dict
 from numbers import Number
 import numpy as np
@@ -29,8 +32,7 @@ from pytools import memoize_in
 import loopy as lp
 import pyopencl.array  # noqa
 
-from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
-from meshmode.array_context import ArrayContext, make_loopy_program
+from meshmode.dof_array import DOFArray, flatten, unflatten
 
 import grudge.symbolic.mappers as mappers
 from grudge import sym
@@ -72,15 +74,18 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_node_coordinate_component(self, expr):
         discr = self.dcoll.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes(
-            # only save volume nodes or boundary nodes
-            # (but not nodes for interior face discretizations, which are likely only
-            # used once to compute the normals)
-            cached=(
-                discr.ambient_dim == discr.dim
-                or expr.dd.is_boundary_or_partition_interface()
+        return thaw(
+            discr.nodes(
+                # only save volume nodes or boundary nodes
+                # (but not nodes for interior face discretizations, which
+                # are likely only used once to compute the normals)
+                cached=(
+                    discr.ambient_dim == discr.dim
+                    or expr.dd.is_boundary_or_partition_interface()
                 )
-            )[expr.axis])
+            )[expr.axis],
+            self.array_context
+        )
 
     def map_grudge_variable(self, expr):
         from numbers import Number
@@ -313,7 +318,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(op.dd_in)
+        bdry_conn = self.dcoll.distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
         return bdry_conn(remote_bdry_vec)
 

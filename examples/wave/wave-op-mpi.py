@@ -1,4 +1,9 @@
-__copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
+"""Minimal example of a grudge driver."""
+
+__copyright__ = """
+Copyright (C) 2020 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,18 +29,19 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la  # noqa
 import pyopencl as cl
+import pyopencl.tools as cl_tools
+
+from arraycontext import PyOpenCLArrayContext, thaw
 
 from pytools.obj_array import flat_obj_array
-
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
-import grudge.op as op
 from grudge.shortcuts import make_visualizer
-from grudge.symbolic.primitives import TracePair
+
+import grudge.op as op
+
 from mpi4py import MPI
 
 
@@ -45,7 +51,7 @@ def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, op.normal(dcoll, w_tpair.dd))
+    normal = thaw(op.normal(dcoll, w_tpair.dd), u.int.array_context)
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -72,22 +78,27 @@ def wave_operator(dcoll, c, w):
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
     return (
-            op.inverse_mass(dcoll,
-                flat_obj_array(
-                    -c*op.weak_local_div(dcoll, v),
-                    -c*op.weak_local_grad(dcoll, u)
-                    )
-                +  # noqa: W504
-                op.face_mass(dcoll,
-                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
-                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
-                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    + sum(
-                        wave_flux(dcoll, c=c, w_tpair=tpair)
-                        for tpair in op.cross_rank_trace_pairs(dcoll, w))
-                    )
+        op.inverse_mass(
+            dcoll,
+            flat_obj_array(
+                -c*op.weak_local_div(dcoll, v),
+                -c*op.weak_local_grad(dcoll, u)
+            )
+            + op.face_mass(
+                dcoll,
+                wave_flux(
+                    dcoll, c=c,
+                    w_tpair=op.bdry_trace_pair(dcoll,
+                                               BTAG_ALL,
+                                               interior=dir_bval,
+                                               exterior=dir_bc)
+                ) + sum(
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    for tpair in op.interior_trace_pairs(dcoll, w)
                 )
-                )
+            )
+        )
+    )
 
 # }}}
 
@@ -105,7 +116,7 @@ def bump(actx, dcoll, t=0):
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, op.nodes(dcoll))
+    nodes = thaw(op.nodes(dcoll), actx)
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)
@@ -118,10 +129,13 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main():
+def main(write_output=False):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -182,19 +196,26 @@ def main():
 
         if istep % 10 == 0:
             if comm.rank == 0:
-                print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
-                      f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
-            vis.write_parallel_vtk_file(
+                print(f"step: {istep} t: {t} "
+                      f"L2: {op.norm(dcoll, fields[0], 2)} "
+                      f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
+                      f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
+                      f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+            if write_output:
+                vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
                         ("u", fields[0]),
                         ("v", fields[1:]),
-                        ])
+                    ]
+                )
 
         t += dt
         istep += 1
 
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
         assert op.norm(dcoll, fields[0], 2) < 1
 
 

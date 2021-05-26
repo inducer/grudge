@@ -8,7 +8,8 @@ Contents:
 
     discretization
     dof_desc
-    symbolic
+    geometry
+    operators
     misc
     🚀 Github <https://github.com/inducer/grudge>
     💾 Download Releases <https://pypi.org/project/grudge>

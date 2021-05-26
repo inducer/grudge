@@ -1,6 +1,6 @@
-"""Base classes for operators."""
-
-__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -23,29 +23,40 @@ THE SOFTWARE.
 """
 
 
-class Operator:
-    """A base class for Discontinuous Galerkin operators.
+from grudge.geometry.metrics import (
+    forward_metric_nth_derivative,
+    forward_metric_derivative_mat,
+    inverse_metric_derivative_mat,
 
-    You may derive your own operators from this class, but, at present
-    this class provides no functionality. Its function is merely as
-    documentation, to group related classes together in an inheritance
-    tree.
-    """
+    first_fundamental_form,
+    inverse_first_fundamental_form,
 
+    inverse_surface_metric_derivative,
+    pseudoscalar,
+    area_element,
 
-class HyperbolicOperator(Operator):
-    """A base class for hyperbolic Discontinuous Galerkin operators."""
+    normal,
 
-    def max_eigenvalue(self, t, fields, discr):
-        raise NotImplementedError
+    second_fundamental_form,
+    shape_operator,
+    summed_curvature
+)
 
-    def estimate_rk4_timestep(self, discr, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method.
-        """
+__all__ = (
+    "forward_metric_nth_derivative",
+    "forward_metric_derivative_mat",
+    "inverse_metric_derivative_mat",
 
-        from grudge.dt_finding import (
-                dt_non_geometric_factor,
-                dt_geometric_factor)
-        return 1 / self.max_eigenvalue(t, fields, discr) \
-                * (dt_non_geometric_factor(discr)
-                * dt_geometric_factor(discr))
+    "first_fundamental_form",
+    "inverse_first_fundamental_form",
+
+    "inverse_surface_metric_derivative",
+    "pseudoscalar",
+    "area_element",
+
+    "normal",
+
+    "second_fundamental_form",
+    "shape_operator",
+    "summed_curvature",
+)
