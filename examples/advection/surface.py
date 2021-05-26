@@ -260,7 +260,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         # NOTE: These are here to ensure the solution is bounded for the
         # time interval specified
-        assert norm_u < 2
+        assert norm_u < 3
 
     # }}}
 
