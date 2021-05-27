@@ -615,7 +615,7 @@ class DiscretizationCollection:
 
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
             Defaults to the base volume discretization.
-        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+        :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s
         """
         if dd is None:
             dd = DD_VOLUME
@@ -626,7 +626,7 @@ class DiscretizationCollection:
         r"""Get the unit normal to the specified surface discretization, *dd*.
 
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-        :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s.
+        :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
         """
         from arraycontext import freeze
         from grudge.geometry import normal
