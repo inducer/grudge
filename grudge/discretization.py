@@ -32,8 +32,12 @@ THE SOFTWARE.
 from pytools import memoize_method
 
 from grudge.dof_desc import (
-    DISCR_TAG_BASE, DISCR_TAG_MODAL,
-    DTAG_BOUNDARY, DOFDesc, as_dofdesc
+    DD_VOLUME,
+    DISCR_TAG_BASE,
+    DISCR_TAG_MODAL,
+    DTAG_BOUNDARY,
+    DOFDesc,
+    as_dofdesc
 )
 
 import numpy as np  # noqa: F401
@@ -69,6 +73,9 @@ class DiscretizationCollection:
 
     .. automethod:: empty
     .. automethod:: zeros
+
+    .. automethod:: nodes
+    .. automethod:: normal
     """
 
     def __init__(self, array_context: ArrayContext, mesh: Mesh,
@@ -600,6 +607,33 @@ class DiscretizationCollection:
 
         from pytools import single_valued
         return single_valued(egrp.order for egrp in self._volume_discr.groups)
+
+    # {{{ Discretization-specific geometric properties
+
+    def nodes(self, dd=None):
+        r"""Return the nodes of a discretization specified by *dd*.
+
+        :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+            Defaults to the base volume discretization.
+        :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s
+        """
+        if dd is None:
+            dd = DD_VOLUME
+        return self.discr_from_dd(dd).nodes()
+
+    @memoize_method
+    def normal(self, dd):
+        r"""Get the unit normal to the specified surface discretization, *dd*.
+
+        :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+        :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
+        """
+        from arraycontext import freeze
+        from grudge.geometry import normal
+
+        return freeze(normal(self._setup_actx, self, dd))
+
+    # }}}
 
 
 class DGDiscretizationWithBoundaries(DiscretizationCollection):

@@ -47,12 +47,6 @@ class EagerDGDiscretization(DiscretizationCollection):
     def project(self, src, tgt, vec):
         return op.project(self, src, tgt, vec)
 
-    def nodes(self, dd=None):
-        return op.nodes(self, dd)
-
-    def normal(self, dd):
-        return op.normal(self, dd)
-
     def grad(self, vec):
         return op.local_grad(self, vec)
 

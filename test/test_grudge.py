@@ -1055,6 +1055,43 @@ def test_empty_boundary(actx_factory):
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
 
 
+# {{{ DiscretizationCollection testing
+
+def test_dcoll_nodes_and_normals(actx_factory):
+    actx = actx_factory()
+
+    from meshmode.mesh import BTAG_ALL
+    from meshmode.mesh.generation import generate_warped_rect_mesh
+
+    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=3)
+
+    # Nodes should be *indentical*
+    nodes = thaw(op.nodes(dcoll), actx)
+    dcoll_nodes = thaw(dcoll.nodes(), actx)
+
+    assert op.norm(dcoll, nodes - dcoll_nodes, np.inf) == 0.0
+
+    nodes_btag = thaw(op.nodes(dcoll, BTAG_ALL), actx)
+    dcoll_nodes_btag = thaw(dcoll.nodes(BTAG_ALL), actx)
+
+    assert op.norm(dcoll, nodes_btag - dcoll_nodes_btag, np.inf) == 0.0
+
+    # Normals should be *indentical*
+    normals = thaw(op.normal(dcoll, "int_faces"), actx)
+    dcoll_normals = thaw(dcoll.normal("int_faces"), actx)
+
+    assert op.norm(dcoll, normals - dcoll_normals, np.inf) == 0.0
+
+    normals_btag = thaw(op.normal(dcoll, BTAG_ALL), actx)
+    dcoll_normals_btag = thaw(dcoll.normal(BTAG_ALL), actx)
+
+    assert op.norm(dcoll, normals_btag - dcoll_normals_btag, np.inf) == 0.0
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
