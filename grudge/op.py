@@ -1122,7 +1122,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec):
     # NOTE: Must retain a way to do local reductions
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
-                  vec, -np.inf)
+                  vec, np.inf)
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec):
