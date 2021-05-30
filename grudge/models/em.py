@@ -344,7 +344,7 @@ class MaxwellOperator(HyperbolicOperator):
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
 
-    def max_eigenvalue(self, t, fields=None, discr=None, context=None):
+    def max_eigenvalue(self, t, fields=None, dcoll=None, context=None):
         if context is None:
             context = {}
         if self.fixed_material:
