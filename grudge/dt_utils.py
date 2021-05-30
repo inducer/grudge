@@ -64,6 +64,7 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
 
     discr = dcoll.discr_from_dd(dd)
     min_delta_rs = []
+    c = 4/7
     for mgrp in discr.mesh.groups:
         nodes = np.asarray(list(zip(*mgrp.unit_nodes)))
         nnodes = mgrp.nunit_nodes
@@ -73,11 +74,11 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
         if mgrp.order == 0:
             assert nnodes == 1
             min_delta_rs.append(
-                2/3 * np.linalg.norm(nodes[0] - mgrp.vertex_unit_coordinates()[0])
+                c * np.linalg.norm(nodes[0] - mgrp.vertex_unit_coordinates()[0])
             )
         else:
             min_delta_rs.append(
-                2/3 * min(
+                c * min(
                     np.linalg.norm(nodes[i] - nodes[j])
                     for i in range(nnodes) for j in range(nnodes) if i != j
                 )
