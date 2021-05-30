@@ -118,7 +118,7 @@ def main(write_output=False, order=4):
     )
 
     # FIXME
-    # dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(local_mesh)
 

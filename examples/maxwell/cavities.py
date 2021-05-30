@@ -86,18 +86,17 @@ def main(dims, write_output=False, order=4):
 
     fields = cavity_mode(thaw(op.nodes(dcoll), actx), t=0)
 
-    # FIXME
-    # dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)
+    dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)
 
     maxwell_operator.check_bc_coverage(mesh)
 
     def rhs(t, w):
         return maxwell_operator.operator(t, w)
 
-    if mesh.dim == 2:
-        dt = 0.004
-    elif mesh.dim == 3:
-        dt = 0.002
+    # if mesh.dim == 2:
+    #     dt = 0.004
+    # elif mesh.dim == 3:
+    #     dt = 0.002
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
@@ -134,6 +133,7 @@ def main(dims, write_output=False, order=4):
 
             step += 1
 
+            e, h = maxwell_operator.split_eh(event.state_component)
             norm_e0 = norm(u=e[0])
             norm_e1 = norm(u=e[1])
             norm_h0 = norm(u=h[0])
@@ -143,7 +143,6 @@ def main(dims, write_output=False, order=4):
                   time()-t_last_step)
             if step % 10 == 0:
                 if write_output:
-                    e, h = maxwell_operator.split_eh(event.state_component)
                     vis.write_vtk_file(
                         f"fld-cavities-{step:04d}.vtu",
                         [

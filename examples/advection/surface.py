@@ -205,11 +205,13 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     # {{{ time stepping
 
-    # compute time step
-    h_min = op.h_max_from_volume(dcoll, dim=dcoll.dim)
-    dt = dt_factor * h_min/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
+    # # compute time step
+    # h_min = op.h_max_from_volume(dcoll, dim=dcoll.dim)
+    # dt = dt_factor * h_min/order**2
+    # nsteps = int(final_time // dt) + 1
+    # dt = final_time/nsteps + 1.0e-15
+
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0)
 
     logger.info("dt:        %.5e", dt)
     logger.info("nsteps:    %d", nsteps)

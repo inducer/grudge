@@ -115,14 +115,16 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # grid spacing
     h = d / npoints
 
-    # cfl
-    dt_factor = 1.0
+    # # cfl
+    # dt_factor = 1.0
+
     # finale time
     final_time = 0.5
-    # time steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
+
+    # # time steps
+    # dt = dt_factor * h/order**2
+    # nsteps = int(final_time // dt) + 1
+    # dt = final_time/nsteps + 1.0e-15
 
     # flux
     flux_type = "upwind"
@@ -202,6 +204,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     def rhs(t, u):
         return adv_operator.operator(t, u)
+
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
 
     # }}}
 

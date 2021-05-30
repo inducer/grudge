@@ -115,14 +115,16 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # grid spacing
     h = d / npoints
 
-    # cfl
-    dt_factor = 2.0
+    # # cfl
+    # dt_factor = 2.0
+
     # final time
     final_time = 1.0
-    # compute number of steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
+
+    # # compute number of steps
+    # dt = dt_factor * h/order**2
+    # nsteps = int(final_time // dt) + 1
+    # dt = final_time/nsteps + 1.0e-15
 
     # velocity field
     c = np.array([0.5] * dim)
@@ -170,6 +172,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     def rhs(t, u):
         return adv_operator.operator(t, u)
+
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
 
     # }}}
 

@@ -100,10 +100,12 @@ def main(write_output=False, order=4):
     def rhs(t, w):
         return wave_op.operator(t, w)
 
-    if mesh.dim == 2:
-        dt = 0.04 * 0.3
-    elif mesh.dim == 3:
-        dt = 0.02 * 0.1
+    # if mesh.dim == 2:
+    #     dt = 0.04 * 0.3
+    # elif mesh.dim == 3:
+    #     dt = 0.02 * 0.1
+
+    dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 

@@ -55,10 +55,10 @@ def main(write_output=False, order=4):
             b=(0.5,)*dims,
             nelements_per_axis=(16,)*dims)
 
-    if mesh.dim == 2:
-        dt = 0.04
-    elif mesh.dim == 3:
-        dt = 0.02
+    # if mesh.dim == 2:
+    #     dt = 0.04
+    # elif mesh.dim == 3:
+    #     dt = 0.02
 
     print("%d elements" % mesh.nelements)
 
@@ -98,8 +98,7 @@ def main(write_output=False, order=4):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    # FIXME
-    # dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(mesh)
 
