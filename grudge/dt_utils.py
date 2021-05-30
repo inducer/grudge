@@ -1,6 +1,8 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
 .. autofunction:: dt_non_geometric_factor
+.. autofunction:: symmetric_eigenvalues
+.. autofunction:: dt_geometric_factor
 """
 
 __copyright__ = """
@@ -30,12 +32,12 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import rec_map_array_container
+from arraycontext import ArrayContext, rec_map_array_container
 
 from functools import reduce
 
 from grudge.dof_desc import DD_VOLUME
-from grudge.geometry import forward_metric_derivative_mat
+from grudge.geometry import first_fundamental_form
 from grudge.discretization import DiscretizationCollection
 
 from pytools import memoize_on_first_arg
@@ -85,9 +87,17 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
     return min(min_delta_rs)
 
 
-def symmetric_eigenvalues(actx, amat):
-    """*amat* must be complex-valued, or ``actx.np.sqrt`` must automatically
-    up-cast to complex data.
+def symmetric_eigenvalues(actx: ArrayContext, amat):
+    """Analytically computes the eigenvalues of a self-adjoint matrix, up
+    to matrices of size 3 by 3.
+
+    :arg amat: a square array-like object.
+    :returns: a :class:`list` of the eigenvalues of *amat*.
+
+    .. note::
+
+        *amat* must be complex-valued, or ``actx.np.sqrt`` must automatically
+        up-cast to complex data.
     """
 
     # https://gist.github.com/inducer/75ede170638c389c387e72e0ef1f0ef4
@@ -122,11 +132,11 @@ def symmetric_eigenvalues(actx, amat):
         x12 = d*f
         x13 = (-9*a - 9*d - 9*f)*(x0 + x11 + x12 - x3 - x5 - x7)
         x14 = -3*x0 - 3*x11 - 3*x12 + 3*x3 + 3*x5 + 3*x7 + x9**2
-        x15_0 = (-4*x14**3 + (-27*x1 + 2*x10 - x13 - 54*x2 + 27*x4 + 27*x6
-                    + 27*x8)**2)
+        x15_0 = (-4*x14**3
+                 + (-27*x1 + 2*x10 - x13 - 54*x2 + 27*x4 + 27*x6 + 27*x8)**2)
         x15_1 = sqrt(x15_0)
-        x15_2 =(-27*x1/2 + x10 - x13/2 - 27*x2 + 27*x4/2 + 27*x6/2 + 27*x8/2
-                + x15_1/2)
+        x15_2 = (-27*x1/2 + x10 - x13/2 - 27*x2 + 27*x4/2 + 27*x6/2 + 27*x8/2
+                 + x15_1/2)
         x15 = x15_2**(1/3)
         x16 = x15/3
         x17 = x14/(3*x15)
@@ -146,7 +156,10 @@ def symmetric_eigenvalues(actx, amat):
 
 @memoize_on_first_arg
 def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
-    """
+    """Computes a geometric scaling factor, determined by taking the minimum
+    singular value of the coordinate transformation from reference to physical
+    cells.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: a :class:`float` denoting the geometric scaling factor.
@@ -155,8 +168,7 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
         dd = DD_VOLUME
 
     actx = dcoll._setup_actx
-    fmd = forward_metric_derivative_mat(actx, dcoll, dd=dd)
-    ata = fmd @ fmd.T
+    ata = first_fundamental_form(actx, dcoll, dd=dd)
 
     complex_dtype = dcoll.discr_from_dd(dd).complex_dtype
 
