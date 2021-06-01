@@ -36,16 +36,15 @@ class Operator:
 class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
-    def max_eigenvalue(self, t, fields, discr):
+    def max_eigenvalue(self, t, fields, dcoll):
         raise NotImplementedError
 
-    def estimate_rk4_timestep(self, discr, t=None, fields=None):
+    def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
         """Estimate the largest stable timestep for an RK4 method.
         """
+        from grudge.dt_utils import h_min_vertex_distance
 
-        from grudge.dt_finding import (
-                dt_non_geometric_factor,
-                dt_geometric_factor)
-        return 1 / self.max_eigenvalue(t, fields, discr) \
-                * (dt_non_geometric_factor(discr)
-                * dt_geometric_factor(discr))
+        N = max([grp.order for grp in dcoll.discr_from_dd("vol").groups])
+        h_min_factor = h_min_vertex_distance(dcoll) / (N ** 2)
+
+        return h_min_factor * 1 / self.max_eigenvalue(t, fields, dcoll)
