@@ -33,7 +33,7 @@ from pymbolic.primitives import Variable, Subscript
 from sys import intern
 from functools import reduce
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from meshmode.dof_array import IsDOFArray
+from meshmode.array_context import IsDOFArray, ParameterValue
 
 # {{{ instructions
 
@@ -1042,7 +1042,7 @@ class ToLoopyInstructionMapper:
                     )
                 )
         for arg in knl.args:
-            if type(arg) == lp.ArrayArg:
+            if isinstance(arg, lp.ArrayArg):
                 arg.tags = IsDOFArray()
 
         self.insn_count += 1

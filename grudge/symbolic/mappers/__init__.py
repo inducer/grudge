@@ -627,7 +627,8 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                 rec_field = jac_tag * rec_field
 
                 return sum(
-                        ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
+                        imd(rst_axis) * ref_class(rst_axis, dd_in=dd_in)(rec_field)
+                        #ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
                         for rst_axis in range(self.dim))
             else:
                 return sum(

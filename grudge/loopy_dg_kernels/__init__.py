@@ -394,6 +394,7 @@ def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
                             "j_outer,j_inner,iel_inner_outer,iel_inner_inner"],
                             {"temporary_name": "vecf", "default_tag": "l.auto"}))
     transformations.append(("tag_array_axes", ["vecf", "f,f"]))
+    transformations.append(["add_inames_for_unused_hw_axes"])
     return tuple(transformations)
 
 #@memoize_method

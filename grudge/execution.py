@@ -43,7 +43,7 @@ from grudge.function_registry import base_function_registry
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_array_context import GrudgeArrayContext
 from grudge.grudge_tags import (IsVecDOFArray,
-    IsFaceDOFArray, IsVecOpArray, ParameterValue)
+    IsFaceDOFArray, IsVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
         """,
         kernel_data=[
             lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
-                offset=lp.auto, tags=IsVecDOFArray()),
+                offset=lp.auto, tags=IsVecDOFArray(), is_output_only=True),
             lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
                 offset=lp.auto, tags=IsVecOpArray()),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
@@ -116,7 +116,7 @@ def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
             kernel_data=[
                 lp.GlobalArg("result", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
                 lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nnodes,nnodes)),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes,nnodes), tags=IsOpArray()),
                 lp.ValueArg("nelements", tags=ParameterValue(nelements)),
                 lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes)),
                 lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes)),
@@ -146,9 +146,9 @@ def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
             result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=IsDOFArray()),
+                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=IsDOFArray(), is_output_only=True),
                 lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=IsFaceDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes)),
+                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=IsFaceMassOpArray()),
                 lp.ValueArg("nelements", tags=ParameterValue(nelements)),
                 lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
                 lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),

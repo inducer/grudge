@@ -117,6 +117,8 @@
               ["split_iname", ["idof", 35], {outer_tag: "g.1"}], 
               ["split_iname", ["idof_inner", 7], {outer_tag: "ilp", inner_tag: "l.1"}], 
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
           ],
           56:[
               ["tag_inames", [[["imatrix", "ilp"]]]],
