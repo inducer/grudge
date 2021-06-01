@@ -112,17 +112,9 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     d = 1.0
     # number of points in each dimension
     npoints = 25
-    # grid spacing
-    h = d / npoints
 
-    # cfl
-    dt_factor = 1.0
     # finale time
     final_time = 0.5
-    # time steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     # flux
     flux_type = "upwind"
@@ -203,6 +195,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     def rhs(t, u):
         return adv_operator.operator(t, u)
 
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
+
     # }}}
 
     # {{{ time stepping
@@ -236,10 +230,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", default=2, type=int)
-    parser.add_argument("--use-quad", action="store_false")
+    parser.add_argument("--use-quad", action="store_true")
+    parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-            dim=args.dim,
-            use_quad=args.use_quad)
+         dim=args.dim,
+         use_quad=args.use_quad,
+         visualize=args.visualize)

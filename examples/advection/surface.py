@@ -116,8 +116,6 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # sphere resolution
     resolution = 64 if dim == 2 else 1
 
-    # cfl
-    dt_factor = 2.0
     # final time
     final_time = np.pi
 
@@ -206,10 +204,16 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ time stepping
 
     # compute time step
-    h_min = op.h_max_from_volume(dcoll, dim=dcoll.dim)
+    dt_factor = 2.0
+    h_min = op.h_min_from_volume(dcoll, dim=dcoll.dim)
     dt = dt_factor * h_min/order**2
     nsteps = int(final_time // dt) + 1
     dt = final_time/nsteps + 1.0e-15
+
+    # FIXME: This timestep estimate underestimates the dt (compared with
+    # above which is stable) by a couple orders of magnitude...
+    # dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0)
+    # nsteps = int(final_time // dt) + 1
 
     logger.info("dt:        %.5e", dt)
     logger.info("nsteps:    %d", nsteps)
@@ -270,7 +274,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", choices=[2, 3], default=2, type=int)
-    parser.add_argument("--use-quad", action="store_false")
+    parser.add_argument("--use-quad", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
