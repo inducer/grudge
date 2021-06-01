@@ -1,6 +1,9 @@
 """Wave equation operators."""
 
-__copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2009 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,11 +25,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
 import numpy as np
+
+from arraycontext.container.traversal import thaw
+
 from grudge.models import HyperbolicOperator
+
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-from grudge import sym
+
 from pytools.obj_array import flat_obj_array
+
+import grudge.op as op
 
 
 # {{{ constant-velocity
@@ -49,16 +59,18 @@ class WeakWaveOperator(HyperbolicOperator):
     :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(self, c, ambient_dim, source_f=0,
+    def __init__(self, dcoll, c, source_f=None,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_NONE):
-        assert isinstance(ambient_dim, int)
 
+        if source_f is None:
+            source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
+
+        self.dcoll = dcoll
         self.c = c
-        self.ambient_dim = ambient_dim
         self.source_f = source_f
 
         if self.c > 0:
@@ -74,10 +86,11 @@ class WeakWaveOperator(HyperbolicOperator):
 
         self.flux_type = flux_type
 
-    def flux(self, w):
-        u = w[0]
-        v = w[1:]
-        normal = sym.normal(w.dd, self.ambient_dim)
+    def flux(self, wtpair):
+        u = wtpair[0]
+        v = wtpair[1:]
+        actx = u.int.array_context
+        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
 
         central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
@@ -92,65 +105,66 @@ class WeakWaveOperator(HyperbolicOperator):
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
-    def sym_operator(self):
-        d = self.ambient_dim
-
-        w = sym.make_sym_array("w", d+1)
+    def operator(self, t, w):
+        dcoll = self.dcoll
         u = w[0]
         v = w[1:]
+        actx = u.array_context
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
+        dir_u = op.project(dcoll, "vol", self.dirichlet_tag, u)
+        dir_v = op.project(dcoll, "vol", self.dirichlet_tag, v)
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.")
 
-            dir_g = sym.var("dir_bc_u")
+            dir_g = self.dirichlet_bc_f
             dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
         else:
             dir_bc = flat_obj_array(-dir_u, dir_v)
 
-        dir_bc = sym.cse(dir_bc, "dir_bc")
-
         # neumann BCs ---------------------------------------------------------
-        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(flat_obj_array(neu_u, -neu_v), "neu_bc")
+        neu_u = op.project(dcoll, "vol", self.neumann_tag, u)
+        neu_v = op.project(dcoll, "vol", self.neumann_tag, v)
+        neu_bc = flat_obj_array(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = sym.normal(self.radiation_tag, d)
+        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
 
-        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
+        rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
+        rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
 
-        rad_bc = sym.cse(flat_obj_array(
-                0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
-                0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
-                ), "rad_bc")
+        rad_bc = flat_obj_array(
+            0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
+            0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
+        )
 
         # entire operator -----------------------------------------------------
-        def flux(pair):
-            return sym.project(pair.dd, "all_faces")(self.flux(pair))
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
-        result = sym.InverseMassOperator()(
+        result = (
+            op.inverse_mass(
+                dcoll,
                 flat_obj_array(
-                    -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
-                    -self.c*(sym.stiffness_t(self.ambient_dim)*u)
-                    )
+                    -self.c*op.weak_local_div(dcoll, v),
+                    -self.c*op.weak_local_grad(dcoll, u)
+                )
+                - op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
+                    + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))
+                )
+            )
+        )
 
-                - sym.FaceMassOperator()(flux(sym.int_tpair(w))
-                    + flux(sym.bv_tpair(self.dirichlet_tag, w, dir_bc))
-                    + flux(sym.bv_tpair(self.neumann_tag, w, neu_bc))
-                    + flux(sym.bv_tpair(self.radiation_tag, w, rad_bc))
-
-                    ))
-
-        result[0] += self.source_f
+        result[0] += self.source_f(actx, dcoll, t)
 
         return result
 
@@ -188,21 +202,23 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
     :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(self, c, ambient_dim, source_f=0,
+    def __init__(self, dcoll, c, source_f=None,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_NONE):
-        assert isinstance(ambient_dim, int)
 
+        if source_f is None:
+            source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
+
+        self.dcoll = dcoll
         self.c = c
-        self.ambient_dim = ambient_dim
         self.source_f = source_f
 
-        self.sign = sym.If(sym.Comparison(
-                            self.c, ">", 0),
-                                            np.int32(1), np.int32(-1))
+        actx = dcoll._setup_actx
+        ones = dcoll.zeros(actx) + 1
+        self.sign = actx.np.where(self.c > 0, ones, -ones)
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag
@@ -212,11 +228,12 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
         self.flux_type = flux_type
 
-    def flux(self, w):
-        c = w[0]
-        u = w[1]
-        v = w[2:]
-        normal = sym.normal(w.dd, self.ambient_dim)
+    def flux(self, wtpair):
+        c = wtpair[0]
+        u = wtpair[1]
+        v = wtpair[2:]
+        actx = u.int.array_context
+        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
 
         flux_central_weak = -0.5 * flat_obj_array(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
@@ -234,71 +251,76 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         else:
             raise ValueError("invalid flux type '%s'" % self.flux_type)
 
-    def sym_operator(self):
-        d = self.ambient_dim
-
-        w = sym.make_sym_array("w", d+1)
+    def operator(self, t, w):
+        dcoll = self.dcoll
         u = w[0]
         v = w[1:]
         flux_w = flat_obj_array(self.c, w)
+        actx = u.array_context
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_c = sym.cse(sym.project("vol", self.dirichlet_tag)(self.c))
-        dir_u = sym.cse(sym.project("vol", self.dirichlet_tag)(u))
-        dir_v = sym.cse(sym.project("vol", self.dirichlet_tag)(v))
+        dir_c = op.project(dcoll, "vol", self.dirichlet_tag, self.c)
+        dir_u = op.project(dcoll, "vol", self.dirichlet_tag, u)
+        dir_v = op.project(dcoll, "vol", self.dirichlet_tag, v)
         if self.dirichlet_bc_f:
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.")
 
-            dir_g = sym.var("dir_bc_u")
+            dir_g = self.dirichlet_bc_f
             dir_bc = flat_obj_array(dir_c, 2*dir_g - dir_u, dir_v)
         else:
             dir_bc = flat_obj_array(dir_c, -dir_u, dir_v)
 
-        dir_bc = sym.cse(dir_bc, "dir_bc")
-
         # neumann BCs ---------------------------------------------------------
-        neu_c = sym.cse(sym.project("vol", self.neumann_tag)(self.c))
-        neu_u = sym.cse(sym.project("vol", self.neumann_tag)(u))
-        neu_v = sym.cse(sym.project("vol", self.neumann_tag)(v))
-        neu_bc = sym.cse(flat_obj_array(neu_c, neu_u, -neu_v), "neu_bc")
+        neu_c = op.project(dcoll, "vol", self.neumann_tag, self.c)
+        neu_u = op.project(dcoll, "vol", self.neumann_tag, u)
+        neu_v = op.project(dcoll, "vol", self.neumann_tag, v)
+        neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = sym.normal(self.radiation_tag, d)
+        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
 
-        rad_c = sym.cse(sym.project("vol", self.radiation_tag)(self.c))
-        rad_u = sym.cse(sym.project("vol", self.radiation_tag)(u))
-        rad_v = sym.cse(sym.project("vol", self.radiation_tag)(v))
+        rad_c = op.project(dcoll, "vol", self.radiation_tag, self.c)
+        rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
+        rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
+        rad_sign = op.project(dcoll, "vol", self.radiation_tag, self.sign)
 
-        rad_bc = sym.cse(flat_obj_array(rad_c,
-                0.5*(rad_u - sym.project("vol", self.radiation_tag)(self.sign)
-                    * np.dot(rad_normal, rad_v)),
-                0.5*rad_normal*(np.dot(rad_normal, rad_v)
-                    - sym.project("vol", self.radiation_tag)(self.sign)*rad_u)
-                ), "rad_bc")
+        rad_bc = flat_obj_array(
+            rad_c,
+            0.5*(rad_u - rad_sign * np.dot(rad_normal, rad_v)),
+            0.5*rad_normal*(np.dot(rad_normal, rad_v) - rad_sign*rad_u)
+        )
 
         # entire operator -----------------------------------------------------
-        def flux(pair):
-            return sym.project(pair.dd, "all_faces")(self.flux(pair))
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
-        result = sym.InverseMassOperator()(
+        result = (
+            op.inverse_mass(
+                dcoll,
                 flat_obj_array(
-                    -self.c*np.dot(sym.stiffness_t(self.ambient_dim), v),
-                    -self.c*(sym.stiffness_t(self.ambient_dim)*u)
-                    )
+                    -self.c*op.weak_local_div(dcoll, v),
+                    -self.c*op.weak_local_grad(dcoll, u)
+                )
+                - op.face_mass(
+                    dcoll,
+                    sum(flux(tpair)
+                        for tpair in op.interior_trace_pairs(dcoll, flux_w))
+                    + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag,
+                                            flux_w, dir_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.neumann_tag,
+                                            flux_w, neu_bc))
+                    + flux(op.bv_trace_pair(dcoll, self.radiation_tag,
+                                            flux_w, rad_bc))
+                )
+            )
+        )
 
-                - sym.FaceMassOperator()(flux(sym.int_tpair(flux_w))
-                    + flux(sym.bv_tpair(self.dirichlet_tag, flux_w, dir_bc))
-                    + flux(sym.bv_tpair(self.neumann_tag, flux_w, neu_bc))
-                    + flux(sym.bv_tpair(self.radiation_tag, flux_w, rad_bc))
-
-                    ))
-
-        result[0] += self.source_f
+        result[0] += self.source_f(actx, dcoll, t)
 
         return result
 
@@ -310,7 +332,8 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_eigenvalue(self, t, fields=None, discr=None):
-        return sym.NodalMax("vol")(sym.fabs(self.c))
+        actx = self.dcoll._setup_actx
+        return op.nodal_max(self.dcoll, "vol", actx.np.fabs(self.c))
 
 # }}}
 

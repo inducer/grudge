@@ -1,6 +1,9 @@
 """Minimal example of a grudge driver."""
 
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,16 +28,25 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.tools as cl_tools
+
+from arraycontext import PyOpenCLArrayContext, thaw
+
 from grudge.shortcuts import set_up_rk4
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
 
-from meshmode.array_context import PyOpenCLArrayContext
+from pytools.obj_array import flat_obj_array
+
+import grudge.op as op
 
 
-def main(write_output=True, order=4):
+def main(write_output=False, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -43,45 +55,50 @@ def main(write_output=True, order=4):
             b=(0.5,)*dims,
             nelements_per_axis=(20,)*dims)
 
-    discr = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
-    source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
-    source_width = 0.05
-    source_omega = 3
+    def source_f(actx, dcoll, t=0):
+        source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
+        source_width = 0.05
+        source_omega = 3
+        nodes = thaw(op.nodes(dcoll), actx)
+        source_center_dist = flat_obj_array(
+            [nodes[i] - source_center[i] for i in range(dcoll.dim)]
+        )
+        return (
+            np.sin(source_omega*t)
+            * actx.np.exp(
+                -np.dot(source_center_dist, source_center_dist)
+                / source_width**2
+            )
+        )
 
-    sym_x = sym.nodes(mesh.dim)
-    sym_source_center_dist = sym_x - source_center
-    sym_t = sym.ScalarVariable("t")
-    c = sym.If(sym.Comparison(
-                np.dot(sym_x, sym_x), "<", 0.15),
-                np.float32(0.1), np.float32(0.2))
+    x = thaw(op.nodes(dcoll), actx)
+    ones = dcoll.zeros(actx) + 1
+    c = actx.np.where(np.dot(x, x) < 0.15, 0.1 * ones, 0.2 * ones)
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = VariableCoefficientWeakWaveOperator(c,
-            discr.dim,
-            source_f=(
-                sym.sin(source_omega*sym_t)
-                * sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2)),
-            dirichlet_tag=BTAG_NONE,
-            neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_ALL,
-            flux_type="upwind")
 
-    from pytools.obj_array import flat_obj_array
-    fields = flat_obj_array(discr.zeros(actx),
-            [discr.zeros(actx) for i in range(discr.dim)])
+    wave_op = VariableCoefficientWeakWaveOperator(
+        dcoll,
+        c,
+        source_f=source_f,
+        dirichlet_tag=BTAG_NONE,
+        neumann_tag=BTAG_NONE,
+        radiation_tag=BTAG_ALL,
+        flux_type="upwind"
+    )
 
-    op.check_bc_coverage(mesh)
+    fields = flat_obj_array(
+        dcoll.zeros(actx),
+        [dcoll.zeros(actx) for i in range(dcoll.dim)]
+    )
 
-    c_eval = bind(discr, c)(actx)
-
-    bound_op = bind(discr, op.sym_operator())
+    wave_op.check_bc_coverage(mesh)
 
     def rhs(t, w):
-        return bound_op(t=t, w=w)
+        return wave_op.operator(t, w)
 
     if mesh.dim == 2:
         dt = 0.04 * 0.3
@@ -95,14 +112,27 @@ def main(write_output=True, order=4):
     print("dt=%g nsteps=%d" % (dt, nsteps))
 
     from grudge.shortcuts import make_visualizer
-    vis = make_visualizer(discr)
+    vis = make_visualizer(dcoll)
 
     step = 0
 
-    norm = bind(discr, sym.norm(2, sym.var("u")))
+    def norm(u):
+        return op.norm(dcoll, u, 2)
 
     from time import time
     t_last_step = time()
+
+    if write_output:
+        u = fields[0]
+        v = fields[1:]
+        vis.write_vtk_file(
+            f"fld-var-propogation-speed-{step:04d}.vtu",
+            [
+                ("u", u),
+                ("v", v),
+                ("c", c),
+            ]
+        )
 
     for event in dt_stepper.run(t_end=final_t):
         if isinstance(event, dt_stepper.StateComputed):
@@ -113,13 +143,19 @@ def main(write_output=True, order=4):
             if step % 10 == 0:
                 print(f"step: {step} t: {time()-t_last_step} "
                       f"L2: {norm(u=event.state_component[0])}")
-                vis.write_vtk_file("fld-var-propogation-speed-%04d.vtu" % step,
+                if write_output:
+                    vis.write_vtk_file(
+                        f"fld-var-propogation-speed-{step:04d}.vtu",
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
-                            ("c", c_eval),
-                            ])
+                            ("c", c),
+                        ]
+                    )
             t_last_step = time()
+
+            # NOTE: These are here to ensure the solution is bounded for the
+            # time interval specified
             assert norm(u=event.state_component[0]) < 1
 
 

@@ -1,6 +1,9 @@
 """Operators modeling advective phenomena."""
 
-__copyright__ = "Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache"
+__copyright__ = """
+Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,30 +27,33 @@ THE SOFTWARE.
 
 
 import numpy as np
-import numpy.linalg as la
+import grudge.op as op
+import types
+
+from arraycontext.container.traversal import thaw
 
 from grudge.models import HyperbolicOperator
-from grudge import sym
 
 
 # {{{ fluxes
 
-def advection_weak_flux(flux_type, u, velocity):
-    normal = sym.normal(u.dd, len(velocity))
-    v_dot_n = sym.cse(velocity.dot(normal), "v_dot_normal")
+def advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
+    r"""Compute the numerical flux for the advection operator
+    $(v \cdot \nabla)u$.
+    """
+    actx = u_tpair.int.array_context
+    dd = u_tpair.dd
+    normal = thaw(op.normal(dcoll, dd), actx)
+    v_dot_n = np.dot(velocity, normal)
 
     flux_type = flux_type.lower()
     if flux_type == "central":
-        return u.avg * v_dot_n
+        return u_tpair.avg * v_dot_n
     elif flux_type == "lf":
-        norm_v = sym.sqrt((velocity**2).sum())
-        return u.avg * v_dot_n + 0.5 * norm_v * (u.int - u.ext)
+        norm_v = np.sqrt(sum(velocity**2))
+        return u_tpair.avg * v_dot_n + 0.5 * norm_v * (u_tpair.int - u_tpair.ext)
     elif flux_type == "upwind":
-        u_upwind = sym.If(
-                sym.Comparison(v_dot_n, ">", 0),
-                u.int,      # outflow
-                u.ext       # inflow
-                )
+        u_upwind = actx.np.where(v_dot_n > 0, u_tpair.int, u_tpair.ext)
         return u_upwind * v_dot_n
     else:
         raise ValueError(f"flux '{flux_type}' is not implemented")
@@ -58,210 +64,312 @@ def advection_weak_flux(flux_type, u, velocity):
 # {{{ constant-coefficient advection
 
 class AdvectionOperatorBase(HyperbolicOperator):
-    flux_types = [
-            "central",
-            "upwind",
-            "lf"
-            ]
+    flux_types = ["central", "upwind", "lf"]
 
-    def __init__(self, v, inflow_u, flux_type="central"):
-        self.ambient_dim = len(v)
+    def __init__(self, dcoll, v, inflow_u=None, flux_type="central"):
+        if flux_type not in self.flux_types:
+            raise ValueError(f"unknown flux type: '{flux_type}'")
+
+        if inflow_u is not None:
+            if not isinstance(inflow_u, types.LambdaType):
+                raise ValueError(
+                    "A specified inflow_u must be a lambda function of time `t`"
+                )
+
+        self.dcoll = dcoll
         self.v = v
         self.inflow_u = inflow_u
         self.flux_type = flux_type
 
-        if flux_type not in self.flux_types:
-            raise ValueError(f"unknown flux type: '{flux_type}'")
-
-    def weak_flux(self, u):
-        return advection_weak_flux(self.flux_type, u, self.v)
+    def weak_flux(self, u_tpair):
+        return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, self.v)
 
     def max_eigenvalue(self, t=None, fields=None, discr=None):
-        return la.norm(self.v)
+        return np.linalg.norm(self.v)
 
 
 class StrongAdvectionOperator(AdvectionOperatorBase):
-    def flux(self, u):
-        normal = sym.normal(u.dd, self.ambient_dim)
-        v_dot_normal = sym.cse(self.v.dot(normal), "v_dot_normal")
+    def flux(self, u_tpair):
+        actx = u_tpair.int.array_context
+        dd = u_tpair.dd
+        normal = thaw(op.normal(self.dcoll, dd), actx)
+        v_dot_normal = np.dot(self.v, normal)
 
-        return u.int * v_dot_normal - self.weak_flux(u)
+        return u_tpair.int * v_dot_normal - self.weak_flux(u_tpair)
 
-    def sym_operator(self):
+    def operator(self, t, u):
         from meshmode.mesh import BTAG_ALL
 
-        u = sym.var("u")
+        dcoll = self.dcoll
 
-        def flux(pair):
-            return sym.project(pair.dd, "all_faces")(
-                    self.flux(pair))
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
+
+        if self.inflow_u is not None:
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                BTAG_ALL,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
+        else:
+            inflow_flux = 0
 
         return (
-                - self.v.dot(sym.nabla(self.ambient_dim)*u)
-                + sym.InverseMassOperator()(
-                    sym.FaceMassOperator()(
-                        flux(sym.int_tpair(u))
-                        + flux(sym.bv_tpair(BTAG_ALL, u, self.inflow_u))
+            -self.v.dot(op.local_grad(dcoll, u))
+            + op.inverse_mass(
+                dcoll,
+                op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
+                    + inflow_flux
 
-                        # FIXME: Add back support for inflow/outflow tags
-                        #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
-                        #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
-                        )))
+                    # FIXME: Add support for inflow/outflow tags
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
+                )
+            )
+        )
 
 
 class WeakAdvectionOperator(AdvectionOperatorBase):
-    def flux(self, u):
-        return self.weak_flux(u)
+    def flux(self, u_tpair):
+        return self.weak_flux(u_tpair)
 
-    def sym_operator(self):
+    def operator(self, t, u):
         from meshmode.mesh import BTAG_ALL
 
-        u = sym.var("u")
+        dcoll = self.dcoll
 
-        def flux(pair):
-            return sym.project(pair.dd, "all_faces")(
-                    self.flux(pair))
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
-        bc_in = self.inflow_u
-        # bc_out = sym.project(DD_VOLUME, self.outflow_tag)(u)
+        if self.inflow_u is not None:
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                BTAG_ALL,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
+        else:
+            inflow_flux = 0
 
-        return sym.InverseMassOperator()(
-                np.dot(
-                    self.v, sym.stiffness_t(self.ambient_dim)*u)
-                - sym.FaceMassOperator()(
-                    flux(sym.int_tpair(u))
-                    + flux(sym.bv_tpair(BTAG_ALL, u, bc_in))
+        return (
+            op.inverse_mass(
+                dcoll,
+                np.dot(self.v, op.weak_local_grad(dcoll, u))
+                - op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
+                    + inflow_flux
 
-                    # FIXME: Add back support for inflow/outflow tags
-                    #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
-                    #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
-                    ))
+                    # FIXME: Add support for inflow/outflow tags
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
+                )
+            )
+        )
 
 # }}}
+
+
+def to_quad_int_tpairs(dcoll, u, quad_tag):
+    from grudge.dof_desc import DISCR_TAG_QUAD
+    from grudge.trace_pair import TracePair
+
+    if issubclass(quad_tag, DISCR_TAG_QUAD):
+        return [
+            TracePair(
+                tpair.dd.with_discr_tag(quad_tag),
+                interior=op.project(
+                    dcoll, tpair.dd,
+                    tpair.dd.with_discr_tag(quad_tag), tpair.int
+                ),
+                exterior=op.project(
+                    dcoll, tpair.dd,
+                    tpair.dd.with_discr_tag(quad_tag), tpair.ext
+                )
+            ) for tpair in op.interior_trace_pairs(dcoll, u)
+        ]
+    else:
+        return op.interior_trace_pairs(dcoll, u)
 
 
 # {{{ variable-coefficient advection
 
 class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
-    def __init__(self, v, inflow_u, flux_type="central", quad_tag="product"):
-        super().__init__(
-                v, inflow_u, flux_type=flux_type)
+    def __init__(self, dcoll, v, inflow_u, flux_type="central", quad_tag=None):
+        super().__init__(dcoll, v, inflow_u, flux_type=flux_type)
+
+        if quad_tag is None:
+            from grudge.dof_desc import DISCR_TAG_BASE
+            quad_tag = DISCR_TAG_BASE
 
         self.quad_tag = quad_tag
 
-    def flux(self, u):
+    def flux(self, u_tpair):
         from grudge.dof_desc import DD_VOLUME
 
-        surf_v = sym.project(DD_VOLUME, u.dd)(self.v)
-        return advection_weak_flux(self.flux_type, u, surf_v)
+        surf_v = op.project(self.dcoll, DD_VOLUME, u_tpair.dd, self.v)
+        return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, surf_v)
 
-    def sym_operator(self):
+    def operator(self, t, u):
         from grudge.dof_desc import DOFDesc, DD_VOLUME, DTAG_VOLUME_ALL
         from meshmode.mesh import BTAG_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
-
-        u = sym.var("u")
-
-        def flux(pair):
-            return sym.project(pair.dd, face_dd)(self.flux(pair))
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
         boundary_dd = DOFDesc(BTAG_ALL, self.quad_tag)
         quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.project(DD_VOLUME, quad_dd)
-        stiff_t_op = sym.stiffness_t(self.ambient_dim,
-                dd_in=quad_dd, dd_out=DD_VOLUME)
+        dcoll = self.dcoll
+
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, face_dd, self.flux(tpair))
+
+        def to_quad(arg):
+            return op.project(dcoll, DD_VOLUME, quad_dd, arg)
+
+        if self.inflow_u is not None:
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                boundary_dd,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
+        else:
+            inflow_flux = 0
 
         quad_v = to_quad(self.v)
         quad_u = to_quad(u)
 
-        return sym.InverseMassOperator()(
-                sum(stiff_t_op[n](quad_u * quad_v[n])
-                    for n in range(self.ambient_dim))
-                - sym.FaceMassOperator(face_dd, DD_VOLUME)(
-                    flux(sym.int_tpair(u, self.quad_tag))
-                    + flux(sym.bv_tpair(boundary_dd, u, self.inflow_u))
+        return (
+            op.inverse_mass(
+                dcoll,
+                sum(op.weak_local_d_dx(dcoll, quad_dd, d, quad_u * quad_v[d])
+                    for d in range(dcoll.ambient_dim))
+                - op.face_mass(
+                    dcoll,
+                    face_dd,
+                    sum(flux(quad_tpair)
+                        for quad_tpair in to_quad_int_tpairs(dcoll, u,
+                                                             self.quad_tag))
+                    + inflow_flux
 
-                    # FIXME: Add back support for inflow/outflow tags
-                    #+ flux(sym.bv_tpair(self.inflow_tag, u, bc_in))
-                    #+ flux(sym.bv_tpair(self.outflow_tag, u, bc_out))
-                ))
+                    # FIXME: Add support for inflow/outflow tags
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
+                )
+            )
+        )
+
 # }}}
 
 
 # {{{ closed surface advection
 
-def v_dot_n_tpair(velocity, dd=None):
-    from grudge.dof_desc import DOFDesc
+def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
+    from grudge.dof_desc import DTAG_BOUNDARY
+    from grudge.trace_pair import TracePair
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    if dd is None:
-        dd = DOFDesc(FACE_RESTR_INTERIOR)
+    normal = thaw(op.normal(dcoll, trace_dd.with_discr_tag(None)), actx)
+    v_dot_n = velocity.dot(normal)
+    i = op.project(dcoll, trace_dd.with_discr_tag(None), trace_dd, v_dot_n)
 
-    ambient_dim = len(velocity)
-    normal = sym.normal(dd.with_discr_tag(None),
-                        ambient_dim, dim=ambient_dim - 2)
+    if trace_dd.domain_tag is FACE_RESTR_INTERIOR:
+        e = dcoll.opposite_face_connection()(i)
+    elif isinstance(trace_dd.domain_tag, DTAG_BOUNDARY):
+        e = dcoll.distributed_boundary_swap_connection(trace_dd)(i)
+    else:
+        raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
 
-    return sym.int_tpair(velocity.dot(normal),
-            qtag=dd.discretization_tag,
-            from_dd=dd.with_discr_tag(None))
+    return TracePair(trace_dd, interior=i, exterior=e)
 
 
-def surface_advection_weak_flux(flux_type, u, velocity):
-    v_dot_n = v_dot_n_tpair(velocity, dd=u.dd)
+def surface_advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
+    actx = u_tpair.int.array_context
+    v_dot_n = v_dot_n_tpair(actx, dcoll, velocity, trace_dd=u_tpair.dd)
     # NOTE: the normals in v_dot_n point to the exterior of their respective
     # elements, so this is actually just an average
-    v_dot_n = sym.cse(0.5 * (v_dot_n.int - v_dot_n.ext), "v_dot_normal")
+    v_dot_n = 0.5 * (v_dot_n.int - v_dot_n.ext)
 
     flux_type = flux_type.lower()
     if flux_type == "central":
-        return u.avg * v_dot_n
+        return u_tpair.avg * v_dot_n
     elif flux_type == "lf":
-        return u.avg * v_dot_n + 0.5 * sym.fabs(v_dot_n) * (u.int - u.ext)
+        return (u_tpair.avg * v_dot_n
+                + 0.5 * actx.np.fabs(v_dot_n) * (u_tpair.int - u_tpair.ext))
     else:
         raise ValueError(f"flux '{flux_type}' is not implemented")
 
 
 class SurfaceAdvectionOperator(AdvectionOperatorBase):
-    def __init__(self, v, flux_type="central", quad_tag=None):
-        super().__init__(
-                v, inflow_u=None, flux_type=flux_type)
+    def __init__(self, dcoll, v, flux_type="central", quad_tag=None):
+        super().__init__(dcoll, v, inflow_u=None, flux_type=flux_type)
+
+        if quad_tag is None:
+            from grudge.dof_desc import DISCR_TAG_BASE
+            quad_tag = DISCR_TAG_BASE
+
         self.quad_tag = quad_tag
 
-    def flux(self, u):
+    def flux(self, u_tpair):
         from grudge.dof_desc import DD_VOLUME
 
-        surf_v = sym.project(DD_VOLUME, u.dd.with_discr_tag(None))(self.v)
-        return surface_advection_weak_flux(self.flux_type, u, surf_v)
+        surf_v = op.project(self.dcoll, DD_VOLUME,
+                            u_tpair.dd.with_discr_tag(None), self.v)
+        return surface_advection_weak_flux(self.dcoll,
+                                           self.flux_type,
+                                           u_tpair,
+                                           surf_v)
 
-    def sym_operator(self):
+    def operator(self, t, u):
         from grudge.dof_desc import DOFDesc, DD_VOLUME, DTAG_VOLUME_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
-
-        u = sym.var("u")
-
-        def flux(pair):
-            return sym.project(pair.dd, face_dd)(self.flux(pair))
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
         quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
 
-        to_quad = sym.project(DD_VOLUME, quad_dd)
-        stiff_t_op = sym.stiffness_t(self.ambient_dim,
-                dd_in=quad_dd, dd_out=DD_VOLUME)
+        dcoll = self.dcoll
+
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, face_dd, self.flux(tpair))
+
+        def to_quad(arg):
+            return op.project(dcoll, DD_VOLUME, quad_dd, arg)
 
         quad_v = to_quad(self.v)
         quad_u = to_quad(u)
 
-        return sym.InverseMassOperator()(
-                sum(stiff_t_op[n](quad_u * quad_v[n])
-                    for n in range(self.ambient_dim))
-                - sym.FaceMassOperator(face_dd, DD_VOLUME)(
-                    flux(sym.int_tpair(u, self.quad_tag))
-                    )
+        return (
+            op.inverse_mass(
+                dcoll,
+                sum(op.weak_local_d_dx(dcoll, quad_dd, d, quad_u * quad_v[d])
+                    for d in range(dcoll.ambient_dim))
+                - op.face_mass(
+                    dcoll,
+                    face_dd,
+                    sum(flux(quad_tpair)
+                        for quad_tpair in to_quad_int_tpairs(dcoll, u,
+                                                             self.quad_tag))
                 )
+            )
+        )
 
 # }}}
+
 
 # vim: foldmethod=marker
