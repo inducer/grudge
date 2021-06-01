@@ -44,7 +44,7 @@ class HyperbolicOperator(Operator):
         """
         from grudge.dt_utils import h_min_vertex_distance
 
-        N = max([grp.order for grp in dcoll.discr_from_dd("vol").groups])
-        h_min_factor = h_min_vertex_distance(dcoll) / (N ** 2)
+        order = max([grp.order for grp in dcoll.discr_from_dd("vol").groups])
+        h_min_factor = h_min_vertex_distance(dcoll) / (order ** 2)
 
         return h_min_factor * 1 / self.max_eigenvalue(t, fields, dcoll)
