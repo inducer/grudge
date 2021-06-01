@@ -469,11 +469,11 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         result = flat_obj_array(
             zeros,
             zeros,
-            actx.np.sin(kx * x) * actx.np.sin(ky * y) * actx.np.cos(tfac),  # ez
+            actx.np.sin(kx * x) * actx.np.sin(ky * y) * numpy.cos(tfac),  # ez
             (-ky * actx.np.sin(kx * x) * actx.np.cos(ky * y)
-             * actx.np.sin(tfac) / omega),  # hx
+             * numpy.sin(tfac) / omega),  # hx
             (kx * actx.np.cos(kx * x) * actx.np.sin(ky * y)
-             * actx.np.sin(tfac) / omega),  # hy
+             * numpy.sin(tfac) / omega),  # hy
             zeros,
         )
     else:
