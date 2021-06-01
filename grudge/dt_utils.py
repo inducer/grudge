@@ -1,6 +1,15 @@
-"""Helpers for estimating a stable time step."""
+"""Helper functions for estimating a stable time steps.
 
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+Mesh-related functions
+----------------------
+
+.. autofunction:: h_min_vertex_distance
+"""
+
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,8 +31,39 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import numpy as np
+
 from pytools import memoize_on_first_arg
-from meshmode.discretization.poly_element import PolynomialWarpAndBlendElementGroup
+
+from grudge.discretization import DiscretizationCollection
+
+
+@memoize_on_first_arg
+def h_min_vertex_distance(dcoll: DiscretizationCollection) -> float:
+    """Computes the minimum distance between two mesh element vertices.
+
+    :returns: a scalar denoting the minimum vertex distance over the
+        entire mesh.
+    """
+    return min(
+        min(
+            min(
+                np.linalg.norm(
+                    dcoll.mesh.vertices[:, mgrp.vertex_indices[eidx, i]]
+                    - dcoll.mesh.vertices[:, mgrp.vertex_indices[eidx, j]]
+                ) for i, j in ((i, j)
+                               for i in range(len(mgrp.vertex_unit_coordinates()))
+                               for j in range(len(mgrp.vertex_unit_coordinates()))
+                               if i != j)
+            ) for eidx in range(mgrp.nelements)
+        ) for mgrp in dcoll.mesh.groups
+    )
+
+
+# {{{ FIXME: Broken code; do not use
+
+from meshmode.discretization.poly_element \
+    import PolynomialWarpAndBlendElementGroup
 import numpy.linalg as la
 
 
@@ -90,3 +130,8 @@ def dt_geometric_factor(discr):
     return min(
             _GROUP_TYPE_TO_INFO[type(grp)].dt_geometric_factor(discr, grp)
             for grp in discr.groups)
+
+# }}}
+
+
+# vim: foldmethod=marker
