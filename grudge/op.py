@@ -1046,15 +1046,15 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd):
     if isinstance(vec, Number):
         return np.fabs(vec)
     if p == 2:
-        return np.sqrt(
+        return np.real_if_close(np.sqrt(
             nodal_sum(
                 dcoll,
                 dd,
-                vec * _apply_mass_operator(dcoll, dd, dd, vec)
+                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec)
             )
-        )
+        ))
     elif p == np.inf:
-        return nodal_max(dcoll, dd, dcoll._setup_actx.np.fabs(vec))
+        return nodal_max(dcoll, dd, abs(vec))
     else:
         raise NotImplementedError("Unsupported value of p")
 

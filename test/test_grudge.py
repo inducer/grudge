@@ -1002,6 +1002,28 @@ def test_bessel(actx_factory):
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
+def test_norm_complex(actx_factory, p):
+    actx = actx_factory()
+
+    dim = 2
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(0,)*dim, b=(1,)*dim,
+            nelements_per_axis=(8,)*dim, order=1)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+
+    nodes = thaw(dcoll.nodes(), actx)
+    f = nodes[0] + 1j * nodes[0]
+
+    norm = op.norm(dcoll, f, p)
+    if p == 2:
+        ref_norm = ((1/3)*dim)**0.5
+    elif p == np.inf:
+        ref_norm = 2**0.5
+
+    assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
+
+
+@pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_obj_array(actx_factory, p):
     """Test :func:`grudge.op.norm` for object arrays."""
 
