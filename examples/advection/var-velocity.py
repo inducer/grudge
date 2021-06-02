@@ -114,7 +114,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     npoints = 25
 
     # finale time
-    final_time = 10
+    final_time = 0.5
 
     # flux
     flux_type = "upwind"
@@ -197,6 +197,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
 
+    logger.info("Timestep size: %g", dt)
+
     # }}}
 
     # {{{ time stepping
@@ -230,6 +232,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--use-quad", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
@@ -237,5 +240,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
+         order=args.order,
          use_quad=args.use_quad,
          visualize=args.visualize)

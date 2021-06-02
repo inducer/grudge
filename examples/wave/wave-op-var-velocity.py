@@ -43,6 +43,9 @@ from grudge.shortcuts import make_visualizer
 
 import grudge.op as op
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # {{{ wave equation bits
 
@@ -126,6 +129,16 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
+def estimate_rk4_timestep(dcoll, c, scaling=None):
+    from grudge.dt_utils import (dt_non_geometric_factor,
+                                 dt_geometric_factor)
+
+    dt_factor = \
+        dt_non_geometric_factor(dcoll, scaling=scaling) * dt_geometric_factor(dcoll)
+
+    return dt_factor * (1 / c)
+
+
 def bump(actx, dcoll, t=0, width=0.05, center=None):
     if center is None:
         center = np.array([0.2, 0.35, 0.1])
@@ -146,15 +159,14 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
             / width**2))
 
 
-def main(write_output=False):
-    cl_ctx = cl.create_some_context()
+def main(ctx_factory, dim=2, order=3, visualize=False):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
     )
 
-    dim = 2
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -162,18 +174,7 @@ def main(write_output=False):
             b=(0.5,)*dim,
             nelements_per_axis=(nel_1d,)*dim)
 
-    order = 3
-
-    if dim == 2:
-        # no deep meaning here, just a fudge factor
-        dt = 0.75/(nel_1d*order**2)
-    elif dim == 3:
-        # no deep meaning here, just a fudge factor
-        dt = 0.45/(nel_1d*order**2)
-    else:
-        raise ValueError("don't have a stable time step guesstimate")
-
-    print("%d elements" % mesh.nelements)
+    logger.info("%d elements", mesh.nelements)
 
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
@@ -188,6 +189,7 @@ def main(write_output=False):
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
+    dt = estimate_rk4_timestep(dcoll, c=1, scaling=0.5)
 
     fields = flat_obj_array(
             bump(actx, dcoll, ),
@@ -199,6 +201,8 @@ def main(write_output=False):
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
+    logger.info("dt = %g", dt)
+
     t = 0
     t_final = 3
     istep = 0
@@ -206,12 +210,12 @@ def main(write_output=False):
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(f"step: {istep} t: {t} "
-                  f"L2: {op.norm(dcoll, fields[0], 2)} "
-                  f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
-                  f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
-                  f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
-            if write_output:
+            logger.info(f"step: {istep} t: {t} "
+                        f"L2: {op.norm(dcoll, fields[0], 2)} "
+                        f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
+                        f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
+                        f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+            if visualize:
                 vis.write_vtk_file(
                     f"fld-wave-eager-var-velocity-{istep:04d}.vtu",
                     [
@@ -230,6 +234,18 @@ def main(write_output=False):
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)
 
 # vim: foldmethod=marker

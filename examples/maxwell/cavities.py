@@ -39,12 +39,12 @@ from grudge.models.em import get_rectangular_cavity_mode
 
 import grudge.op as op
 
+import logging
+logger = logging.getLogger(__name__)
 
-STEPS = 60
 
-
-def main(dims, write_output=False, order=4):
-    cl_ctx = cl.create_some_context()
+def main(ctx_factory, dim=3, order=4, visualize=False):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
@@ -53,9 +53,9 @@ def main(dims, write_output=False, order=4):
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            a=(0.0,)*dims,
-            b=(1.0,)*dims,
-            nelements_per_axis=(4,)*dims)
+            a=(0.0,)*dim,
+            b=(1.0,)*dim,
+            nelements_per_axis=(4,)*dim)
 
     dcoll = DiscretizationCollection(actx, mesh, order=order)
 
@@ -75,35 +75,31 @@ def main(dims, write_output=False, order=4):
         epsilon,
         mu,
         flux_type=0.5,
-        dimensions=dims
+        dimensions=dim
     )
 
     def cavity_mode(x, t=0):
-        if dims == 3:
+        if dim == 3:
             return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
         else:
             return get_rectangular_cavity_mode(actx, x, t, 1, (2, 3))
 
     fields = cavity_mode(thaw(op.nodes(dcoll), actx), t=0)
 
-    dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)
-
     maxwell_operator.check_bc_coverage(mesh)
 
     def rhs(t, w):
         return maxwell_operator.operator(t, w)
 
-    # if mesh.dim == 2:
-    #     dt = 0.004
-    # elif mesh.dim == 3:
-    #     dt = 0.002
+    dt = maxwell_operator.estimate_rk4_timestep(dcoll, fields=fields)
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
-    final_t = dt * STEPS
-    nsteps = int(final_t/dt)
+    target_steps = 60
+    final_t = dt * target_steps
+    nsteps = int(final_t/dt) + 1
 
-    print("dt=%g nsteps=%d" % (dt, nsteps))
+    logger.info("dt = %g nsteps = %d", dt, nsteps)
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(dcoll)
@@ -113,12 +109,9 @@ def main(dims, write_output=False, order=4):
     def norm(u):
         return op.norm(dcoll, u, 2)
 
-    from time import time
-    t_last_step = time()
-
     e, h = maxwell_operator.split_eh(fields)
 
-    if write_output:
+    if visualize:
         vis.write_vtk_file(
             f"fld-cavities-{step:04d}.vtu",
             [
@@ -132,17 +125,21 @@ def main(dims, write_output=False, order=4):
             assert event.component_id == "w"
 
             step += 1
-
             e, h = maxwell_operator.split_eh(event.state_component)
+
             norm_e0 = norm(u=e[0])
             norm_e1 = norm(u=e[1])
             norm_h0 = norm(u=h[0])
             norm_h1 = norm(u=h[1])
-            print(step, event.t,
-                  norm_e0, norm_e1, norm_h0, norm_h1,
-                  time()-t_last_step)
+
+            logger.info(
+                "[%04d] t = %.5f |e0| = %.5e, |e1| = %.5e, |h0| = %.5e, |h1| = %.5e",
+                step, event.t,
+                norm_e0, norm_e1, norm_h0, norm_h1
+            )
+
             if step % 10 == 0:
-                if write_output:
+                if visualize:
                     vis.write_vtk_file(
                         f"fld-cavities-{step:04d}.vtu",
                         [
@@ -150,7 +147,6 @@ def main(dims, write_output=False, order=4):
                             ("h", h),
                         ]
                     )
-            t_last_step = time()
 
             # NOTE: These are here to ensure the solution is bounded for the
             # time interval specified
@@ -161,4 +157,16 @@ def main(dims, write_output=False, order=4):
 
 
 if __name__ == "__main__":
-    main(3)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=3, type=int)
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)

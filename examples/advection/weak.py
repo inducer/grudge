@@ -119,6 +119,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # velocity field
     c = np.array([0.5] * dim)
     norm_c = la.norm(c)
+
     # flux
     flux_type = "central"
 
@@ -165,6 +166,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
 
+    logger.info("Timestep size: %g", dt)
+
     # }}}
 
     # {{{ time stepping
@@ -199,10 +202,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
+         order=args.order,
          visualize=args.visualize)
