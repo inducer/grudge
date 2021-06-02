@@ -80,11 +80,6 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     dcoll = DiscretizationCollection(actx, local_mesh, order=order,
             mpi_communicator=comm)
 
-    if local_mesh.dim == 2:
-        dt = 0.04
-    elif local_mesh.dim == 3:
-        dt = 0.02
-
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
