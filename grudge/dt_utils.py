@@ -1,7 +1,6 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
 .. autofunction:: dt_non_geometric_factor
-.. autofunction:: symmetric_eigenvalues
 .. autofunction:: dt_geometric_factor
 """
 
@@ -32,28 +31,33 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import ArrayContext, rec_map_array_container
+from arraycontext import make_loopy_program
 
-from functools import reduce
-
-from grudge.dof_desc import DD_VOLUME
-from grudge.geometry import first_fundamental_form
+from grudge.dof_desc import DD_VOLUME, DOFDesc
 from grudge.discretization import DiscretizationCollection
 
-from pytools import memoize_on_first_arg
+import grudge.op as op
+
+from meshmode.dof_array import DOFArray
+
+from pytools import memoize_on_first_arg, memoize_in
 
 
 @memoize_on_first_arg
-def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
+def dt_non_geometric_factor(
+        dcoll: DiscretizationCollection, scaling=None, dd=None) -> float:
     r"""Computes the non-geometric scale factor:
 
     .. math::
 
-        \frac{2}{3}\operatorname{min}_i\left( \Delta r_i \right),
+        C\operatorname{min}_i\left( \Delta r_i \right),
 
     where :math:`\Delta r_i` denotes the distance between two distinct
-    nodes on the reference element.
+    nodes on the reference element, and :math:`C > 0` is a scaling
+    constant.
 
+    :arg scaling: a :class:`float` denoting the scaling factor. By default,
+        the constant is set to 2/3.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: a :class:`float` denoting the minimum node distance on the
@@ -62,122 +66,141 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
     if dd is None:
         dd = DD_VOLUME
 
+    if scaling is None:
+        scaling = 2/3
+
     discr = dcoll.discr_from_dd(dd)
     min_delta_rs = []
-    c = 4/7
-    for mgrp in discr.mesh.groups:
-        nodes = np.asarray(list(zip(*mgrp.unit_nodes)))
-        nnodes = mgrp.nunit_nodes
+    for grp in discr.groups:
+        nodes = np.asarray(list(zip(*grp.unit_nodes)))
+        nnodes = grp.nunit_dofs
 
         # NOTE: order 0 elements have 1 node located at the centroid of
         # the reference element and is equidistant from each vertex
-        if mgrp.order == 0:
+        if grp.order == 0:
             assert nnodes == 1
             min_delta_rs.append(
-                c * np.linalg.norm(nodes[0] - mgrp.vertex_unit_coordinates()[0])
+                np.linalg.norm(
+                    nodes[0] - grp.mesh_el_group.vertex_unit_coordinates()[0]
+                )
             )
         else:
             min_delta_rs.append(
-                c * min(
+                min(
                     np.linalg.norm(nodes[i] - nodes[j])
                     for i in range(nnodes) for j in range(nnodes) if i != j
                 )
             )
 
     # Return minimum over all element groups in the discretization
-    return min(min_delta_rs)
-
-
-def symmetric_eigenvalues(actx: ArrayContext, amat):
-    """Analytically computes the eigenvalues of a self-adjoint matrix, up
-    to matrices of size 3 by 3.
-
-    :arg amat: a square array-like object.
-    :returns: a :class:`list` of the eigenvalues of *amat*.
-
-    .. note::
-
-        *amat* must be complex-valued, or ``actx.np.sqrt`` must automatically
-        up-cast to complex data.
-    """
-
-    # https://gist.github.com/inducer/75ede170638c389c387e72e0ef1f0ef4
-    sqrt = actx.np.sqrt
-
-    if amat.shape == (1, 1):
-        (a,), = amat
-        return a
-    elif amat.shape == (2, 2):
-        (a, b), (_b, c) = amat
-        x0 = sqrt(a**2 - 2*a*c + 4*b**2 + c**2)/2
-        x1 = a/2 + c/2
-
-        return [-x0 + x1,
-                x0 + x1]
-    elif amat.shape == (3, 3):
-        # This is likely awful numerically, but *shrug*, we're only using
-        # it for time step estimation.
-        (a, b, c), (_b, d, e), (_c, _e, f) = amat
-        x0 = a*d
-        x1 = f*x0
-        x2 = b*c*e
-        x3 = e**2
-        x4 = a*x3
-        x5 = b**2
-        x6 = f*x5
-        x7 = c**2
-        x8 = d*x7
-        x9 = -a - d - f
-        x10 = x9**3
-        x11 = a*f
-        x12 = d*f
-        x13 = (-9*a - 9*d - 9*f)*(x0 + x11 + x12 - x3 - x5 - x7)
-        x14 = -3*x0 - 3*x11 - 3*x12 + 3*x3 + 3*x5 + 3*x7 + x9**2
-        x15_0 = (-4*x14**3
-                 + (-27*x1 + 2*x10 - x13 - 54*x2 + 27*x4 + 27*x6 + 27*x8)**2)
-        x15_1 = sqrt(x15_0)
-        x15_2 = (-27*x1/2 + x10 - x13/2 - 27*x2 + 27*x4/2 + 27*x6/2 + 27*x8/2
-                 + x15_1/2)
-        x15 = x15_2**(1/3)
-        x16 = x15/3
-        x17 = x14/(3*x15)
-        x18 = a/3 + d/3 + f/3
-        x19 = 3**(1/2)*1j/2
-        x20 = x19 - 1/2
-        x21 = -x19 - 1/2
-
-        return [-x16 - x17 + x18,
-                -x16*x20 - x17/x20 + x18,
-                -x16*x21 - x17/x21 + x18]
-    else:
-        raise NotImplementedError(
-            "Unsupported shape ({amat.shape}) for analytically computing eigenvalues"
-        )
+    return scaling * min(min_delta_rs)
 
 
 @memoize_on_first_arg
 def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
-    """Computes a geometric scaling factor, determined by taking the minimum
-    singular value of the coordinate transformation from reference to physical
-    cells.
+    r"""Computes a geometric scaling factor, defined as the minimum radius of
+    an inscribed circle/sphere in a mesh cell.
+
+    Specifically, the inradius for each element is computed using the following
+    formula for simplicial cells (triangles/tetrahedra):
+
+    .. math::
+
+        r_{in} = \frac{d V}{\sum_{i=1}^{N_{faces}} F_i},
+
+    where :math:`d` is the topological dimension, :math:`V` is the cell volume,
+    and :math:`F_i` are the areas of each face of the cell.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: a :class:`float` denoting the geometric scaling factor.
     """
+    from meshmode.discretization.poly_element import SimplexElementGroupBase
+
     if dd is None:
         dd = DD_VOLUME
 
     actx = dcoll._setup_actx
-    ata = first_fundamental_form(actx, dcoll, dd=dd)
+    volm_discr = dcoll.discr_from_dd(dd)
 
-    complex_dtype = dcoll.discr_from_dd(dd).complex_dtype
+    if any(not isinstance(grp, SimplexElementGroupBase)
+           for grp in volm_discr.groups):
+        raise NotImplementedError(
+            "Geometric factors are only implemented for simplex element groups"
+        )
 
-    ata_complex = rec_map_array_container(
-        lambda ary: ary.astype(complex_dtype), ata
+    cell_ones = volm_discr.zeros(actx) + 1.0
+    cell_vols = op.elementwise_sum(dcoll, op.mass(dcoll, dd, cell_ones))
+
+    # NOTE: The cell volumes are the *same* at each nodal location.
+    # Take the cell vols at each nodal location and average them to get
+    # a single value per cell.
+    @memoize_in(actx, (dt_geometric_factor, "cell_volume_knl"))
+    def cv_prg():
+        return make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[jdof]: 0 <= jdof < n_nodes}"
+            ],
+            """
+                result[iel] = sum(jdof, cell_vol[iel, jdof]) / n_nodes
+            """,
+            name="cell_volume"
+        )
+
+    cell_vols = DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(cv_prg(),
+                            cell_vol=cv_i)["result"]
+
+            for vgrp, cv_i in zip(volm_discr.groups,
+                                  actx.np.fabs(cell_vols))
+        )
     )
 
-    sing_values = [actx.np.sqrt(abs(v))
-                   for v in symmetric_eigenvalues(actx, ata_complex)]
+    if dcoll.dim == 1:
+        return op.nodal_min(dcoll, dd, cell_vols)
 
-    return reduce(actx.np.minimum, sing_values)
+    dd_face = DOFDesc("all_faces", dd.discretization_tag)
+    face_discr = dcoll.discr_from_dd(dd_face)
+    face_ones = face_discr.zeros(actx) + 1.0
+    face_areas = op.elementwise_sum(
+        dcoll, op._apply_mass_operator(dcoll, dd_face, dd_face, face_ones)
+    )
+
+    # NOTE: The face areas are the *same* at each nodal location.
+    # Take the face areas at each nodal location and average them to get
+    # a single value per face. Then take each face area and compute the
+    # sum over all faces to get the total surface area
+    @memoize_in(actx, (dt_geometric_factor, "total_surface_area_knl"))
+    def sa_prg():
+        return make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[f]: 0 <= f < nfaces}",
+                "{[jdof]: 0 <= jdof < nf_nodes}"
+            ],
+            """
+                result[iel] = sum(f, sum(jdof, face_area[f, iel, jdof]) / nf_nodes)
+            """,
+            name="total_surface_area"
+        )
+
+    surface_areas = DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(sa_prg(),
+                            face_area=face_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs
+                            ))["result"]
+
+            for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
+                                              face_discr.groups,
+                                              actx.np.fabs(face_areas))
+        )
+    )
+
+    return op.nodal_min(dcoll, dd, dcoll.dim * cell_vols / surface_areas)
