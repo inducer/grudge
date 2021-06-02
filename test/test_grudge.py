@@ -850,7 +850,7 @@ def test_convergence_maxwell(actx_factory,  order):
         def rhs(t, w):
             return maxwell_operator.operator(t, w)
 
-        dt = 0.002
+        dt = maxwell_operator.estimate_rk4_timestep(dcoll)
         final_t = dt * 5
         nsteps = int(final_t/dt)
 
