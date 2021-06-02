@@ -332,7 +332,7 @@ class MaxwellOperator(HyperbolicOperator):
         """
         return 6*(True,)
 
-    def max_eigenvalue_expr(self):
+    def max_characteristic_vel_expr(self):
         """Return the largest eigenvalue of Maxwell's equations as a hyperbolic
         system.
         """
@@ -344,14 +344,16 @@ class MaxwellOperator(HyperbolicOperator):
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
 
-    def max_eigenvalue(self, t, fields=None, discr=None, context=None):
+    def max_characteristic_velocity(self, t, fields=None, discr=None, context=None):
         if context is None:
             context = {}
         if self.fixed_material:
-            return self.max_eigenvalue_expr()
+            return self.max_characteristic_vel_expr()
         else:
-            raise ValueError("max_eigenvalue is no longer supported for "
-                    "variable-coefficient problems--use max_eigenvalue_expr")
+            raise ValueError(
+                "max_characteristic_velocity is no longer supported for "
+                "variable-coefficient problems--use max_characteristic_vel_expr"
+            )
 
     def check_bc_coverage(self, mesh):
         from meshmode.mesh import check_bc_coverage

@@ -39,8 +39,10 @@ class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
     @abstractmethod
-    def max_eigenvalue(self, t, fields, dcoll):
-        """Return an upperbound on the maximal eigenvalue for the operator."""
+    def max_characteristic_velocity(self, t, fields, dcoll):
+        """Return an upper bound on the characteristic
+        velocities of the operator.
+        """
 
     def estimate_rk4_timestep(self, dcoll, t=None, fields=None, dt_scaling=None):
         """Estimate the largest stable timestep for an RK4 method."""
@@ -48,7 +50,7 @@ class HyperbolicOperator(Operator):
         from grudge.dt_utils import (dt_non_geometric_factor,
                                      dt_geometric_factor)
 
-        max_lambda = self.max_eigenvalue(t, fields, dcoll)
+        max_lambda = self.max_characteristic_velocity(t, fields, dcoll)
         dt_factor = \
             (dt_non_geometric_factor(dcoll, scaling=dt_scaling)
              * dt_geometric_factor(dcoll))
