@@ -22,8 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from abc import ABCMeta, abstractmethod
 
-class Operator:
+
+class Operator(metaclass=ABCMeta):
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present
@@ -36,15 +38,24 @@ class Operator:
 class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
+    @abstractmethod
     def max_eigenvalue(self, t, fields, dcoll):
-        raise NotImplementedError
+        """Return an upperbound on the maximal eigenvalue for the operator."""
 
-    def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method.
-        """
+    def estimate_rk4_timestep(self, dcoll, t=None, fields=None, dt_scaling=None):
+        """Estimate the largest stable timestep for an RK4 method."""
+        from mpi4py import MPI
         from grudge.dt_utils import (dt_non_geometric_factor,
                                      dt_geometric_factor)
-   
-        return 1 / self.max_eigenvalue(t, fields, dcoll) \
-            * (dt_non_geometric_factor(dcoll)
-               * dt_geometric_factor(dcoll))
+
+        max_lambda = self.max_eigenvalue(t, fields, dcoll)
+        dt_factor = \
+            (dt_non_geometric_factor(dcoll, scaling=dt_scaling)
+             * dt_geometric_factor(dcoll))
+
+        mpi_comm = dcoll.mpi_communicator
+        if mpi_comm is None:
+            return dt_factor * (1 / max_lambda)
+
+        return (1 / mpi_comm.allreduce(max_lambda, op=MPI.MAX)) \
+            * mpi_comm.allreduce(dt_factor, op=MPI.MIN)
