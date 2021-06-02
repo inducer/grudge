@@ -344,7 +344,7 @@ class MaxwellOperator(HyperbolicOperator):
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
 
-    def max_eigenvalue(self, t, fields=None, dcoll=None, context=None):
+    def max_eigenvalue(self, t, fields=None, discr=None, context=None):
         if context is None:
             context = {}
         if self.fixed_material:
@@ -469,11 +469,11 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         result = flat_obj_array(
             zeros,
             zeros,
-            actx.np.sin(kx * x) * actx.np.sin(ky * y) * actx.np.cos(tfac),  # ez
+            actx.np.sin(kx * x) * actx.np.sin(ky * y) * numpy.cos(tfac),  # ez
             (-ky * actx.np.sin(kx * x) * actx.np.cos(ky * y)
-             * actx.np.sin(tfac) / omega),  # hx
+             * numpy.sin(tfac) / omega),  # hx
             (kx * actx.np.cos(kx * x) * actx.np.sin(ky * y)
-             * actx.np.sin(tfac) / omega),  # hy
+             * numpy.sin(tfac) / omega),  # hy
             zeros,
         )
     else:
