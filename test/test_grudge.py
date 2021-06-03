@@ -263,26 +263,35 @@ def test_mass_surface_area(actx_factory, name):
 # }}}
 
 
-# {{{ mass inverse on surfaces
+# {{{ mass inverse
 
-@pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
-def test_surface_mass_operator_inverse(actx_factory, name):
+@pytest.mark.parametrize("name", [
+    "2-1-ellipse",
+    "spheroid",
+    "warped_rect2",
+    "warped_rect3",
+    ])
+def test_mass_operator_inverse(actx_factory, name):
     actx = actx_factory()
 
     # {{{ cases
 
+    import mesh_data
     if name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        # curve
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        # surface
+        builder = mesh_data.SpheroidMeshBuilder()
+    elif name.startswith("warped_rect"):
+        builder = mesh_data.WarpedRectMeshBuilder(dim=int(name[-1]))
+
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
     # }}}
 
-    # {{{ convergence
+    # {{{ inv(m) @ m == id
 
     from pytools.convergence import EOCRecorder
     eoc = EOCRecorder()
@@ -316,13 +325,13 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 
         eoc.add_data_point(h_max, inv_error)
 
-    # }}}
-
     logger.info("inverse mass error\n%s", str(eoc))
 
     # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
     # safe side, choose a slightly larger tolerance
     assert eoc.max_error() < 1.0e-14
+
+    # }}}
 
 # }}}
 
