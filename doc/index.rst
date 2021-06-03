@@ -11,6 +11,7 @@ Contents:
     geometry
     operators
     utils
+    references
     misc
     🚀 Github <https://github.com/inducer/grudge>
     💾 Download Releases <https://pypi.org/project/grudge>
