@@ -761,37 +761,15 @@ def _apply_inverse_mass_operator(
         ref_mass_inverse = reference_inverse_mass_matrix(actx,
                                                          element_group=grp)
 
-        # NOTE: Some discretizations can have both affine and non-affine
-        # groups. For example, discretizations on hybrid simplex-hex meshes.
-        if not grp.is_affine:
-            group_data.append(
-                # Based on https://arxiv.org/pdf/1608.03836.pdf
-                # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
-                actx.einsum("ik,km,em,mj,ej->ei",
-                            # FIXME: Should we manually create a temporary for
-                            # the mass inverse?
-                            ref_mass_inverse,
-                            reference_mass_matrix(
-                                actx,
-                                out_element_group=grp,
-                                in_element_group=grp
-                            ),
-                            jac_inv,
-                            # FIXME: Should we manually create a temporary for
-                            # the mass inverse?
-                            ref_mass_inverse,
-                            vec_i,
-                            tagged=(HasElementwiseMatvecTag(),))
-            )
-        else:
-            group_data.append(
-                actx.einsum("ij,ej,ej->ei",
-                            ref_mass_inverse,
-                            jac_inv,
-                            vec_i,
-                            arg_names=("mass_inv_mat", "jac_det_inv", "vec"),
-                            tagged=(HasElementwiseMatvecTag(),))
-            )
+        group_data.append(
+            # Based on https://arxiv.org/pdf/1608.03836.pdf
+            # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+            actx.einsum("ei,ij,ej->ei",
+                        jac_inv,
+                        ref_mass_inverse,
+                        vec_i,
+                        tagged=(HasElementwiseMatvecTag(),))
+        )
 
     return DOFArray(actx, data=tuple(group_data))
 

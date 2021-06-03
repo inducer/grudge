@@ -641,12 +641,9 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         elif isinstance(expr.op, op.InverseMassOperator):
             if self.use_wadg:
                 # based on https://arxiv.org/pdf/1608.03836.pdf
-                return op.RefInverseMassOperator(dd_in, dd_out)(
-                    op.RefMassOperator(dd_in, dd_out)(
+                return (
                         1.0/jac_in * op.RefInverseMassOperator(dd_in, dd_out)(
-                            self.rec(expr.field))
-                            )
-                    )
+                            self.rec(expr.field)))
             else:
                 return op.RefInverseMassOperator(dd_in, dd_out)(
                         1/jac_in * self.rec(expr.field))
