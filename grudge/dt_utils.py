@@ -46,15 +46,15 @@ from pytools import memoize_on_first_arg, memoize_in
 @memoize_on_first_arg
 def dt_non_geometric_factor(
         dcoll: DiscretizationCollection, scaling=None, dd=None) -> float:
-    r"""Computes the non-geometric scale factor:
+    r"""Computes the non-geometric scale factor following [Hesthaven_2008]_,
+    section 6.4:
 
     .. math::
 
-        C\operatorname{min}_i\left( \Delta r_i \right),
+        c_{ng} = \operatorname{min}\left( \Delta r_i \right),
 
     where :math:`\Delta r_i` denotes the distance between two distinct
-    nodes on the reference element, and :math:`C > 0` is a scaling
-    constant.
+    nodes on the reference element.
 
     :arg scaling: a :class:`float` denoting the scaling factor. By default,
         the constant is set to 2/3.
@@ -98,15 +98,16 @@ def dt_non_geometric_factor(
 
 @memoize_on_first_arg
 def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
-    r"""Computes a geometric scaling factor, defined as the minimum radius of
-    an inscribed circle/sphere in a mesh cell.
+    r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
+    section 6.4, defined as the inradius (radius of an inscribed circle/sphere).
 
     Specifically, the inradius for each element is computed using the following
-    formula for simplicial cells (triangles/tetrahedra):
+    formula from [Shewchuk_2002]_, Table 1, for simplicial cells
+    (triangles/tetrahedra):
 
     .. math::
 
-        r_{in} = \frac{d V}{\sum_{i=1}^{N_{faces}} F_i},
+        r_D = \frac{d V}{\sum_{i=1}^{N_{faces}} F_i},
 
     where :math:`d` is the topological dimension, :math:`V` is the cell volume,
     and :math:`F_i` are the areas of each face of the cell.
