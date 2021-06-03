@@ -55,6 +55,7 @@ Elementwise reductions
 ----------------------
 
 .. autofunction:: elementwise_sum
+.. autofunction:: elementwise_integral
 """
 
 __copyright__ = """
@@ -1185,7 +1186,6 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args):
         )
 
     actx = vec.array_context
-    vec = project(dcoll, "vol", dd, vec)
 
     return DOFArray(
         actx,
@@ -1196,6 +1196,25 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args):
             )["result"]
             for vec_i in vec
         )
+    )
+
+
+def elementwise_integral(dcoll: DiscretizationCollection, dd, vec):
+    """Numerically integrates a function represented by a
+    :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
+    each element of a discretization, given by *dd*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        elementwise integral if *vec*.
+    """
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
+    return elementwise_sum(
+        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
 
 # }}}
