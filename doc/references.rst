@@ -15,3 +15,8 @@ References
     Nodal Discontinuous Galerkin Methods: Algorithms, Analysis, and Applications, \
     Springer \
     `(doi) <https://doi.org/10.1007/978-0-387-72067-8>`__
+
+.. [Chan_2016] J. Chan, R. J. Hewett, and T. Warburton (2016), \
+    Weight-Adjusted Discontinuous Galerkin Methods: Curvilinear Meshes, \
+    SIAM J Sci Comput \
+    `(doi) <https://doi.org/10.1137/16M1089198>`__

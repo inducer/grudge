@@ -795,7 +795,7 @@ def inverse_mass(dcoll: DiscretizationCollection, vec):
     scaling factor (see :func:`grudge.geometry.area_element`).
 
     For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
-    weight-adjusted approximation is used instead:
+    weight-adjusted approximation is used instead following [Chan_2016]_:
 
     .. math::
 
