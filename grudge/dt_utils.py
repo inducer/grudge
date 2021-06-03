@@ -31,7 +31,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import make_loopy_program
+from arraycontext import FirstAxisIsElementsTag
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc
 from grudge.discretization import DiscretizationCollection
@@ -40,7 +40,7 @@ import grudge.op as op
 
 from meshmode.dof_array import DOFArray
 
-from pytools import memoize_on_first_arg, memoize_in
+from pytools import memoize_on_first_arg
 
 
 @memoize_on_first_arg
@@ -130,30 +130,18 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
             "Geometric factors are only implemented for simplex element groups"
         )
 
-    cell_ones = volm_discr.zeros(actx) + 1.0
-    cell_vols = op.elementwise_sum(dcoll, op.mass(dcoll, dd, cell_ones))
-
     # NOTE: The cell volumes are the *same* at each nodal location.
     # Take the cell vols at each nodal location and average them to get
     # a single value per cell.
-    @memoize_in(actx, (dt_geometric_factor, "cell_volume_knl"))
-    def cv_prg():
-        return make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[jdof]: 0 <= jdof < n_nodes}"
-            ],
-            """
-                result[iel] = sum(jdof, cell_vol[iel, jdof]) / n_nodes
-            """,
-            name="cell_volume"
-        )
-
+    cell_vols = op.elementwise_integral(
+        dcoll, dd, volm_discr.zeros(actx) + 1.0
+    )
     cell_vols = DOFArray(
         actx,
         data=tuple(
-            actx.call_loopy(cv_prg(),
-                            cell_vol=cv_i)["result"]
+            actx.einsum("ei->e",
+                        cv_i,
+                        tagged=(FirstAxisIsElementsTag(),)) / vgrp.nunit_dofs
 
             for vgrp, cv_i in zip(volm_discr.groups,
                                   actx.np.fabs(cell_vols))
@@ -165,38 +153,24 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
-    face_ones = face_discr.zeros(actx) + 1.0
-    face_areas = op.elementwise_sum(
-        dcoll, op._apply_mass_operator(dcoll, dd_face, dd_face, face_ones)
+
+    # To get a single value for the total surface area of a cell, we
+    # take the sum over the averaged face areas on each face.
+    # NOTE: The face areas are the *same* at each face nodal location.
+    # This assumes there are the *same* number of face nodes on each face.
+    face_areas = op.elementwise_integral(
+        dcoll, dd_face, face_discr.zeros(actx) + 1.0
     )
-
-    # NOTE: The face areas are the *same* at each nodal location.
-    # Take the face areas at each nodal location and average them to get
-    # a single value per face. Then take each face area and compute the
-    # sum over all faces to get the total surface area
-    @memoize_in(actx, (dt_geometric_factor, "total_surface_area_knl"))
-    def sa_prg():
-        return make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[f]: 0 <= f < nfaces}",
-                "{[jdof]: 0 <= jdof < nf_nodes}"
-            ],
-            """
-                result[iel] = sum(f, sum(jdof, face_area[f, iel, jdof]) / nf_nodes)
-            """,
-            name="total_surface_area"
-        )
-
     surface_areas = DOFArray(
         actx,
         data=tuple(
-            actx.call_loopy(sa_prg(),
-                            face_area=face_ae_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                afgrp.nunit_dofs
-                            ))["result"]
+            actx.einsum("fej->e",
+                        face_ae_i.reshape(
+                            vgrp.mesh_el_group.nfaces,
+                            vgrp.nelements,
+                            afgrp.nunit_dofs
+                        ),
+                        tagged=(FirstAxisIsElementsTag(),)) / afgrp.nunit_dofs
 
             for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
                                               face_discr.groups,
