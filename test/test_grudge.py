@@ -327,6 +327,31 @@ def test_surface_mass_operator_inverse(actx_factory, name):
 # }}}
 
 
+# {{{ mass inverse on warped geometry
+
+@pytest.mark.parametrize("dim", [2, 3])
+def test_nonaffine_mass_operator_inverse(actx_factory, dim):
+    actx = actx_factory()
+
+    from meshmode.mesh.generation import generate_warped_rect_mesh
+
+    mesh = generate_warped_rect_mesh(dim=dim, order=4, nelements_side=6)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+
+    nodes = thaw(dcoll.nodes(), actx)
+    dd = dof_desc.DD_VOLUME
+
+    _nodes = op.inverse_mass(
+        dcoll, op.mass(dcoll, dd, nodes)
+    )
+
+    inv_error = op.norm(dcoll, nodes - _nodes, 2) / op.norm(dcoll, nodes, 2)
+    assert inv_error < 1.0e-14
+
+# }}}
+
+
 # {{{ surface face normal orthogonality
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
