@@ -32,8 +32,6 @@ import pyopencl.tools as cl_tools
 
 from arraycontext import PyOpenCLArrayContext, thaw
 
-import grudge.op as op
-
 from grudge import DiscretizationCollection, shortcuts
 
 

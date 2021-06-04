@@ -50,8 +50,6 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
-
 from arraycontext import (
     ArrayContext,
     FirstAxisIsElementsTag,
