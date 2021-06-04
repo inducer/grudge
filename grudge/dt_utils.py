@@ -97,7 +97,8 @@ def dt_non_geometric_factor(
 
 
 @memoize_on_first_arg
-def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
+def dt_geometric_factors(
+        dcoll: DiscretizationCollection, dd=None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
     section 6.4, defined as the inradius (radius of an inscribed circle/sphere).
 
@@ -114,7 +115,8 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: a :class:`float` denoting the geometric scaling factor.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the geometric
+        factors for each cell and at each nodal location.
     """
     from meshmode.discretization.poly_element import SimplexElementGroupBase
 
@@ -130,22 +132,8 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
             "Geometric factors are only implemented for simplex element groups"
         )
 
-    # NOTE: The cell volumes are the *same* at each nodal location.
-    # Take the cell vols at each nodal location and average them to get
-    # a single value per cell.
     cell_vols = op.elementwise_integral(
         dcoll, dd, volm_discr.zeros(actx) + 1.0
-    )
-    cell_vols = DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ei->e",
-                        cv_i,
-                        tagged=(FirstAxisIsElementsTag(),)) / vgrp.nunit_dofs
-
-            for vgrp, cv_i in zip(volm_discr.groups,
-                                  actx.np.fabs(cell_vols))
-        )
     )
 
     if dcoll.dim == 1:
@@ -158,7 +146,7 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
     # take the sum over the averaged face areas on each face.
     # NOTE: The face areas are the *same* at each face nodal location.
     # This assumes there are the *same* number of face nodes on each face.
-    face_areas = op.elementwise_integral(
+    surface_areas = op.elementwise_integral(
         dcoll, dd_face, face_discr.zeros(actx) + 1.0
     )
     surface_areas = DOFArray(
@@ -174,8 +162,19 @@ def dt_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
 
             for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
                                               face_discr.groups,
-                                              actx.np.fabs(face_areas))
+                                              actx.np.fabs(surface_areas))
         )
     )
 
-    return op.nodal_min(dcoll, dd, dcoll.dim * cell_vols / surface_areas)
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("e,ei->ei",
+                        1/sae_i,
+                        cv_i,
+                        tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
+
+            for cv_i, sae_i in zip(cell_vols, surface_areas)
+        )
+    )
+

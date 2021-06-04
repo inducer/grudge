@@ -116,11 +116,13 @@ def rk4_step(y, t, h, f):
 
 def estimate_rk4_timestep(dcoll, c, scaling=None):
     from grudge.dt_utils import (dt_non_geometric_factor,
-                                    dt_geometric_factor)
+                                 dt_geometric_factors)
 
-    dt_factor = \
-        (dt_non_geometric_factor(dcoll, scaling=scaling)
-         * dt_geometric_factor(dcoll))
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
+    dt_factor = (dt_non_geometric_factor(dcoll, scaling=scaling)
+                 * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
 
     mpi_comm = dcoll.mpi_communicator
     if mpi_comm is None:

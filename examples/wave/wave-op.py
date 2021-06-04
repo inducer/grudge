@@ -114,10 +114,10 @@ def rk4_step(y, t, h, f):
 
 def estimate_rk4_timestep(dcoll, c, scaling=None):
     from grudge.dt_utils import (dt_non_geometric_factor,
-                                 dt_geometric_factor)
+                                 dt_geometric_factors)
 
-    dt_factor = \
-        dt_non_geometric_factor(dcoll, scaling=scaling) * dt_geometric_factor(dcoll)
+    dt_factor = (dt_non_geometric_factor(dcoll, scaling=scaling)
+                 * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
 
     return dt_factor * (1 / c)
 
