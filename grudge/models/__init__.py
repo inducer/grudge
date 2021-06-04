@@ -46,7 +46,6 @@ class HyperbolicOperator(Operator):
 
     def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
         """Estimate the largest stable timestep for an RK4 method."""
-        from mpi4py import MPI
         from grudge.dt_utils import (dt_non_geometric_factor,
                                      dt_geometric_factors)
         import grudge.op as op
@@ -62,5 +61,8 @@ class HyperbolicOperator(Operator):
         mpi_comm = dcoll.mpi_communicator
         if mpi_comm is None:
             return dt_factor * (1 / max_lambda)
+
+        # NOTE: Do NOT move this import; only import MPI when we need it
+        from mpi4py import MPI
 
         return mpi_comm.allreduce(dt_factor, op=MPI.MIN) * (1 / max_lambda)
