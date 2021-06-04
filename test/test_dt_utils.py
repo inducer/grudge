@@ -76,6 +76,48 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     assert np.all(np.isclose(ratios, 2))
 
 
+@pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
+def test_non_geometric_factors(actx_factory, name):
+    from grudge.dt_utils import dt_non_geometric_factor, dt_geometric_factors
+
+    actx = actx_factory()
+
+    # {{{ cases
+
+    if name == "interval":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=1)
+    elif name == "box2d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=2)
+    elif name == "box3d":
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=3)
+    else:
+        raise ValueError("unknown geometry name: %s" % name)
+
+    # }}}
+
+    factors = []
+    geom_factors = []
+    degrees = list(range(1, 8))
+    for degree in degrees:
+        mesh = builder.get_mesh(1, degree)
+        dcoll = DiscretizationCollection(actx, mesh, order=degree)
+        factors.append(dt_non_geometric_factor(dcoll))
+        geom_factors.append(
+            op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll))
+        )
+
+    # Crude estimate, factors should behave like 1/N**2
+    factors = np.asarray(factors)
+    geom_factors = np.asarray(geom_factors)
+    lower_bounds = 1/(np.asarray(degrees)**2)
+    upper_bounds = geom_factors*lower_bounds
+
+    assert lower_bounds.all() <= factors.all() <= upper_bounds.all()
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
