@@ -1211,7 +1211,8 @@ def elementwise_integral(dcoll: DiscretizationCollection, dd, vec):
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
-        elementwise integral if *vec*.
+        elementwise integral of *vec*, represented as a constant function on each
+        cell.
     """
 
     dd = dof_desc.as_dofdesc(dd)
