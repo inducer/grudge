@@ -78,7 +78,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
 def test_non_geometric_factors(actx_factory, name):
-    from grudge.dt_utils import dt_non_geometric_factor, dt_geometric_factors
+    from grudge.dt_utils import dt_non_geometric_factor
 
     actx = actx_factory()
 
@@ -99,23 +99,19 @@ def test_non_geometric_factors(actx_factory, name):
     # }}}
 
     factors = []
-    geom_factors = []
     degrees = list(range(1, 8))
     for degree in degrees:
         mesh = builder.get_mesh(1, degree)
         dcoll = DiscretizationCollection(actx, mesh, order=degree)
         factors.append(dt_non_geometric_factor(dcoll))
-        geom_factors.append(
-            op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll))
-        )
 
     # Crude estimate, factors should behave like 1/N**2
     factors = np.asarray(factors)
-    geom_factors = np.asarray(geom_factors)
     lower_bounds = 1/(np.asarray(degrees)**2)
-    upper_bounds = geom_factors*lower_bounds
+    upper_bounds = 6.295*lower_bounds
 
-    assert lower_bounds.all() <= factors.all() <= upper_bounds.all()
+    assert all(lower_bounds <= factors)
+    assert all(factors <= upper_bounds)
 
 
 # You can test individual routines by typing
