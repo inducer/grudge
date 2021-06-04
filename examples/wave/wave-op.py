@@ -52,7 +52,7 @@ def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(op.normal(dcoll, w_tpair.dd), u.int.array_context)
+    normal = thaw(dcoll.normal(w_tpair.dd), u.int.array_context)
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -127,7 +127,7 @@ def bump(actx, dcoll, t=0):
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(op.nodes(dcoll), actx)
+    nodes = thaw(dcoll.nodes(), actx)
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)

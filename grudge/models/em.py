@@ -120,7 +120,7 @@ class MaxwellOperator(HyperbolicOperator):
         As per Hesthaven and Warburton page 433.
         """
 
-        normal = thaw(op.normal(self.dcoll, wtpair.dd), self.dcoll._setup_actx)
+        normal = thaw(self.dcoll.normal(wtpair.dd), self.dcoll._setup_actx)
 
         if self.fixed_material:
             e, h = self.split_eh(wtpair)
@@ -220,7 +220,7 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        absorb_normal = thaw(op.normal(self.dcoll, dd=self.absorb_tag),
+        absorb_normal = thaw(self.dcoll.normal(dd=self.absorb_tag),
                              self.dcoll._setup_actx)
 
         e, h = self.split_eh(w)

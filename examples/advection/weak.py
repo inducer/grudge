@@ -152,13 +152,13 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         dcoll,
         c,
         inflow_u=lambda t: u_analytic(
-            thaw(op.nodes(dcoll, dd=BTAG_ALL), actx),
+            thaw(dcoll.nodes(dd=BTAG_ALL), actx),
             t=t
         ),
         flux_type=flux_type
     )
 
-    nodes = thaw(op.nodes(dcoll), actx)
+    nodes = thaw(dcoll.nodes(), actx)
     u = u_analytic(nodes, t=0)
 
     def rhs(t, u):

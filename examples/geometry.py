@@ -51,9 +51,9 @@ def main(write_output=True):
 
     dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    nodes = thaw(op.nodes(dcoll), actx)
-    bdry_nodes = thaw(op.nodes(dcoll, dd=BTAG_ALL), actx)
-    bdry_normals = thaw(op.normal(dcoll, dd=BTAG_ALL), actx)
+    nodes = thaw(dcoll.nodes(), actx)
+    bdry_nodes = thaw(dcoll.nodes(dd=BTAG_ALL), actx)
+    bdry_normals = thaw(dcoll.normal(dd=BTAG_ALL), actx)
 
     if write_output:
         vis = shortcuts.make_visualizer(dcoll)

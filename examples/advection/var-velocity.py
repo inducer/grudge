@@ -169,7 +169,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    x = thaw(op.nodes(dcoll), actx)
+    x = thaw(dcoll.nodes(), actx)
 
     # velocity field
     if dim == 1:
