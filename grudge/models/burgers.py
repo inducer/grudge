@@ -64,19 +64,19 @@ class InviscidBurgers(HyperbolicOperator):
         self.dcoll = dcoll
         self.flux_type = flux_type
 
-    def max_wavespeed(self, u):
-        actx = self.dcoll._setup_actx
-        return actx.np.sqrt(op.elementwise_max(self.dcoll, fields**2))
-
-    def max_eigenvalue(self, t=None, fields=None, discr=None):
-        return op.nodal_maximum(fields)
+    def max_characteristic_velocity(self, t=None, fields=None, dcoll=None):
+        return np.sqrt(
+            op.nodal_max(
+                self.dcoll, "vol", op.elementwise_max(self.dcoll, fields**2)
+            )
+        )
 
     def operator(self, t, u):
         dcoll = self.dcoll
         actx = u.array_context
 
         # max_wavespeed = self.max_eigenvalue(fields=u)
-        max_wavespeed = self.max_wavespeed(u)
+        max_wavespeed = self.max_characteristic_velocity(fields=u)
 
         def flux(u):
             return 0.5 * (u**2)
