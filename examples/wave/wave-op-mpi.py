@@ -118,17 +118,10 @@ def estimate_rk4_timestep(dcoll, c):
     from grudge.dt_utils import (dt_non_geometric_factor,
                                  dt_geometric_factors)
 
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
     dt_factor = (dt_non_geometric_factor(dcoll)
                  * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
 
-    mpi_comm = dcoll.mpi_communicator
-    if mpi_comm is None:
-        return dt_factor * (1 / c)
-
-    return (1 / c) * mpi_comm.allreduce(dt_factor, op=MPI.MIN)
+    return dt_factor * (1 / c)
 
 
 def bump(actx, dcoll, t=0):
@@ -200,7 +193,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
-    logger.info("dt = %g", dt)
+    if comm.rank == 0:
+        logger.info("dt = %g", dt)
 
     t = 0
     t_final = 3
@@ -208,13 +202,18 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
+        l2norm = op.norm(dcoll, fields[0], 2)
+
         if istep % 10 == 0:
-            logger.info(f"rank: {comm.rank} "
-                        f"step: {istep} t: {t} "
-                        f"L2: {op.norm(dcoll, fields[0], 2)} "
-                        f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
-                        f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
-                        f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+            linfnorm = op.norm(dcoll, fields[0], np.inf)
+            nodalmax = op.nodal_max(dcoll, "vol", fields[0])
+            nodalmin = op.nodal_min(dcoll, "vol", fields[0])
+            if comm.rank == 0:
+                logger.info(f"step: {istep} t: {t} "
+                            f"L2: {l2norm} "
+                            f"Linf: {linfnorm} "
+                            f"sol max: {nodalmax} "
+                            f"sol min: {nodalmin}")
             if visualize:
                 vis.write_parallel_vtk_file(
                     comm,
@@ -230,7 +229,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
         # NOTE: These are here to ensure the solution is bounded for the
         # time interval specified
-        assert op.norm(dcoll, fields[0], 2) < 1
+        assert l2norm < 1
 
 
 if __name__ == "__main__":

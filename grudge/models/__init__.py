@@ -1,6 +1,9 @@
 """Base classes for operators."""
 
-__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2007 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -50,19 +53,9 @@ class HyperbolicOperator(Operator):
                                      dt_geometric_factors)
         import grudge.op as op
 
-        # FIXME: We should make the nodal reductions respect MPI.
-        # See: https://github.com/inducer/grudge/issues/112 and
-        # https://github.com/inducer/grudge/issues/113
         max_lambda = self.max_characteristic_velocity(t, fields, dcoll)
         dt_factor = \
             (dt_non_geometric_factor(dcoll)
              * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
 
-        mpi_comm = dcoll.mpi_communicator
-        if mpi_comm is None:
-            return dt_factor * (1 / max_lambda)
-
-        # NOTE: Do NOT move this import; only import MPI when we need it
-        from mpi4py import MPI
-
-        return mpi_comm.allreduce(dt_factor, op=MPI.MIN) * (1 / max_lambda)
+        return dt_factor * (1 / max_lambda)
