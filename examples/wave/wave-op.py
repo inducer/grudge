@@ -112,11 +112,11 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def estimate_rk4_timestep(dcoll, c, scaling=None):
+def estimate_rk4_timestep(dcoll, c):
     from grudge.dt_utils import (dt_non_geometric_factor,
                                  dt_geometric_factors)
 
-    dt_factor = (dt_non_geometric_factor(dcoll, scaling=scaling)
+    dt_factor = (dt_non_geometric_factor(dcoll)
                  * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
 
     return dt_factor * (1 / c)
@@ -165,7 +165,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
             )
 
     c = 1
-    dt = estimate_rk4_timestep(dcoll, c, scaling=0.45)
+    dt_scaling_const = 0.45
+    dt = dt_scaling_const * estimate_rk4_timestep(dcoll, c)
 
     vis = make_visualizer(dcoll)
 

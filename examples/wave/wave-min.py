@@ -95,7 +95,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt_scaling_const = 2/3
+    dt = dt_scaling_const * wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(mesh)
 

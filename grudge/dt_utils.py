@@ -1,7 +1,7 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
 .. autofunction:: dt_non_geometric_factor
-.. autofunction:: dt_geometric_factor
+.. autofunction:: dt_geometric_factors
 """
 
 __copyright__ = """
@@ -44,8 +44,7 @@ from pytools import memoize_on_first_arg
 
 
 @memoize_on_first_arg
-def dt_non_geometric_factor(
-        dcoll: DiscretizationCollection, scaling=None, dd=None) -> float:
+def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
     r"""Computes the non-geometric scale factor following [Hesthaven_2008]_,
     section 6.4:
 
@@ -56,8 +55,6 @@ def dt_non_geometric_factor(
     where :math:`\Delta r_i` denotes the distance between two distinct
     nodes on the reference element.
 
-    :arg scaling: a :class:`float` denoting the scaling factor. By default,
-        the constant is set to 2/3.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :returns: a :class:`float` denoting the minimum node distance on the
@@ -65,9 +62,6 @@ def dt_non_geometric_factor(
     """
     if dd is None:
         dd = DD_VOLUME
-
-    if scaling is None:
-        scaling = 2/3
 
     discr = dcoll.discr_from_dd(dd)
     min_delta_rs = []
@@ -93,7 +87,7 @@ def dt_non_geometric_factor(
             )
 
     # Return minimum over all element groups in the discretization
-    return scaling * min(min_delta_rs)
+    return min(min_delta_rs)
 
 
 @memoize_on_first_arg
@@ -132,12 +126,14 @@ def dt_geometric_factors(
             "Geometric factors are only implemented for simplex element groups"
         )
 
-    cell_vols = op.elementwise_integral(
-        dcoll, dd, volm_discr.zeros(actx) + 1.0
+    cell_vols = abs(
+        op.elementwise_integral(
+            dcoll, dd, volm_discr.zeros(actx) + 1.0
+        )
     )
 
     if dcoll.dim == 1:
-        return op.nodal_min(dcoll, dd, cell_vols)
+        return cell_vols
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
@@ -146,8 +142,10 @@ def dt_geometric_factors(
     # take the sum over the averaged face areas on each face.
     # NOTE: The face areas are the *same* at each face nodal location.
     # This assumes there are the *same* number of face nodes on each face.
-    surface_areas = op.elementwise_integral(
-        dcoll, dd_face, face_discr.zeros(actx) + 1.0
+    surface_areas = abs(
+        op.elementwise_integral(
+            dcoll, dd_face, face_discr.zeros(actx) + 1.0
+        )
     )
     surface_areas = DOFArray(
         actx,
@@ -162,7 +160,7 @@ def dt_geometric_factors(
 
             for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
                                               face_discr.groups,
-                                              actx.np.fabs(surface_areas))
+                                              surface_areas)
         )
     )
 
@@ -177,4 +175,3 @@ def dt_geometric_factors(
             for cv_i, sae_i in zip(cell_vols, surface_areas)
         )
     )
-

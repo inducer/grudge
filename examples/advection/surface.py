@@ -203,7 +203,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     # {{{ time stepping
 
-    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0, dt_scaling=8/9)
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0)
     nsteps = int(final_time // dt) + 1
 
     logger.info("dt:        %.5e", dt)
