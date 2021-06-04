@@ -1,6 +1,5 @@
 """
-Reduction operations
-^^^^^^^^^^^^^^^^^^^^
+.. currentmodule:: grudge.op
 
 Nodal reductions
 ----------------
