@@ -158,11 +158,13 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             assert event.component_id == "w"
 
             step += 1
+            l2norm = norm(u=event.state_component[0])
 
             if step % 10 == 0:
-                logger.info(f"rank: {comm.rank} step: {step} "
-                            f"t: {time()-t_last_step} "
-                            f"L2: {norm(u=event.state_component[0])}")
+                if comm.rank == 0:
+                    logger.info(f"step: {step} "
+                                f"t: {time()-t_last_step} "
+                                f"L2: {l2norm}")
                 if visualize:
                     vis.write_parallel_vtk_file(
                         comm,
@@ -176,7 +178,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
             # NOTE: These are here to ensure the solution is bounded for the
             # time interval specified
-            assert norm(u=event.state_component[0]) < 1
+            assert l2norm < 1
 
 
 if __name__ == "__main__":

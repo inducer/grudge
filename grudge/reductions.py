@@ -1,14 +1,27 @@
 """
 .. currentmodule:: grudge.op
 
-Nodal reductions
+Nodal Reductions
 ----------------
+
+.. note::
+
+    In a distributed-memory setting, these reductions automatically
+    reduce over all ranks involved, and return the same value on
+    all ranks, in the manner of an MPI ``allreduce``.
 
 .. autofunction:: norm
 .. autofunction:: nodal_sum
 .. autofunction:: nodal_min
 .. autofunction:: nodal_max
 .. autofunction:: integral
+
+Rank-local reductions
+----------------------
+
+.. autofunction:: nodal_sum_loc
+.. autofunction:: nodal_min_loc
+.. autofunction:: nodal_max_loc
 
 Elementwise reductions
 ----------------------
@@ -95,10 +108,6 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
         Defaults to the base volume discretization if not provided.
     :returns: a nonegative scalar denoting the norm.
     """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
-
     if dd is None:
         dd = dof_desc.DD_VOLUME
 
@@ -107,12 +116,14 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     if isinstance(vec, np.ndarray):
         if p == 2:
             return sum(
-                    norm(dcoll, vec[idx], p, dd=dd)**2
-                    for idx in np.ndindex(vec.shape))**0.5
+                norm(dcoll, vec[idx], p, dd=dd)**2
+                for idx in np.ndindex(vec.shape)
+            )**0.5
         elif p == np.inf:
             return max(
-                    norm(dcoll, vec[idx], np.inf, dd=dd)
-                    for idx in np.ndindex(vec.shape))
+                norm(dcoll, vec[idx], np.inf, dd=dd)
+                for idx in np.ndindex(vec.shape)
+            )
         else:
             raise ValueError("unsupported norm order")
 
@@ -127,9 +138,24 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal sum.
     """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
+    comm = dcoll.mpi_communicator
+    if comm is None:
+        return nodal_sum_loc(dcoll, dd, vec)
+
+    # NOTE: Don't move this
+    from mpi4py import MPI
+
+    return comm.allreduce(nodal_sum_loc(dcoll, dd, vec), op=MPI.SUM)
+
+
+def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+    r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a scalar denoting the rank-local nodal sum.
+    """
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -142,9 +168,25 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal minimum.
     """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
+    comm = dcoll.mpi_communicator
+    if comm is None:
+        return nodal_min_loc(dcoll, dd, vec)
+
+    # NOTE: Don't move this
+    from mpi4py import MPI
+
+    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
+
+
+def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+    r"""Return the rank-local nodal minimum of a vector of degrees
+    of freedom *vec*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a scalar denoting the rank-local nodal minimum.
+    """
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
                   vec, np.inf)
@@ -158,9 +200,25 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal maximum.
     """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
+    comm = dcoll.mpi_communicator
+    if comm is None:
+        return nodal_max_loc(dcoll, dd, vec)
+
+    # NOTE: Don't move this
+    from mpi4py import MPI
+
+    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
+
+
+def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+    r"""Return the rank-local nodal maximum of a vector of degrees
+    of freedom *vec*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
+        convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a scalar denoting the rank-local nodal maximum.
+    """
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
                   vec, -np.inf)
