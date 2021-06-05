@@ -1,20 +1,4 @@
 """
-Data transfer and geometry
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Projection and interpolation
-----------------------------
-
-.. autofunction:: project
-
-Geometric quantities
---------------------
-
-.. autofunction:: nodes
-.. autofunction:: normal
-.. autofunction:: h_max_from_volume
-.. autofunction:: h_min_from_volume
-
 Core DG routines
 ^^^^^^^^^^^^^^^^
 
@@ -38,24 +22,6 @@ Mass, inverse mass, and face mass operators
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
-
-Support functions
-^^^^^^^^^^^^^^^^^
-
-Nodal reductions
-----------------
-
-.. autofunction:: norm
-.. autofunction:: nodal_sum
-.. autofunction:: nodal_min
-.. autofunction:: nodal_max
-.. autofunction:: integral
-
-Elementwise reductions
-----------------------
-
-.. autofunction:: elementwise_sum
-.. autofunction:: elementwise_integral
 """
 
 __copyright__ = """
@@ -84,9 +50,6 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
-from functools import reduce
-
 from arraycontext import (
     ArrayContext,
     FirstAxisIsElementsTag,
@@ -95,19 +58,29 @@ from arraycontext import (
 
 from grudge.discretization import DiscretizationCollection
 
-from pytools import (
-    memoize_in,
-    memoize_on_first_arg,
-    keyed_memoize_in
-)
+from pytools import memoize_in, keyed_memoize_in
 from pytools.obj_array import obj_array_vectorize, make_obj_array
 
 from meshmode.dof_array import DOFArray
 
 import numpy as np
+
 import grudge.dof_desc as dof_desc
 
-from grudge.trace_pair import (  # noqa
+from grudge.interpolation import interp  # noqa: F401
+from grudge.projection import project  # noqa: F401
+
+from grudge.reductions import (  # noqa: F401
+    norm,
+    nodal_sum,
+    nodal_min,
+    nodal_max,
+    integral,
+    elementwise_sum,
+    elementwise_integral,
+)
+
+from grudge.trace_pair import (  # noqa: F401
     interior_trace_pair,
     interior_trace_pairs,
     connected_ranks,
@@ -126,129 +99,6 @@ class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
     the implementation should set element indices as the outermost
     loop extent.
     """
-
-# }}}
-
-
-# {{{ Interpolation and projection
-
-# FIXME: Should reintroduce interp and make clear distinctions
-# between projection and interpolations.
-# Related issue: https://github.com/inducer/grudge/issues/38
-# def interp(dcoll: DiscretizationCollection, src, tgt, vec):
-#     from warnings import warn
-#     warn("using 'interp' is deprecated, use 'project' instead.",
-#          DeprecationWarning, stacklevel=2)
-#
-#     return project(dcoll, src, tgt, vec)
-
-
-def project(dcoll: DiscretizationCollection, src, tgt, vec):
-    """Project from one discretization to another, e.g. from the
-    volume to the boundary, or from the base to the an overintegrated
-    quadrature discretization.
-
-    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or a
-        :class:`~arraycontext.ArrayContainer`.
-    """
-    src = dof_desc.as_dofdesc(src)
-    tgt = dof_desc.as_dofdesc(tgt)
-    if src == tgt:
-        return vec
-
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: project(dcoll, src, tgt, el), vec)
-
-    if isinstance(vec, Number):
-        return vec
-
-    return dcoll.connection_from_dds(src, tgt)(vec)
-
-# }}}
-
-
-# {{{ geometric properties
-
-def nodes(dcoll: DiscretizationCollection, dd=None) -> np.ndarray:
-    r"""Return the nodes of a discretization.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization.
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s.
-    """
-    if dd is None:
-        dd = dof_desc.DD_VOLUME
-    dd = dof_desc.as_dofdesc(dd)
-
-    return dcoll.nodes(dd)
-
-
-def normal(dcoll: DiscretizationCollection, dd) -> np.ndarray:
-    r"""Get the unit normal to the specified surface discretization, *dd*.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s.
-    """
-    return dcoll.normal(dd)
-
-
-@memoize_on_first_arg
-def h_max_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
-    """Returns a (maximum) characteristic length based on the volume of the
-    elements. This length may not be representative if the elements have very
-    high aspect ratios.
-
-    :arg dim: an integer denoting topological dimension. If *None*, the
-        spatial dimension specified by
-        :attr:`grudge.DiscretizationCollection.dim` is used.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
-    :returns: a scalar denoting the maximum characteristic length.
-    """
-    if dd is None:
-        dd = dof_desc.DD_VOLUME
-    dd = dof_desc.as_dofdesc(dd)
-
-    if dim is None:
-        dim = dcoll.dim
-
-    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_max(
-        dcoll,
-        dd,
-        elementwise_sum(dcoll, mass(dcoll, dd, ones))
-    ) ** (1.0 / dim)
-
-
-@memoize_on_first_arg
-def h_min_from_volume(dcoll: DiscretizationCollection, dim=None, dd=None):
-    """Returns a (minimum) characteristic length based on the volume of the
-    elements. This length may not be representative if the elements have very
-    high aspect ratios.
-
-    :arg dim: an integer denoting topological dimension. If *None*, the
-        spatial dimension specified by
-        :attr:`grudge.DiscretizationCollection.dim` is used.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
-    :returns: a scalar denoting the minimum characteristic length.
-    """
-    if dd is None:
-        dd = dof_desc.DD_VOLUME
-    dd = dof_desc.as_dofdesc(dd)
-
-    if dim is None:
-        dim = dcoll.dim
-
-    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_min(
-        dcoll,
-        dd,
-        elementwise_sum(dcoll, mass(dcoll, dd, ones))
-    ) ** (1.0 / dim)
 
 # }}}
 
@@ -1015,212 +865,6 @@ def face_mass(dcoll: DiscretizationCollection, *args):
         raise TypeError("invalid number of arguments")
 
     return _apply_face_mass_operator(dcoll, dd, vec)
-
-# }}}
-
-
-# {{{ Nodal reductions
-
-def _norm(dcoll: DiscretizationCollection, vec, p, dd):
-    if isinstance(vec, Number):
-        return np.fabs(vec)
-    if p == 2:
-        return np.real_if_close(np.sqrt(
-            nodal_sum(
-                dcoll,
-                dd,
-                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec)
-            )
-        ))
-    elif p == np.inf:
-        return nodal_max(dcoll, dd, abs(vec))
-    else:
-        raise NotImplementedError("Unsupported value of p")
-
-
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None):
-    r"""Return the vector p-norm of a function represented
-    by its vector of degrees of freedom *vec*.
-
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an object array of
-        a :class:`~meshmode.dof_array.DOFArray`\ s,
-        where the last axis of the array must have length
-        matching the volume dimension.
-    :arg p: an integer denoting the order of the integral norm. Currently,
-        only values of 2 or `numpy.inf` are supported.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
-    :returns: a nonegative scalar denoting the norm.
-    """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
-
-    if dd is None:
-        dd = dof_desc.DD_VOLUME
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(
-                    norm(dcoll, vec[idx], p, dd=dd)**2
-                    for idx in np.ndindex(vec.shape))**0.5
-        elif p == np.inf:
-            return max(
-                    norm(dcoll, vec[idx], np.inf, dd=dd)
-                    for idx in np.ndindex(vec.shape))
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, vec, p, dd)
-
-
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec):
-    r"""Return the nodal sum of a vector of degrees of freedom *vec*.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
-        convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: a scalar denoting the nodal sum.
-    """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
-    actx = vec.array_context
-    return sum([actx.np.sum(grp_ary) for grp_ary in vec])
-
-
-def nodal_min(dcoll: DiscretizationCollection, dd, vec):
-    r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
-        convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: a scalar denoting the nodal minimum.
-    """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
-    actx = vec.array_context
-    return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
-                  vec, np.inf)
-
-
-def nodal_max(dcoll: DiscretizationCollection, dd, vec):
-    r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
-        convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
-    :returns: a scalar denoting the nodal maximum.
-    """
-    # FIXME: We should make the nodal reductions respect MPI.
-    # See: https://github.com/inducer/grudge/issues/112 and
-    # https://github.com/inducer/grudge/issues/113
-    actx = vec.array_context
-    return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
-                  vec, -np.inf)
-
-
-def integral(dcoll: DiscretizationCollection, dd, vec):
-    """Numerically integrates a function represented by a
-    :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a scalar denoting the evaluated integral.
-    """
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return nodal_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
-    )
-
-# }}}
-
-
-# {{{  Elementwise reductions
-
-def _map_elementwise_reduction(actx: ArrayContext, op_name):
-    @memoize_in(actx, (_map_elementwise_reduction,
-                       "elementwise_%s_prg" % op_name))
-    def prg():
-        return make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
-            ],
-            """
-                result[iel, idof] = %s(jdof, operand[iel, jdof])
-            """ % op_name,
-            name="grudge_elementwise_%s_knl" % op_name
-        )
-    return prg()
-
-
-def elementwise_sum(dcoll: DiscretizationCollection, *args):
-    r"""Returns a vector of DOFs with all entries on each element set
-    to the sum of DOFs on that element.
-
-    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
-        denote the element-wise sum of *vec*.
-    """
-
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: elementwise_sum(dcoll, dd, vi), vec
-        )
-
-    actx = vec.array_context
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.call_loopy(
-                _map_elementwise_reduction(actx, "sum"),
-                operand=vec_i
-            )["result"]
-            for vec_i in vec
-        )
-    )
-
-
-def elementwise_integral(dcoll: DiscretizationCollection, dd, vec):
-    """Numerically integrates a function represented by a
-    :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
-    each element of a discretization, given by *dd*.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
-        elementwise integral of *vec*, represented as a constant function on each
-        cell.
-    """
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return elementwise_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
-    )
 
 # }}}
 

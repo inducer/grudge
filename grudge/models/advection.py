@@ -43,7 +43,7 @@ def advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
     """
     actx = u_tpair.int.array_context
     dd = u_tpair.dd
-    normal = thaw(op.normal(dcoll, dd), actx)
+    normal = thaw(dcoll.normal(dd), actx)
     v_dot_n = np.dot(velocity, normal)
 
     flux_type = flux_type.lower()
@@ -92,7 +92,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
     def flux(self, u_tpair):
         actx = u_tpair.int.array_context
         dd = u_tpair.dd
-        normal = thaw(op.normal(self.dcoll, dd), actx)
+        normal = thaw(self.dcoll.normal(dd), actx)
         v_dot_normal = np.dot(self.v, normal)
 
         return u_tpair.int * v_dot_normal - self.weak_flux(u_tpair)
@@ -285,7 +285,7 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     from grudge.trace_pair import TracePair
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    normal = thaw(op.normal(dcoll, trace_dd.with_discr_tag(None)), actx)
+    normal = thaw(dcoll.normal(trace_dd.with_discr_tag(None)), actx)
     v_dot_n = velocity.dot(normal)
     i = op.project(dcoll, trace_dd.with_discr_tag(None), trace_dd, v_dot_n)
 

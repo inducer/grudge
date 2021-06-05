@@ -2,6 +2,8 @@
 
 .. autofunction:: dt_non_geometric_factor
 .. autofunction:: dt_geometric_factors
+.. autofunction:: h_max_from_volume
+.. autofunction:: h_min_from_volume
 """
 
 __copyright__ = """
@@ -33,7 +35,7 @@ import numpy as np
 
 from arraycontext import FirstAxisIsElementsTag
 
-from grudge.dof_desc import DD_VOLUME, DOFDesc
+from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
 
 import grudge.op as op
@@ -88,6 +90,70 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
 
     # Return minimum over all element groups in the discretization
     return min(min_delta_rs)
+
+
+# {{{ Mesh size functions
+
+@memoize_on_first_arg
+def h_max_from_volume(
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> float:
+    """Returns a (maximum) characteristic length based on the volume of the
+    elements. This length may not be representative if the elements have very
+    high aspect ratios.
+
+    :arg dim: an integer denoting topological dimension. If *None*, the
+        spatial dimension specified by
+        :attr:`grudge.DiscretizationCollection.dim` is used.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: a scalar denoting the maximum characteristic length.
+    """
+    from grudge.reductions import nodal_max, elementwise_sum
+
+    if dd is None:
+        dd = DD_VOLUME
+    dd = as_dofdesc(dd)
+
+    if dim is None:
+        dim = dcoll.dim
+
+    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
+    return nodal_max(
+        dcoll,
+        dd,
+        elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
+    ) ** (1.0 / dim)
+
+
+@memoize_on_first_arg
+def h_min_from_volume(
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> float:
+    """Returns a (minimum) characteristic length based on the volume of the
+    elements. This length may not be representative if the elements have very
+    high aspect ratios.
+
+    :arg dim: an integer denoting topological dimension. If *None*, the
+        spatial dimension specified by
+        :attr:`grudge.DiscretizationCollection.dim` is used.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: a scalar denoting the minimum characteristic length.
+    """
+    from grudge.reductions import nodal_min, elementwise_sum
+
+    if dd is None:
+        dd = DD_VOLUME
+    dd = as_dofdesc(dd)
+
+    if dim is None:
+        dim = dcoll.dim
+
+    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
+    return nodal_min(
+        dcoll,
+        dd,
+        elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
+    ) ** (1.0 / dim)
 
 
 @memoize_on_first_arg
@@ -175,3 +241,8 @@ def dt_geometric_factors(
             for cv_i, sae_i in zip(cell_vols, surface_areas)
         )
     )
+
+# }}}
+
+
+# vim: foldmethod=marker

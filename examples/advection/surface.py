@@ -172,7 +172,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ Surface advection operator
 
     # velocity field
-    x = thaw(op.nodes(dcoll), actx)
+    x = thaw(dcoll.nodes(), actx)
     c = make_obj_array([-x[1], x[0], 0.0])[:dim]
 
     def f_initial_condition(x):
@@ -234,7 +234,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
-        face_normal = thaw(op.normal(dcoll, dd=df), actx)
+        face_normal = thaw(dcoll.normal(dd=df), actx)
 
         from meshmode.discretization.visualization import make_visualizer
         vis = make_visualizer(actx, face_discr)

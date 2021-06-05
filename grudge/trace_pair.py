@@ -1,3 +1,25 @@
+"""
+Trace Pairs
+^^^^^^^^^^^
+
+Container class
+---------------
+
+.. autoclass:: TracePair
+
+Boundary trace functions
+------------------------
+
+.. autofunction:: bdry_trace_pair
+.. autofunction:: bv_trace_pair
+
+Interior and cross-rank trace functions
+---------------------------------------
+
+.. autofunction:: interior_trace_pairs
+.. autofunction:: cross_rank_trace_pairs
+"""
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -43,29 +65,6 @@ from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
 import grudge.dof_desc as dof_desc
-
-
-__doc__ = """
-Trace Pairs
-^^^^^^^^^^^
-
-Container class
----------------
-
-.. autoclass:: TracePair
-
-Boundary trace functions
-------------------------
-
-.. autofunction:: bdry_trace_pair
-.. autofunction:: bv_trace_pair
-
-Interior and cross-rank trace functions
----------------------------------------
-
-.. autofunction:: interior_trace_pairs
-.. autofunction:: cross_rank_trace_pairs
-"""
 
 
 # {{{ Trace pair container class

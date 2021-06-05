@@ -250,7 +250,9 @@ def test_mass_surface_area(actx_factory, name):
         # }}}
 
         # compute max element size
-        h_max = op.h_max_from_volume(dcoll)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll)
 
         eoc.add_data_point(h_max, area_error)
 
@@ -321,7 +323,9 @@ def test_mass_operator_inverse(actx_factory, name):
         # }}}
 
         # compute max element size
-        h_max = op.h_max_from_volume(dcoll)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll)
 
         eoc.add_data_point(h_max, inv_error)
 
@@ -378,7 +382,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    face_normal_i = thaw(op.normal(dcoll, df), actx)
+    face_normal_i = thaw(dcoll.normal(df), actx)
     face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
 
     if mesh.ambient_dim == 3:
@@ -498,7 +502,7 @@ def test_2d_gauss_theorem(actx_factory):
     int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
-    normal = thaw(op.normal(dcoll, BTAG_ALL), actx)
+    normal = thaw(dcoll.normal(BTAG_ALL), actx)
     int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
 
     assert abs(int_1 - int_2) < 1e-13
@@ -600,14 +604,14 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         ambient_dim = dcoll.ambient_dim
 
         # variables
-        f_num = f(thaw(op.nodes(dcoll, dd=dd), actx))
-        f_quad_num = f(thaw(op.nodes(dcoll, dd=dq), actx))
+        f_num = f(thaw(dcoll.nodes(dd=dd), actx))
+        f_quad_num = f(thaw(dcoll.nodes(dd=dq), actx))
 
         from grudge.geometry import normal, summed_curvature
 
         kappa = summed_curvature(actx, dcoll, dd=dq)
         normal = normal(actx, dcoll, dd=dq)
-        face_normal = thaw(op.normal(dcoll, df), actx)
+        face_normal = thaw(dcoll.normal(df), actx)
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
@@ -627,7 +631,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
-        h_max = op.h_max_from_volume(dcoll)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll)
 
         eoc_global.add_data_point(h_max, err_global)
         eoc_local.add_data_point(h_max, err_local)
@@ -747,12 +753,12 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
                                 inflow_u=lambda t: u_analytic(
-                                    thaw(op.nodes(dcoll, dd=BTAG_ALL), actx),
+                                    thaw(dcoll.nodes(dd=BTAG_ALL), actx),
                                     t=t
                                 ),
                                 flux_type=flux_type)
 
-        nodes = thaw(op.nodes(dcoll), actx)
+        nodes = thaw(dcoll.nodes(), actx)
         u = u_analytic(nodes, t=0)
 
         def rhs(t, u):
@@ -763,7 +769,9 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         else:
             final_time = 0.2
 
-        h_max = op.h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
         dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
@@ -842,7 +850,7 @@ def test_convergence_maxwell(actx_factory,  order):
         def analytic_sol(x, t=0):
             return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
 
-        nodes = thaw(op.nodes(dcoll), actx)
+        nodes = thaw(dcoll.nodes(), actx)
         fields = analytic_sol(nodes, t=0)
 
         from grudge.models.em import MaxwellOperator
@@ -939,7 +947,7 @@ def test_improvement_quadrature(actx_factory, order):
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
 
-            nodes = thaw(op.nodes(dcoll), actx)
+            nodes = thaw(dcoll.nodes(), actx)
 
             def zero_inflow(dtag, t=0):
                 dd = dof_desc.DOFDesc(dtag, qtag)
@@ -988,7 +996,7 @@ def test_bessel(actx_factory):
 
     dcoll = DiscretizationCollection(actx, mesh, order=3)
 
-    nodes = thaw(op.nodes(dcoll), actx)
+    nodes = thaw(dcoll.nodes(), actx)
     r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
 
     # FIXME: Bessel functions need to brought out of the symbolic
@@ -1079,48 +1087,11 @@ def test_empty_boundary(actx_factory):
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-    normal = op.normal(dcoll, BTAG_NONE)
+    normal = dcoll.normal(BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
-
-
-# {{{ DiscretizationCollection testing
-
-def test_dcoll_nodes_and_normals(actx_factory):
-    actx = actx_factory()
-
-    from meshmode.mesh import BTAG_ALL
-    from meshmode.mesh.generation import generate_warped_rect_mesh
-
-    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
-
-    dcoll = DiscretizationCollection(actx, mesh, order=3)
-
-    # Nodes should be *indentical*
-    nodes = thaw(op.nodes(dcoll), actx)
-    dcoll_nodes = thaw(dcoll.nodes(), actx)
-
-    assert op.norm(dcoll, nodes - dcoll_nodes, np.inf) == 0.0
-
-    nodes_btag = thaw(op.nodes(dcoll, BTAG_ALL), actx)
-    dcoll_nodes_btag = thaw(dcoll.nodes(BTAG_ALL), actx)
-
-    assert op.norm(dcoll, nodes_btag - dcoll_nodes_btag, np.inf) == 0.0
-
-    # Normals should be *indentical*
-    normals = thaw(op.normal(dcoll, "int_faces"), actx)
-    dcoll_normals = thaw(dcoll.normal("int_faces"), actx)
-
-    assert op.norm(dcoll, normals - dcoll_normals, np.inf) == 0.0
-
-    normals_btag = thaw(op.normal(dcoll, BTAG_ALL), actx)
-    dcoll_normals_btag = thaw(dcoll.normal(BTAG_ALL), actx)
-
-    assert op.norm(dcoll, normals_btag - dcoll_normals_btag, np.inf) == 0.0
-
-# }}}
 
 
 # You can test individual routines by typing

@@ -84,7 +84,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
         source_omega = 3
-        nodes = thaw(op.nodes(dcoll), actx)
+        nodes = thaw(dcoll.nodes(), actx)
         source_center_dist = flat_obj_array(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
