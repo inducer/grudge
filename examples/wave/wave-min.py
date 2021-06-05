@@ -39,28 +39,25 @@ from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
 
+import logging
+logger = logging.getLogger(__name__)
 
-def main(write_output=False, order=4):
-    cl_ctx = cl.create_some_context()
+
+def main(ctx_factory, dim=2, order=4, visualize=False):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
     )
 
-    dims = 2
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*dims,
-            b=(0.5,)*dims,
-            nelements_per_axis=(16,)*dims)
+            a=(-0.5,)*dim,
+            b=(0.5,)*dim,
+            nelements_per_axis=(16,)*dim)
 
-    if mesh.dim == 2:
-        dt = 0.04
-    elif mesh.dim == 3:
-        dt = 0.02
-
-    print("%d elements" % mesh.nelements)
+    logger.info("%d elements", mesh.nelements)
 
     dcoll = DiscretizationCollection(actx, mesh, order=order)
 
@@ -98,8 +95,8 @@ def main(write_output=False, order=4):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    # FIXME
-    # dt = wave_op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt_scaling_const = 2/3
+    dt = dt_scaling_const * wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(mesh)
 
@@ -109,8 +106,9 @@ def main(write_output=False, order=4):
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 10
-    nsteps = int(final_t/dt)
-    print("dt=%g nsteps=%d" % (dt, nsteps))
+    nsteps = int(final_t/dt) + 1
+
+    logger.info("dt=%g nsteps=%d", dt, nsteps)
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(dcoll)
@@ -123,7 +121,7 @@ def main(write_output=False, order=4):
     from time import time
     t_last_step = time()
 
-    if write_output:
+    if visualize:
         u = fields[0]
         v = fields[1:]
         vis.write_vtk_file(
@@ -141,9 +139,9 @@ def main(write_output=False, order=4):
             step += 1
 
             if step % 10 == 0:
-                print(f"step: {step} t: {time()-t_last_step} "
-                      f"L2: {norm(u=event.state_component[0])}")
-                if write_output:
+                logger.info(f"step: {step} t: {time()-t_last_step} "
+                            f"L2: {norm(u=event.state_component[0])}")
+                if visualize:
                     vis.write_vtk_file(
                         f"fld-wave-min-{step:04d}.vtu",
                         [
@@ -159,4 +157,16 @@ def main(write_output=False, order=4):
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)

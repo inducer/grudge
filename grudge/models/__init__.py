@@ -22,8 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from abc import ABCMeta, abstractmethod
 
-class Operator:
+
+class Operator(metaclass=ABCMeta):
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present
@@ -36,16 +38,31 @@ class Operator:
 class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
-    def max_eigenvalue(self, t, fields, discr):
-        raise NotImplementedError
-
-    def estimate_rk4_timestep(self, discr, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method.
+    @abstractmethod
+    def max_characteristic_velocity(self, t, fields, dcoll):
+        """Return an upper bound on the characteristic
+        velocities of the operator.
         """
 
-        from grudge.dt_finding import (
-                dt_non_geometric_factor,
-                dt_geometric_factor)
-        return 1 / self.max_eigenvalue(t, fields, discr) \
-                * (dt_non_geometric_factor(discr)
-                * dt_geometric_factor(discr))
+    def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
+        """Estimate the largest stable timestep for an RK4 method."""
+        from grudge.dt_utils import (dt_non_geometric_factor,
+                                     dt_geometric_factors)
+        import grudge.op as op
+
+        # FIXME: We should make the nodal reductions respect MPI.
+        # See: https://github.com/inducer/grudge/issues/112 and
+        # https://github.com/inducer/grudge/issues/113
+        max_lambda = self.max_characteristic_velocity(t, fields, dcoll)
+        dt_factor = \
+            (dt_non_geometric_factor(dcoll)
+             * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+
+        mpi_comm = dcoll.mpi_communicator
+        if mpi_comm is None:
+            return dt_factor * (1 / max_lambda)
+
+        # NOTE: Do NOT move this import; only import MPI when we need it
+        from mpi4py import MPI
+
+        return mpi_comm.allreduce(dt_factor, op=MPI.MIN) * (1 / max_lambda)

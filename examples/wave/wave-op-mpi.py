@@ -42,6 +42,9 @@ from grudge.shortcuts import make_visualizer
 
 import grudge.op as op
 
+import logging
+logger = logging.getLogger(__name__)
+
 from mpi4py import MPI
 
 
@@ -111,6 +114,23 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
+def estimate_rk4_timestep(dcoll, c):
+    from grudge.dt_utils import (dt_non_geometric_factor,
+                                 dt_geometric_factors)
+
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
+    dt_factor = (dt_non_geometric_factor(dcoll)
+                 * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+
+    mpi_comm = dcoll.mpi_communicator
+    if mpi_comm is None:
+        return dt_factor * (1 / c)
+
+    return (1 / c) * mpi_comm.allreduce(dt_factor, op=MPI.MIN)
+
+
 def bump(actx, dcoll, t=0):
     source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
     source_width = 0.05
@@ -129,8 +149,8 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main(write_output=False):
-    cl_ctx = cl.create_some_context()
+def main(ctx_factory, dim=2, order=3, visualize=False):
+    cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
@@ -143,7 +163,6 @@ def main(write_output=False):
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
 
-    dim = 2
     nel_1d = 16
 
     if mesh_dist.is_mananger_rank():
@@ -153,7 +172,7 @@ def main(write_output=False):
                 b=(0.5,)*dim,
                 nelements_per_axis=(nel_1d,)*dim)
 
-        print("%d elements" % mesh.nelements)
+        logger.info("%d elements", mesh.nelements)
 
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 
@@ -164,29 +183,24 @@ def main(write_output=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    order = 3
-
     dcoll = DiscretizationCollection(actx, local_mesh, order=order,
                     mpi_communicator=comm)
-
-    if dim == 2:
-        # no deep meaning here, just a fudge factor
-        dt = 0.7/(nel_1d*order**2)
-    elif dim == 3:
-        # no deep meaning here, just a fudge factor
-        dt = 0.45/(nel_1d*order**2)
-    else:
-        raise ValueError("don't have a stable time step guesstimate")
 
     fields = flat_obj_array(
             bump(actx, dcoll),
             [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
+    c = 1
+    dt_scaling_const = 0.45
+    dt = dt_scaling_const * estimate_rk4_timestep(dcoll, c)
+
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(dcoll, c=1, w=w)
+        return wave_operator(dcoll, c=c, w=w)
+
+    logger.info("dt = %g", dt)
 
     t = 0
     t_final = 3
@@ -195,13 +209,13 @@ def main(write_output=False):
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            if comm.rank == 0:
-                print(f"step: {istep} t: {t} "
-                      f"L2: {op.norm(dcoll, fields[0], 2)} "
-                      f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
-                      f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
-                      f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
-            if write_output:
+            logger.info(f"rank: {comm.rank} "
+                        f"step: {istep} t: {t} "
+                        f"L2: {op.norm(dcoll, fields[0], 2)} "
+                        f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
+                        f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
+                        f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+            if visualize:
                 vis.write_parallel_vtk_file(
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
@@ -220,6 +234,18 @@ def main(write_output=False):
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)
 
 # vim: foldmethod=marker

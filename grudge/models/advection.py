@@ -84,8 +84,8 @@ class AdvectionOperatorBase(HyperbolicOperator):
     def weak_flux(self, u_tpair):
         return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, self.v)
 
-    def max_eigenvalue(self, t=None, fields=None, discr=None):
-        return np.linalg.norm(self.v)
+    def max_characteristic_velocity(self, t=None, fields=None, dcoll=None):
+        return op.norm(self.dcoll, self.v, 2)
 
 
 class StrongAdvectionOperator(AdvectionOperatorBase):

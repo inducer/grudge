@@ -38,6 +38,7 @@ from pytools import memoize_method
 from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.op as op
+import numpy as np
 
 
 class MaxwellOperator(HyperbolicOperator):
@@ -332,26 +333,13 @@ class MaxwellOperator(HyperbolicOperator):
         """
         return 6*(True,)
 
-    def max_eigenvalue_expr(self):
-        """Return the largest eigenvalue of Maxwell's equations as a hyperbolic
-        system.
-        """
-        from math import sqrt
+    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
         if self.fixed_material:
-            return 1/sqrt(self.epsilon*self.mu)  # a number
+            return 1/np.sqrt(self.epsilon*self.mu)  # a number
         else:
             actx = self.dcoll._setup_actx
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
-
-    def max_eigenvalue(self, t, fields=None, discr=None, context=None):
-        if context is None:
-            context = {}
-        if self.fixed_material:
-            return self.max_eigenvalue_expr()
-        else:
-            raise ValueError("max_eigenvalue is no longer supported for "
-                    "variable-coefficient problems--use max_eigenvalue_expr")
 
     def check_bc_coverage(self, mesh):
         from meshmode.mesh import check_bc_coverage
@@ -439,15 +427,14 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
     dims = len(mode_indices)
     if dims != 2 and dims != 3:
         raise ValueError("Improper mode_indices dimensions")
-    import numpy
 
-    factors = [n*numpy.pi for n in mode_indices]
+    factors = [n*np.pi for n in mode_indices]
 
     kx, ky = factors[0:2]
     if dims == 3:
         kz = factors[2]
 
-    omega = numpy.sqrt(sum(f**2 for f in factors))
+    omega = np.sqrt(sum(f**2 for f in factors))
 
     x = nodes[0]
     y = nodes[1]
@@ -469,15 +456,15 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         result = flat_obj_array(
             zeros,
             zeros,
-            actx.np.sin(kx * x) * actx.np.sin(ky * y) * actx.np.cos(tfac),  # ez
+            actx.np.sin(kx * x) * actx.np.sin(ky * y) * np.cos(tfac),  # ez
             (-ky * actx.np.sin(kx * x) * actx.np.cos(ky * y)
-             * actx.np.sin(tfac) / omega),  # hx
+             * np.sin(tfac) / omega),  # hx
             (kx * actx.np.cos(kx * x) * actx.np.sin(ky * y)
-             * actx.np.sin(tfac) / omega),  # hy
+             * np.sin(tfac) / omega),  # hy
             zeros,
         )
     else:
-        tdep = numpy.exp(-1j * omega * t)
+        tdep = np.exp(-1j * omega * t)
 
         gamma_squared = ky**2 + kx**2
         result = flat_obj_array(

@@ -55,6 +55,7 @@ Elementwise reductions
 ----------------------
 
 .. autofunction:: elementwise_sum
+.. autofunction:: elementwise_integral
 """
 
 __copyright__ = """
@@ -795,7 +796,7 @@ def inverse_mass(dcoll: DiscretizationCollection, vec):
     scaling factor (see :func:`grudge.geometry.area_element`).
 
     For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
-    weight-adjusted approximation is used instead:
+    weight-adjusted approximation is used instead following [Chan_2016]_:
 
     .. math::
 
@@ -1051,8 +1052,9 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None):
         Defaults to the base volume discretization if not provided.
     :returns: a nonegative scalar denoting the norm.
     """
-    # FIXME: Make MPI-aware
-    # NOTE: Must retain a way to do local reductions
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
 
     if dd is None:
         dd = dof_desc.DD_VOLUME
@@ -1082,8 +1084,9 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal sum.
     """
-    # FIXME: Make MPI-aware
-    # NOTE: Must retain a way to do local reductions
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -1096,8 +1099,9 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal minimum.
     """
-    # FIXME: Make MPI-aware
-    # NOTE: Must retain a way to do local reductions
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
                   vec, np.inf)
@@ -1111,8 +1115,9 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal maximum.
     """
-    # FIXME: Make MPI-aware
-    # NOTE: Must retain a way to do local reductions
+    # FIXME: We should make the nodal reductions respect MPI.
+    # See: https://github.com/inducer/grudge/issues/112 and
+    # https://github.com/inducer/grudge/issues/113
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
                   vec, -np.inf)
@@ -1185,7 +1190,6 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args):
         )
 
     actx = vec.array_context
-    vec = project(dcoll, "vol", dd, vec)
 
     return DOFArray(
         actx,
@@ -1196,6 +1200,26 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args):
             )["result"]
             for vec_i in vec
         )
+    )
+
+
+def elementwise_integral(dcoll: DiscretizationCollection, dd, vec):
+    """Numerically integrates a function represented by a
+    :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
+    each element of a discretization, given by *dd*.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        elementwise integral of *vec*, represented as a constant function on each
+        cell.
+    """
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
+    return elementwise_sum(
+        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
 
 # }}}
