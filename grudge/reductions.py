@@ -1,8 +1,14 @@
 """
 .. currentmodule:: grudge.op
 
--Distributive reductions
-------------------------
+Nodal Reductions
+----------------
+
+.. note::
+
+    In a distributed-memory setting, these reductions automatically
+    reduce over all ranks involved, and return the same value on
+    all ranks, in the manner of an MPI ``allreduce``.
 
 .. autofunction:: norm
 .. autofunction:: nodal_sum
