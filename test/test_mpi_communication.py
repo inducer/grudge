@@ -123,7 +123,6 @@ def mpi_communication_entrypoint():
     mesh_dist = MPIMeshDistributor(comm)
 
     dim = 2
-    dt = 0.04
     order = 4
 
     if mesh_dist.is_mananger_rank():
@@ -177,8 +176,8 @@ def mpi_communication_entrypoint():
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    # FIXME
-    # dt = op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt_scaling_const = 2/3
+    dt = dt_scaling_const * wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(local_mesh)
 
