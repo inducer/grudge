@@ -90,7 +90,7 @@ class WeakWaveOperator(HyperbolicOperator):
         u = wtpair[0]
         v = wtpair[1:]
         actx = u.int.array_context
-        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
+        normal = thaw(self.dcoll.normal(wtpair.dd), actx)
 
         central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
@@ -133,7 +133,7 @@ class WeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
+        rad_normal = thaw(dcoll.normal(dd=self.radiation_tag), actx)
 
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
@@ -175,7 +175,7 @@ class WeakWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-    def max_eigenvalue(self, t, fields=None, discr=None):
+    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
         return abs(self.c)
 
 
@@ -233,7 +233,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         u = wtpair[1]
         v = wtpair[2:]
         actx = u.int.array_context
-        normal = thaw(op.normal(self.dcoll, wtpair.dd), actx)
+        normal = thaw(self.dcoll.normal(wtpair.dd), actx)
 
         flux_central_weak = -0.5 * flat_obj_array(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
@@ -282,7 +282,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(op.normal(dcoll, dd=self.radiation_tag), actx)
+        rad_normal = thaw(dcoll.normal(dd=self.radiation_tag), actx)
 
         rad_c = op.project(dcoll, "vol", self.radiation_tag, self.c)
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
@@ -331,7 +331,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-    def max_eigenvalue(self, t, fields=None, discr=None):
+    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
         actx = self.dcoll._setup_actx
         return op.nodal_max(self.dcoll, "vol", actx.np.fabs(self.c))
 

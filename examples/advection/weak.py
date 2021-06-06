@@ -112,21 +112,14 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     d = 1.0
     # number of points in each dimension
     npoints = 20
-    # grid spacing
-    h = d / npoints
 
-    # cfl
-    dt_factor = 2.0
     # final time
     final_time = 1.0
-    # compute number of steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     # velocity field
     c = np.array([0.5] * dim)
     norm_c = la.norm(c)
+
     # flux
     flux_type = "central"
 
@@ -159,17 +152,21 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         dcoll,
         c,
         inflow_u=lambda t: u_analytic(
-            thaw(op.nodes(dcoll, dd=BTAG_ALL), actx),
+            thaw(dcoll.nodes(dd=BTAG_ALL), actx),
             t=t
         ),
         flux_type=flux_type
     )
 
-    nodes = thaw(op.nodes(dcoll), actx)
+    nodes = thaw(dcoll.nodes(), actx)
     u = u_analytic(nodes, t=0)
 
     def rhs(t, u):
         return adv_operator.operator(t, u)
+
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u)
+
+    logger.info("Timestep size: %g", dt)
 
     # }}}
 
@@ -205,8 +202,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-            dim=args.dim)
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)

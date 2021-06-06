@@ -88,7 +88,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
-        x = thaw(op.nodes(dcoll), actx)
+        x = thaw(dcoll.nodes(), actx)
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -98,7 +98,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(op.normal(dcoll, dd), actx)
+            normal = thaw(dcoll.normal(dd), actx)
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -212,7 +212,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             result = result + deriv
             return result
 
-        x = thaw(op.nodes(dcoll), actx)
+        x = thaw(dcoll.nodes(), actx)
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -224,7 +224,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(op.normal(dcoll, dd), actx)
+            normal = thaw(dcoll.normal(dd), actx)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 

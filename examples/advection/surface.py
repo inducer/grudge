@@ -116,8 +116,6 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # sphere resolution
     resolution = 64 if dim == 2 else 1
 
-    # cfl
-    dt_factor = 2.0
     # final time
     final_time = np.pi
 
@@ -174,7 +172,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ Surface advection operator
 
     # velocity field
-    x = thaw(op.nodes(dcoll), actx)
+    x = thaw(dcoll.nodes(), actx)
     c = make_obj_array([-x[1], x[0], 0.0])[:dim]
 
     def f_initial_condition(x):
@@ -205,11 +203,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     # {{{ time stepping
 
-    # compute time step
-    h_min = op.h_max_from_volume(dcoll, dim=dcoll.dim)
-    dt = dt_factor * h_min/order**2
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0)
     nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     logger.info("dt:        %.5e", dt)
     logger.info("nsteps:    %d", nsteps)
@@ -239,7 +234,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
-        face_normal = thaw(op.normal(dcoll, dd=df), actx)
+        face_normal = thaw(dcoll.normal(dd=df), actx)
 
         from meshmode.discretization.visualization import make_visualizer
         vis = make_visualizer(actx, face_discr)
@@ -270,12 +265,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", choices=[2, 3], default=2, type=int)
-    parser.add_argument("--use-quad", action="store_false")
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--use-quad", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
             dim=args.dim,
+            order=args.order,
             use_quad=args.use_quad,
             visualize=args.visualize)

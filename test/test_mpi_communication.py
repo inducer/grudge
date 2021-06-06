@@ -76,7 +76,7 @@ def simple_mpi_communication_entrypoint():
     dcoll = DiscretizationCollection(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
-    x = thaw(op.nodes(dcoll), actx)
+    x = thaw(dcoll.nodes(), actx)
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
     from grudge.dof_desc import as_dofdesc
@@ -123,7 +123,6 @@ def mpi_communication_entrypoint():
     mesh_dist = MPIMeshDistributor(comm)
 
     dim = 2
-    dt = 0.04
     order = 4
 
     if mesh_dist.is_mananger_rank():
@@ -147,7 +146,7 @@ def mpi_communication_entrypoint():
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
         source_omega = 3
-        nodes = thaw(op.nodes(dcoll), actx)
+        nodes = thaw(dcoll.nodes(), actx)
         source_center_dist = flat_obj_array(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
@@ -177,8 +176,8 @@ def mpi_communication_entrypoint():
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    # FIXME
-    # dt = op.estimate_rk4_timestep(dcoll, fields=fields)
+    dt_scaling_const = 2/3
+    dt = dt_scaling_const * wave_op.estimate_rk4_timestep(dcoll, fields=fields)
 
     wave_op.check_bc_coverage(local_mesh)
 

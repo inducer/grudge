@@ -1,3 +1,25 @@
+"""
+Trace Pairs
+^^^^^^^^^^^
+
+Container class
+---------------
+
+.. autoclass:: TracePair
+
+Boundary trace functions
+------------------------
+
+.. autofunction:: bdry_trace_pair
+.. autofunction:: bv_trace_pair
+
+Interior and cross-rank trace functions
+---------------------------------------
+
+.. autofunction:: interior_trace_pairs
+.. autofunction:: cross_rank_trace_pairs
+"""
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -43,29 +65,6 @@ from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
 import grudge.dof_desc as dof_desc
-
-
-__doc__ = """
-Trace Pairs
-^^^^^^^^^^^
-
-Container class
----------------
-
-.. autoclass:: TracePair
-
-Boundary trace functions
-------------------------
-
-.. autofunction:: bdry_trace_pair
-.. autofunction:: bv_trace_pair
-
-Interior and cross-rank trace functions
----------------------------------------
-
-.. autofunction:: interior_trace_pairs
-.. autofunction:: cross_rank_trace_pairs
-"""
 
 
 # {{{ Trace pair container class
@@ -133,27 +132,35 @@ class TracePair:
 
     @property
     def int(self):
-        """A value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
-        or object array of either) representing the interior value to
-        be used for the flux.
+        """A class:`~meshmode.dof_array.DOFArray` or
+        :class:`~arraycontext.ArrayContainer` of them representing the
+        interior value to be used for the flux.
         """
         return self.interior
 
     @property
     def ext(self):
-        """A value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
-        or object array of either) representing the exterior value to
-        be used for the flux.
+        """A class:`~meshmode.dof_array.DOFArray` or
+        :class:`~arraycontext.ArrayContainer` of them representing the
+        exterior value to be used for the flux.
         """
         return self.exterior
 
     @property
     def avg(self):
-        """A value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
-        or object array of either) representing the average of the interior
-        and exterior values.
+        """A class:`~meshmode.dof_array.DOFArray` or
+        :class:`~arraycontext.ArrayContainer` of them representing the
+        average of the interior and exterior values.
         """
         return 0.5 * (self.int + self.ext)
+
+    @property
+    def diff(self):
+        """A class:`~meshmode.dof_array.DOFArray` or
+        :class:`~arraycontext.ArrayContainer` of them representing the
+        difference (exterior - interior) of the pair values.
+        """
+        return self.ext - self.ext
 
 # }}}
 
