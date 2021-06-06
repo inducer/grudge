@@ -1,4 +1,7 @@
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -23,20 +26,25 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
+from arraycontext import (  # noqa
+    pytest_generate_tests_for_pyopencl_array_context
+    as pytest_generate_tests
+)
+from arraycontext.container.traversal import thaw
+
 from meshmode import _acf       # noqa: F401
-from meshmode.dof_array import flatten, thaw
+from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
 
 import grudge.dof_desc as dof_desc
+import grudge.op as op
+
 
 import pytest
-from meshmode.array_context import (  # noqa
-        pytest_generate_tests_for_pyopencl_array_context
-        as pytest_generate_tests)
 
 import logging
 
@@ -67,23 +75,19 @@ def test_inverse_metric(actx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    discr = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    sym_op = (
-            sym.forward_metric_derivative_mat(mesh.dim)
-            .dot(
-                sym.inverse_metric_derivative_mat(mesh.dim)
-                )
-            .reshape(-1))
+    from grudge.geometry import \
+        forward_metric_derivative_mat, inverse_metric_derivative_mat
 
-    op = bind(discr, sym_op)
-    mat = op(actx).reshape(mesh.dim, mesh.dim)
+    mat = forward_metric_derivative_mat(actx, dcoll).dot(
+        inverse_metric_derivative_mat(actx, dcoll))
 
     for i in range(mesh.dim):
         for j in range(mesh.dim):
             tgt = 1 if i == j else 0
 
-            err = actx.np.linalg.norm(mat[i, j] - tgt, ord=np.inf)
+            err = flat_norm(mat[i, j] - tgt, ord=np.inf)
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
@@ -93,8 +97,9 @@ def test_inverse_metric(actx_factory, dim):
 # {{{ mass operator trig integration
 
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
-@pytest.mark.parametrize("quad_tag", [dof_desc.QTAG_NONE, "OVSMP"])
-def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
+@pytest.mark.parametrize("discr_tag", [dof_desc.DISCR_TAG_BASE,
+                                       dof_desc.DISCR_TAG_QUAD])
+def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
@@ -108,57 +113,60 @@ def test_mass_mat_trig(actx_factory, ambient_dim, quad_tag):
     true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
 
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
-    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, quad_tag)
-    if quad_tag is dof_desc.QTAG_NONE:
-        quad_tag_to_group_factory = {}
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, discr_tag)
+    if discr_tag is dof_desc.DISCR_TAG_BASE:
+        discr_tag_to_group_factory = {}
     else:
-        quad_tag_to_group_factory = {
-                quad_tag: QuadratureSimplexGroupFactory(order=2*order)
-                }
+        discr_tag_to_group_factory = {
+            discr_tag: QuadratureSimplexGroupFactory(order=2*order)
+        }
 
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=order,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
+    dcoll = DiscretizationCollection(
+        actx, mesh, order=order,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
 
-    def _get_variables_on(dd):
-        sym_f = sym.var("f", dd=dd)
-        sym_x = sym.nodes(ambient_dim, dd=dd)
-        sym_ones = sym.Ones(dd)
+    def f(x):
+        return actx.np.sin(x[0])**2
 
-        return sym_f, sym_x, sym_ones
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    x_volm = thaw(volm_disc.nodes(), actx)
+    f_volm = f(x_volm)
+    ones_volm = volm_disc.zeros(actx) + 1
 
-    sym_f, sym_x, sym_ones = _get_variables_on(dof_desc.DD_VOLUME)
-    f_volm = actx.to_numpy(flatten(bind(discr, sym.cos(sym_x[0])**2)(actx)))
-    ones_volm = actx.to_numpy(flatten(bind(discr, sym_ones)(actx)))
+    quad_disc = dcoll.discr_from_dd(dd_quad)
+    x_quad = thaw(quad_disc.nodes(), actx)
+    f_quad = f(x_quad)
+    ones_quad = quad_disc.zeros(actx) + 1
 
-    sym_f, sym_x, sym_ones = _get_variables_on(dd_quad)
-    f_quad = bind(discr, sym.cos(sym_x[0])**2)(actx)
-    ones_quad = bind(discr, sym_ones)(actx)
+    mop_1 = op.mass(dcoll, dd_quad, f_quad)
+    num_integral_1 = op.nodal_sum(
+        dcoll, dof_desc.DD_VOLUME, ones_volm * mop_1
+    )
 
-    mass_op = bind(discr, sym.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
-
-    num_integral_1 = np.dot(ones_volm, actx.to_numpy(flatten(mass_op(f=f_quad))))
     err_1 = abs(num_integral_1 - true_integral)
-    assert err_1 < 1e-9, err_1
+    assert err_1 < 2e-9, err_1
 
-    num_integral_2 = np.dot(f_volm, actx.to_numpy(flatten(mass_op(f=ones_quad))))
+    mop_2 = op.mass(dcoll, dd_quad, ones_quad)
+    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_volm * mop_2)
+
     err_2 = abs(num_integral_2 - true_integral)
-    assert err_2 < 1.0e-9, err_2
+    assert err_2 < 2e-9, err_2
 
-    if quad_tag is dof_desc.QTAG_NONE:
+    if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-        num_integral_3 = bind(discr,
-                sym.integral(sym_f, dd=dd_quad))(f=f_quad)
+        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_quad * mop_2)
         err_3 = abs(num_integral_3 - true_integral)
-        assert err_3 < 5.0e-10, err_3
+        assert err_3 < 5e-10, err_3
 
 # }}}
 
 
-# {{{ mass operator surface area
+# {{{ mass operator on surface
 
 def _ellipse_surface_area(radius, aspect_ratio):
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.ellipe.html
@@ -223,8 +231,8 @@ def test_mass_surface_area(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
@@ -232,8 +240,8 @@ def test_mass_surface_area(actx_factory, name):
         # {{{ compute surface area
 
         dd = dof_desc.DD_VOLUME
-        sym_op = sym.NodalSum(dd)(sym.MassOperator(dd, dd)(sym.Ones(dd)))
-        approx_surface_area = bind(discr, sym_op)(actx)
+        ones_volm = volume_discr.zeros(actx) + 1
+        approx_surface_area = op.integral(dcoll, dd, ones_volm)
 
         logger.info("surface: got {:.5e} / expected {:.5e}".format(
             approx_surface_area, surface_area))
@@ -241,79 +249,93 @@ def test_mass_surface_area(actx_factory, name):
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
-        eoc.add_data_point(h_max, area_error + 1.0e-16)
+        # compute max element size
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll)
+
+        eoc.add_data_point(h_max, area_error)
 
     # }}}
 
     logger.info("surface area error\n%s", str(eoc))
 
-    assert eoc.max_error() < 1.0e-14 \
-            or eoc.order_estimate() > builder.order
+    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
 
 # }}}
 
 
-# {{{ surface mass inverse
+# {{{ mass inverse
 
-@pytest.mark.parametrize("name", ["2-1-ellipse", "spheroid"])
-def test_surface_mass_operator_inverse(actx_factory, name):
+@pytest.mark.parametrize("name", [
+    "2-1-ellipse",
+    "spheroid",
+    "warped_rect2",
+    "warped_rect3",
+    ])
+def test_mass_operator_inverse(actx_factory, name):
     actx = actx_factory()
 
     # {{{ cases
 
+    import mesh_data
     if name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        # curve
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        # surface
+        builder = mesh_data.SpheroidMeshBuilder()
+    elif name.startswith("warped_rect"):
+        builder = mesh_data.WarpedRectMeshBuilder(dim=int(name[-1]))
+
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
     # }}}
 
-    # {{{ convergence
+    # {{{ inv(m) @ m == id
 
     from pytools.convergence import EOCRecorder
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute inverse mass
 
+        def f(x):
+            return actx.np.cos(4.0 * x[0])
+
         dd = dof_desc.DD_VOLUME
-        sym_f = sym.cos(4.0 * sym.nodes(mesh.ambient_dim, dd)[0])
-        sym_op = sym.InverseMassOperator(dd, dd)(
-                sym.MassOperator(dd, dd)(sym.var("f")))
+        x_volm = thaw(volume_discr.nodes(), actx)
+        f_volm = f(x_volm)
+        f_inv = op.inverse_mass(
+            dcoll, op.mass(dcoll, dd, f_volm)
+        )
 
-        f = bind(discr, sym_f)(actx)
-        f_inv = bind(discr, sym_op)(actx, f=f)
-
-        inv_error = bind(discr,
-                sym.norm(2, sym.var("x") - sym.var("y"))
-                / sym.norm(2, sym.var("y")))(actx, x=f_inv, y=f)
+        inv_error = op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2)
 
         # }}}
 
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
-        eoc.add_data_point(h_max, inv_error)
+        # compute max element size
+        from grudge.dt_utils import h_max_from_volume
 
-    # }}}
+        h_max = h_max_from_volume(dcoll)
+
+        eoc.add_data_point(h_max, inv_error)
 
     logger.info("inverse mass error\n%s", str(eoc))
 
     # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
     # safe side, choose a slightly larger tolerance
     assert eoc.max_error() < 1.0e-14
+
+    # }}}
 
 # }}}
 
@@ -337,50 +359,47 @@ def test_face_normal_surface(actx_factory, mesh_name):
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
     mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
-    discr = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
 
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:    %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
     # }}}
 
-    # {{{ symbolic
+    # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+    from grudge.geometry import normal
 
     dv = dof_desc.DD_VOLUME
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
-    dim = mesh.dim
 
-    sym_surf_normal = sym.project(dv, df)(
-            sym.surface_normal(ambient_dim, dim=dim, dd=dv).as_vector()
-            )
-    sym_surf_normal = sym_surf_normal / sym.sqrt(sum(sym_surf_normal**2))
+    surf_normal = op.project(
+        dcoll, dv, df,
+        normal(actx, dcoll, dd=dv)
+    )
+    surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    sym_face_normal_i = sym.normal(df, ambient_dim, dim=dim - 1)
-    sym_face_normal_e = sym.OppositeInteriorFaceSwap(df)(sym_face_normal_i)
+    face_normal_i = thaw(dcoll.normal(df), actx)
+    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
 
     if mesh.ambient_dim == 3:
+        from grudge.geometry import pseudoscalar, area_element
         # NOTE: there's only one face tangent in 3d
-        sym_face_tangent = (
-                sym.pseudoscalar(ambient_dim, dim - 1, dd=df)
-                / sym.area_element(ambient_dim, dim - 1, dd=df)).as_vector()
+        face_tangent = (
+            pseudoscalar(actx, dcoll, dd=df) / area_element(actx, dcoll, dd=df)
+        ).as_vector(dtype=object)
 
     # }}}
 
     # {{{ checks
 
     def _eval_error(x):
-        return bind(discr, sym.norm(np.inf, sym.var("x", dd=df), dd=df))(actx, x=x)
+        return op.norm(dcoll, x, np.inf, dd=df)
 
     rtol = 1.0e-14
-
-    surf_normal = bind(discr, sym_surf_normal)(actx)
-
-    face_normal_i = bind(discr, sym_face_normal_i)(actx)
-    face_normal_e = bind(discr, sym_face_normal_e)(actx)
 
     # check interpolated surface normal is orthogonal to face normal
     error = _eval_error(surf_normal.dot(face_normal_i))
@@ -394,8 +413,6 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     # check orthogonality with face tangent
     if ambient_dim == 3:
-        face_tangent = bind(discr, sym_face_tangent)(actx)
-
         error = _eval_error(face_tangent.dot(face_normal_i))
         logger.info("error[t_dot_i]:  %.5e", error)
         assert error < 5 * rtol
@@ -419,24 +436,25 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
     from pytools.convergence import EOCRecorder
     axis_eoc_recs = [EOCRecorder() for axis in range(dim)]
 
+    def f(x, axis):
+        return actx.np.sin(3*x[axis])
+
+    def df(x, axis):
+        return 3*actx.np.cos(3*x[axis])
+
     for n in [4, 8, 16]:
         mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 nelements_per_axis=(n,)*dim, order=4)
 
-        discr = DiscretizationCollection(actx, mesh, order=4)
-        nabla = sym.nabla(dim)
+        dcoll = DiscretizationCollection(actx, mesh, order=4)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        x = thaw(volume_discr.nodes(), actx)
 
         for axis in range(dim):
-            x = sym.nodes(dim)
+            df_num = op.local_grad(dcoll, f(x, axis))[axis]
+            df_volm = df(x, axis)
 
-            f = bind(discr, sym.sin(3*x[axis]))(actx)
-            df = bind(discr, 3*sym.cos(3*x[axis]))(actx)
-
-            sym_op = nabla[axis](sym.var("f"))
-            bound_op = bind(discr, sym_op)
-            df_num = bound_op(f=f)
-
-            linf_error = actx.np.linalg.norm(df_num - df, ord=np.inf)
+            linf_error = flat_norm(df_num - df_volm, ord=np.inf)
             axis_eoc_recs[axis].add_data_point(1/n, linf_error)
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
@@ -470,25 +488,24 @@ def test_2d_gauss_theorem(actx_factory):
 
     actx = actx_factory()
 
-    discr = DiscretizationCollection(actx, mesh, order=2)
+    dcoll = DiscretizationCollection(actx, mesh, order=2)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    x_volm = thaw(volm_disc.nodes(), actx)
 
     def f(x):
         return flat_obj_array(
-                sym.sin(3*x[0])+sym.cos(3*x[1]),
-                sym.sin(2*x[0])+sym.cos(x[1]))
+            actx.np.sin(3*x[0]) + actx.np.cos(3*x[1]),
+            actx.np.sin(2*x[0]) + actx.np.cos(x[1])
+        )
 
-    gauss_err = bind(discr,
-            sym.integral((
-                sym.nabla(2) * f(sym.nodes(2))
-                ).sum())
-            -  # noqa: W504
-            sym.integral(
-                sym.project("vol", BTAG_ALL)(f(sym.nodes(2)))
-                .dot(sym.normal(BTAG_ALL, 2)),
-                dd=BTAG_ALL)
-            )(actx)
+    f_volm = f(x_volm)
+    int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
-    assert abs(gauss_err) < 1e-13
+    prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
+    normal = thaw(dcoll.normal(BTAG_ALL), actx)
+    int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
+
+    assert abs(int_1 - int_2) < 1e-13
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
@@ -534,10 +551,10 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
     def f(x):
         return flat_obj_array(
-                sym.sin(3*x[1]) + sym.cos(3*x[0]) + 1.0,
-                sym.sin(2*x[0]) + sym.cos(x[1]),
-                3.0 * sym.cos(x[0] / 2) + sym.cos(x[1]),
-                )[:ambient_dim]
+            actx.np.sin(3*x[1]) + actx.np.cos(3*x[0]) + 1.0,
+            actx.np.sin(2*x[0]) + actx.np.cos(x[1]),
+            3.0 * actx.np.cos(x[0] / 2) + actx.np.cos(x[1]),
+        )[:ambient_dim]
 
     from pytools.convergence import EOCRecorder
     eoc_global = EOCRecorder()
@@ -568,63 +585,62 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         from meshmode.discretization.poly_element import \
                 QuadratureSimplexGroupFactory
-        discr = DiscretizationCollection(actx, mesh, order=builder.order,
-                quad_tag_to_group_factory={
-                    "product": QuadratureSimplexGroupFactory(2 * builder.order)
-                    })
 
-        volume = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        qtag = dof_desc.DISCR_TAG_QUAD
+        dcoll = DiscretizationCollection(
+            actx, mesh, order=builder.order,
+            discr_tag_to_group_factory={
+                qtag: QuadratureSimplexGroupFactory(2 * builder.order)
+            }
+        )
+
+        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
         logger.info("ndofs:     %d", volume.ndofs)
         logger.info("nelements: %d", volume.mesh.nelements)
 
         dd = dof_desc.DD_VOLUME
-        dq = dd.with_qtag("product")
+        dq = dd.with_discr_tag(qtag)
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
-        ambient_dim = discr.ambient_dim
-        dim = discr.dim
+        ambient_dim = dcoll.ambient_dim
 
         # variables
-        sym_f = f(sym.nodes(ambient_dim, dd=dd))
-        sym_f_quad = f(sym.nodes(ambient_dim, dd=dq))
-        sym_kappa = sym.summed_curvature(ambient_dim, dim=dim, dd=dq)
-        sym_normal = sym.surface_normal(ambient_dim, dim=dim, dd=dq).as_vector()
+        f_num = f(thaw(dcoll.nodes(dd=dd), actx))
+        f_quad_num = f(thaw(dcoll.nodes(dd=dq), actx))
 
-        sym_face_normal = sym.normal(df, ambient_dim, dim=dim - 1)
-        sym_face_f = sym.project(dd, df)(sym_f)
+        from grudge.geometry import normal, summed_curvature
+
+        kappa = summed_curvature(actx, dcoll, dd=dq)
+        normal = normal(actx, dcoll, dd=dq)
+        face_normal = thaw(dcoll.normal(df), actx)
+        face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
-        sym_stiff = sum(
-                sym.StiffnessOperator(d)(f) for d, f in enumerate(sym_f)
-                )
-        sym_stiff_t = sum(
-                sym.StiffnessTOperator(d)(f) for d, f in enumerate(sym_f)
-                )
-        sym_k = sym.MassOperator(dq, dd)(sym_kappa * sym_f_quad.dot(sym_normal))
-        sym_flux = sym.FaceMassOperator()(sym_face_f.dot(sym_face_normal))
+        stiff = op.mass(dcoll, sum(op.local_d_dx(dcoll, i, f_num_i)
+                                   for i, f_num_i in enumerate(f_num)))
+        stiff_t = sum(op.weak_local_d_dx(dcoll, i, f_num_i)
+                      for i, f_num_i in enumerate(f_num))
+        kterm = op.mass(dcoll, dq, kappa * f_quad_num.dot(normal))
+        flux = op.face_mass(dcoll, face_f.dot(face_normal))
 
         # sum everything up
-        sym_op_global = sym.NodalSum(dd)(
-                sym_stiff - (sym_stiff_t + sym_k))
-        sym_op_local = sym.ElementwiseSumOperator(dd)(
-                sym_stiff - (sym_stiff_t + sym_k + sym_flux))
-
-        # evaluate
-        op_global = bind(discr, sym_op_global)(actx)
-        op_local = bind(discr, sym_op_local)(actx)
+        op_global = op.nodal_sum(dcoll, dd, stiff - (stiff_t + kterm))
+        op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)
-        err_local = bind(discr, sym.norm(np.inf, sym.var("x")))(actx, x=op_local)
+        err_local = op.norm(dcoll, op_local, np.inf)
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
-        h_max = bind(discr, sym.h_max_from_volume(
-            discr.ambient_dim, dim=discr.dim, dd=dd))(actx)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll)
+
         eoc_global.add_data_point(h_max, err_global)
         eoc_local.add_data_point(h_max, err_local)
 
         if visualize:
             from grudge.shortcuts import make_visualizer
-            vis = make_visualizer(discr, vis_order=builder.order)
+            vis = make_visualizer(dcoll)
 
             filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
             vis.write_vtk_file(filename, [
@@ -722,39 +738,40 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         norm_v = la.norm(v)
 
         def f(x):
-            return sym.sin(10*x)
+            return actx.np.sin(10*x)
 
-        def u_analytic(x):
-            return f(
-                    -v.dot(x)/norm_v
-                    + sym.var("t", dof_desc.DD_SCALAR)*norm_v)
+        def u_analytic(x, t=0):
+            return f(-v.dot(x)/norm_v + t*norm_v)
 
         from grudge.models.advection import (
-                StrongAdvectionOperator, WeakAdvectionOperator)
+            StrongAdvectionOperator, WeakAdvectionOperator
+        )
         from meshmode.mesh import BTAG_ALL
 
-        discr = DiscretizationCollection(actx, mesh, order=order)
-        op_class = {
-                "strong": StrongAdvectionOperator,
-                "weak": WeakAdvectionOperator,
-                }[op_type]
-        op = op_class(v,
-                inflow_u=u_analytic(sym.nodes(dim, BTAG_ALL)),
-                flux_type=flux_type)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        op_class = {"strong": StrongAdvectionOperator,
+                    "weak": WeakAdvectionOperator}[op_type]
+        adv_operator = op_class(dcoll, v,
+                                inflow_u=lambda t: u_analytic(
+                                    thaw(dcoll.nodes(dd=BTAG_ALL), actx),
+                                    t=t
+                                ),
+                                flux_type=flux_type)
 
-        bound_op = bind(discr, op.sym_operator())
-
-        u = bind(discr, u_analytic(sym.nodes(dim)))(actx, t=0)
+        nodes = thaw(dcoll.nodes(), actx)
+        u = u_analytic(nodes, t=0)
 
         def rhs(t, u):
-            return bound_op(t=t, u=u)
+            return adv_operator.operator(t, u)
 
         if dim == 3:
             final_time = 0.1
         else:
             final_time = 0.2
 
-        h_max = bind(discr, sym.h_max_from_volume(discr.ambient_dim))(actx)
+        from grudge.dt_utils import h_max_from_volume
+
+        h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
         dt = dt_factor * h_max/order**2
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
@@ -765,7 +782,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         last_u = None
 
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr, vis_order=order)
+        vis = make_visualizer(dcoll)
 
         step = 0
 
@@ -778,12 +795,16 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                 last_u = event.state_component
 
                 if visualize:
-                    vis.write_vtk_file("fld-%s-%04d.vtu" % (mesh_par, step),
-                            [("u", event.state_component)])
+                    vis.write_vtk_file(
+                        "fld-%s-%04d.vtu" % (mesh_par, step),
+                        [("u", event.state_component)]
+                    )
 
-        error_l2 = bind(discr,
-            sym.norm(2, sym.var("u")-u_analytic(sym.nodes(dim))))(
-                t=last_t, u=last_u)
+        error_l2 = op.norm(
+            dcoll,
+            last_u - u_analytic(nodes, t=last_t),
+            2
+        )
         logger.info("h_max %.5e error %.5e", h_max, error_l2)
         eoc_rec.add_data_point(h_max, error_l2)
 
@@ -819,26 +840,34 @@ def test_convergence_maxwell(actx_factory,  order):
                 b=(1.0,)*dims,
                 nelements_per_axis=(n,)*dims)
 
-        discr = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
 
         epsilon = 1
         mu = 1
 
         from grudge.models.em import get_rectangular_cavity_mode
-        sym_mode = get_rectangular_cavity_mode(1, (1, 2, 2))
 
-        analytic_sol = bind(discr, sym_mode)
-        fields = analytic_sol(actx, t=0, epsilon=epsilon, mu=mu)
+        def analytic_sol(x, t=0):
+            return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
+
+        nodes = thaw(dcoll.nodes(), actx)
+        fields = analytic_sol(nodes, t=0)
 
         from grudge.models.em import MaxwellOperator
-        op = MaxwellOperator(epsilon, mu, flux_type=0.5, dimensions=dims)
-        op.check_bc_coverage(mesh)
-        bound_op = bind(discr, op.sym_operator())
+
+        maxwell_operator = MaxwellOperator(
+            dcoll,
+            epsilon,
+            mu,
+            flux_type=0.5,
+            dimensions=dims
+        )
+        maxwell_operator.check_bc_coverage(mesh)
 
         def rhs(t, w):
-            return bound_op(t=t, w=w)
+            return maxwell_operator.operator(t, w)
 
-        dt = 0.002
+        dt = maxwell_operator.estimate_rk4_timestep(dcoll)
         final_t = dt * 5
         nsteps = int(final_t/dt)
 
@@ -846,8 +875,6 @@ def test_convergence_maxwell(actx_factory,  order):
         dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
         logger.info("dt %.5e nsteps %5d", dt, nsteps)
-
-        norm = bind(discr, sym.norm(2, sym.var("u")))
 
         step = 0
         for event in dt_stepper.run(t_end=final_t):
@@ -858,9 +885,8 @@ def test_convergence_maxwell(actx_factory,  order):
                 step += 1
                 logger.debug("[%04d] t = %.5e", step, event.t)
 
-        sol = analytic_sol(actx, mu=mu, epsilon=epsilon, t=step * dt)
-        vals = [norm(u=(esc[i] - sol[i])) / norm(u=sol[i]) for i in range(5)] # noqa E501
-        total_error = sum(vals)
+        sol = analytic_sol(nodes, t=step * dt)
+        total_error = op.norm(dcoll, esc - sol, 2)
         eoc_rec.add_data_point(1.0/n, total_error)
 
     logger.info("\n%s", eoc_rec.pretty_print(
@@ -880,26 +906,26 @@ def test_improvement_quadrature(actx_factory, order):
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+    from meshmode.mesh import BTAG_ALL
 
     actx = actx_factory()
 
     dims = 2
-    sym_nds = sym.nodes(dims)
-    advec_v = flat_obj_array(-1*sym_nds[1], sym_nds[0])
 
-    flux = "upwind"
-    op = VariableCoefficientAdvectionOperator(advec_v, 0, flux_type=flux)
-
-    def gaussian_mode():
+    def gaussian_mode(x):
         source_width = 0.1
-        sym_x = sym.nodes(2)
-        return sym.exp(-np.dot(sym_x, sym_x) / source_width**2)
+        return actx.np.exp(-np.dot(x, x) / source_width**2)
 
     def conv_test(descr, use_quad):
         logger.info("-" * 75)
         logger.info(descr)
         logger.info("-" * 75)
         eoc_rec = EOCRecorder()
+
+        if use_quad:
+            qtag = dof_desc.DISCR_TAG_QUAD
+        else:
+            qtag = None
 
         ns = [20, 25]
         for n in ns:
@@ -910,21 +936,34 @@ def test_improvement_quadrature(actx_factory, order):
                 order=order)
 
             if use_quad:
-                quad_tag_to_group_factory = {
-                    "product": QuadratureSimplexGroupFactory(order=4*order)
-                    }
+                discr_tag_to_group_factory = {
+                    qtag: QuadratureSimplexGroupFactory(order=4*order)
+                }
             else:
-                quad_tag_to_group_factory = {"product": None}
+                discr_tag_to_group_factory = {}
 
-            discr = DiscretizationCollection(actx, mesh, order=order,
-                    quad_tag_to_group_factory=quad_tag_to_group_factory)
+            dcoll = DiscretizationCollection(
+                actx, mesh, order=order,
+                discr_tag_to_group_factory=discr_tag_to_group_factory
+            )
 
-            bound_op = bind(discr, op.sym_operator())
-            fields = bind(discr, gaussian_mode())(actx, t=0)
-            norm = bind(discr, sym.norm(2, sym.var("u")))
+            nodes = thaw(dcoll.nodes(), actx)
 
-            esc = bound_op(u=fields)
-            total_error = norm(u=esc)
+            def zero_inflow(dtag, t=0):
+                dd = dof_desc.DOFDesc(dtag, qtag)
+                return dcoll.discr_from_dd(dd).zeros(actx)
+
+            adv_op = VariableCoefficientAdvectionOperator(
+                dcoll,
+                flat_obj_array(-1*nodes[1], nodes[0]),
+                inflow_u=lambda t: zero_inflow(BTAG_ALL, t=t),
+                flux_type="upwind",
+                quad_tag=qtag
+            )
+
+            total_error = op.norm(
+                dcoll, adv_op.operator(0, gaussian_mode(nodes)), 2
+            )
             eoc_rec.add_data_point(1.0/n, total_error)
 
         logger.info("\n%s", eoc_rec.pretty_print(
@@ -943,35 +982,6 @@ def test_improvement_quadrature(actx_factory, order):
 # }}}
 
 
-# {{{ operator collector determinism
-
-def test_op_collector_order_determinism():
-    class TestOperator(sym.Operator):
-
-        def __init__(self):
-            sym.Operator.__init__(self, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME)
-
-        mapper_method = "map_test_operator"
-
-    from grudge.symbolic.mappers import BoundOperatorCollector
-
-    class TestBoundOperatorCollector(BoundOperatorCollector):
-
-        def map_test_operator(self, expr):
-            return self.map_operator(expr)
-
-    v0 = sym.var("v0")
-    ob0 = sym.OperatorBinding(TestOperator(), v0)
-
-    v1 = sym.var("v1")
-    ob1 = sym.OperatorBinding(TestOperator(), v1)
-
-    # The output order isn't significant, but it should always be the same.
-    assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
-
-# }}}
-
-
 # {{{ bessel
 
 def test_bessel(actx_factory):
@@ -984,90 +994,55 @@ def test_bessel(actx_factory):
             b=(1.0,)*dims,
             nelements_per_axis=(8,)*dims)
 
-    discr = DiscretizationCollection(actx, mesh, order=3)
+    dcoll = DiscretizationCollection(actx, mesh, order=3)
 
-    nodes = sym.nodes(dims)
-    r = sym.cse(sym.sqrt(nodes[0]**2 + nodes[1]**2))
+    nodes = thaw(dcoll.nodes(), actx)
+    r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
+
+    # FIXME: Bessel functions need to brought out of the symbolic
+    # layer. Related issue: https://github.com/inducer/grudge/issues/93
+    def bessel_j(actx, n, r):
+        from grudge import sym, bind
+        return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
     n = 3
-    bessel_zero = (
-            sym.bessel_j(n+1, r)
-            + sym.bessel_j(n-1, r)
-            - 2*n/r * sym.bessel_j(n, r))
+    bessel_zero = (bessel_j(actx, n+1, r)
+                   + bessel_j(actx, n-1, r)
+                   - 2*n/r * bessel_j(actx, n, r))
 
-    z = bind(discr, sym.norm(2, bessel_zero))(actx)
+    z = op.norm(dcoll, bessel_zero, 2)
 
     assert z < 1e-15
 
 # }}}
 
 
-# {{{ function symbol
-
-def test_external_call(actx_factory):
-    actx = actx_factory()
-
-    def double(queue, x):
-        return 2 * x
-
-    dims = 2
-
-    mesh = mgen.generate_regular_rect_mesh(
-            a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
-    discr = DiscretizationCollection(actx, mesh, order=1)
-
-    ones = sym.Ones(dof_desc.DD_VOLUME)
-    op = (
-            ones * 3
-            + sym.FunctionSymbol("double")(ones))
-
-    from grudge.function_registry import (
-            base_function_registry, register_external_function)
-
-    freg = register_external_function(
-            base_function_registry,
-            "double",
-            implementation=double,
-            dd=dof_desc.DD_VOLUME)
-
-    bound_op = bind(discr, op, function_registry=freg)
-
-    result = bound_op(actx, double=double)
-    assert actx.to_numpy(flatten(result) == 5).all()
-
-
-@pytest.mark.parametrize("array_type", ["scalar", "vector"])
-def test_function_symbol_array(actx_factory, array_type):
-    """Test if `FunctionSymbol` distributed properly over object arrays."""
-
+@pytest.mark.parametrize("p", [2, np.inf])
+def test_norm_complex(actx_factory, p):
     actx = actx_factory()
 
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
-            a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+            a=(0,)*dim, b=(1,)*dim,
+            nelements_per_axis=(8,)*dim, order=1)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    if array_type == "scalar":
-        sym_x = sym.var("x")
-        x = thaw(actx, actx.np.cos(volume_discr.nodes()[0]))
-    elif array_type == "vector":
-        sym_x = sym.make_sym_array("x", dim)
-        x = thaw(actx, volume_discr.nodes())
-    else:
-        raise ValueError("unknown array type")
+    nodes = thaw(dcoll.nodes(), actx)
+    f = nodes[0] + 1j * nodes[0]
 
-    norm = bind(discr, sym.norm(2, sym_x))(x=x)
-    assert isinstance(norm, float)
+    norm = op.norm(dcoll, f, p)
+    if p == 2:
+        ref_norm = ((1/3)*dim)**0.5
+    elif p == np.inf:
+        ref_norm = 2**0.5
 
-# }}}
+    assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_obj_array(actx_factory, p):
-    """Test :func:`grudge.symbolic.operators.norm` for object arrays."""
+    """Test :func:`grudge.op.norm` for object arrays."""
 
     actx = actx_factory()
 
@@ -1075,14 +1050,13 @@ def test_norm_obj_array(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
 
     w = make_obj_array([1.0, 2.0, 3.0])[:dim]
 
     # {{ scalar
 
-    sym_w = sym.var("w")
-    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w[0])
+    norm = op.norm(dcoll, w[0], p)
 
     norm_exact = w[0]
     logger.info("norm: %.5e %.5e", norm, norm_exact)
@@ -1092,31 +1066,13 @@ def test_norm_obj_array(actx_factory, p):
 
     # {{{ vector
 
-    sym_w = sym.make_sym_array("w", dim)
-    norm = bind(discr, sym.norm(p, sym_w))(actx, w=w)
+    norm = op.norm(dcoll, w, p)
 
     norm_exact = np.sqrt(np.sum(w**2)) if p == 2 else np.max(w)
     logger.info("norm: %.5e %.5e", norm, norm_exact)
     assert abs(norm - norm_exact) < 1.0e-14
 
     # }}}
-
-
-def test_map_if(actx_factory):
-    """Test :meth:`grudge.symbolic.execution.ExecutionMapper.map_if` handling
-    of scalar conditions.
-    """
-
-    actx = actx_factory()
-
-    dim = 2
-    mesh = mgen.generate_regular_rect_mesh(
-            a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-
-    sym_if = sym.If(sym.Comparison(2.0, "<", 1.0e-14), 1.0, 2.0)
-    bind(discr, sym_if)(actx)
 
 
 def test_empty_boundary(actx_factory):
@@ -1130,96 +1086,12 @@ def test_empty_boundary(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
-    discr = DiscretizationCollection(actx, mesh, order=4)
-    normal = bind(discr,
-            sym.normal(BTAG_NONE, dim, dim=dim - 1))(actx)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    normal = dcoll.normal(BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)
-        assert len(component) == len(discr.discr_from_dd(BTAG_NONE).groups)
-
-
-def test_operator_compiler_overwrite(actx_factory):
-    """Tests that the same expression in ``eval_code`` and ``discr_code``
-    does not confuse the OperatorCompiler in grudge/symbolic/compiler.py.
-    """
-
-    actx = actx_factory()
-
-    ambient_dim = 2
-    target_order = 4
-
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
-            n=(8,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=target_order)
-
-    # {{{ test
-
-    sym_u = sym.nodes(ambient_dim)
-    sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
-
-    div_u = bind(discr, sym_div_u)(actx)
-    error = bind(discr, sym.norm(2, sym.var("x")))(actx, x=div_u - discr.dim)
-    logger.info("error: %.5e", error)
-
-    # }}}
-
-
-@pytest.mark.parametrize("ambient_dim", [
-    2,
-    # FIXME, cf. https://github.com/inducer/grudge/pull/78/
-    pytest.param(3, marks=pytest.mark.xfail)
-    ])
-def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
-    """Tests that the greedy assignemnt aggregation code works on a non-trivial
-    expression (on which it didn't work at the time of writing).
-    """
-
-    actx = actx_factory()
-
-    target_order = 4
-
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*ambient_dim, b=(0.5,)*ambient_dim,
-            n=(8,)*ambient_dim, order=1)
-    discr = DiscretizationCollection(actx, mesh, order=target_order)
-
-    # {{{ test with a relative norm
-
-    from grudge.dof_desc import DD_VOLUME
-    dd = DD_VOLUME
-    sym_x = sym.make_sym_array("y", ambient_dim, dd=dd)
-    sym_y = sym.make_sym_array("y", ambient_dim, dd=dd)
-
-    sym_norm_y = sym.norm(2, sym_y, dd=dd)
-    sym_norm_d = sym.norm(2, sym_x - sym_y, dd=dd)
-    sym_op = sym_norm_d / sym_norm_y
-    logger.info("%s", sym.pretty(sym_op))
-
-    # FIXME: this shouldn't raise a RuntimeError
-    with pytest.raises(RuntimeError):
-        bind(discr, sym_op)(actx, x=1.0, y=discr.discr_from_dd(dd).nodes())
-
-    # }}}
-
-    # {{{ test with repeated mass inverses
-
-    sym_minv_y = sym.cse(sym.InverseMassOperator()(sym_y), "minv_y")
-
-    sym_u = make_obj_array([0.5 * sym.Ones(dd), 0.0, 0.0])[:ambient_dim]
-    sym_div_u = sum(d(u) for d, u in zip(sym.nabla(ambient_dim), sym_u))
-
-    sym_op = sym.MassOperator(dd)(sym_u) \
-            + sym.MassOperator(dd)(sym_minv_y * sym_div_u)
-    logger.info("%s", sym.pretty(sym_op))
-
-    # FIXME: this shouldn't raise a RuntimeError either
-    bind(discr, sym_op)(actx, y=discr.discr_from_dd(dd).nodes())
-
-    # }}}
+        assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
 
 
 # You can test individual routines by typing

@@ -1,4 +1,5 @@
 import numpy as np
+import meshmode.mesh.generation as mgen
 
 
 class MeshBuilder:
@@ -29,8 +30,7 @@ class Curve2DMeshBuilder(MeshBuilder):
     resolutions = [16, 32, 64, 128]
 
     def get_mesh(self, resolution, mesh_order):
-        from meshmode.mesh.generation import make_curve_mesh
-        return make_curve_mesh(
+        return mgen.make_curve_mesh(
                 self.curve_fn,      # pylint: disable=no-member
                 np.linspace(0.0, 1.0, resolution + 1),
                 mesh_order)
@@ -42,8 +42,7 @@ class EllipseMeshBuilder(Curve2DMeshBuilder):
 
     @property
     def curve_fn(self):
-        from meshmode.mesh.generation import ellipse
-        return lambda t: self.radius * ellipse(self.aspect_ratio, t)
+        return lambda t: self.radius * mgen.ellipse(self.aspect_ratio, t)
 
 
 class StarfishMeshBuilder(Curve2DMeshBuilder):
@@ -52,8 +51,7 @@ class StarfishMeshBuilder(Curve2DMeshBuilder):
 
     @property
     def curve_fn(self):
-        from meshmode.mesh.generation import NArmedStarfish
-        return NArmedStarfish(self.narms, self.amplitude)
+        return mgen.NArmedStarfish(self.narms, self.amplitude)
 
 
 class SphereMeshBuilder(MeshBuilder):
@@ -113,7 +111,7 @@ class BoxMeshBuilder(MeshBuilder):
     ambient_dim = 2
 
     mesh_order = 1
-    resolutions = [8, 16, 32]
+    resolutions = [4, 8, 16]
 
     a = (-0.5, -0.5, -0.5)
     b = (+0.5, +0.5, +0.5)
@@ -122,10 +120,18 @@ class BoxMeshBuilder(MeshBuilder):
         if not isinstance(resolution, (list, tuple)):
             resolution = (resolution,) * self.ambient_dim
 
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(
+        return mgen.generate_regular_rect_mesh(
                 a=self.a, b=self.b,
                 nelements_per_axis=resolution,
                 order=mesh_order)
 
-        return mesh
+
+class WarpedRectMeshBuilder(MeshBuilder):
+    resolutions = [4, 6, 8]
+
+    def __init__(self, dim):
+        self.dim = dim
+
+    def get_mesh(self, resolution, mesh_order):
+        return mgen.generate_warped_rect_mesh(
+                dim=self.dim, order=4, nelements_side=6)

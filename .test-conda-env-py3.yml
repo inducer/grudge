@@ -11,3 +11,4 @@ dependencies:
 - pyopencl
 - python=3
 - gmsh
+- mpi4py

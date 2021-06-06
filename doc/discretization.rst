@@ -1,5 +1,5 @@
-Discretization
-==============
+Discretization Collection
+=========================
 
 .. module:: grudge
 

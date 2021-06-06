@@ -4,6 +4,7 @@ __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner
 Copyright (C) 2010 David Powell
 Copyright (C) 2017 Bogdan Enache
+Copyright (C) 2021 University of Illinois Board of Trustees
 """
 
 __license__ = """
@@ -26,12 +27,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools import memoize_method
+
+from arraycontext.container.traversal import thaw
 
 from grudge.models import HyperbolicOperator
+
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-from grudge import sym
+
+from pytools import memoize_method
 from pytools.obj_array import flat_obj_array, make_obj_array
+
+import grudge.op as op
+import numpy as np
 
 
 class MaxwellOperator(HyperbolicOperator):
@@ -43,7 +50,7 @@ class MaxwellOperator(HyperbolicOperator):
 
     _default_dimensions = 3
 
-    def __init__(self, epsilon, mu,
+    def __init__(self, dcoll, epsilon, mu,
             flux_type,
             bdry_flux_type=None,
             pec_tag=BTAG_ALL,
@@ -66,6 +73,7 @@ class MaxwellOperator(HyperbolicOperator):
             boundary condition
         """
 
+        self.dcoll = dcoll
         self.dimensions = dimensions or self._default_dimensions
 
         space_subset = [True]*self.dimensions + [False]*(3-self.dimensions)
@@ -103,7 +111,7 @@ class MaxwellOperator(HyperbolicOperator):
         self.current = current
         self.incident_bc_data = incident_bc
 
-    def flux(self, w):
+    def flux(self, wtpair):
         """The numerical flux for variable coefficients.
 
         :param flux_type: can be in [0,1] for anything between central and upwind,
@@ -112,10 +120,10 @@ class MaxwellOperator(HyperbolicOperator):
         As per Hesthaven and Warburton page 433.
         """
 
-        normal = sym.normal(w.dd, self.dimensions)
+        normal = thaw(self.dcoll.normal(wtpair.dd), self.dcoll._setup_actx)
 
         if self.fixed_material:
-            e, h = self.split_eh(w)
+            e, h = self.split_eh(wtpair)
             epsilon = self.epsilon
             mu = self.mu
 
@@ -168,13 +176,18 @@ class MaxwellOperator(HyperbolicOperator):
 
         e, h = self.split_eh(w)
 
-        nabla = sym.nabla(self.dimensions)
+        # Object array of derivative operators
+        nabla = flat_obj_array(
+            [_Dx(self.dcoll, i) for i in range(self.dimensions)]
+        )
 
         def e_curl(field):
-            return self.space_cross_e(nabla, field)
+            return self.space_cross_e(nabla, field,
+                                      three_mult=lambda lc, x, y: lc * (x * y))
 
         def h_curl(field):
-            return self.space_cross_h(nabla, field)
+            return self.space_cross_h(nabla, field,
+                                      three_mult=lambda lc, x, y: lc * (x * y))
 
         # in conservation form: u_t + A u_x = 0
         return flat_obj_array(
@@ -187,8 +200,8 @@ class MaxwellOperator(HyperbolicOperator):
         """
         e, h = self.split_eh(w)
 
-        pec_e = sym.cse(sym.project("vol", self.pec_tag)(e))
-        pec_h = sym.cse(sym.project("vol", self.pec_tag)(h))
+        pec_e = op.project(self.dcoll, "vol", self.pec_tag, e)
+        pec_h = op.project(self.dcoll, "vol", self.pec_tag, h)
 
         return flat_obj_array(-pec_e, pec_h)
 
@@ -197,8 +210,8 @@ class MaxwellOperator(HyperbolicOperator):
         """
         e, h = self.split_eh(w)
 
-        pmc_e = sym.cse(sym.project("vol", self.pmc_tag)(e))
-        pmc_h = sym.cse(sym.project("vol", self.pmc_tag)(h))
+        pmc_e = op.project(self.dcoll, "vol", self.pmc_tag, e)
+        pmc_h = op.project(self.dcoll, "vol", self.pmc_tag, h)
 
         return flat_obj_array(pmc_e, -pmc_h)
 
@@ -207,7 +220,8 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        absorb_normal = sym.normal(self.absorb_tag, self.dimensions)
+        absorb_normal = thaw(self.dcoll.normal(dd=self.absorb_tag),
+                             self.dcoll._setup_actx)
 
         e, h = self.split_eh(w)
 
@@ -218,8 +232,8 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_Z = (mu/epsilon)**0.5  # noqa: N806
         absorb_Y = 1/absorb_Z  # noqa: N806
 
-        absorb_e = sym.cse(sym.project("vol", self.absorb_tag)(e))
-        absorb_h = sym.cse(sym.project("vol", self.absorb_tag)(h))
+        absorb_e = op.project(self.dcoll, "vol", self.absorb_tag, e)
+        absorb_h = op.project(self.dcoll, "vol", self.absorb_tag, h)
 
         bc = flat_obj_array(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
@@ -247,9 +261,9 @@ class MaxwellOperator(HyperbolicOperator):
         if is_zero(incident_bc_data):
             return make_obj_array([0]*fld_cnt)
         else:
-            return sym.cse(-incident_bc_data)
+            return -incident_bc_data
 
-    def sym_operator(self, w=None):
+    def operator(self, t, w):
         """The full operator template - the high level description of
         the Maxwell operator.
 
@@ -257,7 +271,6 @@ class MaxwellOperator(HyperbolicOperator):
         derivatives, flux, boundary conditions etc.
         """
         from grudge.tools import count_subset
-        w = sym.make_sym_array("w", count_subset(self.get_eh_subset()))
 
         elec_components = count_subset(self.get_eh_subset()[0:3])
         mag_components = count_subset(self.get_eh_subset()[3:6])
@@ -274,17 +287,23 @@ class MaxwellOperator(HyperbolicOperator):
                 (self.incident_tag, self.incident_bc(w)),
                 ]
 
+        dcoll = self.dcoll
+
         def flux(pair):
-            return sym.project(pair.dd, "all_faces")(self.flux(pair))
+            return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
 
         return (
-                - self.local_derivatives(w)
-                - sym.InverseMassOperator()(sym.FaceMassOperator()(
-                    flux(sym.int_tpair(w))
-                    + sum(
-                        flux(sym.bv_tpair(tag, w, bc))
-                        for tag, bc in tags_and_bcs)
-                    ))) / material_divisor
+            - self.local_derivatives(w)
+            - op.inverse_mass(
+                dcoll,
+                op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
+                    + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
+                          for tag, bc in tags_and_bcs)
+                )
+            )
+        ) / material_divisor
 
     @memoize_method
     def partial_to_eh_subsets(self):
@@ -314,25 +333,13 @@ class MaxwellOperator(HyperbolicOperator):
         """
         return 6*(True,)
 
-    def max_eigenvalue_expr(self):
-        """Return the largest eigenvalue of Maxwell's equations as a hyperbolic
-        system.
-        """
-        from math import sqrt
+    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
         if self.fixed_material:
-            return 1/sqrt(self.epsilon*self.mu)  # a number
+            return 1/np.sqrt(self.epsilon*self.mu)  # a number
         else:
-            import grudge.symbolic as sym
-            return sym.NodalMax("vol")(
-                    1 / sym.sqrt(self.epsilon * self.mu)
-                    )
-
-    def max_eigenvalue(self, t, fields=None, discr=None, context={}):
-        if self.fixed_material:
-            return self.max_eigenvalue_expr()
-        else:
-            raise ValueError("max_eigenvalue is no longer supported for "
-                    "variable-coefficient problems--use max_eigenvalue_expr")
+            actx = self.dcoll._setup_actx
+            return op.nodal_max(self.dcoll, "vol",
+                                1 / actx.np.sqrt(self.epsilon * self.mu))
 
     def check_bc_coverage(self, mesh):
         from meshmode.mesh import check_bc_coverage
@@ -341,6 +348,17 @@ class MaxwellOperator(HyperbolicOperator):
             self.pmc_tag,
             self.absorb_tag,
             self.incident_tag])
+
+
+# NOTE: Hack for getting the derivative operators to play nice
+# with grudge.tools.SubsettableCrossProduct
+class _Dx:
+    def __init__(self, dcoll, i):
+        self.dcoll = dcoll
+        self.i = i
+
+    def __mul__(self, other):
+        return op.local_d_dx(self.dcoll, self.i, other)
 
 
 class TMMaxwellOperator(MaxwellOperator):
@@ -403,59 +421,59 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
                 )
 
 
-def get_rectangular_cavity_mode(E_0, mode_indices):  # noqa: N803
+def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N803
     """A rectangular TM cavity mode for a rectangle / cube
     with one corner at the origin and the other at (1,1[,1])."""
     dims = len(mode_indices)
     if dims != 2 and dims != 3:
         raise ValueError("Improper mode_indices dimensions")
-    import numpy
 
-    factors = [n*numpy.pi for n in mode_indices]
+    factors = [n*np.pi for n in mode_indices]
 
     kx, ky = factors[0:2]
     if dims == 3:
         kz = factors[2]
 
-    omega = numpy.sqrt(sum(f**2 for f in factors))
+    omega = np.sqrt(sum(f**2 for f in factors))
 
-    nodes = sym.nodes(dims)
     x = nodes[0]
     y = nodes[1]
     if dims == 3:
         z = nodes[2]
 
-    sx = sym.sin(kx*x)
-    cx = sym.cos(kx*x)
-    sy = sym.sin(ky*y)
-    cy = sym.cos(ky*y)
+    zeros = 0*x
+    sx = actx.np.sin(kx*x)
+    cx = actx.np.cos(kx*x)
+    sy = actx.np.sin(ky*y)
+    cy = actx.np.cos(ky*y)
     if dims == 3:
-        sz = sym.sin(kz*z)
-        cz = sym.cos(kz*z)
+        sz = actx.np.sin(kz*z)
+        cz = actx.np.cos(kz*z)
 
     if dims == 2:
-        tfac = sym.ScalarVariable("t") * omega
+        tfac = t * omega
 
         result = flat_obj_array(
-            0,
-            0,
-            sym.sin(kx * x) * sym.sin(ky * y) * sym.cos(tfac),  # ez
-            -ky * sym.sin(kx * x) * sym.cos(ky * y) * sym.sin(tfac) / omega,  # hx
-            kx * sym.cos(kx * x) * sym.sin(ky * y) * sym.sin(tfac) / omega,  # hy
-            0,
-            )
+            zeros,
+            zeros,
+            actx.np.sin(kx * x) * actx.np.sin(ky * y) * np.cos(tfac),  # ez
+            (-ky * actx.np.sin(kx * x) * actx.np.cos(ky * y)
+             * np.sin(tfac) / omega),  # hx
+            (kx * actx.np.cos(kx * x) * actx.np.sin(ky * y)
+             * np.sin(tfac) / omega),  # hy
+            zeros,
+        )
     else:
-        tdep = sym.exp(-1j * omega * sym.ScalarVariable("t"))
+        tdep = np.exp(-1j * omega * t)
 
         gamma_squared = ky**2 + kx**2
         result = flat_obj_array(
             -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
             -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
             E_0 * sx*sy*cz*tdep,  # ez
-
             -1j * omega * ky*E_0*sx*cy*cz*tdep / gamma_squared,  # hx
             1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,
-            0,
-            )
+            zeros,
+        )
 
     return result

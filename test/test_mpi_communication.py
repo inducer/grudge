@@ -1,6 +1,7 @@
 __copyright__ = """
 Copyright (C) 2017 Ellis Hoag
 Copyright (C) 2017 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
 """
 
 __license__ = """
@@ -29,14 +30,21 @@ import numpy as np
 import pyopencl as cl
 import logging
 
-from meshmode.array_context import PyOpenCLArrayContext
+from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from arraycontext.container.traversal import thaw
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
-from grudge import sym, bind, DiscretizationCollection
+from grudge import DiscretizationCollection
 from grudge.shortcuts import set_up_rk4
+
+from meshmode.dof_array import flat_norm
+
+from pytools.obj_array import flat_obj_array
+
+import grudge.op as op
 
 
 def simple_mpi_communication_entrypoint():
@@ -65,30 +73,33 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DiscretizationCollection(actx, local_mesh, order=5,
+    dcoll = DiscretizationCollection(actx, local_mesh, order=5,
             mpi_communicator=comm)
 
-    sym_x = sym.nodes(local_mesh.dim)
-    myfunc_symb = sym.sin(np.dot(sym_x, [2, 3]))
-    myfunc = bind(vol_discr, myfunc_symb)(actx)
+    x = thaw(dcoll.nodes(), actx)
+    myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
-    sym_all_faces_func = sym.cse(
-        sym.project("vol", "all_faces")(sym.var("myfunc")))
-    sym_int_faces_func = sym.cse(
-        sym.project("vol", "int_faces")(sym.var("myfunc")))
-    sym_bdry_faces_func = sym.cse(
-        sym.project(BTAG_ALL, "all_faces")(
-            sym.project("vol", BTAG_ALL)(sym.var("myfunc"))))
+    from grudge.dof_desc import as_dofdesc
 
-    bound_face_swap = bind(vol_discr,
-        sym.project("int_faces", "all_faces")(
-            sym.OppositeInteriorFaceSwap("int_faces")(
-                sym_int_faces_func)
-            ) - (sym_all_faces_func - sym_bdry_faces_func)
-            )
+    dd_int = as_dofdesc("int_faces")
+    dd_vol = as_dofdesc("vol")
+    dd_af = as_dofdesc("all_faces")
 
-    hopefully_zero = bound_face_swap(myfunc=myfunc)
-    error = actx.np.linalg.norm(hopefully_zero, ord=np.inf)
+    all_faces_func = op.project(dcoll, dd_vol, dd_af, myfunc)
+    int_faces_func = op.project(dcoll, dd_vol, dd_int, myfunc)
+    bdry_faces_func = op.project(dcoll, BTAG_ALL, dd_af,
+                                 op.project(dcoll, dd_vol, BTAG_ALL, myfunc))
+
+    hopefully_zero = (
+        op.project(
+            dcoll, "int_faces", "all_faces",
+            dcoll.opposite_face_connection()(int_faces_func)
+        )
+        + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.int)
+              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc))
+    ) - (all_faces_func - bdry_faces_func)
+
+    error = flat_norm(hopefully_zero, ord=np.inf)
 
     print(__file__)
     with np.printoptions(threshold=100000000, suppress=True):
@@ -112,7 +123,6 @@ def mpi_communication_entrypoint():
     mesh_dist = MPIMeshDistributor(comm)
 
     dim = 2
-    dt = 0.04
     order = 4
 
     if mesh_dist.is_mananger_rank():
@@ -124,79 +134,65 @@ def mpi_communication_entrypoint():
         part_per_element = get_partition_by_pymetis(mesh, num_parts)
 
         local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+
+        del mesh
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    vol_discr = DiscretizationCollection(actx, local_mesh, order=order,
-                                               mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
+                                     mpi_communicator=comm)
 
-    source_center = np.array([0.1, 0.22, 0.33])[:local_mesh.dim]
-    source_width = 0.05
-    source_omega = 3
-
-    sym_x = sym.nodes(local_mesh.dim)
-    sym_source_center_dist = sym_x - source_center
-    sym_t = sym.ScalarVariable("t")
+    def source_f(actx, dcoll, t=0):
+        source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
+        source_width = 0.05
+        source_omega = 3
+        nodes = thaw(dcoll.nodes(), actx)
+        source_center_dist = flat_obj_array(
+            [nodes[i] - source_center[i] for i in range(dcoll.dim)]
+        )
+        return (
+            np.sin(source_omega*t)
+            * actx.np.exp(
+                -np.dot(source_center_dist, source_center_dist)
+                / source_width**2
+            )
+        )
 
     from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
-    op = WeakWaveOperator(0.1, vol_discr.dim,
-            source_f=(
-                sym.sin(source_omega*sym_t)
-                * sym.exp(
-                    -np.dot(sym_source_center_dist, sym_source_center_dist)
-                    / source_width**2)),
-            dirichlet_tag=BTAG_NONE,
-            neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_ALL,
-            flux_type="upwind")
 
-    from pytools.obj_array import flat_obj_array
-    fields = flat_obj_array(vol_discr.zeros(actx),
-            [vol_discr.zeros(actx) for i in range(vol_discr.dim)])
+    wave_op = WeakWaveOperator(
+        dcoll,
+        0.1,
+        source_f=source_f,
+        dirichlet_tag=BTAG_NONE,
+        neumann_tag=BTAG_NONE,
+        radiation_tag=BTAG_ALL,
+        flux_type="upwind"
+    )
 
-    # FIXME
-    # dt = op.estimate_rk4_timestep(vol_discr, fields=fields)
+    fields = flat_obj_array(
+        dcoll.zeros(actx),
+        [dcoll.zeros(actx) for i in range(dcoll.dim)]
+    )
 
-    # FIXME: Should meshmode consider BTAG_PARTITION to be a boundary?
-    #           Fails because: "found faces without boundary conditions"
-    # op.check_bc_coverage(local_mesh)
+    dt_scaling_const = 2/3
+    dt = dt_scaling_const * wave_op.estimate_rk4_timestep(dcoll, fields=fields)
+
+    wave_op.check_bc_coverage(local_mesh)
 
     from logpyle import LogManager, \
             add_general_quantities, \
-            add_run_info, \
-            IntervalTimer, EventCounter
+            add_run_info
     log_filename = None
     # NOTE: LogManager hangs when using a file on a shared directory.
     # log_filename = "grudge_log.dat"
     logmgr = LogManager(log_filename, "w", comm)
     add_run_info(logmgr)
     add_general_quantities(logmgr)
-    log_quantities =\
-        {"rank_data_swap_timer": IntervalTimer("rank_data_swap_timer",
-        "Time spent evaluating RankDataSwapAssign"),
-        "rank_data_swap_counter": EventCounter("rank_data_swap_counter",
-        "Number of RankDataSwapAssign instructions evaluated"),
-        "exec_timer": IntervalTimer("exec_timer",
-        "Total time spent executing instructions"),
-        "insn_eval_timer": IntervalTimer("insn_eval_timer",
-        "Time spend evaluating instructions"),
-        "future_eval_timer": IntervalTimer("future_eval_timer",
-        "Time spent evaluating futures"),
-        "busy_wait_timer": IntervalTimer("busy_wait_timer",
-        "Time wasted doing busy wait")}
-    for quantity in log_quantities.values():
-        logmgr.add_quantity(quantity)
-
-    logger.debug("\n%s", sym.pretty(op.sym_operator()))
-    bound_op = bind(vol_discr, op.sym_operator())
 
     def rhs(t, w):
-        val, rhs.profile_data = bound_op(profile_data=rhs.profile_data,
-                                         log_quantities=log_quantities,
-                                         t=t, w=w)
-        return val
-    rhs.profile_data = {}
+        return wave_op.operator(t, w)
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
@@ -204,12 +200,10 @@ def mpi_communication_entrypoint():
     nsteps = int(final_t/dt)
     logger.info("[%04d] dt %.5e nsteps %4d", i_local_rank, dt, nsteps)
 
-    # from grudge.shortcuts import make_visualizer
-    # vis = make_visualizer(vol_discr, vis_order=order)
-
     step = 0
 
-    norm = bind(vol_discr, sym.norm(2, sym.var("u")))
+    def norm(u):
+        return op.norm(dcoll, u, 2)
 
     from time import time
     t_last_step = time()
@@ -220,33 +214,16 @@ def mpi_communication_entrypoint():
             assert event.component_id == "w"
 
             step += 1
-            logger.debug("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
-                    step, event.t,
-                    norm(u=event.state_component[0]),
-                    time() - t_last_step)
+            logger.info("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
+                        step, event.t,
+                        norm(u=event.state_component[0]),
+                        time() - t_last_step)
 
-            # if step % 10 == 0:
-            #     vis.write_vtk_file("rank%d-fld-%04d.vtu" % (i_local_rank, step),
-            #                        [("u", event.state_component[0]),
-            #                         ("v", event.state_component[1:])])
             t_last_step = time()
             logmgr.tick_after()
             logmgr.tick_before()
+
     logmgr.tick_after()
-
-    def print_profile_data(data):
-        logger.info("""execute() for rank %d:\n
-            \tInstruction Evaluation: %g\n
-            \tFuture Evaluation: %g\n
-            \tBusy Wait: %g\n
-            \tTotal: %g seconds""",
-            i_local_rank,
-            data["insn_eval_time"] / data["total_time"] * 100,
-            data["future_eval_time"] / data["total_time"] * 100,
-            data["busy_wait_time"] / data["total_time"] * 100,
-            data["total_time"])
-
-    print_profile_data(rhs.profile_data)
     logmgr.close()
     logger.info("Rank %d exiting", i_local_rank)
 
@@ -261,6 +238,7 @@ def test_mpi(num_ranks):
 
     from subprocess import check_call
     import sys
+    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
     check_call([
         "mpiexec", "-np", str(num_ranks),
         "-x", "RUN_WITHIN_MPI=1",
@@ -276,6 +254,7 @@ def test_simple_mpi(num_ranks):
 
     from subprocess import check_call
     import sys
+    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
     check_call([
         "mpiexec", "-np", str(num_ranks),
         "-x", "RUN_WITHIN_MPI=1",

@@ -108,9 +108,6 @@ todo_include_todos = False
 
 html_theme = "furo"
 
-html_theme_options = {}
-
-
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     "https://docs.python.org/3/": None,
@@ -118,9 +115,8 @@ intersphinx_mapping = {
     "https://documen.tician.de/pyopencl/": None,
     "https://documen.tician.de/modepy/": None,
     "https://documen.tician.de/pymbolic/": None,
+    "https://documen.tician.de/arraycontext/": None,
     "https://documen.tician.de/meshmode/": None,
     "https://documen.tician.de/loopy/": None,
     }
 autoclass_content = "class"
-autodoc_typehints = "description"
-

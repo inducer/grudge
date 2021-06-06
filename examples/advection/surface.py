@@ -1,4 +1,9 @@
-__copyright__ = "Copyright (C) 2020 Alexandru Fikl"
+"""Minimal example of a grudge driver for DG on surfaces."""
+
+__copyright__ = """
+Copyright (C) 2020 Alexandru Fikl
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,15 +29,17 @@ import os
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw, flatten
+from arraycontext import PyOpenCLArrayContext, thaw
+
+from meshmode.dof_array import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-from grudge import bind, sym
 from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
+import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,10 +48,10 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, actx, discr, order, visualize=True):
+    def __init__(self, actx, dcoll, order, visualize=True):
         self.actx = actx
-        self.ambient_dim = discr.ambient_dim
-        self.dim = discr.dim
+        self.ambient_dim = dcoll.ambient_dim
+        self.dim = dcoll.dim
 
         self.visualize = visualize
         if not self.visualize:
@@ -54,11 +61,11 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            x = thaw(actx, discr.discr_from_dd(dof_desc.DD_VOLUME).nodes())
-            self.x = actx.to_numpy(flatten(actx.np.atan2(x[1], x[0])))
+            x = thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME).nodes(), actx)
+            self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr)
+            self.vis = make_visualizer(dcoll)
         else:
             raise ValueError("unsupported dimension")
 
@@ -94,10 +101,13 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
+def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    )
 
     # {{{ parameters
 
@@ -106,16 +116,9 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     # sphere resolution
     resolution = 64 if dim == 2 else 1
 
-    # cfl
-    dt_factor = 2.0
     # final time
     final_time = np.pi
 
-    # velocity field
-    sym_x = sym.nodes(dim)
-    c = make_obj_array([
-        -sym_x[1], sym_x[0], 0.0
-        ])[:dim]
     # flux
     flux_type = "lf"
 
@@ -136,73 +139,81 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
     else:
         raise ValueError("unsupported dimension")
 
-    quad_tag_to_group_factory = {}
-    if product_tag == "none":
-        product_tag = None
+    discr_tag_to_group_factory = {}
+    if use_quad:
+        qtag = dof_desc.DISCR_TAG_QUAD
+    else:
+        qtag = None
 
     from meshmode.discretization.poly_element import \
             PolynomialWarpAndBlendGroupFactory, \
             QuadratureSimplexGroupFactory
 
-    quad_tag_to_group_factory[dof_desc.QTAG_NONE] = \
-            PolynomialWarpAndBlendGroupFactory(order)
+    discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
+        PolynomialWarpAndBlendGroupFactory(order)
 
-    if product_tag:
-        quad_tag_to_group_factory[product_tag] = \
-                QuadratureSimplexGroupFactory(order=4*order)
+    if use_quad:
+        discr_tag_to_group_factory[qtag] = \
+            QuadratureSimplexGroupFactory(order=4*order)
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh,
-            quad_tag_to_group_factory=quad_tag_to_group_factory)
 
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
+
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:     %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
     # }}}
 
-    # {{{ symbolic operators
+    # {{{ Surface advection operator
+
+    # velocity field
+    x = thaw(dcoll.nodes(), actx)
+    c = make_obj_array([-x[1], x[0], 0.0])[:dim]
 
     def f_initial_condition(x):
         return x[0]
 
     from grudge.models.advection import SurfaceAdvectionOperator
-    op = SurfaceAdvectionOperator(c,
+    adv_operator = SurfaceAdvectionOperator(
+        dcoll,
+        c,
         flux_type=flux_type,
-        quad_tag=product_tag)
+        quad_tag=qtag
+    )
 
-    bound_op = bind(discr, op.sym_operator())
-    u0 = bind(discr, f_initial_condition(sym_x))(actx, t=0)
+    u0 = f_initial_condition(x)
 
     def rhs(t, u):
-        return bound_op(actx, t=t, u=u)
+        return adv_operator.operator(t, u)
 
     # check velocity is tangential
-    sym_normal = sym.surface_normal(dim, dim=dim - 1,
-                                    dd=dof_desc.DD_VOLUME).as_vector()
-    error = bind(discr, sym.norm(2, c.dot(sym_normal)))(actx)
+    from grudge.geometry import normal
+
+    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME)
+
+    error = op.norm(dcoll, c.dot(surf_normal), 2)
     logger.info("u_dot_n:   %.5e", error)
 
     # }}}
 
     # {{{ time stepping
 
-    # compute time step
-    h_min = bind(discr,
-            sym.h_max_from_volume(discr.ambient_dim, dim=discr.dim))(actx)
-    dt = dt_factor * h_min/order**2
+    dt = adv_operator.estimate_rk4_timestep(dcoll, fields=u0)
     nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     logger.info("dt:        %.5e", dt)
     logger.info("nsteps:    %d", nsteps)
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u0, rhs)
-    plot = Plotter(actx, discr, order, visualize=visualize)
+    plot = Plotter(actx, dcoll, order, visualize=visualize)
 
-    norm = bind(discr, sym.norm(2, sym.var("u")))
-    norm_u = norm(actx, u=u0)
+    norm_u = op.norm(dcoll, u0, 2)
 
     step = 0
 
@@ -211,17 +222,19 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
     if visualize and dim == 3:
         from grudge.shortcuts import make_visualizer
-        vis = make_visualizer(discr)
-        vis.write_vtk_file("fld-surface-velocity.vtu", [
-            ("u", bind(discr, c)(actx)),
-            ("n", bind(discr, sym_normal)(actx))
-            ], overwrite=True)
+        vis = make_visualizer(dcoll)
+        vis.write_vtk_file(
+            "fld-surface-velocity.vtu",
+            [
+                ("u", c),
+                ("n", surf_normal)
+            ],
+            overwrite=True
+        )
 
         df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
-        face_discr = discr.connection_from_dds(dof_desc.DD_VOLUME, df).to_discr
-
-        face_normal = bind(discr, sym.normal(
-            df, face_discr.ambient_dim, dim=face_discr.dim))(actx)
+        face_discr = dcoll.discr_from_dd(df)
+        face_normal = thaw(dcoll.normal(dd=df), actx)
 
         from meshmode.discretization.visualization import make_visualizer
         vis = make_visualizer(actx, face_discr)
@@ -235,12 +248,14 @@ def main(ctx_factory, dim=2, order=4, product_tag=None, visualize=False):
 
         step += 1
         if step % 10 == 0:
-            norm_u = norm(actx, u=event.state_component)
+            norm_u = op.norm(dcoll, event.state_component, 2)
             plot(event, "fld-surface-%04d" % step)
 
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 
-    plot(event, "fld-surface-%04d" % step)
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
+        assert norm_u < 3
 
     # }}}
 
@@ -250,10 +265,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", choices=[2, 3], default=2, type=int)
-    parser.add_argument("--qtag", choices=["none", "product"], default="none")
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--use-quad", action="store_true")
+    parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
             dim=args.dim,
-            product_tag=args.qtag)
+            order=args.order,
+            use_quad=args.use_quad,
+            visualize=args.visualize)
