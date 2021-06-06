@@ -78,7 +78,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
 def test_non_geometric_factors(actx_factory, name):
-    from grudge.dt_utils import dt_non_geometric_factor
+    from grudge.dt_utils import dt_non_geometric_factors
 
     actx = actx_factory()
 
@@ -103,7 +103,7 @@ def test_non_geometric_factors(actx_factory, name):
     for degree in degrees:
         mesh = builder.get_mesh(1, degree)
         dcoll = DiscretizationCollection(actx, mesh, order=degree)
-        factors.append(dt_non_geometric_factor(dcoll))
+        factors.append(min(dt_non_geometric_factors(dcoll)))
 
     # Crude estimate, factors should behave like 1/N**2
     factors = np.asarray(factors)

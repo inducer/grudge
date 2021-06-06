@@ -1,6 +1,6 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
-.. autofunction:: dt_non_geometric_factor
+.. autofunction:: dt_non_geometric_factors
 .. autofunction:: dt_geometric_factors
 .. autofunction:: h_max_from_volume
 .. autofunction:: h_min_from_volume
@@ -46,21 +46,22 @@ from pytools import memoize_on_first_arg
 
 
 @memoize_on_first_arg
-def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
-    r"""Computes the non-geometric scale factor following [Hesthaven_2008]_,
-    section 6.4:
+def dt_non_geometric_factors(
+        dcoll: DiscretizationCollection, dd=None) -> list:
+    r"""Computes the non-geometric scale factors following [Hesthaven_2008]_,
+    section 6.4, for each element group in the *dd* discretization:
 
     .. math::
 
         c_{ng} = \operatorname{min}\left( \Delta r_i \right),
 
     where :math:`\Delta r_i` denotes the distance between two distinct
-    nodes on the reference element.
+    nodal points on the reference element.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: a :class:`float` denoting the minimum node distance on the
-        reference element.
+    :returns: a :class:`list` of :class:`float` values denoting the minimum
+        node distance on the reference element for each group.
     """
     if dd is None:
         dd = DD_VOLUME
@@ -88,8 +89,7 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
                 )
             )
 
-    # Return minimum over all element groups in the discretization
-    return min(min_delta_rs)
+    return min_delta_rs
 
 
 # {{{ Mesh size functions

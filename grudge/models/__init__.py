@@ -49,13 +49,22 @@ class HyperbolicOperator(Operator):
 
     def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
         """Estimate the largest stable timestep for an RK4 method."""
-        from grudge.dt_utils import (dt_non_geometric_factor,
+        from grudge.dt_utils import (dt_non_geometric_factors,
                                      dt_geometric_factors)
+        from meshmode.dof_array import DOFArray
         import grudge.op as op
 
+        actx = dcoll._setup_actx
         max_lambda = self.max_characteristic_velocity(t, fields, dcoll)
-        dt_factor = \
-            (dt_non_geometric_factor(dcoll)
-             * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+        # Scale each group array of geometric factors by the corresponding
+        # group non-geometric factor
+        dt_factors = DOFArray(
+            actx,
+            data=tuple(
+                cng * geo_facts
+                for cng, geo_facts in zip(dt_non_geometric_factors(dcoll),
+                                          dt_geometric_factors(dcoll))
+            )
+        )
 
-        return dt_factor * (1 / max_lambda)
+        return op.nodal_min(dcoll, "vol", dt_factors * (1 / max_lambda))
