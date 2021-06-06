@@ -27,13 +27,10 @@ import meshmode.mesh.generation as mgen
 
 from grudge import DiscretizationCollection
 
-import pytest
-
 from arraycontext import (  # noqa
     pytest_generate_tests_for_pyopencl_array_context
     as pytest_generate_tests
 )
-from arraycontext.container.traversal import thaw
 
 import logging
 
@@ -58,7 +55,7 @@ def test_trace_pair(actx_factory):
         for grp_ary in ary:
             grp_ary.set(np.random.rand(*grp_ary.shape))
         return ary
-    
+
     interior = rand()
     exterior = rand()
     tpair = TracePair("vol", interior=interior, exterior=exterior)
