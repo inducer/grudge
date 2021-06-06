@@ -667,8 +667,8 @@ def mean_curvature(ambient_dim, dim=None, dd=None):
 
 # }}}
 
-# {{{ Symbolic trace pair functions
 
+# {{{ Symbolic trace pair functions
 
 def int_tpair(expression, qtag=None, from_dd=None):
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
