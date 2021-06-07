@@ -1,6 +1,18 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
+Timestep estimation
+-------------------
+
+.. autofunction:: estimate_local_timestep
+
+Non-geometric quantities
+------------------------
+
 .. autofunction:: dt_non_geometric_factors
+
+Mesh size utilities
+-------------------
+
 .. autofunction:: dt_geometric_factors
 .. autofunction:: h_max_from_volume
 .. autofunction:: h_min_from_volume
@@ -43,6 +55,41 @@ import grudge.op as op
 from meshmode.dof_array import DOFArray
 
 from pytools import memoize_on_first_arg
+
+
+def estimate_local_timestep(
+        dcoll: DiscretizationCollection, wavespeed) -> DOFArray:
+    r"""Computes an estimate for the local timestep size at each node.
+    The estimate is obtained using the following formula:
+
+    .. math::
+
+        \Delta t_{loc} = \operatorname{min}\left(\Delta r_i\right)\frac{r_D}{|c|}
+
+    where :math:`\operatorname{min}\left(\Delta r_i\right)` is the minimum
+    node distance on the reference cell (see :func:`dt_non_geometric_factors`),
+    :math:`r_D` is the inradius of the physical cell
+    (see :func:`dt_geometric_factors`), and :math:`|c|` is the local
+    magnitude of the characteristic wavespeed.
+
+    :arg wavespeed: a number or :class:`~meshmode.dof_array.DOFArray` for the
+        characteristic wavespeed.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the local
+        timstep estimation at each nodal location.
+    """
+    actx = dcoll._setup_actx
+    dt_factors = DOFArray(
+        actx,
+        data=tuple(
+            # Scale each group array of geometric factors by the
+            # corresponding group non-geometric factor
+            cng * geo_facts
+            for cng, geo_facts in zip(dt_non_geometric_factors(dcoll),
+                                      dt_geometric_factors(dcoll))
+        )
+    )
+
+    return dt_factors / wavespeed
 
 
 @memoize_on_first_arg

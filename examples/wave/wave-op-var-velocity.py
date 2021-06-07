@@ -130,22 +130,11 @@ def rk4_step(y, t, h, f):
 
 
 def estimate_rk4_timestep(dcoll, c):
-    from grudge.dt_utils import (dt_non_geometric_factors,
-                                 dt_geometric_factors)
-    from meshmode.dof_array import DOFArray
+    from grudge.dt_utils import estimate_local_timestep
 
-    # Scale each group array of geometric factors by the corresponding
-    # group non-geometric factor
-    dt_factors = DOFArray(
-        dcoll._setup_actx,
-        data=tuple(
-            cng * geo_facts
-            for cng, geo_facts in zip(dt_non_geometric_factors(dcoll),
-                                      dt_geometric_factors(dcoll))
-        )
-    )
+    local_dts = estimate_local_timestep(dcoll, c)
 
-    return op.nodal_min(dcoll, "vol", dt_factors * (1 / c))
+    return op.nodal_min(dcoll, "vol", local_dts)
 
 
 def bump(actx, dcoll, t=0, width=0.05, center=None):
