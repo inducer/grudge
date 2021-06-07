@@ -268,7 +268,7 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
 @memoize_on_first_arg
 def connected_ranks(dcoll: DiscretizationCollection):
     from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(dcoll._volume_discr.mesh)
+    return get_connected_partitions(dcoll.mesh)
 
 
 class _RankBoundaryCommunication:
