@@ -101,13 +101,22 @@ class EagerDGDiscretization(DiscretizationCollection):
                 discr_tag_to_group_factory[DISCR_TAG_BASE]
             )
 
-        # Define the base discretization
+        # Define the base and modal discretization
+        from grudge.dof_desc import DD_VOLUME, DD_VOLUME_MODAL
         from meshmode.discretization import Discretization
 
         volume_discr = Discretization(
             array_context, mesh,
             discr_tag_to_group_factory[DISCR_TAG_BASE]
         )
+
+        modal_vol_discr = Discretization(
+            array_context, mesh,
+            discr_tag_to_group_factory[DISCR_TAG_MODAL]
+        )
+
+        discr_from_dd = {DD_VOLUME: volume_discr,
+                         DD_VOLUME_MODAL: modal_vol_discr}
 
         # Define boundary connections
         from grudge.discretization import set_up_distributed_communication
@@ -122,7 +131,7 @@ class EagerDGDiscretization(DiscretizationCollection):
             array_context=array_context,
             mesh=mesh,
             discr_tag_to_group_factory=discr_tag_to_group_factory,
-            volume_discr=volume_discr,
+            discr_from_dd=discr_from_dd,
             dist_boundary_connections=dist_boundary_connections,
             mpi_communicator=mpi_communicator
         )

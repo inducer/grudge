@@ -35,6 +35,7 @@ from pytools import memoize_method
 
 from grudge.dof_desc import (
     DD_VOLUME,
+    DD_VOLUME_MODAL,
     DISCR_TAG_BASE,
     DISCR_TAG_MODAL,
     DTAG_BOUNDARY,
@@ -82,7 +83,7 @@ class DiscretizationCollection:
 
     def __init__(self, array_context: ArrayContext, mesh: Mesh,
                  discr_tag_to_group_factory,
-                 volume_discr,
+                 discr_from_dd,
                  dist_boundary_connections,
                  mpi_communicator=None):
         """
@@ -95,17 +96,20 @@ class DiscretizationCollection:
             to be carried out, or *None* to indicate that operations with this
             discretization tag should be carried out with the standard volume
             discretization.
-        :arg volume_discr: A :class:`meshmode.discretization.Discretization`
-            object for the base (:class:`grudge.dof_desc.DISCR_TAG_BASE`)
-            volume discretization.
+        :arg discr_from_dd: A mapping from discretization tags
+            from a :class:`grudge.dof_desc.DOFDesc`
+            to a :class:`meshmode.discretization.Discretization`.
+            At minimum, this should include a base discretization given by
+            the dof descriptor :class:`grudge.dof_desc.DD_VOLUME`.
         :arg dist_boundary_connections: A dictionary whose keys denote the
             partition group index and map to the appropriate face connections
             for distributed boundaries, if any.
         :arg mpi_communicator: An (optional) MPI communicator.
         """
         self._setup_actx = array_context
+        self._mesh = mesh
         self.discr_tag_to_group_factory = discr_tag_to_group_factory
-        self._volume_discr = volume_discr
+        self._discr_from_dd = discr_from_dd
 
         # NOTE: Can be removed when symbolics are completely removed
         # {{{ management of discretization-scoped common subexpressions
@@ -184,15 +188,16 @@ class DiscretizationCollection:
         """
         dd = as_dofdesc(dd)
 
+        if dd in self._discr_from_dd:
+            return self._discr_from_dd[dd]
+
         discr_tag = dd.discretization_tag
 
         if discr_tag is DISCR_TAG_MODAL:
             return self._modal_discr(dd.domain_tag)
 
         if dd.is_volume():
-            if discr_tag is not DISCR_TAG_BASE:
-                return self._discr_tag_volume_discr(discr_tag)
-            return self._volume_discr
+            return self._discr_tag_volume_discr(discr_tag)
 
         if discr_tag is not DISCR_TAG_BASE:
             no_quad_discr = self.discr_from_dd(DOFDesc(dd.domain_tag))
@@ -322,7 +327,7 @@ class DiscretizationCollection:
                 from meshmode.discretization.connection import \
                         make_same_mesh_connection
                 to_discr = self._discr_tag_volume_discr(to_discr_tag)
-                from_discr = self._volume_discr
+                from_discr = self._discr_from_dd[DD_VOLUME]
                 return make_same_mesh_connection(self._setup_actx, to_discr,
                             from_discr)
 
@@ -355,7 +360,7 @@ class DiscretizationCollection:
         from meshmode.discretization import Discretization
 
         return Discretization(
-            self._setup_actx, self._volume_discr.mesh,
+            self._setup_actx, self._mesh,
             self.group_factory_for_discretization_tag(discretization_tag)
         )
 
@@ -409,7 +414,7 @@ class DiscretizationCollection:
     def _boundary_connection(self, boundary_tag):
         return make_face_restriction(
             self._setup_actx,
-            self._volume_discr,
+            self._discr_from_dd[DD_VOLUME],
             self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
             boundary_tag=boundary_tag
         )
@@ -422,7 +427,7 @@ class DiscretizationCollection:
     def _interior_faces_connection(self):
         return make_face_restriction(
             self._setup_actx,
-            self._volume_discr,
+            self._discr_from_dd[DD_VOLUME],
             self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
             FACE_RESTR_INTERIOR,
 
@@ -453,7 +458,7 @@ class DiscretizationCollection:
     def _all_faces_volume_connection(self):
         return make_face_restriction(
             self._setup_actx,
-            self._volume_discr,
+            self._discr_from_dd[DD_VOLUME],
             self.group_factory_for_discretization_tag(DISCR_TAG_BASE),
             FACE_RESTR_ALL,
 
@@ -468,29 +473,29 @@ class DiscretizationCollection:
     @property
     def dim(self):
         """Return the topological dimension."""
-        return self._volume_discr.dim
+        return self._discr_from_dd[DD_VOLUME].dim
 
     @property
     def ambient_dim(self):
         """Return the dimension of the ambient space."""
-        return self._volume_discr.ambient_dim
+        return self._discr_from_dd[DD_VOLUME].ambient_dim
 
     @property
     def real_dtype(self):
         """Return the data type used for real-valued arithmetic."""
-        return self._volume_discr.real_dtype
+        return self._discr_from_dd[DD_VOLUME].real_dtype
 
     @property
     def complex_dtype(self):
         """Return the data type used for complex-valued arithmetic."""
-        return self._volume_discr.complex_dtype
+        return self._discr_from_dd[DD_VOLUME].complex_dtype
 
     @property
     def mesh(self):
         """Return the :class:`meshmode.mesh.Mesh` over which the discretization
         collection is built.
         """
-        return self._volume_discr.mesh
+        return self._mesh
 
     def empty(self, array_context: ArrayContext, dtype=None):
         """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
@@ -501,7 +506,7 @@ class DiscretizationCollection:
             vector of dtype :attr:`complex_dtype`. If
             *None* (the default), a real vector will be returned.
         """
-        return self._volume_discr.empty(array_context, dtype)
+        return self._discr_from_dd[DD_VOLUME].empty(array_context, dtype)
 
     def zeros(self, array_context: ArrayContext, dtype=None):
         """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`
@@ -512,7 +517,7 @@ class DiscretizationCollection:
             vector of dtype :attr:`complex_dtype`. If
             *None* (the default), a real vector will be returned.
         """
-        return self._volume_discr.zeros(array_context, dtype)
+        return self._discr_from_dd[DD_VOLUME].zeros(array_context, dtype)
 
     def is_volume_where(self, where):
         return where is None or as_dofdesc(where).is_volume()
@@ -525,7 +530,9 @@ class DiscretizationCollection:
                 DeprecationWarning, stacklevel=2)
 
         from pytools import single_valued
-        return single_valued(egrp.order for egrp in self._volume_discr.groups)
+        return single_valued(
+            egrp.order for egrp in self._discr_from_dd[DD_VOLUME].groups
+        )
 
     # {{{ Discretization-specific geometric properties
 
@@ -604,13 +611,21 @@ def make_discretization_collection(
             discr_tag_to_group_factory[DISCR_TAG_BASE]
         )
 
-    # Define the base discretization
+    # Define the base and modal discretization
     from meshmode.discretization import Discretization
 
     volume_discr = Discretization(
         array_context, mesh,
         discr_tag_to_group_factory[DISCR_TAG_BASE]
     )
+
+    modal_vol_discr = Discretization(
+        array_context, mesh,
+        discr_tag_to_group_factory[DISCR_TAG_MODAL]
+    )
+
+    discr_from_dd = {DD_VOLUME: volume_discr,
+                     DD_VOLUME_MODAL: modal_vol_discr}
 
     # Define boundary connections
     dist_boundary_connections = set_up_distributed_communication(
@@ -623,7 +638,7 @@ def make_discretization_collection(
         array_context=array_context,
         mesh=mesh,
         discr_tag_to_group_factory=discr_tag_to_group_factory,
-        volume_discr=volume_discr,
+        discr_from_dd=discr_from_dd,
         dist_boundary_connections=dist_boundary_connections,
         mpi_communicator=mpi_communicator
     )
