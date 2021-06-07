@@ -88,6 +88,9 @@ jobs:
             env:
                 DOWNSTREAM_PROJECT: ${{ matrix.downstream_project }}
             run: |
+                curl -L -O -k https://tiker.net/ci-support-v0
+                . ./ci-support-v0
+
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
                     git clone "https://github.com/illinois-ceesd/$DOWNSTREAM_PROJECT.git"
                 else
@@ -95,7 +98,10 @@ jobs:
                 fi
                 cd "$DOWNSTREAM_PROJECT"
                 echo "*** $DOWNSTREAM_PROJECT version: $(git rev-parse --short HEAD)"
+
+                transfer_requirements_git_urls ../requirements.txt ./requirements.txt
                 sed -i "/egg=grudge/ c git+file://$(readlink -f ..)#egg=grudge" requirements.txt
+
                 # Avoid slow or complicated tests in downstream projects
                 export PYTEST_ADDOPTS="-k 'not (slowtest or octave or mpi)'"
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
@@ -107,9 +113,6 @@ jobs:
                 else
                     sed -i "/mpi4py/ d" requirements.txt
                 fi
-
-                curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/master/ci-support.sh
-                . ./ci-support.sh
                 build_py_project_in_conda_env
                 test_py_project
 
