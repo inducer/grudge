@@ -31,7 +31,7 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 import grudge.op as op
 
@@ -68,7 +68,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     min_factors = []
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        dcoll = make_discretization_collection(actx, mesh, order=builder.order)
         min_factors.append(
             op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx))
         )
@@ -106,7 +106,7 @@ def test_non_geometric_factors(actx_factory, name):
     degrees = list(range(1, 8))
     for degree in degrees:
         mesh = builder.get_mesh(1, degree)
-        dcoll = DiscretizationCollection(actx, mesh, order=degree)
+        dcoll = make_discretization_collection(actx, mesh, order=degree)
         factors.append(min(dt_non_geometric_factors(dcoll)))
 
     # Crude estimate, factors should behave like 1/N**2

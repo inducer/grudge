@@ -2,6 +2,8 @@
 .. currentmodule:: grudge
 
 .. autoclass:: DiscretizationCollection
+
+.. autofunction:: make_discretization_collection
 """
 
 __copyright__ = """
@@ -79,13 +81,10 @@ class DiscretizationCollection:
     """
 
     def __init__(self, array_context: ArrayContext, mesh: Mesh,
-                 order=None,
-                 discr_tag_to_group_factory=None,
-                 volume_discr=None,
-                 dist_boundary_connections=None,
-                 mpi_communicator=None,
-                 # FIXME: `quad_tag_to_group_factory` is deprecated
-                 quad_tag_to_group_factory=None):
+                 discr_tag_to_group_factory,
+                 volume_discr,
+                 dist_boundary_connections,
+                 mpi_communicator=None):
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
             (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
@@ -104,68 +103,9 @@ class DiscretizationCollection:
             for distributed boundaries, if any.
         :arg mpi_communicator: An (optional) MPI communicator.
         """
-
-        if (quad_tag_to_group_factory is not None
-                and discr_tag_to_group_factory is not None):
-            raise ValueError(
-                "Both `quad_tag_to_group_factory` and `discr_tag_to_group_factory` "
-                "are specified. Use `discr_tag_to_group_factory` instead."
-            )
-
-        # FIXME: `quad_tag_to_group_factory` is deprecated
-        if (quad_tag_to_group_factory is not None
-                and discr_tag_to_group_factory is None):
-            warn("`quad_tag_to_group_factory` is a deprecated kwarg and will "
-                 "be dropped in version 2022.x. Use `discr_tag_to_group_factory` "
-                 "instead.",
-                 DeprecationWarning, stacklevel=2)
-            discr_tag_to_group_factory = quad_tag_to_group_factory
-
-        self._setup_actx = array_context.clone()
-
-        from meshmode.discretization.poly_element import \
-                default_simplex_group_factory
-
-        if discr_tag_to_group_factory is None:
-            if order is None:
-                raise TypeError(
-                    "one of 'order' and 'discr_tag_to_group_factory' must be given"
-                )
-
-            element_grp = default_simplex_group_factory(base_dim=mesh.dim, order=order)
-            self.discr_tag_to_group_factory = {
-                DISCR_TAG_BASE: element_grp,
-                DISCR_TAG_MODAL: _generate_modal_group_factory(element_grp)
-            }
-        else:
-            if order is not None:
-                discr_tag_to_group_factory = discr_tag_to_group_factory.copy()
-                if DISCR_TAG_BASE in discr_tag_to_group_factory:
-                    raise ValueError(
-                        "if 'order' is given, 'discr_tag_to_group_factory' must "
-                        "not have a key of DISCR_TAG_BASE"
-                    )
-
-                discr_tag_to_group_factory[DISCR_TAG_BASE] = \
-                        default_simplex_group_factory(base_dim=mesh.dim, order=order)
-
-            if DISCR_TAG_MODAL not in discr_tag_to_group_factory:
-                discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
-                    _generate_modal_group_factory(
-                        discr_tag_to_group_factory[DISCR_TAG_BASE]
-                    )
-
-            self.discr_tag_to_group_factory = discr_tag_to_group_factory
-
-        # FIXME
-        if volume_discr is None:
-            from meshmode.discretization import Discretization
-            self._volume_discr = Discretization(
-                array_context, mesh,
-                self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
-            )
-        else:
-            self._volume_discr = volume_discr
+        self._setup_actx = array_context
+        self.discr_tag_to_group_factory = discr_tag_to_group_factory
+        self._volume_discr = volume_discr
 
         # NOTE: Can be removed when symbolics are completely removed
         # {{{ management of discretization-scoped common subexpressions
@@ -178,18 +118,7 @@ class DiscretizationCollection:
 
         # }}}
 
-        # FIXME
-        if dist_boundary_connections is None:
-            self._dist_boundary_connections = \
-                set_up_distributed_communication(
-                    self._setup_actx, mesh,
-                    self._volume_discr,
-                    self.discr_tag_to_group_factory,
-                    comm=mpi_communicator
-                )
-        else:
-            self._dist_boundary_connections = dist_boundary_connections
-
+        self._dist_boundary_connections = dist_boundary_connections
         self.mpi_communicator = mpi_communicator
 
     @property
@@ -631,7 +560,8 @@ def make_discretization_collection(
         order=None,
         discr_tag_to_group_factory=None,
         mpi_communicator=None) -> DiscretizationCollection:
-    """
+    """Construct a discretization collection.
+
     :arg discr_tag_to_group_factory: A mapping from discretization tags
         (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
         :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
@@ -641,9 +571,10 @@ def make_discretization_collection(
         to be carried out, or *None* to indicate that operations with this
         discretization tag should be carried out with the standard volume
         discretization.
+    :returns: A :class:`DiscretizationCollection`.
     """
     from meshmode.discretization.poly_element import \
-        PolynomialWarpAndBlendGroupFactory
+        default_simplex_group_factory
 
     if discr_tag_to_group_factory is None:
         if order is None:
@@ -651,9 +582,9 @@ def make_discretization_collection(
                 "one of 'order' and 'discr_tag_to_group_factory' must be given"
             )
 
-        # Default choice: warp and blend simplex element group
         discr_tag_to_group_factory = {
-            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)
+            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=mesh.dim,
+                                                          order=order)
         }
     else:
         if order is not None:
@@ -665,7 +596,7 @@ def make_discretization_collection(
                 )
 
             discr_tag_to_group_factory[DISCR_TAG_BASE] = \
-                PolynomialWarpAndBlendGroupFactory(order=order)
+                default_simplex_group_factory(base_dim=mesh.dim, order=order)
 
     # Modal discr should always comes from the base discretization
     discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
@@ -673,9 +604,9 @@ def make_discretization_collection(
             discr_tag_to_group_factory[DISCR_TAG_BASE]
         )
 
+    # Define the base discretization
     from meshmode.discretization import Discretization
 
-    # Define the base discretization
     volume_discr = Discretization(
         array_context, mesh,
         discr_tag_to_group_factory[DISCR_TAG_BASE]
@@ -689,7 +620,8 @@ def make_discretization_collection(
     )
 
     return DiscretizationCollection(
-        array_context, mesh, order=order,
+        array_context=array_context,
+        mesh=mesh,
         discr_tag_to_group_factory=discr_tag_to_group_factory,
         volume_discr=volume_discr,
         dist_boundary_connections=dist_boundary_connections,

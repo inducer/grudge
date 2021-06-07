@@ -38,7 +38,7 @@ from pytools.obj_array import flat_obj_array
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import make_visualizer
 
 import grudge.op as op
@@ -176,8 +176,10 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-                    mpi_communicator=comm)
+    dcoll = make_discretization_collection(
+        actx, local_mesh, order=order,
+        mpi_communicator=comm
+    )
 
     fields = flat_obj_array(
             bump(actx, dcoll),

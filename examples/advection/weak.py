@@ -134,9 +134,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             [np.linspace(-d/2, d/2, npoints) for _ in range(dim)],
             order=order)
 
-    from grudge import DiscretizationCollection
+    from grudge import make_discretization_collection
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
     # }}}
 

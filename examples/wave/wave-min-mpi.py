@@ -34,7 +34,7 @@ from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 from mpi4py import MPI
 
@@ -79,8 +79,10 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-            mpi_communicator=comm)
+    dcoll = make_discretization_collection(
+        actx, local_mesh, order=order,
+        mpi_communicator=comm
+    )
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]

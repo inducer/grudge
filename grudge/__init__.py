@@ -1,4 +1,7 @@
-__copyright__ = "Copyright (C) 2015 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2015 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -23,8 +26,13 @@ THE SOFTWARE.
 import grudge.symbolic as sym
 from grudge.execution import bind
 
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import (
+    DiscretizationCollection,
+    make_discretization_collection
+)
 
 __all__ = [
-    "sym", "bind", "DiscretizationCollection"
+    "sym", "bind",
+    "DiscretizationCollection",
+    "make_discretization_collection"
 ]

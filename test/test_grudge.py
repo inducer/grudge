@@ -38,7 +38,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -75,7 +75,7 @@ def test_inverse_metric(actx_factory, dim):
     from meshmode.mesh.processing import map_mesh
     mesh = map_mesh(mesh, m)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
 
     from grudge.geometry import \
         forward_metric_derivative_mat, inverse_metric_derivative_mat
@@ -124,7 +124,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh, order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
@@ -231,7 +231,7 @@ def test_mass_surface_area(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        dcoll = make_discretization_collection(actx, mesh, order=builder.order)
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
@@ -300,7 +300,7 @@ def test_mass_operator_inverse(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        dcoll = make_discretization_collection(actx, mesh, order=builder.order)
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
@@ -360,7 +360,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
     mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = make_discretization_collection(actx, mesh, order=builder.order)
 
     volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:    %d", volume_discr.ndofs)
@@ -447,7 +447,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
         mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 nelements_per_axis=(n,)*dim, order=4)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=4)
+        dcoll = make_discretization_collection(actx, mesh, order=4)
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
         x = thaw(volume_discr.nodes(), actx)
 
@@ -489,7 +489,7 @@ def test_2d_gauss_theorem(actx_factory):
 
     actx = actx_factory()
 
-    dcoll = DiscretizationCollection(actx, mesh, order=2)
+    dcoll = make_discretization_collection(actx, mesh, order=2)
     volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     x_volm = thaw(volm_disc.nodes(), actx)
 
@@ -588,7 +588,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
                 QuadratureSimplexGroupFactory
 
         qtag = dof_desc.DISCR_TAG_QUAD
-        dcoll = DiscretizationCollection(
+        dcoll = make_discretization_collection(
             actx, mesh, order=builder.order,
             discr_tag_to_group_factory={
                 qtag: QuadratureSimplexGroupFactory(2 * builder.order)
@@ -749,7 +749,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         )
         from meshmode.mesh import BTAG_ALL
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
         op_class = {"strong": StrongAdvectionOperator,
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
@@ -841,7 +841,7 @@ def test_convergence_maxwell(actx_factory,  order):
                 b=(1.0,)*dims,
                 nelements_per_axis=(n,)*dims)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         epsilon = 1
         mu = 1
@@ -943,7 +943,7 @@ def test_improvement_quadrature(actx_factory, order):
             else:
                 discr_tag_to_group_factory = {}
 
-            dcoll = DiscretizationCollection(
+            dcoll = make_discretization_collection(
                 actx, mesh, order=order,
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
@@ -995,7 +995,7 @@ def test_bessel(actx_factory):
             b=(1.0,)*dims,
             nelements_per_axis=(8,)*dims)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=3)
+    dcoll = make_discretization_collection(actx, mesh, order=3)
 
     nodes = thaw(dcoll.nodes(), actx)
     r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
@@ -1027,7 +1027,7 @@ def test_norm_complex(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
 
     nodes = thaw(dcoll.nodes(), actx)
     f = nodes[0] + 1j * nodes[0]
@@ -1051,7 +1051,7 @@ def test_norm_obj_array(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
 
     w = make_obj_array([1.0, 2.0, 3.0])[:dim]
 
@@ -1087,7 +1087,7 @@ def test_empty_boundary(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     normal = dcoll.normal(BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:

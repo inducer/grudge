@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 from grudge.shortcuts import set_up_rk4
 
 from meshmode.dof_array import flat_norm
@@ -73,8 +73,10 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=5,
-            mpi_communicator=comm)
+    dcoll = make_discretization_collection(
+        actx, local_mesh, order=5,
+        mpi_communicator=comm
+    )
 
     x = thaw(dcoll.nodes(), actx)
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
@@ -139,8 +141,10 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-                                     mpi_communicator=comm)
+    dcoll = make_discretization_collection(
+        actx, local_mesh, order=order,
+        mpi_communicator=comm
+    )
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]

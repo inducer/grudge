@@ -34,7 +34,7 @@ from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 from grudge.models.em import get_rectangular_cavity_mode
 
@@ -59,7 +59,7 @@ def main(ctx_factory, dim=3, order=4, visualize=False):
             b=(1.0,)*dim,
             nelements_per_axis=(4,)*dim)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
     if 0:
         epsilon0 = 8.8541878176e-12  # C**2 / (N m**2)

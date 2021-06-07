@@ -77,7 +77,7 @@ from pymbolic.mapper.evaluator import EvaluationMapper \
 from pytools import memoize
 from pytools.obj_array import flat_obj_array
 
-from grudge import sym, bind, DiscretizationCollection
+from grudge import sym, bind, make_discretization_collection
 from leap.rk import LSRK4MethodBuilder
 
 from pyopencl.tools import (  # noqa
@@ -573,7 +573,7 @@ def get_wave_op_with_discr(actx, dims=2, order=4):
 
     logger.debug("%d elements", mesh.nelements)
 
-    discr = DiscretizationCollection(actx, mesh, order=order)
+    discr = make_discretization_collection(actx, mesh, order=order)
 
     from symbolic_wave_op import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE

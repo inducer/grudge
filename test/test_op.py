@@ -27,7 +27,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import make_obj_array
 
-from grudge import op, DiscretizationCollection
+from grudge import op, make_discretization_collection
 from grudge.dof_desc import DOFDesc
 
 import pytest
@@ -66,7 +66,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 a=(-1,)*dim, b=(1,)*dim,
                 nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         def f(x):
             result = dcoll.zeros(actx) + 1
@@ -186,7 +186,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 a=(-1,)*dim, b=(1,)*dim,
                 nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         def f(x):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])

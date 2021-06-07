@@ -40,7 +40,7 @@ from meshmode.discretization.poly_element import (
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 import grudge.dof_desc as dof_desc
 
 import pytest
@@ -66,7 +66,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
         group_cls=nodal_group_factory.mesh_group_class
     )
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             dof_desc.DISCR_TAG_BASE: nodal_group_factory(order)
@@ -106,7 +106,7 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
         group_cls=QuadratureSimplexGroupFactory.mesh_group_class
     )
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             dof_desc.DISCR_TAG_BASE:

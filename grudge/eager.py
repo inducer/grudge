@@ -24,7 +24,10 @@ THE SOFTWARE.
 """
 
 import grudge.op as op
+
+from arraycontext import ArrayContext
 from grudge.discretization import DiscretizationCollection
+from meshmode.mesh import Mesh
 
 
 class EagerDGDiscretization(DiscretizationCollection):
@@ -35,14 +38,94 @@ class EagerDGDiscretization(DiscretizationCollection):
     new code.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, array_context: ArrayContext, mesh: Mesh,
+                 order=None,
+                 discr_tag_to_group_factory=None,
+                 mpi_communicator=None,
+                 # FIXME: `quad_tag_to_group_factory` is deprecated
+                 quad_tag_to_group_factory=None):
         from warnings import warn
         warn("EagerDGDiscretization is deprecated and will go away in 2022. "
                 "Use the base DiscretizationCollection with grudge.op "
                 "instead.",
                 DeprecationWarning, stacklevel=2)
 
-        super().__init__(*args, **kwargs)
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is not None):
+            raise ValueError(
+                "Both `quad_tag_to_group_factory` and `discr_tag_to_group_factory` "
+                "are specified. Use `discr_tag_to_group_factory` instead."
+            )
+
+        # FIXME: `quad_tag_to_group_factory` is deprecated
+        if (quad_tag_to_group_factory is not None
+                and discr_tag_to_group_factory is None):
+            warn("`quad_tag_to_group_factory` is a deprecated kwarg and will "
+                 "be dropped in version 2022.x. Use `discr_tag_to_group_factory` "
+                 "instead.",
+                 DeprecationWarning, stacklevel=2)
+            discr_tag_to_group_factory = quad_tag_to_group_factory
+
+        from meshmode.discretization.poly_element import \
+            PolynomialWarpAndBlendGroupFactory
+
+        from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_MODAL
+
+        if discr_tag_to_group_factory is None:
+            if order is None:
+                raise TypeError(
+                    "one of 'order' and 'discr_tag_to_group_factory' must be given"
+                )
+
+            # Default choice: warp and blend simplex element group
+            discr_tag_to_group_factory = {
+                DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)
+            }
+        else:
+            if order is not None:
+                discr_tag_to_group_factory = discr_tag_to_group_factory.copy()
+                if DISCR_TAG_BASE in discr_tag_to_group_factory:
+                    raise ValueError(
+                        "if 'order' is given, 'discr_tag_to_group_factory' must "
+                        "not have a key of DISCR_TAG_BASE"
+                    )
+
+                discr_tag_to_group_factory[DISCR_TAG_BASE] = \
+                    PolynomialWarpAndBlendGroupFactory(order=order)
+
+        # Modal discr should always comes from the base discretization
+        from grudge.discretization import _generate_modal_group_factory
+
+        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
+            _generate_modal_group_factory(
+                discr_tag_to_group_factory[DISCR_TAG_BASE]
+            )
+
+        # Define the base discretization
+        from meshmode.discretization import Discretization
+
+        volume_discr = Discretization(
+            array_context, mesh,
+            discr_tag_to_group_factory[DISCR_TAG_BASE]
+        )
+
+        # Define boundary connections
+        from grudge.discretization import set_up_distributed_communication
+
+        dist_boundary_connections = set_up_distributed_communication(
+            array_context, mesh,
+            volume_discr,
+            discr_tag_to_group_factory, comm=mpi_communicator
+        )
+
+        super().__init__(
+            array_context=array_context,
+            mesh=mesh,
+            discr_tag_to_group_factory=discr_tag_to_group_factory,
+            volume_discr=volume_discr,
+            dist_boundary_connections=dist_boundary_connections,
+            mpi_communicator=mpi_communicator
+        )
 
     def project(self, src, tgt, vec):
         return op.project(self, src, tgt, vec)

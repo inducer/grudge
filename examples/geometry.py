@@ -33,7 +33,7 @@ import pyopencl.tools as cl_tools
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
-from grudge import DiscretizationCollection, shortcuts
+from grudge import make_discretization_collection, shortcuts
 
 
 def main(write_output=True):
@@ -49,7 +49,7 @@ def main(write_output=True):
     from meshmode.mesh.generation import generate_warped_rect_mesh
     mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
 
     nodes = thaw(dcoll.nodes(), actx)
     bdry_nodes = thaw(dcoll.nodes(dd=BTAG_ALL), actx)
