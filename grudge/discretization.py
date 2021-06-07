@@ -685,15 +685,6 @@ def set_up_distributed_communication(
     return boundary_connections
 
 
-class DGDiscretizationWithBoundaries(DiscretizationCollection):
-    def __init__(self, *args, **kwargs):
-        warn("DGDiscretizationWithBoundaries is deprecated and will go away "
-                "in 2022. Use DiscretizationCollection instead.",
-                DeprecationWarning, stacklevel=2)
-
-        super().__init__(*args, **kwargs)
-
-
 def _generate_modal_group_factory(nodal_group_factory):
     from meshmode.discretization.poly_element import (
         ModalSimplexGroupFactory,
