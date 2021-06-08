@@ -58,7 +58,7 @@ from pytools import memoize_on_first_arg
 
 
 def estimate_local_timestep(
-        dcoll: DiscretizationCollection, wavespeed) -> DOFArray:
+        dcoll: DiscretizationCollection, wavespeed=None) -> DOFArray:
     r"""Computes an estimate for the local timestep size at each node.
     The estimate is obtained using the following formula:
 
@@ -72,8 +72,10 @@ def estimate_local_timestep(
     (see :func:`dt_geometric_factors`), and :math:`|c|` is the local
     magnitude of the characteristic wavespeed.
 
-    :arg wavespeed: a number or :class:`~meshmode.dof_array.DOFArray` for the
-        characteristic wavespeed.
+    :arg wavespeed: an optional number or :class:`~meshmode.dof_array.DOFArray`
+        for the characteristic wavespeed. If ``wavespeed`` is *None*, then
+        this routine returns the scaling factor:
+        :math:`\operatorname{min}\left(\Delta r_i\right)r_D`.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing an estimate
         of the maximal stable time step for explicit time integration estimation
         at each nodal location.
@@ -87,6 +89,9 @@ def estimate_local_timestep(
         methods has been used as a guide. Any concrete time integrator will
         likely require scaling of the value returned by this routine.
     """
+    if wavespeed is None:
+        wavespeed = 1
+
     actx = dcoll._setup_actx
     dt_factors = DOFArray(
         actx,
