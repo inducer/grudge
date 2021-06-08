@@ -74,8 +74,18 @@ def estimate_local_timestep(
 
     :arg wavespeed: a number or :class:`~meshmode.dof_array.DOFArray` for the
         characteristic wavespeed.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the local
-        timstep estimation at each nodal location.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing an estimate
+        of the maximal stable time step for explicit time integration estimation
+        at each nodal location.
+
+    .. note::
+
+        While a prediction of stability is only meaningful in relation to a given
+        time integrator with a known stability region, the estimate provided here
+        is not intended to be specific to any one time integrator, though the
+        stability region of standard four-stage, fourth-order Runge-Kutta
+        methods has been used as a guide. Any concrete time integrator will
+        likely require scaling of the value returned by this routine.
     """
     actx = dcoll._setup_actx
     dt_factors = DOFArray(
