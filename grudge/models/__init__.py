@@ -43,8 +43,9 @@ class HyperbolicOperator(Operator):
 
     @abstractmethod
     def max_characteristic_velocity(self, t, fields, dcoll):
-        """Return an upper bound on the characteristic
-        velocities of the operator.
+        """Return a :class:`~meshmode.dof_array.DOFArray` or scalar
+        representing the (local or global) maximal characteristic velocity of
+        the operator.
         """
 
     def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
