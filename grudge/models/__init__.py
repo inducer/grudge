@@ -49,10 +49,10 @@ class HyperbolicOperator(Operator):
 
     def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
         """Estimate the largest stable timestep for an RK4 method."""
-        from grudge.dt_utils import estimate_local_timestep
+        from grudge.dt_utils import characteristic_lengthscales
         import grudge.op as op
 
         wavespeeds = self.max_characteristic_velocity(t, fields, dcoll)
-        local_timesteps = estimate_local_timestep(dcoll, wavespeeds)
+        local_timesteps = characteristic_lengthscales(dcoll) / wavespeeds
 
         return op.nodal_min(dcoll, "vol", local_timesteps)

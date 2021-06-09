@@ -1,9 +1,9 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
-Timestep estimation
--------------------
+Characteristic lengthscales
+---------------------------
 
-.. autofunction:: estimate_local_timestep
+.. autofunction:: characteristic_lengthscales
 
 Non-geometric quantities
 ------------------------
@@ -57,44 +57,32 @@ from meshmode.dof_array import DOFArray
 from pytools import memoize_on_first_arg
 
 
-def estimate_local_timestep(
-        dcoll: DiscretizationCollection, wavespeed=None) -> DOFArray:
-    r"""Computes an estimate for the local timestep size at each node.
+def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
+    r"""Computes the characteristic lengthscales at each node of a physical element.
     The estimate is obtained using the following formula:
 
     .. math::
 
-        \Delta t_{loc} = \operatorname{min}\left(\Delta r_i\right)\frac{r_D}{|c|}
+        h_{loc} = \operatorname{min}\left(\Delta r_i\right) r_D
 
     where :math:`\operatorname{min}\left(\Delta r_i\right)` is the minimum
     node distance on the reference cell (see :func:`dt_non_geometric_factors`),
-    :math:`r_D` is the inradius of the physical cell
-    (see :func:`dt_geometric_factors`), and :math:`|c|` is the local
-    magnitude of the characteristic wavespeed.
+    and :math:`r_D` is the inradius of the cell (see :func:`dt_geometric_factors`).
 
-    :arg wavespeed: an optional number or :class:`~meshmode.dof_array.DOFArray`
-        for the characteristic wavespeed. If ``wavespeed`` is *None*, then
-        this routine returns the scaling factor:
-        :math:`\operatorname{min}\left(\Delta r_i\right)r_D`.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing an estimate
-        of the maximal stable time step for explicit time integration estimation
-        at each nodal location.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing a characteristic
+        lengthscale for each element, at each nodal location.
 
     .. note::
 
         While a prediction of stability is only meaningful in relation to a given
-        time integrator with a known stability region, the estimate provided here
+        time integrator with a known stability region, the lengthscale provided here
         is not intended to be specific to any one time integrator, though the
         stability region of standard four-stage, fourth-order Runge-Kutta
         methods has been used as a guide. Any concrete time integrator will
-        likely require scaling of the value returned by this routine.
+        likely require scaling of the values returned by this routine.
     """
-    if wavespeed is None:
-        wavespeed = 1
-
-    actx = dcoll._setup_actx
-    dt_factors = DOFArray(
-        actx,
+    return DOFArray(
+        dcoll._setup_actx,
         data=tuple(
             # Scale each group array of geometric factors by the
             # corresponding group non-geometric factor
@@ -103,8 +91,6 @@ def estimate_local_timestep(
                                       dt_geometric_factors(dcoll))
         )
     )
-
-    return dt_factors / wavespeed
 
 
 @memoize_on_first_arg
