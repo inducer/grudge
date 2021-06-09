@@ -58,12 +58,16 @@ from pytools import memoize_on_first_arg
 
 
 def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
-    r"""Computes the characteristic lengthscales at each node of a physical element.
-    The estimate is obtained using the following formula:
+    r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
+    each node. The characteristic length scale is mainly useful for estimating
+    the stable time step size. E.g. for a hyperbolic system, an estimate of the
+    stable time step can be estimated as :math:`h_{\text{loc}} / c`, where
+    :math:`c` is the characteristic wave speed. The estimate is obtained using
+    the following formula:
 
     .. math::
 
-        h_{loc} = \operatorname{min}\left(\Delta r_i\right) r_D
+        h_{\text{loc}} = \operatorname{min}\left(\Delta r_i\right) r_D
 
     where :math:`\operatorname{min}\left(\Delta r_i\right)` is the minimum
     node distance on the reference cell (see :func:`dt_non_geometric_factors`),
