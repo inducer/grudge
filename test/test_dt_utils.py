@@ -25,6 +25,7 @@ THE SOFTWARE.
 import numpy as np
 
 from arraycontext import (  # noqa
+    thaw,
     pytest_generate_tests_for_pyopencl_array_context
     as pytest_generate_tests
 )
@@ -67,7 +68,9 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
         dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-        min_factors.append(op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+        min_factors.append(
+            op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx))
+        )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
     # geometric factors should satisfy: gfi+1 / gfi = 2
