@@ -244,6 +244,12 @@ def dt_geometric_factors(
             "Geometric factors are only implemented for simplex element groups"
         )
 
+    if volm_discr.dim != volm_discr.ambient_dim:
+        from warnings import warn
+        warn("The geometric factor for the characteristic length scale in "
+                "time step estimation is not necessarily valid for non-volume-"
+                "filling discretizations. Continuing anyway.", stacklevel=3)
+
     cell_vols = abs(
         op.elementwise_integral(
             dcoll, dd, volm_discr.zeros(actx) + 1.0
