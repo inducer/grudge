@@ -26,6 +26,7 @@ THE SOFTWARE.
 """
 
 from abc import ABCMeta, abstractmethod
+from arraycontext import thaw
 
 
 class Operator(metaclass=ABCMeta):
@@ -54,6 +55,8 @@ class HyperbolicOperator(Operator):
         import grudge.op as op
 
         wavespeeds = self.max_characteristic_velocity(t, fields, dcoll)
-        local_timesteps = characteristic_lengthscales(dcoll) / wavespeeds
+        local_timesteps = (
+                thaw(characteristic_lengthscales(dcoll), dcoll._setup_actx)
+                / wavespeeds)
 
         return op.nodal_min(dcoll, "vol", local_timesteps)

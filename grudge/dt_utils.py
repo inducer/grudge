@@ -45,7 +45,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import FirstAxisIsElementsTag
+from arraycontext import FirstAxisIsElementsTag, thaw, freeze
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
@@ -73,8 +73,8 @@ def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
     node distance on the reference cell (see :func:`dt_non_geometric_factors`),
     and :math:`r_D` is the inradius of the cell (see :func:`dt_geometric_factors`).
 
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing a characteristic
-        lengthscale for each element, at each nodal location.
+    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing a
+        characteristic lengthscale for each element, at each nodal location.
 
     .. note::
 
@@ -85,16 +85,18 @@ def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
         methods has been used as a guide. Any concrete time integrator will
         likely require scaling of the values returned by this routine.
     """
-    return DOFArray(
+    return freeze(DOFArray(
         dcoll._setup_actx,
         data=tuple(
             # Scale each group array of geometric factors by the
             # corresponding group non-geometric factor
             cng * geo_facts
-            for cng, geo_facts in zip(dt_non_geometric_factors(dcoll),
-                                      dt_geometric_factors(dcoll))
+            for cng, geo_facts in zip(
+                dt_non_geometric_factors(dcoll),
+                thaw(dt_geometric_factors(dcoll), dcoll._setup_actx)
+            )
         )
-    )
+    ))
 
 
 @memoize_on_first_arg
@@ -227,8 +229,8 @@ def dt_geometric_factors(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the geometric
-        factors for each cell and at each nodal location.
+    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing the
+        geometric factors for each cell and at each nodal location.
     """
     from meshmode.discretization.poly_element import SimplexElementGroupBase
 
@@ -288,7 +290,7 @@ def dt_geometric_factors(
         )
     )
 
-    return DOFArray(
+    return freeze(DOFArray(
         actx,
         data=tuple(
             actx.einsum("e,ei->ei",
@@ -298,7 +300,7 @@ def dt_geometric_factors(
 
             for cv_i, sae_i in zip(cell_vols, surface_areas)
         )
-    )
+    ))
 
 # }}}
 
