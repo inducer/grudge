@@ -28,7 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext.container.traversal import thaw
+from arraycontext import thaw, freeze
 
 from grudge.models import HyperbolicOperator
 
@@ -198,27 +198,28 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
     The sign of :math:`v` determines whether we discretize the forward or the
     backward wave equation.
-
-    :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(self, dcoll, c, source_f=None,
+    def __init__(self, actx, dcoll, c, source_f=None,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_NONE):
+        """
+        :arg c: a thawed (with *actx*) :class:`~meshmode.dof_array.DOFArray`
+            representing the propogation speed of the wave.
+        """
 
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
 
         self.dcoll = dcoll
-        self.c = c
+        self.c = freeze(c)
         self.source_f = source_f
 
-        actx = dcoll._setup_actx
         ones = dcoll.zeros(actx) + 1
-        self.sign = actx.np.where(self.c > 0, ones, -ones)
+        self.sign = freeze(actx.np.where(c > 0, ones, -ones))
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag
@@ -255,13 +256,16 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         dcoll = self.dcoll
         u = w[0]
         v = w[1:]
-        flux_w = flat_obj_array(self.c, w)
         actx = u.array_context
+
+        c = thaw(self.c, actx)
+
+        flux_w = flat_obj_array(c, w)
 
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
-        dir_c = op.project(dcoll, "vol", self.dirichlet_tag, self.c)
+        dir_c = op.project(dcoll, "vol", self.dirichlet_tag, c)
         dir_u = op.project(dcoll, "vol", self.dirichlet_tag, u)
         dir_v = op.project(dcoll, "vol", self.dirichlet_tag, v)
         if self.dirichlet_bc_f:
@@ -276,7 +280,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             dir_bc = flat_obj_array(dir_c, -dir_u, dir_v)
 
         # neumann BCs ---------------------------------------------------------
-        neu_c = op.project(dcoll, "vol", self.neumann_tag, self.c)
+        neu_c = op.project(dcoll, "vol", self.neumann_tag, c)
         neu_u = op.project(dcoll, "vol", self.neumann_tag, u)
         neu_v = op.project(dcoll, "vol", self.neumann_tag, v)
         neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
@@ -284,10 +288,11 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         # radiation BCs -------------------------------------------------------
         rad_normal = thaw(dcoll.normal(dd=self.radiation_tag), actx)
 
-        rad_c = op.project(dcoll, "vol", self.radiation_tag, self.c)
+        rad_c = op.project(dcoll, "vol", self.radiation_tag, c)
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
-        rad_sign = op.project(dcoll, "vol", self.radiation_tag, self.sign)
+        rad_sign = op.project(dcoll, "vol", self.radiation_tag,
+                thaw(self.sign, actx))
 
         rad_bc = flat_obj_array(
             rad_c,
@@ -303,8 +308,8 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             op.inverse_mass(
                 dcoll,
                 flat_obj_array(
-                    -self.c*op.weak_local_div(dcoll, v),
-                    -self.c*op.weak_local_grad(dcoll, u)
+                    -c*op.weak_local_div(dcoll, v),
+                    -c*op.weak_local_grad(dcoll, u)
                 )
                 - op.face_mass(
                     dcoll,
@@ -320,7 +325,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             )
         )
 
-        result[0] += self.source_f(actx, dcoll, t)
+        result[0] = result[0] + self.source_f(actx, dcoll, t)
 
         return result
 

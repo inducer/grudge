@@ -114,10 +114,10 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def estimate_rk4_timestep(dcoll, c):
+def estimate_rk4_timestep(actx, dcoll, c):
     from grudge.dt_utils import characteristic_lengthscales
 
-    local_dts = characteristic_lengthscales(dcoll) / c
+    local_dts = thaw(characteristic_lengthscales(dcoll), actx) / c
 
     return op.nodal_min(dcoll, "vol", local_dts)
 
@@ -184,7 +184,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     c = 1
     dt_scaling_const = 0.45
-    dt = dt_scaling_const * estimate_rk4_timestep(dcoll, c)
+    dt = dt_scaling_const * estimate_rk4_timestep(actx, dcoll, c)
 
     vis = make_visualizer(dcoll)
 
