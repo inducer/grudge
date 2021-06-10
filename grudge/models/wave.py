@@ -338,7 +338,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
     def max_characteristic_velocity(self, t, fields=None, dcoll=None):
         actx = self.dcoll._setup_actx
-        return op.nodal_max(self.dcoll, "vol", actx.np.fabs(self.c))
+        return actx.np.fabs(self.c)
 
 # }}}
 
