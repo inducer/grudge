@@ -259,7 +259,7 @@ def dt_geometric_factors(
     )
 
     if dcoll.dim == 1:
-        return cell_vols
+        return freeze(cell_vols)
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
