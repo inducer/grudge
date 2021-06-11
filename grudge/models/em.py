@@ -28,7 +28,7 @@ THE SOFTWARE.
 """
 
 
-from arraycontext.container.traversal import thaw
+from arraycontext import thaw, get_container_context_recursively
 
 from grudge.models import HyperbolicOperator
 
@@ -120,7 +120,8 @@ class MaxwellOperator(HyperbolicOperator):
         As per Hesthaven and Warburton page 433.
         """
 
-        normal = thaw(self.dcoll.normal(wtpair.dd), self.dcoll._setup_actx)
+        actx = get_container_context_recursively(wtpair)
+        normal = thaw(self.dcoll.normal(wtpair.dd), actx)
 
         if self.fixed_material:
             e, h = self.split_eh(wtpair)
@@ -220,8 +221,8 @@ class MaxwellOperator(HyperbolicOperator):
         absorbing boundary conditions.
         """
 
-        absorb_normal = thaw(self.dcoll.normal(dd=self.absorb_tag),
-                             self.dcoll._setup_actx)
+        actx = get_container_context_recursively(w)
+        absorb_normal = thaw(self.dcoll.normal(dd=self.absorb_tag), actx)
 
         e, h = self.split_eh(w)
 
