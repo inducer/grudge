@@ -111,7 +111,7 @@ class DiscretizationCollection:
                  DeprecationWarning, stacklevel=2)
             discr_tag_to_group_factory = quad_tag_to_group_factory
 
-        self._setup_actx = array_context
+        self._setup_actx = array_context.clone()
 
         from meshmode.discretization.poly_element import \
                 PolynomialWarpAndBlendGroupFactory
