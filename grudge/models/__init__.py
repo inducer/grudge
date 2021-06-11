@@ -42,20 +42,33 @@ class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
     @abstractmethod
-    def max_characteristic_velocity(self, t, fields, dcoll):
-        """Return an upper bound on the characteristic
-        velocities of the operator.
+    def max_characteristic_velocity(self, actx, **kwargs):
+        r"""Return a maximum characteristic wavespeed for the operator.
+
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator.
+
+        Return a :class:`~meshmode.dof_array.DOFArray` or scalar
+        representing the (local or global) maximal characteristic velocity of
+        the operator.
         """
 
-    def estimate_rk4_timestep(self, dcoll, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method."""
-        from grudge.dt_utils import (dt_non_geometric_factor,
-                                     dt_geometric_factors)
+    def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
+        r"""Estimate the largest stable timestep for an RK4 method.
+
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator. These are passed
+            to :meth:`max_characteristic_velocity`.
+        """
+        from grudge.dt_utils import characteristic_lengthscales
         import grudge.op as op
 
-        max_lambda = self.max_characteristic_velocity(t, fields, dcoll)
-        dt_factor = \
-            (dt_non_geometric_factor(dcoll)
-             * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+        wavespeeds = self.max_characteristic_velocity(actx, **kwargs)
+        local_timesteps = (
+            characteristic_lengthscales(actx, dcoll) / wavespeeds
+        )
 
-        return dt_factor * (1 / max_lambda)
+        return op.nodal_min(dcoll, "vol", local_timesteps)

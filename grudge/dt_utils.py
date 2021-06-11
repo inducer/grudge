@@ -1,6 +1,18 @@
 """Helper functions for estimating stable time steps for RKDG methods.
 
-.. autofunction:: dt_non_geometric_factor
+Characteristic lengthscales
+---------------------------
+
+.. autofunction:: characteristic_lengthscales
+
+Non-geometric quantities
+------------------------
+
+.. autofunction:: dt_non_geometric_factors
+
+Mesh size utilities
+-------------------
+
 .. autofunction:: dt_geometric_factors
 .. autofunction:: h_max_from_volume
 .. autofunction:: h_min_from_volume
@@ -33,7 +45,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import FirstAxisIsElementsTag
+from arraycontext import ArrayContext, FirstAxisIsElementsTag, thaw, freeze
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
@@ -42,25 +54,75 @@ import grudge.op as op
 
 from meshmode.dof_array import DOFArray
 
-from pytools import memoize_on_first_arg
+from pytools import memoize_on_first_arg, memoize_in
+
+
+def characteristic_lengthscales(
+        actx: ArrayContext, dcoll: DiscretizationCollection) -> DOFArray:
+    r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
+    each node. The characteristic length scale is mainly useful for estimating
+    the stable time step size. E.g. for a hyperbolic system, an estimate of the
+    stable time step can be estimated as :math:`h_{\text{loc}} / c`, where
+    :math:`c` is the characteristic wave speed. The estimate is obtained using
+    the following formula:
+
+    .. math::
+
+        h_{\text{loc}} = \operatorname{min}\left(\Delta r_i\right) r_D
+
+    where :math:`\operatorname{min}\left(\Delta r_i\right)` is the minimum
+    node distance on the reference cell (see :func:`dt_non_geometric_factors`),
+    and :math:`r_D` is the inradius of the cell (see :func:`dt_geometric_factors`).
+
+    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing a
+        characteristic lengthscale for each element, at each nodal location.
+
+    .. note::
+
+        While a prediction of stability is only meaningful in relation to a given
+        time integrator with a known stability region, the lengthscale provided here
+        is not intended to be specific to any one time integrator, though the
+        stability region of standard four-stage, fourth-order Runge-Kutta
+        methods has been used as a guide. Any concrete time integrator will
+        likely require scaling of the values returned by this routine.
+    """
+    @memoize_in(dcoll, (characteristic_lengthscales,
+                        "compute_characteristic_lengthscales"))
+    def _compute_characteristic_lengthscales():
+        return freeze(
+            DOFArray(
+                actx,
+                data=tuple(
+                    # Scale each group array of geometric factors by the
+                    # corresponding group non-geometric factor
+                    cng * geo_facts
+                    for cng, geo_facts in zip(
+                        dt_non_geometric_factors(dcoll),
+                        thaw(dt_geometric_factors(dcoll), actx)
+                    )
+                )
+            )
+        )
+    return thaw(_compute_characteristic_lengthscales(), actx)
 
 
 @memoize_on_first_arg
-def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
-    r"""Computes the non-geometric scale factor following [Hesthaven_2008]_,
-    section 6.4:
+def dt_non_geometric_factors(
+        dcoll: DiscretizationCollection, dd=None) -> list:
+    r"""Computes the non-geometric scale factors following [Hesthaven_2008]_,
+    section 6.4, for each element group in the *dd* discretization:
 
     .. math::
 
         c_{ng} = \operatorname{min}\left( \Delta r_i \right),
 
     where :math:`\Delta r_i` denotes the distance between two distinct
-    nodes on the reference element.
+    nodal points on the reference element.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: a :class:`float` denoting the minimum node distance on the
-        reference element.
+    :returns: a :class:`list` of :class:`float` values denoting the minimum
+        node distance on the reference element for each group.
     """
     if dd is None:
         dd = DD_VOLUME
@@ -88,8 +150,7 @@ def dt_non_geometric_factor(dcoll: DiscretizationCollection, dd=None) -> float:
                 )
             )
 
-    # Return minimum over all element groups in the discretization
-    return min(min_delta_rs)
+    return min_delta_rs
 
 
 # {{{ Mesh size functions
@@ -156,7 +217,6 @@ def h_min_from_volume(
     ) ** (1.0 / dim)
 
 
-@memoize_on_first_arg
 def dt_geometric_factors(
         dcoll: DiscretizationCollection, dd=None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
@@ -175,8 +235,8 @@ def dt_geometric_factors(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the geometric
-        factors for each cell and at each nodal location.
+    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing the
+        geometric factors for each cell and at each nodal location.
     """
     from meshmode.discretization.poly_element import SimplexElementGroupBase
 
@@ -192,6 +252,12 @@ def dt_geometric_factors(
             "Geometric factors are only implemented for simplex element groups"
         )
 
+    if volm_discr.dim != volm_discr.ambient_dim:
+        from warnings import warn
+        warn("The geometric factor for the characteristic length scale in "
+                "time step estimation is not necessarily valid for non-volume-"
+                "filling discretizations. Continuing anyway.", stacklevel=3)
+
     cell_vols = abs(
         op.elementwise_integral(
             dcoll, dd, volm_discr.zeros(actx) + 1.0
@@ -199,7 +265,7 @@ def dt_geometric_factors(
     )
 
     if dcoll.dim == 1:
-        return cell_vols
+        return freeze(cell_vols)
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
@@ -230,7 +296,7 @@ def dt_geometric_factors(
         )
     )
 
-    return DOFArray(
+    return freeze(DOFArray(
         actx,
         data=tuple(
             actx.einsum("e,ei->ei",
@@ -240,7 +306,7 @@ def dt_geometric_factors(
 
             for cv_i, sae_i in zip(cell_vols, surface_areas)
         )
-    )
+    ))
 
 # }}}
 

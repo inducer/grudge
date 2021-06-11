@@ -129,14 +129,12 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def estimate_rk4_timestep(dcoll, c):
-    from grudge.dt_utils import (dt_non_geometric_factor,
-                                 dt_geometric_factors)
+def estimate_rk4_timestep(actx, dcoll, c):
+    from grudge.dt_utils import characteristic_lengthscales
 
-    dt_factor = (dt_non_geometric_factor(dcoll)
-                 * op.nodal_min(dcoll, "vol", dt_geometric_factors(dcoll)))
+    local_dts = characteristic_lengthscales(actx, dcoll) / c
 
-    return dt_factor * (1 / c)
+    return op.nodal_min(dcoll, "vol", local_dts)
 
 
 def bump(actx, dcoll, t=0, width=0.05, center=None):
@@ -189,8 +187,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
-    dt_scaling_const = 0.5
-    dt = dt_scaling_const * estimate_rk4_timestep(dcoll, c=1)
+    dt = 0.5 * estimate_rk4_timestep(actx, dcoll, c=1)
 
     fields = flat_obj_array(
             bump(actx, dcoll, ),
