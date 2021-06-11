@@ -57,6 +57,7 @@ from meshmode.dof_array import DOFArray
 from pytools import memoize_on_first_arg
 
 
+@memoize_on_first_arg
 def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
     r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
     each node. The characteristic length scale is mainly useful for estimating
@@ -210,7 +211,6 @@ def h_min_from_volume(
     ) ** (1.0 / dim)
 
 
-@memoize_on_first_arg
 def dt_geometric_factors(
         dcoll: DiscretizationCollection, dd=None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
