@@ -187,8 +187,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
-    dt_scaling_const = 0.5
-    dt = dt_scaling_const * estimate_rk4_timestep(actx, dcoll, c=1)
+    dt = 0.5 * estimate_rk4_timestep(actx, dcoll, c=1)
 
     fields = flat_obj_array(
             bump(actx, dcoll, ),

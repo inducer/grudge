@@ -183,8 +183,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
             )
 
     c = 1
-    dt_scaling_const = 0.45
-    dt = dt_scaling_const * estimate_rk4_timestep(actx, dcoll, c)
+    dt = 0.45 * estimate_rk4_timestep(actx, dcoll, c)
 
     vis = make_visualizer(dcoll)
 
