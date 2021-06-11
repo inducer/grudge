@@ -132,7 +132,7 @@ def rk4_step(y, t, h, f):
 def estimate_rk4_timestep(actx, dcoll, c):
     from grudge.dt_utils import characteristic_lengthscales
 
-    local_dts = thaw(characteristic_lengthscales(dcoll), actx) / c
+    local_dts = characteristic_lengthscales(actx, dcoll) / c
 
     return op.nodal_min(dcoll, "vol", local_dts)
 

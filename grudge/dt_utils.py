@@ -45,7 +45,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import FirstAxisIsElementsTag, thaw, freeze
+from arraycontext import ArrayContext, FirstAxisIsElementsTag, thaw, freeze
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
@@ -54,11 +54,11 @@ import grudge.op as op
 
 from meshmode.dof_array import DOFArray
 
-from pytools import memoize_on_first_arg
+from pytools import memoize_on_first_arg, memoize_in
 
 
-@memoize_on_first_arg
-def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
+def characteristic_lengthscales(
+        actx: ArrayContext, dcoll: DiscretizationCollection) -> DOFArray:
     r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
     each node. The characteristic length scale is mainly useful for estimating
     the stable time step size. E.g. for a hyperbolic system, an estimate of the
@@ -86,18 +86,24 @@ def characteristic_lengthscales(dcoll: DiscretizationCollection) -> DOFArray:
         methods has been used as a guide. Any concrete time integrator will
         likely require scaling of the values returned by this routine.
     """
-    return freeze(DOFArray(
-        dcoll._setup_actx,
-        data=tuple(
-            # Scale each group array of geometric factors by the
-            # corresponding group non-geometric factor
-            cng * geo_facts
-            for cng, geo_facts in zip(
-                dt_non_geometric_factors(dcoll),
-                thaw(dt_geometric_factors(dcoll), dcoll._setup_actx)
+    @memoize_in(dcoll, (characteristic_lengthscales,
+                        "compute_characteristic_lengthscales"))
+    def _compute_characteristic_lengthscales():
+        return freeze(
+            DOFArray(
+                actx,
+                data=tuple(
+                    # Scale each group array of geometric factors by the
+                    # corresponding group non-geometric factor
+                    cng * geo_facts
+                    for cng, geo_facts in zip(
+                        dt_non_geometric_factors(dcoll),
+                        thaw(dt_geometric_factors(dcoll), actx)
+                    )
+                )
             )
         )
-    ))
+    return thaw(_compute_characteristic_lengthscales(), actx)
 
 
 @memoize_on_first_arg
