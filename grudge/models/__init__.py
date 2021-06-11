@@ -43,18 +43,31 @@ class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
     @abstractmethod
-    def max_characteristic_velocity(self, t, fields, dcoll):
-        """Return a :class:`~meshmode.dof_array.DOFArray` or scalar
+    def max_characteristic_velocity(self, actx, **kwargs):
+        r"""Return a maximum characteristic wavespeed for the operator.
+
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator.
+
+        Return a :class:`~meshmode.dof_array.DOFArray` or scalar
         representing the (local or global) maximal characteristic velocity of
         the operator.
         """
 
-    def estimate_rk4_timestep(self, actx, dcoll, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method."""
+    def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
+        r"""Estimate the largest stable timestep for an RK4 method.
+
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator. These are passed
+            to :meth:`max_characteristic_velocity`.
+        """
         from grudge.dt_utils import characteristic_lengthscales
         import grudge.op as op
 
-        wavespeeds = self.max_characteristic_velocity(actx, t, fields)
+        wavespeeds = self.max_characteristic_velocity(actx, **kwargs)
         local_timesteps = (
             thaw(characteristic_lengthscales(dcoll), actx)
             / wavespeeds

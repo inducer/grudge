@@ -84,7 +84,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
     def weak_flux(self, u_tpair):
         return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, self.v)
 
-    def max_characteristic_velocity(self, actx, t=None, fields=None):
+    def max_characteristic_velocity(self, actx, **kwargs):
         return sum(v_i**2 for v_i in self.v)**0.5
 
 
