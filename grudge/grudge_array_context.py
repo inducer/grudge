@@ -490,6 +490,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
 
         # Not really certain how to do grudge_assign, done for flatten
         elif "flatten" in program.name: 
+
+            program = set_memory_layout(program)
             # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
