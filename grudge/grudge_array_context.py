@@ -342,7 +342,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
 
         if "diff" in program.name or \
            "elwise_linear" == program.name or \
-           "face_mass" == program.name:
+           "face_mass" == program.name or \
+           "nodes" == program.name:
 
             # Set no_numpy and return_dict options here?
             program = set_memory_layout(program)
@@ -426,9 +427,9 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 #program = super().transform_loopy_program(program)
             # No transformation files exist
             except FileNotFoundError:
-                from grudge.loopy_dg_kernels.run_tests import generic_test, random_search
+                from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
 
-                transformations = random_search(self.queue, program, generic_test, time_limit=30)
+                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=np.inf)
                 #parameters = random_search(self.queue, program, generic_test, time_limit=30)
                 #transformations = dgk.generate_transformation_list(*parameters)
                 #print(transformations)
@@ -465,39 +466,9 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
 
-        else:
-            print("USING FALLBACK TRANSORMATIONS FOR " + program.name)
-            program = super().transform_loopy_program(program)
-
-        '''       
-        # These still depend on the polynomial order = 3
-        # Never called?
-        elif program.name == "resample_by_mat":
-            hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
-    
-            # Order 3: 10 x 10
-            # Order 4: 15 x 35
-            
-            #print(program)
-            #exit()
-            pn = 3 # This needs to  be not fixed
-            fp_string = "FP64"
-            
-            indices = [transform_id, fp_string, str(pn)]
-            transformations = dgk.load_transformations_from_file(hjson_file,
-                indices)
-            hjson_file.close()
-            print(transformations)
-            program = dgk.apply_transformation_list(program, transformations)
-
-        # These below are difficult because one knows not the dimensions when this kernel is generated 
-        elif program.name == "nodes":
-            program = lp.split_iname(program, "iel", 64, outer_tag="g.0", slabs=(0,1))
-            program = lp.split_iname(program, "iel_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
-            program = lp.split_iname(program, "idof", 20, outer_tag="g.1", slabs=(0,0))
-            program = lp.split_iname(program, "idof_inner", 10, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
-                      
-        elif "actx_special" in program.name:
+        elif "actx_special" in program.name: # Fixed
+            # Need to add autotuner support for this
+            program = set_memory_layout(program)
             program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
                                         inner_tag="l.0", slabs=(0, 1))
             #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
@@ -517,8 +488,46 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             #print(program)
             #print(lp.generate_code_v2(program).device_code())
 
-        elif "grudge_assign" in program.name or \
-             "flatten" in program.name:
+        # Not really certain how to do grudge_assign, done for flatten
+        elif "flatten" in program.name: 
+            # This is hardcoded. Need to move this to separate transformation file
+            #program = lp.set_options(program, "write_cl")
+            program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
+                                        slabs=(0, 1))
+            program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
+                                        inner_tag="l.0")
+            program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 0))
+
+        else:
+            print(program)
+            print("USING FALLBACK TRANSORMATIONS FOR " + program.name)
+            program = super().transform_loopy_program(program)
+
+        '''       
+        # These still depend on the polynomial order = 3
+        # Never called?
+        # This is going away anyway probably
+        elif program.name == "resample_by_mat":
+            hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
+    
+            # Order 3: 10 x 10
+            # Order 4: 15 x 35
+            
+            #print(program)
+            #exit()
+            pn = 3 # This needs to  be not fixed
+            fp_string = "FP64"
+            
+            indices = [transform_id, fp_string, str(pn)]
+            transformations = dgk.load_transformations_from_file(hjson_file,
+                indices)
+            hjson_file.close()
+            print(transformations)
+            program = dgk.apply_transformation_list(program, transformations)
+
+        # Not really certain how to do grudge_assign, done for flatten
+        elif "grudge_assign" in program.name or "flatten" in program.name: 
             # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",

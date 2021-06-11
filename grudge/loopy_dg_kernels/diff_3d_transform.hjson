@@ -111,7 +111,7 @@
           35:[
               ["tag_inames", [[["imatrix", "ilp"]]]],
               ["split_iname", ["iel", 48], {outer_tag: "g.0", slabs:[0,1]}],
-              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}], 
               ["split_iname", ["idof", 35], {outer_tag: "g.1", slabs:[0,0]}], 
               ["split_iname", ["idof_inner", 35], {outer_tag: "ilp", inner_tag: "l.1", slabs:[0,0]}],
               ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],

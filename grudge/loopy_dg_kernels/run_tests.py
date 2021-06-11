@@ -198,26 +198,28 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
         print("CUDA not supported")
         exit()
     elif OPENCL:
-        #platform = cl.get_platforms()
-        #my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-        ##ctx = cl.Context(devices=my_gpu_devices)
+        """
+        platform = cl.get_platforms()
+        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        ctx = cl.Context(devices=my_gpu_devices)
         #ctx = cl.create_some_context(interactive=True)
         #queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
         #kern = lp.set_options(kern, edit_code=False) #Only works for OpenCL?
         kern = lp.set_options(kern, "write_code")  # Output code before editing it
         # Print the Code
-        #kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
-        #code = lp.generate_code_v2(kern).device_code()
-        #prog = cl.Program(ctx, code)
-        #prog = prog.build()
-        #ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
+        kern = kern.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
+        code = lp.generate_code_v2(kern).device_code()
+        prog = cl.Program(ctx, code)
+        prog = prog.build()
+        ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
         #errors="ignore") #Breaks pocl
-        #dammit = UnicodeDammit(ptx)
-        #print(dammit.unicode_markup)
-        #f = open("ptx.ptx", "w")
-        #f.write(dammit.unicode_markup)
-        #f.close()
+        dammit = UnicodeDammit(ptx)
+        print(dammit.unicode_markup)
+        f = open("ptx.ptx", "w")
+        f.write(dammit.unicode_markup)
+        f.close()
+        """
 
         from pyopencl.tools import ImmediateAllocator
         allocator = ImmediateAllocator(queue)
@@ -251,10 +253,12 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
                 # Are these strides correct?
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
             else:
-                print(arg.name)
-                print(arg.tags)
-                print("Unknown Tag")
-                exit()
+                # Assume default layout
+                arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
+                #print(arg.name)
+                #print(arg.tags)
+                #print("Unknown Tag")
+                #exit()
 
         if warmup:
             for i in range(2):
@@ -366,7 +370,7 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
     # Possibilities limited by size of global memory
     options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
     #Arbitrarily limit to at max 12 inline to limit search space
-    options = k_inner_inner*options[options <= 12]
+    options = k_inner_inner*options[options <= 4]
     return sorted(options, reverse=reverse)
 
 
@@ -386,8 +390,8 @@ def i_inner_outer_options(n_out, i_inner_inner, reverse=False):
 
 def j_inner_options(n_in, reverse=False):
     factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
-    return sorted(factors, reverse=reverse)
-    #return [10] # For order 2 is is always best
+    #return sorted(factors, reverse=reverse)
+    return [n_in]#[10] # At least for orders 2,3,4 this is usually selected.
 
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95):
@@ -454,6 +458,9 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                         if knl.name == "face_mass":
                             knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                             knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2")
+                        elif knl.name == "nodes":
+                            knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                            knl = lp.tag_array_axes(knl, "vecf", "f,f")
                         else:   
                             knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                             knl = lp.tag_array_axes(knl, "vecf", "f,f")
@@ -479,6 +486,10 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
                                 {"temporary_name":"vecf", "default_tag":"l.auto"}])
                             trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+                        elif knl.name == "nodes":
+                            trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
+                                {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
                         else:
                             trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
                                 {"temporary_name":"vecf", "default_tag":"l.auto"}])
@@ -556,6 +567,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
         if isinstance(arg.tags, IsDOFArray):
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
+            n_in = n_out
         elif isinstance(arg.tags, IsVecOpArray):
             n_mat, n_out, n_in = arg.shape
         elif isinstance(arg.tags, IsOpArray):
@@ -599,6 +611,10 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
             if knl.name == "face_mass":
                 knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                 knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2")
+            elif knl.name == "nodes":
+                knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                knl = lp.tag_array_axes(knl, "vecf", "f,f")
+
             else:   
                 knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                 knl = lp.tag_array_axes(knl, "vecf", "f,f")
@@ -622,6 +638,10 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
                 trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
                 trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+            elif knl.name == "nodes":
+                trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
+                    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
             else:
                 trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
@@ -716,33 +736,41 @@ if __name__ == "__main__":
         print(settings)
     # Add functionality to write transformations to file
     """ 
-    """
+    #"""
     dim_to_file = {1: "diff_1d_transform.hjson", 
                    2: "diff_2d_transform.hjson",
                    3: "diff_3d_transform.hjson"}
 
-    for dim in range(2,3):
-        hjson_file = open(dim_to_file[dim])
-        #for i in range(2,8):
-        pn = 4
-        n_out = len(equidistant_nodes(pn, 3)[1])
-        n_in = len(equidistant_nodes(pn, 3)[1]) 
-        n_elem = 178746 # 2**20
-        knl = diff_prg(dim, n_elem, n_out, fp_format) 
-        #knl = gen_diff_knl_fortran2(dim, n_elem, n_out, n_in, fp_format=fp_format)
-        knl = set_memory_layout(knl)
-        trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(n_out)])
-        knl = apply_transformation_list(knl, trans)
-        #print(lp.generate_code_v2(knl).device_code())
+    bandwidths = []
+    from os import environ
+    for nreg in range(57,58):#range(1, 61):
+        environ['CU_JIT_MAX_REGISTERS'] = str(nreg)
+        for dim in range(3,4):
+            hjson_file = open(dim_to_file[dim])
+            #for i in range(2,8):
+            pn = 4
+            n_out = len(equidistant_nodes(pn, 3)[1])
+            n_in = len(equidistant_nodes(pn, 3)[1]) 
+            n_elem = 178746 # 2**20
+            knl = diff_prg(dim, n_elem, n_out, fp_format) 
+            #knl = gen_diff_knl_fortran2(dim, n_elem, n_out, n_in, fp_format=fp_format)
+            knl = set_memory_layout(knl)
+            trans = load_transformations_from_file(hjson_file, [tid, fp_string, str(n_out)])
+            knl = apply_transformation_list(knl, trans)
+            #print(lp.generate_code_v2(knl).device_code())
 
-        dev_arrays, avg_time = generic_test(queue, knl, nruns=10, warmup=True)
-        #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
-        analyze_knl_bandwidth(knl, avg_time)
-        #analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
-        print(avg_time)
-        #verifyResult(*dev_arrays)
-
-    """
+            dev_arrays, avg_time = generic_test(queue, knl, nruns=10, warmup=True)
+            #dev_arrays, avg_time = runTest(n_elem, n_in, n_out, kio, kii, iio, iii, ji)
+            bw = analyze_knl_bandwidth(knl, avg_time)
+            bandwidths.append(bw)
+            #analyzeResult(n_out, n_in, n_elem, 12288//2, 540, avg_time, fp_bytes=fp_bytes)
+            print(avg_time)
+            #verifyResult(*dev_arrays)
+    
+    for i, entry in enumerate(bandwidths):
+        print(f"{i}, {entry}")
+    #print(bandwidths)
+    #"""
     #testBandwidth()
     """
     # Test elwise linear
@@ -791,7 +819,35 @@ if __name__ == "__main__":
     analyze_knl_bandwidth(knl, avg_time)
     """
 
-    #"""
+    # Test order=4 copy
+    """
+    knl = lp.make_copy_kernel("f,f", old_dim_tags="f,f")
+    knl = lp.add_dtypes(knl, {"input": np.float64, "output": np.float64})
+    knl = lp.fix_parameters(knl, {"n0": 178746, "n1": 35})  
+    knl = lp.split_iname(knl, "i0", 48, outer_tag="g.0")
+    knl = lp.split_iname(knl, "i0_inner", 16, outer_tag="ilp", inner_tag="l.0")
+    knl = lp.split_iname(knl, "i1", 35, outer_tag="g.1", inner_tag="l.1")
+    for arg in knl.args:
+        if arg.name == "input":
+            arg.tags = IsDOFArray()
+            arg.shape = (178746, 35)
+        if arg.name == "output":
+            arg.tags = IsDOFArray()
+            arg.is_output_only = True 
+            arg.shape = (178746, 35)
+
+    print(knl)
+    _, avg_time = generic_test(queue, knl)
+    analyze_knl_bandwidth(knl, avg_time)
+    #knl = lp.split_iname(knl, "i1", 1024//2, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    #knl = lp.split_iname(knl, "i1", 1024, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    #knl = lp.split_iname(knl, "i1", 6*16, outer_tag="g.0") 
+    #knl = lp.split_iname(knl, "i1_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1)) 
+    #knl = lp.split_iname(knl, "i0", n0, inner_tag="l.1", outer_tag="g.1", slabs=(0,0))
+    """
+   
+
+    """
     # Test autotuner
     #knl = diff_prg(3, 178746, 35, np.float64)
     #knl = elwise_linear_prg(178746, 35, np.float64)
@@ -800,4 +856,4 @@ if __name__ == "__main__":
 
     result = random_search(queue, knl, generic_test, time_limit=30, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0)
     print(result)
-    #"""
+    """
