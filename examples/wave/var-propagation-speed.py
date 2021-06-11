@@ -83,7 +83,6 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
     wave_op = VariableCoefficientWeakWaveOperator(
-        actx,
         dcoll,
         c,
         source_f=source_f,

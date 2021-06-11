@@ -200,7 +200,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
     backward wave equation.
     """
 
-    def __init__(self, actx, dcoll, c, source_f=None,
+    def __init__(self, dcoll, c, source_f=None,
             flux_type="upwind",
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
@@ -214,6 +214,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
 
+        actx = c.array_context
         self.dcoll = dcoll
         self.c = freeze(c)
         self.source_f = source_f
