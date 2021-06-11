@@ -54,7 +54,7 @@ class HyperbolicOperator(Operator):
         from grudge.dt_utils import characteristic_lengthscales
         import grudge.op as op
 
-        wavespeeds = self.max_characteristic_velocity(t, fields, dcoll)
+        wavespeeds = self.max_characteristic_velocity(actx, t, fields)
         local_timesteps = (
             thaw(characteristic_lengthscales(dcoll), actx)
             / wavespeeds

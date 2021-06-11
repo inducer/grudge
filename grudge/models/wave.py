@@ -175,7 +175,7 @@ class WeakWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
+    def max_characteristic_velocity(self, actx, t=None, fields=None):
         return abs(self.c)
 
 
@@ -337,9 +337,8 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.neumann_tag,
             self.radiation_tag])
 
-    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
-        actx = self.dcoll._setup_actx
-        return actx.np.fabs(self.c)
+    def max_characteristic_velocity(self, actx, t=None, fields=None):
+        return actx.np.fabs(thaw(self.c, actx))
 
 # }}}
 

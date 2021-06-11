@@ -334,11 +334,10 @@ class MaxwellOperator(HyperbolicOperator):
         """
         return 6*(True,)
 
-    def max_characteristic_velocity(self, t, fields=None, dcoll=None):
+    def max_characteristic_velocity(self, actx, t=None, fields=None):
         if self.fixed_material:
             return 1/np.sqrt(self.epsilon*self.mu)  # a number
         else:
-            actx = self.dcoll._setup_actx
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
 
