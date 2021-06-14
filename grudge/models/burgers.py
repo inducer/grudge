@@ -34,20 +34,19 @@ from meshmode.dof_array import thaw
 
 # {{{ Numerical flux
 
-def burgers_numerical_flux(dcoll, flux_type, u_tpair, max_wavespeed):
-    actx = u_tpair.int.array_context
+def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
     dd = u_tpair.dd
-    normal = thaw(actx, op.normal(dcoll, dd))
+    normal = thaw(actx, dcoll.normal(dd))
     max_wavespeed = op.project(dcoll, "vol", dd, max_wavespeed)
 
-    flux_type = flux_type.lower()
-    central = u_tpair.avg * normal
-    if flux_type == "central":
+    num_flux_type = num_flux_type.lower()
+    central = (0.5*u_tpair**2).avg * normal
+    if num_flux_type == "central":
         return central
-    elif flux_type == "lf":
+    elif num_flux_type == "lf":
         return central - 0.5 * max_wavespeed * u_tpair.diff
     else:
-        raise NotImplementedError(f"flux '{flux_type}' is not implemented")
+        raise NotImplementedError(f"flux '{num_flux_type}' is not implemented")
 
 # }}}
 
@@ -57,36 +56,42 @@ def burgers_numerical_flux(dcoll, flux_type, u_tpair, max_wavespeed):
 class InviscidBurgers(HyperbolicOperator):
     flux_types = ["central", "lf"]
 
-    def __init__(self, dcoll, flux_type="central"):
+    def __init__(self, actx, dcoll, flux_type="central"):
         if flux_type not in self.flux_types:
             raise NotImplementedError(f"unknown flux type: '{flux_type}'")
 
+        if dcoll.dim != 1:
+            raise NotImplementedError(
+                f"Burgers operator for dim = {dcoll.dim} not implemented"
+            )
+
+        self.actx = actx
         self.dcoll = dcoll
         self.flux_type = flux_type
 
     def max_characteristic_velocity(self, actx, **kwargs):
         fields = kwargs['fields']
-        return sum(v_i**2 for v_i in fields)**0.5
+        return op.norm(self.dcoll, fields, 2)
 
     def operator(self, t, u):
         dcoll = self.dcoll
-        actx = u.array_context
-
-        # max_wavespeed = self.max_eigenvalue(fields=u)
+        actx = self.actx
         max_wavespeed = self.max_characteristic_velocity(actx, fields=u)
+
+        u = u[0]
 
         def flux(u):
             return 0.5 * (u**2)
 
         def numflux(tpair):
             return op.project(dcoll, tpair.dd, "all_faces",
-                              burgers_numerical_flux(dcoll, self.flux_type,
+                              burgers_numerical_flux(actx, dcoll, self.flux_type,
                                                      tpair, max_wavespeed))
 
         return (
             op.inverse_mass(
                 dcoll,
-                op.weak_local_grad(dcoll, flux(u))
+                op.weak_local_d_dx(dcoll, 0, flux(u))
                 - op.face_mass(
                     dcoll,
                     sum(numflux(tpair)

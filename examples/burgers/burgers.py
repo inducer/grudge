@@ -68,7 +68,7 @@ class Plotter:
             return
 
         if self.dim == 1:
-            u = self.actx.to_numpy(flatten(evt.state_component))
+            u = self.actx.to_numpy(flatten(evt.state_component[0]))
 
             filename = "%s.png" % basename
             if not overwrite and os.path.exists(filename):
@@ -103,18 +103,10 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # domain [0, d]^dim
     d = 2*np.pi
     # number of points in each dimension
-    npoints = 25
-    # grid spacing
-    h = d / npoints
+    npoints = 50
 
-    # cfl
-    dt_factor = 1.0
-    # finale time
+    # final time
     final_time = 0.5
-    # time steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     # flux
     flux_type = "central"
@@ -123,30 +115,35 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     # {{{ discretization
 
-    bdry_names = ("x", "y", "z")
+    # bdry_names = ("x", "y", "z")
 
-    btag_to_face = {
-        "lower": ["-" + bdry_names[dim-1]],
-        "upper": ["+" + bdry_names[dim-1]]
-    }
+    # btag_to_face = {
+    #     "lower": ["-" + bdry_names[dim-1]],
+    #     "upper": ["+" + bdry_names[dim-1]]
+    # }
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-        a=(0.0,)*dim, b=(d,)*dim, nelements_per_axis=(4,)*dim,
-        boundary_tag_to_face=btag_to_face
+        a=(0.0,)*dim,
+        b=(d,)*dim,
+        nelements_per_axis=(npoints,)*dim,
+        # boundary_tag_to_face=btag_to_face
     )
 
-    from meshmode.mesh.processing import glue_mesh_boundaries
-    glued_mesh = glue_mesh_boundaries(mesh, glued_boundary_mappings=[
-        ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (1,))),
-    ])
+    # from meshmode.mesh.processing import glue_mesh_boundaries
+    # glued_mesh = glue_mesh_boundaries(mesh, glued_boundary_mappings=[
+    #     ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (1,))),
+    # ])
 
     discr_tag_to_group_factory = {}
 
     from grudge import DiscretizationCollection
 
     dcoll = DiscretizationCollection(
-        actx, glued_mesh, order=order,
+        actx,
+        mesh,
+        # glued_mesh,
+        order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
@@ -156,7 +153,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     from grudge.models.burgers import InviscidBurgers
 
-    x = thaw(actx, op.nodes(dcoll))
+    x = thaw(actx, dcoll.nodes())
 
     # velocity field
     if dim == 1:
@@ -165,6 +162,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         raise NotImplementedError()
 
     burgers_operator = InviscidBurgers(
+        actx,
         dcoll,
         flux_type=flux_type
     )
@@ -175,10 +173,11 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # }}}
 
     # {{{ time stepping
+    dt = 0.1 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u_init, rhs)
-    plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[-1.1, 1.1])
+    plot = Plotter(actx, dcoll, order, visualize=visualize)
 
     step = 0
     for event in dt_stepper.run(t_end=final_time):
