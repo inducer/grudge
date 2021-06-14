@@ -45,7 +45,7 @@ def burgers_numerical_flux(dcoll, flux_type, u_tpair, max_wavespeed):
     if flux_type == "central":
         return central
     elif flux_type == "lf":
-        return central + 0.5 * max_wave_speed * (u_tpair.int - u_tpair.ext)
+        return central - 0.5 * max_wavespeed * u_tpair.diff
     else:
         raise NotImplementedError(f"flux '{flux_type}' is not implemented")
 
@@ -64,19 +64,16 @@ class InviscidBurgers(HyperbolicOperator):
         self.dcoll = dcoll
         self.flux_type = flux_type
 
-    def max_characteristic_velocity(self, t=None, fields=None, dcoll=None):
-        return np.sqrt(
-            op.nodal_max(
-                self.dcoll, "vol", op.elementwise_max(self.dcoll, fields**2)
-            )
-        )
+    def max_characteristic_velocity(self, actx, **kwargs):
+        fields = kwargs['fields']
+        return sum(v_i**2 for v_i in fields)**0.5
 
     def operator(self, t, u):
         dcoll = self.dcoll
         actx = u.array_context
 
         # max_wavespeed = self.max_eigenvalue(fields=u)
-        max_wavespeed = self.max_characteristic_velocity(fields=u)
+        max_wavespeed = self.max_characteristic_velocity(actx, fields=u)
 
         def flux(u):
             return 0.5 * (u**2)
@@ -99,3 +96,6 @@ class InviscidBurgers(HyperbolicOperator):
         )
 
 # }}}
+
+
+# vim: foldmethod=marker
