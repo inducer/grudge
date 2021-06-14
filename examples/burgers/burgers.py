@@ -123,18 +123,30 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     # {{{ discretization
 
+    bdry_names = ("x", "y", "z")
+
+    btag_to_face = {
+        "lower": ["-" + bdry_names[dim-1]],
+        "upper": ["+" + bdry_names[dim-1]]
+    }
+
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-            a=(0,)*dim, b=(d,)*dim,
-            npoints_per_axis=(npoints,)*dim,
-            order=order)
+        a=(0.0,)*dim, b=(d,)*dim, nelements_per_axis=(4,)*dim,
+        boundary_tag_to_face=btag_to_face
+    )
+
+    from meshmode.mesh.processing import glue_mesh_boundaries
+    glued_mesh = glue_mesh_boundaries(mesh, glued_boundary_mappings=[
+        ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (1,))),
+    ])
 
     discr_tag_to_group_factory = {}
 
     from grudge import DiscretizationCollection
 
     dcoll = DiscretizationCollection(
-        actx, mesh, order=order,
+        actx, glued_mesh, order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
@@ -165,7 +177,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u, rhs)
+    dt_stepper = set_up_rk4("u", dt, u_init, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[-1.1, 1.1])
 
     step = 0
@@ -187,9 +199,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=1, type=int)
+    parser.add_argument("--dim", choices=[1, 2, 3], default=1, type=int)
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-            dim=args.dim)
+            dim=args.dim,
+            order=args.order,
+            visualize=args.visualize)
