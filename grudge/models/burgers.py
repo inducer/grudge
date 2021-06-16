@@ -153,7 +153,7 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
         def energy_conserving_fluxes(tpair):
             return op.project(
                 dcoll, tpair.dd, dd_f,
-                two_point_flux(tpair.int, tpair.ext)
+                1/6 * (tpair.ext * tpair.int + tpair.ext ** 2)
             )
 
         return (
@@ -164,9 +164,11 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
                           for d in range(dcoll.dim))
                 + op.face_mass(
                     dcoll,
-                    (sum(energy_conserving_fluxes(tpair)
-                        for tpair in op.interior_trace_pairs(dcoll, u))
-                     - two_point_flux(u_f, u_f)) @ normal
+                    normal * (
+                        sum(energy_conserving_fluxes(tpair)
+                            for tpair in op.interior_trace_pairs(dcoll, u))
+                        - 1/3 * op.project(dcoll, "vol", dd_f, u ** 2)
+                    )
                 )
             )
         )
