@@ -114,7 +114,7 @@ class DiscretizationCollection:
         self._setup_actx = array_context.clone()
 
         from meshmode.discretization.poly_element import \
-                PolynomialWarpAndBlendGroupFactory
+                default_simplex_group_factory
 
         if discr_tag_to_group_factory is None:
             if order is None:
@@ -123,7 +123,8 @@ class DiscretizationCollection:
                 )
 
             discr_tag_to_group_factory = {
-                    DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)}
+                    DISCR_TAG_BASE: default_simplex_group_factory(
+                        base_dim=mesh.dim, order=order)}
         else:
             if order is not None:
                 discr_tag_to_group_factory = discr_tag_to_group_factory.copy()
@@ -134,7 +135,7 @@ class DiscretizationCollection:
                     )
 
                 discr_tag_to_group_factory[DISCR_TAG_BASE] = \
-                        PolynomialWarpAndBlendGroupFactory(order=order)
+                        default_simplex_group_factory(base_dim=mesh.dim, order=order)
 
         # Modal discr should always comes from the base discretization
         discr_tag_to_group_factory[DISCR_TAG_MODAL] = \

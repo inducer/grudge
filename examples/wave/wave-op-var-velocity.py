@@ -176,11 +176,11 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
-            PolynomialWarpAndBlendGroupFactory
+            default_simplex_group_factory
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
         }
     )
