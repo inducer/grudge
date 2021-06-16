@@ -71,7 +71,7 @@ class InviscidBurgers(HyperbolicOperator):
 
     def max_characteristic_velocity(self, actx, **kwargs):
         fields = kwargs['fields']
-        return op.norm(self.dcoll, fields, 2)
+        return op.elementwise_max(self.dcoll, abs(fields))
 
     def operator(self, t, u):
         dcoll = self.dcoll
