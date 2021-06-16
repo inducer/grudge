@@ -25,10 +25,13 @@ THE SOFTWARE.
 """
 
 import grudge.op as op
+import grudge.dof_desc as dof_desc
 
-from arraycontext import thaw
+from arraycontext import thaw, make_loopy_program
 
 from grudge.models import HyperbolicOperator
+
+from pytools import memoize_in
 
 
 # {{{ Inviscid operator
@@ -86,6 +89,84 @@ class InviscidBurgers(HyperbolicOperator):
                     dcoll,
                     sum(numflux(tpair)
                         for tpair in op.interior_trace_pairs(dcoll, u))
+                )
+            )
+        )
+
+# }}}
+
+
+# {{{ Entropy conservative inviscid operator
+
+def burgers_flux_differencing_mat(actx, state_i, state_j):
+    @memoize_in(actx, (burgers_flux_differencing_mat, "flux_diff_knl"))
+    def energy_conserving_flux_prg():
+        return make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[idof]: 0 <= idof < left_nodes}",
+                "{[jdof]: 0 <= jdof < right_nodes}"
+            ],
+            """
+            result[iel, idof, jdof] = 1/6 * (
+                vec_left[iel, idof] * vec_left[iel, idof]
+                + vec_left[iel, idof] * vec_right[iel, jdof]
+                + vec_right[iel, jdof] * vec_right[iel, jdof]
+            )
+            """,
+            name="flux_diff_mat"
+        )
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(energy_conserving_flux_prg(),
+                            vec_left=vec_i,
+                            vec_right=vec_j)["result"]
+
+            for vec_i, vec_j in zip(state_i, state_j)
+        )
+    )
+
+
+class EntropyConservativeInviscidBurgers(InviscidBurgers):
+
+    def operator(self, t, u):
+        dcoll = self.dcoll
+        actx = self.actx
+
+        # dd_q = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
+        # u_q = op.project(dcoll, "vol", dd_q, u)
+        u_f = op.project(dcoll, "vol", dd_f, u)
+
+        # F_qq = burgers_flux_differencing_mat(actx, u, u)
+        # F_qf = burgers_flux_differencing_mat(actx, u, u_f)
+        # F_fq = burgers_flux_differencing_mat(actx, u_f, u)
+        # F_ff = burgers_flux_differencing_mat(actx, u_f, u_f)
+
+        normal = thaw(dcoll.normal(dd_f), actx)
+
+        def two_point_flux(u_left, u_right):
+            return 1/6 * (u_left ** 2 + u_left * u_right + u_right ** 2)
+
+        def energy_conserving_fluxes(tpair):
+            return op.project(
+                dcoll, tpair.dd, dd_f,
+                two_point_flux(tpair.int, tpair.ext)
+            )
+
+        return (
+            op.inverse_mass(
+                dcoll,
+                1/3 * sum(op.local_d_dx(dcoll, d, u[d] ** 2)
+                          + u[d] * op.local_d_dx(dcoll, d, u[d])
+                          for d in range(dcoll.dim))
+                + op.face_mass(
+                    dcoll,
+                    (sum(energy_conserving_fluxes(tpair)
+                        for tpair in op.interior_trace_pairs(dcoll, u))
+                     - two_point_flux(u_f, u_f)) @ normal
                 )
             )
         )
