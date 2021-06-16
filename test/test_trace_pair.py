@@ -28,7 +28,7 @@ import meshmode.mesh.generation as mgen
 from grudge import DiscretizationCollection
 
 from arraycontext import (  # noqa
-    pytest_generate_tests_for_pyopencl_array_context
+    pytest_generate_tests_for_array_contexts
     as pytest_generate_tests
 )
 

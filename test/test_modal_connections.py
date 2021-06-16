@@ -22,7 +22,7 @@ THE SOFTWARE.
 
 
 from arraycontext import (  # noqa
-    pytest_generate_tests_for_pyopencl_array_context
+    pytest_generate_tests_for_array_contexts
     as pytest_generate_tests
 )
 from arraycontext.container.traversal import thaw
