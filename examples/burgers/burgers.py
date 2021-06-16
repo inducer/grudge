@@ -106,10 +106,10 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     npoints = 50
 
     # final time
-    final_time = 0.5
+    final_time = 1
 
     # flux
-    flux_type = "central"
+    flux_type = "lf"
 
     # }}}
 
@@ -173,7 +173,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # }}}
 
     # {{{ time stepping
-    dt = 0.1 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    dt = 1/2 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u_init, rhs)
@@ -184,8 +184,10 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
+        norm_u = op.norm(dcoll, event.state_component, 2)
+        assert norm_u < 5
+
         if step % 10 == 0:
-            norm_u = op.norm(dcoll, event.state_component, 2)
             plot(event, "fld-burgers-%04d" % step)
 
         step += 1
@@ -205,6 +207,6 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-            dim=args.dim,
-            order=args.order,
-            visualize=args.visualize)
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)
