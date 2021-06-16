@@ -40,7 +40,7 @@ def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
     max_wavespeed = op.project(dcoll, "vol", dd, max_wavespeed)
 
     num_flux_type = num_flux_type.lower()
-    central = (0.5*u_tpair**2).avg * normal
+    central = (0.5*u_tpair**2).avg @ normal
     if num_flux_type == "central":
         return central
     elif num_flux_type == "lf":
@@ -60,11 +60,6 @@ class InviscidBurgers(HyperbolicOperator):
         if flux_type not in self.flux_types:
             raise NotImplementedError(f"unknown flux type: '{flux_type}'")
 
-        if dcoll.dim != 1:
-            raise NotImplementedError(
-                f"Burgers operator for dim = {dcoll.dim} not implemented"
-            )
-
         self.actx = actx
         self.dcoll = dcoll
         self.flux_type = flux_type
@@ -78,8 +73,6 @@ class InviscidBurgers(HyperbolicOperator):
         actx = self.actx
         max_wavespeed = self.max_characteristic_velocity(actx, fields=u)
 
-        u = u[0]
-
         def flux(u):
             return 0.5 * (u**2)
 
@@ -91,7 +84,8 @@ class InviscidBurgers(HyperbolicOperator):
         return (
             op.inverse_mass(
                 dcoll,
-                op.weak_local_d_dx(dcoll, 0, flux(u))
+                sum(op.weak_local_d_dx(dcoll, d, flux(u[d]))
+                    for d in range(dcoll.dim))
                 - op.face_mass(
                     dcoll,
                     sum(numflux(tpair)
