@@ -80,6 +80,8 @@ from grudge.reductions import (  # noqa: F401
     nodal_max_loc,
     integral,
     elementwise_sum,
+    elementwise_max,
+    elementwise_min,
     elementwise_integral,
 )
 
