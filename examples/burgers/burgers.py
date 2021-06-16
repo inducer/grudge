@@ -35,9 +35,8 @@ from grudge.array_context import PyOpenCLArrayContext
 
 from meshmode.dof_array import flatten
 
-from pytools.obj_array import make_obj_array
-
-from grudge.models.burgers import InviscidBurgers
+from grudge.models.burgers import \
+    InviscidBurgers, EntropyConservativeInviscidBurgers
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -99,7 +98,8 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
+def main(ctx_factory, dim=1, order=4, npoints=25,
+         entropy_conservative=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -153,16 +153,21 @@ def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
-    burgers_operator = InviscidBurgers(dcoll, flux_type=flux_type)
+    if entropy_conservative:
+        exp_name = "fld-burgers-esdg"
+        burgers_op = EntropyConservativeInviscidBurgers(dcoll, flux_type=flux_type)
+    else:
+        exp_name = "fld-burgers"
+        burgers_op = InviscidBurgers(dcoll, flux_type=flux_type)
 
     def rhs(t, u):
-        return burgers_operator.operator(t, u)
+        return burgers_op.operator(t, u)
 
     # }}}
 
     # {{{ time stepping
 
-    dt = 1/2 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    dt = 1/2 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u_init, rhs)
@@ -177,7 +182,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
         assert norm_u < 5
 
         if step % 10 == 0:
-            plot(event, "fld-burgers-%04d" % step)
+            plot(event, "%s-%04d" % (exp_name, step))
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
@@ -192,6 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("--dim", choices=[1, 2, 3], default=1, type=int)
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--npoints", default=25, type=int)
+    parser.add_argument("--esdg", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
@@ -200,4 +206,5 @@ if __name__ == "__main__":
          dim=args.dim,
          order=args.order,
          npoints=args.npoints,
+         entropy_conservative=args.esdg,
          visualize=args.visualize)
