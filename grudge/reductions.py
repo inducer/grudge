@@ -27,6 +27,8 @@ Elementwise reductions
 ----------------------
 
 .. autofunction:: elementwise_sum
+.. autofunction:: elementwise_max
+.. autofunction:: elementwise_min
 .. autofunction:: elementwise_integral
 """
 
@@ -138,6 +140,10 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal sum.
     """
+    if isinstance(vec, np.ndarray):
+        return sum(nodal_sum(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     comm = dcoll.mpi_communicator
     if comm is None:
         return nodal_sum_loc(dcoll, dd, vec)
@@ -168,6 +174,10 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal minimum.
     """
+    if isinstance(vec, np.ndarray):
+        return min(nodal_min(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     comm = dcoll.mpi_communicator
     if comm is None:
         return nodal_min_loc(dcoll, dd, vec)
@@ -200,6 +210,10 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the nodal maximum.
     """
+    if isinstance(vec, np.ndarray):
+        return max(nodal_max(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     comm = dcoll.mpi_communicator
     if comm is None:
         return nodal_max_loc(dcoll, dd, vec)
@@ -298,6 +312,92 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
         data=tuple(
             actx.call_loopy(
                 _map_elementwise_reduction(actx, "sum"),
+                operand=vec_i
+            )["result"]
+            for vec_i in vec
+        )
+    )
+
+
+def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the maximum over all DOFs on that element.
+
+    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+        denote the element-wise max of *vec*.
+    """
+
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: elementwise_max(dcoll, dd, vi), vec
+        )
+
+    actx = vec.array_context
+
+    return DOFArray(
+        actx,
+        tuple(
+            actx.call_loopy(
+                _map_elementwise_reduction(actx, "max"),
+                operand=vec_i
+            )["result"]
+            for vec_i in vec
+        )
+    )
+
+
+def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the minimum over all DOFs on that element.
+
+    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+        denote the element-wise min of *vec*.
+    """
+
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: elementwise_min(dcoll, dd, vi), vec
+        )
+
+    actx = vec.array_context
+
+    return DOFArray(
+        actx,
+        tuple(
+            actx.call_loopy(
+                _map_elementwise_reduction(actx, "min"),
                 operand=vec_i
             )["result"]
             for vec_i in vec
