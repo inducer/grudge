@@ -26,16 +26,16 @@ THE SOFTWARE.
 
 import grudge.op as op
 
-from grudge.models import HyperbolicOperator
+from arraycontext import thaw
 
-from meshmode.dof_array import thaw
+from grudge.models import HyperbolicOperator
 
 
 # {{{ Inviscid operator
 
 def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
     dd = u_tpair.dd
-    normal = thaw(actx, dcoll.normal(dd))
+    normal = thaw(dcoll.normal(dd), actx)
     max_wavespeed = op.project(dcoll, "vol", dd, max_wavespeed)
 
     num_flux_type = num_flux_type.lower()
