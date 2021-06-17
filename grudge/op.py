@@ -95,19 +95,6 @@ from grudge.trace_pair import (  # noqa: F401
 )
 
 
-# {{{ Kernel tags
-
-class HasElementwiseMatvecTag(FirstAxisIsElementsTag):
-    """A tag that is applicable to kernel programs indicating that
-    an element-wise matrix product is being performed. This indicates
-    that the first index corresponds to element indices and suggests that
-    the implementation should set element indices as the outermost
-    loop extent.
-    """
-
-# }}}
-
-
 # {{{ Derivative operators
 
 def reference_derivative_matrices(actx: ArrayContext, element_group):
@@ -144,7 +131,7 @@ def _compute_local_gradient(dcoll: DiscretizationCollection, vec, xyz_axis):
                         reference_derivative_matrices(actx, grp),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_diff_mat", "vec"),
-                        tagged=(HasElementwiseMatvecTag(),))
+                        tagged=(FirstAxisIsElementsTag(),))
 
             for grp, vec_i, inv_jac_t_i in zip(discr.groups, vec, inverse_jac_t)
         )
@@ -316,7 +303,7 @@ def _apply_stiffness_transpose_operator(
                         vec_i,
                         inv_jac_t_i,
                         arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
-                        tagged=(HasElementwiseMatvecTag(),))
+                        tagged=(FirstAxisIsElementsTag(),))
 
             for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
                                                                  in_discr.groups,
@@ -520,7 +507,7 @@ def _apply_mass_operator(
                         ae_i,
                         vec_i,
                         arg_names=("mass_mat", "jac", "vec"),
-                        tagged=(HasElementwiseMatvecTag(),))
+                        tagged=(FirstAxisIsElementsTag(),))
 
             for in_grp, out_grp, ae_i, vec_i in zip(
                     in_discr.groups, out_discr.groups, area_elements, vec)
@@ -624,7 +611,7 @@ def _apply_inverse_mass_operator(
                         jac_inv,
                         ref_mass_inverse,
                         vec_i,
-                        tagged=(HasElementwiseMatvecTag(),))
+                        tagged=(FirstAxisIsElementsTag(),))
         )
 
     return DOFArray(actx, data=tuple(group_data))
