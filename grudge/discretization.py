@@ -573,7 +573,8 @@ def make_discretization_collection(
         order=None,
         discr_tag_to_group_factory=None,
         mpi_communicator=None) -> DiscretizationCollection:
-    """Construct a discretization collection.
+    """Construct a discretization collection given an array context *array_context*,
+    mesh *mesh*, and user-provided discretization parameters.
 
     :arg discr_tag_to_group_factory: A mapping from discretization tags
         (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
@@ -584,6 +585,7 @@ def make_discretization_collection(
         to be carried out, or *None* to indicate that operations with this
         discretization tag should be carried out with the standard volume
         discretization.
+    :arg mpi_communicator: An (optional) MPI communicator.
     :returns: A :class:`DiscretizationCollection`.
     """
     from meshmode.discretization.poly_element import \
@@ -654,7 +656,9 @@ def set_up_distributed_communication(
         array_context: ArrayContext, mesh: Mesh,
         volume_discr,
         discr_tag_to_group_factory, comm=None) -> dict:
-    """
+    """Constructs a mapping from parallel boundary partition and the relevant
+    discretization connections to that boundary. Used for distributed runs.
+
     :arg volume_discr: A :class:`meshmode.discretization.Discretization`
         object for the base (:class:`grudge.dof_desc.DISCR_TAG_BASE`)
         volume discretization.
@@ -707,6 +711,9 @@ def set_up_distributed_communication(
 
 
 def _generate_modal_group_factory(nodal_group_factory):
+    """Returns the relevant modal element group factory for a
+    given nodal group factory *nodal_group_factory*.
+    """
     from meshmode.discretization.poly_element import (
         ModalSimplexGroupFactory,
         ModalTensorProductGroupFactory
