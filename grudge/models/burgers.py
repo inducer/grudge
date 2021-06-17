@@ -24,7 +24,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
 import grudge.op as op
 
 from grudge.models import HyperbolicOperator
@@ -32,7 +31,7 @@ from grudge.models import HyperbolicOperator
 from meshmode.dof_array import thaw
 
 
-# {{{ Numerical flux
+# {{{ Inviscid operator
 
 def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
     dd = u_tpair.dd
@@ -48,10 +47,6 @@ def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
     else:
         raise NotImplementedError(f"flux '{num_flux_type}' is not implemented")
 
-# }}}
-
-
-# {{{ Inviscid Operator
 
 class InviscidBurgers(HyperbolicOperator):
     flux_types = ["central", "lf"]
@@ -65,7 +60,7 @@ class InviscidBurgers(HyperbolicOperator):
         self.flux_type = flux_type
 
     def max_characteristic_velocity(self, actx, **kwargs):
-        fields = kwargs['fields']
+        fields = kwargs["fields"]
         return op.elementwise_max(self.dcoll, abs(fields))
 
     def operator(self, t, u):
@@ -78,7 +73,8 @@ class InviscidBurgers(HyperbolicOperator):
 
         def numflux(tpair):
             return op.project(dcoll, tpair.dd, "all_faces",
-                              burgers_numerical_flux(actx, dcoll, self.flux_type,
+                              burgers_numerical_flux(actx, dcoll,
+                                                     self.flux_type,
                                                      tpair, max_wavespeed))
 
         return (
