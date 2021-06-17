@@ -32,7 +32,7 @@ import pyopencl as cl
 from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.dof_array import thaw, flatten
 
-from pytools.obj_array import flat_obj_array
+from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -93,6 +93,7 @@ class Plotter:
 
 # }}}
 
+
 def main(ctx_factory, dim=1, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -102,11 +103,12 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     # domain [0, d]^dim
     d = 2*np.pi
+
     # number of points in each dimension
     npoints = 50
 
     # final time
-    final_time = 1
+    final_time = 2
 
     # flux
     flux_type = "lf"
@@ -155,11 +157,13 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     x = thaw(actx, dcoll.nodes())
 
-    # velocity field
+    # Initial velocity magnitudes
     if dim == 1:
-        u_init = actx.np.sin(x)
+        u_init = [actx.np.sin(x[0])]
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Example not implemented for d={dim}")
+
+    u_init = make_obj_array(u_init)
 
     burgers_operator = InviscidBurgers(
         actx,
@@ -173,6 +177,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # }}}
 
     # {{{ time stepping
+
     dt = 1/2 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
     from grudge.shortcuts import set_up_rk4
