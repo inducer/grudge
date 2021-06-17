@@ -29,8 +29,9 @@ import numpy as np
 
 import pyopencl as cl
 
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw, flatten
+from arraycontext import PyOpenCLArrayContext, thaw
+
+from meshmode.dof_array import flatten
 
 from pytools.obj_array import make_obj_array
 
@@ -58,7 +59,7 @@ class Plotter:
             self.ylim = ylim
 
             volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
+            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -155,7 +156,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     from grudge.models.burgers import InviscidBurgers
 
-    x = thaw(actx, dcoll.nodes())
+    x = thaw(dcoll.nodes(), actx)
 
     # Initial velocity magnitudes
     if dim == 1:
