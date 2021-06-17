@@ -57,6 +57,8 @@ from meshmode.mesh import Mesh, BTAG_PARTITION
 from warnings import warn
 
 
+# {{{ Discretization collection
+
 class DiscretizationCollection:
     """A collection of discretizations, defined on the same underlying
     :class:`~meshmode.mesh.Mesh`, corresponding to various mesh entities
@@ -561,6 +563,10 @@ class DiscretizationCollection:
 
     # }}}
 
+# }}}
+
+
+# {{{ Discretization construction routines
 
 def make_discretization_collection(
         array_context: ArrayContext, mesh: Mesh,
@@ -718,5 +724,8 @@ def _generate_modal_group_factory(nodal_group_factory):
         raise ValueError(
             f"Unknown mesh element group: {mesh_group_cls}"
         )
+
+# }}}
+
 
 # vim: foldmethod=marker
