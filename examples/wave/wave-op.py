@@ -27,7 +27,7 @@ import pyopencl as cl
 
 from pytools.obj_array import flat_obj_array
 
-from grudge.grudge_array_context import GrudgeArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
 from meshmode.array_context import PyOpenCLArrayContext  # noqa F401
 from meshmode.dof_array import thaw
 
@@ -174,7 +174,7 @@ def wave_operator(discr, c, w):
                 print(value._data.shape)
                 sum += value._data.shape[0]*value_data.shape[1]*8
         print(sum / 1e9)
-        exit()
+        #exit()
 
     except MemoryError:
         for key, value in Array.alloc_dict.items():
@@ -270,7 +270,7 @@ def main():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
     from pyopencl.tools import ImmediateAllocator
-    actx = GrudgeArrayContext(queue, allocator=ImmediateAllocator(queue))
+    actx = AutoTuningArrayContext(queue, allocator=ImmediateAllocator(queue))
 
     dim = 3
     nel_1d = 2**5
@@ -281,8 +281,7 @@ def main():
             b=(0.5,)*dim,
             nelements_per_axis=(nel_1d,)*dim)
 
-    order = 3
-
+    order = 4
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
@@ -308,7 +307,7 @@ def main():
         return wave_operator(dcoll, c=1, w=w)
 
     t = 0
-    t_final = dt + dt
+    t_final = 10*dt
     istep = 0
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
@@ -326,6 +325,7 @@ def main():
         t = istep*dt
 
         assert op.norm(dcoll, fields[0], 2) < 1
+        print("===========BEGINNING NEXT TIME STEP===========")
 
 
 if __name__ == "__main__":

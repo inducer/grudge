@@ -52,7 +52,7 @@ def testBandwidth(fp_format=np.float32, nruns=100):
     knl = lp.make_copy_kernel("c,c", old_dim_tags="c,c")
     knl = lp.add_dtypes(knl, {"input": fp_format, "output": fp_format})
     knl = knl.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
-    n0 = 1
+    n0 = 2
     #knl = lp.split_iname(knl, "i1", 1024//2, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
     knl = lp.split_iname(knl, "i1", 1024, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
     #knl = lp.split_iname(knl, "i1", 6*16, outer_tag="g.0") 
@@ -64,7 +64,7 @@ def testBandwidth(fp_format=np.float32, nruns=100):
     # This assumes fp32
     len_list = []
     float_count = 1
-    max_floats = 2**29
+    max_floats = 2**28
     while float_count <= max_floats:
         len_list.append(float_count)
         float_count = int(np.ceil(float_count*1.5))
@@ -456,8 +456,9 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                         knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
                         if knl.name == "face_mass":
+                            #pass
                             knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-                            knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2")
+                            #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
                         elif knl.name == "nodes":
                             knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                             knl = lp.tag_array_axes(knl, "vecf", "f,f")
@@ -483,9 +484,10 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
 
                         if knl.name == "face_mass":
+                            #pass
                             trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
                                 {"temporary_name":"vecf", "default_tag":"l.auto"}])
-                            trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+                            #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
                         elif knl.name == "nodes":
                             trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
                                 {"temporary_name":"vecf", "default_tag":"l.auto"}])
@@ -736,7 +738,7 @@ if __name__ == "__main__":
         print(settings)
     # Add functionality to write transformations to file
     """ 
-    #"""
+    """
     dim_to_file = {1: "diff_1d_transform.hjson", 
                    2: "diff_2d_transform.hjson",
                    3: "diff_3d_transform.hjson"}
@@ -770,9 +772,9 @@ if __name__ == "__main__":
     for i, entry in enumerate(bandwidths):
         print(f"{i}, {entry}")
     #print(bandwidths)
-    #"""
-    #testBandwidth()
     """
+    #testBandwidth()
+    #"""
     # Test elwise linear
     pn = 4
     n_out = len(equidistant_nodes(pn,3)[1])
@@ -789,10 +791,10 @@ if __name__ == "__main__":
     knl = set_memory_layout(knl)
     knl = apply_transformation_list(knl, trans)
     #print(knl)
-    _, avg_time = test_elwise_linear(queue, knl, backend="OPENCL", nruns=10, warmup=True)
+    _, avg_time = generic_test(queue, knl, backend="OPENCL", nruns=10, warmup=True)
     print(avg_time)
     analyze_knl_bandwidth(knl, avg_time)
-    """
+    #"""
     """
     # Test face_mass            
     pn = 3

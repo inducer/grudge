@@ -36,7 +36,7 @@ def main(write_output=True, order=4):
     queue = cl.CommandQueue(cl_ctx)
     actx = GrudgeArrayContext(queue)
 
-    dims = 2
+    dims = 3
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -51,6 +51,14 @@ def main(write_output=True, order=4):
     print("%d elements" % mesh.nelements)
 
     discr = DiscretizationCollection(actx, mesh, order=order)
+
+    d = 3
+    from grudge import sym, bind
+    sym_op = sym.stiffness_t(d)*sym.var("u")
+    bound_op = bind(discr, sym_op)
+    print(bound_op.eval_code)
+    exit()
+
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05

@@ -256,26 +256,9 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
-        if False:#"opt_diff" in program.name:
-            program = self.transform_loopy_program(program)
-
-            dt = 0
-            nruns = 10
-
-            for i in range(2):
-                evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-                #evt, result = super().call_loopy(program, **kwargs)
-                evt.wait()
-            for i in range(nruns):
-                evt, result = program(self.queue, **kwargs, allocator=self.allocator)
-                #evt, result = super().call_loopy(program, **kwargs)
-                evt.wait()
-                dt += evt.profile.end - evt.profile.start
-            dt = dt / nruns
-        else:
-            evt, result = super().call_loopy(program, **kwargs)
-            evt.wait()
-            dt = evt.profile.end - evt.profile.start
+        evt, result = super().call_loopy(program, **kwargs)
+        evt.wait()
+        dt = evt.profile.end - evt.profile.start
         dt = dt / 1e9
 
         nbytes = 0
@@ -318,11 +301,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         bw = nbytes / dt / 1e9
 
-
         print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.name, dt, nbytes, bw))
        
-        #if "opt_diff" in program.name: 
-        #    exit()
         return evt, result
 
 def convert(o):
@@ -335,7 +315,6 @@ class AutoTuningArrayContext(GrudgeArrayContext):
     def transform_loopy_program(self, program):
         print(program.name)
 
-       
         device_id = "NVIDIA Titan V"
         # This read could be slow
         transform_id = get_transformation_id(device_id)
@@ -353,7 +332,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # TODO: Dynamically determine device id,
             # Rename this file
             fp_format = None
-            print(program)
+            #print(program)
             for arg in program.args:
                 if isinstance(arg.tags, IsOpArray):
                     dim = 1
