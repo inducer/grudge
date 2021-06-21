@@ -17,7 +17,11 @@ MacOS support is in the works.
     Everywhere else, just making sure you have the ``g++`` package should be
     enough.
 
-#.  Install `miniforge <https://github.com/conda-forge/miniforge>`__.
+#.  Install `miniforge <https://github.com/conda-forge/miniforge>`_::
+
+        curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh
+        # then run
+        bash ./Miniforge3-*.sh
 
 #.  ``export CONDA=/WHERE/YOU/INSTALLED/miniforge3``
 
@@ -33,7 +37,7 @@ MacOS support is in the works.
 
 #.  Type the following command::
 
-        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy meshmode dagrt leap grudge; do python -m pip install --editable "git+https://gitlab.tiker.net/inducer/$i.git#egg=$i"; done
+        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy arraycontext meshmode dagrt leap grudge; do python -m pip install --editable "git+https://github.com/inducer/$i.git#egg=$i"; done
 
 .. note::
 
