@@ -33,7 +33,7 @@ from grudge import sym, bind, DiscretizationCollection
 import grudge.dof_desc as dof_desc
 
 import pytest
-from meshmode.array_context import (  # noqa
+from arraycontext import (  # noqa
         pytest_generate_tests_for_array_contexts
         as pytest_generate_tests)
 
