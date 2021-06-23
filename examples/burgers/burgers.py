@@ -113,7 +113,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
     final_time = 2
 
     # flux
-    flux_type = "central"
+    flux_type = "lf"
 
     # }}}
 
@@ -121,8 +121,8 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
-        a=(0.0,)*dim,
-        b=(d,)*dim,
+        a=(-3,)*dim,
+        b=(3,)*dim,
         nelements_per_axis=(npoints,)*dim,
     )
 
@@ -145,7 +145,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
 
     # Initial velocity magnitudes
     if dim == 1:
-        u_init = [actx.np.sin(x[0])]
+        u_init = [actx.np.exp(-3*x[0]**2)]
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
@@ -174,24 +174,50 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
     # {{{ time stepping
 
     dt = 1/2 * burgers_operator.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    #dt = 1e-5
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u_init, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize)
 
-    step = 0
-    for event in dt_stepper.run(t_end=final_time):
-        if not isinstance(event, dt_stepper.StateComputed):
-            continue
+    if 1:
+        step = 0
+        for event in dt_stepper.run(t_end=final_time):
+            if not isinstance(event, dt_stepper.StateComputed):
+                continue
 
-        norm_u = op.norm(dcoll, event.state_component, 2)
-        assert norm_u < 5
+            u = event.state_component
+            norm_u = op.norm(dcoll, u, 2)
+            assert norm_u < 5
 
-        if step % 10 == 0:
-            plot(event, "%s-%04d" % (exp_name, step))
+            if step % 10 == 0:
+                plot(event, "%s-%04d" % (exp_name, step))
 
-        step += 1
-        logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+            step += 1
+            logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+
+            if step % 10 == 0:
+                import termplotlib as tpl
+                fig = tpl.figure()
+                fig.plot(actx.to_numpy(dcoll.nodes()[0][0]).reshape(-1),
+                        actx.to_numpy(u[0][0]).reshape(-1),
+                        width=150, height=30)
+                fig.show()
+
+    else:
+        np.set_printoptions(linewidth=200, precision=3)
+        u = u_init
+        print(rhs(0, u))
+        print(dt)
+        for i in range(100):
+            u = u + dt * rhs(0, u)
+            if i % 10 == 0:
+                import termplotlib as tpl
+                fig = tpl.figure()
+                fig.plot(actx.to_numpy(dcoll.nodes()[0][0]).reshape(-1),
+                        actx.to_numpy(u[0][0]).reshape(-1),
+                        width=150, height=30)
+                fig.show()
 
     # }}}
 

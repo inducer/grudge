@@ -156,13 +156,13 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
                 1/6 * (tpair.ext * tpair.int + tpair.ext ** 2)
             )
 
-        return (
-            op.inverse_mass(
+        return -(
+            1/3 * sum(op.local_d_dx(dcoll, d, u[d] ** 2)
+                + u[d] * op.local_d_dx(dcoll, d, u[d])
+                for d in range(dcoll.dim))
+            + op.inverse_mass(
                 dcoll,
-                1/3 * sum(op.local_d_dx(dcoll, d, u[d] ** 2)
-                          + u[d] * op.local_d_dx(dcoll, d, u[d])
-                          for d in range(dcoll.dim))
-                + op.face_mass(
+                op.face_mass(
                     dcoll,
                     normal * (
                         sum(energy_conserving_fluxes(tpair)
