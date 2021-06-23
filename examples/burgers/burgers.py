@@ -35,6 +35,8 @@ from meshmode.dof_array import flatten
 
 from pytools.obj_array import make_obj_array
 
+from grudge.models.burgers import InviscidBurgers
+
 import grudge.dof_desc as dof_desc
 import grudge.op as op
 
@@ -95,7 +97,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=1, order=4, visualize=False):
+def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(queue)
@@ -105,38 +107,22 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # domain [0, d]^dim
     d = 2*np.pi
 
-    # number of points in each dimension
-    npoints = 50
-
     # final time
     final_time = 2
 
     # flux
-    flux_type = "lf"
+    flux_type = "central"
 
     # }}}
 
     # {{{ discretization
-
-    # bdry_names = ("x", "y", "z")
-
-    # btag_to_face = {
-    #     "lower": ["-" + bdry_names[dim-1]],
-    #     "upper": ["+" + bdry_names[dim-1]]
-    # }
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
         a=(0.0,)*dim,
         b=(d,)*dim,
         nelements_per_axis=(npoints,)*dim,
-        # boundary_tag_to_face=btag_to_face
     )
-
-    # from meshmode.mesh.processing import glue_mesh_boundaries
-    # glued_mesh = glue_mesh_boundaries(mesh, glued_boundary_mappings=[
-    #     ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (1,))),
-    # ])
 
     discr_tag_to_group_factory = {}
 
@@ -145,7 +131,6 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     dcoll = DiscretizationCollection(
         actx,
         mesh,
-        # glued_mesh,
         order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
@@ -153,8 +138,6 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     # }}}
 
     # {{{ Burgers operator
-
-    from grudge.models.burgers import InviscidBurgers
 
     x = thaw(dcoll.nodes(), actx)
 
@@ -208,6 +191,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", choices=[1, 2, 3], default=1, type=int)
     parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--npoints", default=25, type=int)
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
@@ -215,4 +199,5 @@ if __name__ == "__main__":
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
+         npoints=args.npoints,
          visualize=args.visualize)
