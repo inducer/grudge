@@ -144,8 +144,9 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_sum_loc(dcoll, dd, vec), op=MPI.SUM)
+    return comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM)
 
 
 def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -174,8 +175,9 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
+    return comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN)
 
 
 def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -206,8 +208,9 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
+    return comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX)
 
 
 def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
