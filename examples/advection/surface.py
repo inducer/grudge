@@ -146,11 +146,11 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         qtag = None
 
     from meshmode.discretization.poly_element import \
-            PolynomialWarpAndBlendGroupFactory, \
+            default_simplex_group_factory, \
             QuadratureSimplexGroupFactory
 
     discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
-        PolynomialWarpAndBlendGroupFactory(order)
+        default_simplex_group_factory(base_dim=dim-1, order=order)
 
     if use_quad:
         discr_tag_to_group_factory[qtag] = \

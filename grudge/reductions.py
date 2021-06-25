@@ -27,6 +27,8 @@ Elementwise reductions
 ----------------------
 
 .. autofunction:: elementwise_sum
+.. autofunction:: elementwise_max
+.. autofunction:: elementwise_min
 .. autofunction:: elementwise_integral
 """
 
@@ -58,10 +60,7 @@ THE SOFTWARE.
 from numbers import Number
 from functools import reduce
 
-from arraycontext import (
-    ArrayContext,
-    make_loopy_program
-)
+from arraycontext import make_loopy_program
 
 from grudge.discretization import DiscretizationCollection
 
@@ -157,6 +156,10 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal sum.
     """
+    if isinstance(vec, np.ndarray):
+        return sum(nodal_sum_loc(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -189,6 +192,10 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
+    if isinstance(vec, np.ndarray):
+        return min(nodal_min_loc(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
                   vec, np.inf)
@@ -222,6 +229,10 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
+    if isinstance(vec, np.ndarray):
+        return max(nodal_max_loc(dcoll, dd, vec[idx])
+                   for idx in np.ndindex(vec.shape))
+
     actx = vec.array_context
     return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
                   vec, -np.inf)
@@ -249,10 +260,35 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
 
 # {{{  Elementwise reductions
 
-def _map_elementwise_reduction(actx: ArrayContext, op_name):
-    @memoize_in(actx, (_map_elementwise_reduction,
+def _apply_elementwise_reduction(
+        op_name: str, dcoll: DiscretizationCollection, *args) -> DOFArray:
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the reduction operation *op_name* over all degrees of freedom.
+
+    :arg \*args: Arguments for the reduction operator, such as *dd* and *vec*.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or object arrary of
+        :class:`~meshmode.dof_array.DOFArray`s.
+    """
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: _apply_elementwise_reduction(op_name, dcoll, dd, vi), vec
+        )
+
+    actx = vec.array_context
+
+    @memoize_in(actx, (_apply_elementwise_reduction,
                        "elementwise_%s_prg" % op_name))
-    def prg():
+    def elementwise_prg():
         return make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
@@ -263,7 +299,14 @@ def _map_elementwise_reduction(actx: ArrayContext, op_name):
             """ % op_name,
             name="grudge_elementwise_%s_knl" % op_name
         )
-    return prg()
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
+            for vec_i in vec
+        )
+    )
 
 
 def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
@@ -278,34 +321,39 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
         denote the element-wise sum of *vec*.
     """
+    return _apply_elementwise_reduction("sum", dcoll, *args)
 
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
 
-    dd = dof_desc.as_dofdesc(dd)
+def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the maximum over all DOFs on that element.
 
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: elementwise_sum(dcoll, dd, vi), vec
-        )
+    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
 
-    actx = vec.array_context
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+        denote the element-wise max of *vec*.
+    """
+    return _apply_elementwise_reduction("max", dcoll, *args)
 
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.call_loopy(
-                _map_elementwise_reduction(actx, "sum"),
-                operand=vec_i
-            )["result"]
-            for vec_i in vec
-        )
-    )
+
+def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
+    r"""Returns a vector of DOFs with all entries on each element set
+    to the minimum over all DOFs on that element.
+
+    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+        denote the element-wise min of *vec*.
+    """
+    return _apply_elementwise_reduction("min", dcoll, *args)
 
 
 def elementwise_integral(dcoll: DiscretizationCollection, dd, vec) -> DOFArray:

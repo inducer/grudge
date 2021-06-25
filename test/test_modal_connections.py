@@ -30,7 +30,7 @@ from arraycontext.container.traversal import thaw
 from meshmode.discretization.poly_element import (
     # Simplex group factories
     InterpolatoryQuadratureSimplexGroupFactory,
-    PolynomialWarpAndBlendGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     PolynomialEquidistantSimplexGroupFactory,
     # Tensor product group factories
     LegendreGaussLobattoTensorProductGroupFactory,
@@ -48,7 +48,7 @@ import pytest
 
 @pytest.mark.parametrize("nodal_group_factory", [
     InterpolatoryQuadratureSimplexGroupFactory,
-    PolynomialWarpAndBlendGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     PolynomialEquidistantSimplexGroupFactory,
     LegendreGaussLobattoTensorProductGroupFactory,
     ]
@@ -109,7 +109,8 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            dof_desc.DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            dof_desc.DISCR_TAG_BASE:
+            PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
             dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }
     )
