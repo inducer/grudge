@@ -52,9 +52,9 @@ THE SOFTWARE.
 
 from arraycontext import (
     ArrayContext,
-    FirstAxisIsElementsTag,
     make_loopy_program
 )
+from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
 
@@ -765,7 +765,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
 
     @memoize_in(actx, (_apply_face_mass_operator, "face_mass_knl"))
     def prg():
-        return make_loopy_program(
+        t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
                 "{[f]: 0 <= f < nfaces}",
@@ -779,6 +779,12 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
             """,
             name="face_mass"
         )
+        import loopy as lp
+        from meshmode.transform_metadata import (
+                ConcurrentElementInameTag, ConcurrentDOFInameTag)
+        return lp.tag_inames(t_unit, {
+            "iel": ConcurrentElementInameTag(),
+            "idof": ConcurrentDOFInameTag()})
 
     assert len(face_discr.groups) == len(volm_discr.groups)
     surf_area_elements = area_element(actx, dcoll, dd=dd)

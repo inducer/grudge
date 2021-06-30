@@ -45,7 +45,8 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import ArrayContext, FirstAxisIsElementsTag, thaw, freeze
+from arraycontext import ArrayContext, thaw, freeze
+from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
