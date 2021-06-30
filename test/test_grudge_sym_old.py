@@ -22,7 +22,6 @@ THE SOFTWARE.
 
 import numpy as np
 
-from meshmode import _acf       # noqa: F401
 from meshmode.dof_array import flatten, thaw
 import meshmode.mesh.generation as mgen
 
@@ -33,9 +32,11 @@ from grudge import sym, bind, DiscretizationCollection
 import grudge.dof_desc as dof_desc
 
 import pytest
-from meshmode.array_context import (  # noqa
-        pytest_generate_tests_for_pyopencl_array_context
-        as pytest_generate_tests)
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactoryWithHostScalars
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactoryWithHostScalars])
 
 import logging
 
