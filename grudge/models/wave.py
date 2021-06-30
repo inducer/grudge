@@ -164,7 +164,7 @@ class WeakWaveOperator(HyperbolicOperator):
             )
         )
 
-        result[0] += self.source_f(actx, dcoll, t)
+        result[0] = result[0] + self.source_f(actx, dcoll, t)
 
         return result
 
