@@ -28,10 +28,10 @@ from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
 
-from arraycontext import (  # noqa
-    pytest_generate_tests_for_pyopencl_array_context
-    as pytest_generate_tests
-)
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 import logging
 

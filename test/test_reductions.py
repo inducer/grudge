@@ -24,11 +24,12 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import (  # noqa
-    thaw,
-    pytest_generate_tests_for_pyopencl_array_context
-    as pytest_generate_tests
-)
+from arraycontext import thaw
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 from grudge import DiscretizationCollection
 
@@ -72,9 +73,20 @@ def test_nodal_reductions(actx_factory):
     h_ref = actx.to_numpy(flatten(fields[2]))
     concat_fields = np.concatenate([f_ref, g_ref, h_ref])
 
-    for grudge_op, np_op in [(op.nodal_sum, np.sum),
+    for inner_grudge_op, np_op in [(op.nodal_sum, np.sum),
                              (op.nodal_max, np.max),
                              (op.nodal_min, np.min)]:
+
+        # FIXME: Remove this once all grudge reductions return device scalars
+        def grudge_op(dcoll, dd, vec):
+            res = inner_grudge_op(dcoll, dd, vec)
+
+            from numbers import Number
+            if not isinstance(res, Number):
+                return actx.to_numpy(res)
+            else:
+                return res
+
         # Componentwise reduction checks
         assert np.isclose(grudge_op(dcoll, "vol", fields[0]),
                           np_op(f_ref), rtol=1e-13)

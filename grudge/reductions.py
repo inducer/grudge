@@ -80,13 +80,12 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd):
         return np.fabs(vec)
     if p == 2:
         from grudge.op import _apply_mass_operator
-        return np.real_if_close(np.sqrt(
+        return abs(
             nodal_sum(
                 dcoll,
                 dd,
-                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec)
-            )
-        ))
+                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))
+            )**(1/2)
     elif p == np.inf:
         return nodal_max(dcoll, dd, abs(vec))
     else:
@@ -160,6 +159,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
         return sum(nodal_sum_loc(dcoll, dd, vec[idx])
                    for idx in np.ndindex(vec.shape))
 
+    # FIXME: do not force result onto host
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -178,9 +178,8 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
-    actx = vec.array_context
 
-    return comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN)
+    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
 
 
 def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -197,8 +196,16 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
                    for idx in np.ndindex(vec.shape))
 
     actx = vec.array_context
-    return reduce(lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
-                  vec, np.inf)
+
+    # FIXME: do not force result onto host
+    # Host transfer is needed for now because actx.np.minimum does not succeed
+    # on array scalars.
+    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
+    return reduce(
+            lambda acc, grp_ary: actx.np.minimum(
+                acc,
+                actx.to_numpy(actx.np.min(grp_ary))[()]),
+            vec, np.inf)
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -215,9 +222,8 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
-    actx = vec.array_context
 
-    return comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX)
+    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
 
 
 def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -234,8 +240,16 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
                    for idx in np.ndindex(vec.shape))
 
     actx = vec.array_context
-    return reduce(lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
-                  vec, -np.inf)
+
+    # FIXME: do not force result onto host
+    # Host transfer is needed for now because actx.np.minimum does not succeed
+    # on array scalars.
+    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
+    return reduce(
+            lambda acc, grp_ary: actx.np.maximum(
+                acc,
+                actx.to_numpy(actx.np.max(grp_ary))[()]),
+            vec, -np.inf)
 
 
 def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -289,7 +303,9 @@ def _apply_elementwise_reduction(
     @memoize_in(actx, (_apply_elementwise_reduction,
                        "elementwise_%s_prg" % op_name))
     def elementwise_prg():
-        return make_loopy_program(
+        # FIXME: This computes the reduction value redundantly for each
+        # output DOF.
+        t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
                 "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
@@ -299,6 +315,12 @@ def _apply_elementwise_reduction(
             """ % op_name,
             name="grudge_elementwise_%s_knl" % op_name
         )
+        import loopy as lp
+        from meshmode.transform_metadata import (
+                ConcurrentElementInameTag, ConcurrentDOFInameTag)
+        return lp.tag_inames(t_unit, {
+            "iel": ConcurrentElementInameTag(),
+            "idof": ConcurrentDOFInameTag()})
 
     return DOFArray(
         actx,

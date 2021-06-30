@@ -30,7 +30,8 @@ import numpy as np  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import PyOpenCLArrayContext, thaw
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
 
 from grudge import DiscretizationCollection, shortcuts
 
@@ -40,7 +41,8 @@ def main(write_output=True):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
     )
 
     from meshmode.mesh import BTAG_ALL
