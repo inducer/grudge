@@ -30,7 +30,7 @@ import numpy as np
 import pyopencl as cl
 import logging
 
-from arraycontext.impl.pyopencl import PyOpenCLArrayContext
+from grudge.array_context import PyOpenCLArrayContext
 from arraycontext.container.traversal import thaw
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ import grudge.op as op
 def simple_mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
@@ -112,7 +112,7 @@ def simple_mpi_communication_entrypoint():
 def mpi_communication_entrypoint():
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
