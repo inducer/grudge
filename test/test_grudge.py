@@ -26,13 +26,14 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
-from arraycontext import (  # noqa
-    pytest_generate_tests_for_array_contexts
-    as pytest_generate_tests
-)
+from grudge.array_context import (PytestPyOpenCLArrayContextFactory,
+    PytestPytatoPyOpenCLArrayContextFactory)
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory])
+
 from arraycontext.container.traversal import thaw
 
-from meshmode import _acf       # noqa: F401
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
@@ -241,7 +242,7 @@ def test_mass_surface_area(actx_factory, name):
 
         dd = dof_desc.DD_VOLUME
         ones_volm = volume_discr.zeros(actx) + 1
-        approx_surface_area = op.integral(dcoll, dd, ones_volm)
+        approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
         logger.info("surface: got {:.5e} / expected {:.5e}".format(
             approx_surface_area, surface_area))
@@ -318,7 +319,8 @@ def test_mass_operator_inverse(actx_factory, name):
             dcoll, op.mass(dcoll, dd, f_volm)
         )
 
-        inv_error = op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2)
+        inv_error = actx.to_numpy(
+                op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2))
 
         # }}}
 
@@ -455,7 +457,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
             df_volm = df(x, axis)
 
             linf_error = flat_norm(df_num - df_volm, ord=np.inf)
-            axis_eoc_recs[axis].add_data_point(1/n, linf_error)
+            axis_eoc_recs[axis].add_data_point(1/n, actx.to_numpy(linf_error))
 
     for axis, eoc_rec in enumerate(axis_eoc_recs):
         logger.info("axis %d\n%s", axis, eoc_rec)
@@ -547,7 +549,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
     # }}}
 
-    # {{{ convergene
+    # {{{ convergence
 
     def f(x):
         return flat_obj_array(
@@ -635,7 +637,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         h_max = h_max_from_volume(dcoll)
 
-        eoc_global.add_data_point(h_max, err_global)
+        eoc_global.add_data_point(h_max, actx.to_numpy(err_global))
         eoc_local.add_data_point(h_max, err_local)
 
         if visualize:
@@ -806,7 +808,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             2
         )
         logger.info("h_max %.5e error %.5e", h_max, error_l2)
-        eoc_rec.add_data_point(h_max, error_l2)
+        eoc_rec.add_data_point(h_max, actx.to_numpy(error_l2))
 
     logger.info("\n%s", eoc_rec.pretty_print(
         abscissa_label="h",
@@ -887,7 +889,7 @@ def test_convergence_maxwell(actx_factory,  order):
 
         sol = analytic_sol(nodes, t=step * dt)
         total_error = op.norm(dcoll, esc - sol, 2)
-        eoc_rec.add_data_point(1.0/n, total_error)
+        eoc_rec.add_data_point(1.0/n, actx.to_numpy(total_error))
 
     logger.info("\n%s", eoc_rec.pretty_print(
         abscissa_label="h",
@@ -964,7 +966,7 @@ def test_improvement_quadrature(actx_factory, order):
             total_error = op.norm(
                 dcoll, adv_op.operator(0, gaussian_mode(nodes)), 2
             )
-            eoc_rec.add_data_point(1.0/n, total_error)
+            eoc_rec.add_data_point(1.0/n, actx.to_numpy(total_error))
 
         logger.info("\n%s", eoc_rec.pretty_print(
             abscissa_label="h",

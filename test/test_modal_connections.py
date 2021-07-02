@@ -21,11 +21,11 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import (  # noqa
-    pytest_generate_tests_for_array_contexts
-    as pytest_generate_tests
-)
-from arraycontext.container.traversal import thaw
+from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory])
+from arraycontext import thaw
 
 from meshmode.discretization.poly_element import (
     # Simplex group factories

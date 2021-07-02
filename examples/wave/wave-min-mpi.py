@@ -30,7 +30,8 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import PyOpenCLArrayContext, thaw
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -50,7 +51,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
     )
 
     comm = MPI.COMM_WORLD

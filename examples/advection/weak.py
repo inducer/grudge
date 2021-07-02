@@ -32,7 +32,8 @@ import numpy.linalg as la
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import PyOpenCLArrayContext, thaw
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
 
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
@@ -103,7 +104,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
         queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
     )
 
     # {{{ parameters

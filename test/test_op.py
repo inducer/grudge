@@ -32,10 +32,11 @@ from grudge.dof_desc import DOFDesc
 
 import pytest
 
-from arraycontext import (  # noqa
-    pytest_generate_tests_for_array_contexts
-    as pytest_generate_tests
-)
+from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory])
+
 from arraycontext.container.traversal import thaw
 
 import logging
