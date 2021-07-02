@@ -30,7 +30,7 @@ from meshmode.array_context import (
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
-        _PytestPytatoPyOpenCLArrayContextFactoryWithClass,
+        _PytestPytatoPyOpenCLArrayContextFactory,
         register_pytest_array_context_factory)
 
 
@@ -41,10 +41,10 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """
 
 
-class PytatoPyOpenCLArrayContext(_PytatoyOpenCLArrayContextBase):
-    """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`. Extends it
-    to understand :mod:`grudge`-specific transform metadata. (Of which there isn't
-    any, for now.)
+class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
+    """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
+    Extends it to understand :mod:`grudge`-specific transform metadata.
+    (Of which there isn't any, for now.)
     """
 
 
@@ -60,6 +60,11 @@ class PytestPyOpenCLArrayContextFactoryWithHostScalars(
         _PytestPyOpenCLArrayContextFactoryWithClass):
     actx_class = PyOpenCLArrayContext
     force_device_scalars = False
+
+
+class PytestPytatoPyOpenCLArrayContextFactory(
+        _PytestPytatoPyOpenCLArrayContextFactory):
+    actx_class = PytatoPyOpenCLArrayContext
 
 
 register_pytest_array_context_factory("grudge.pyopencl",

@@ -32,7 +32,8 @@ from grudge.dof_desc import DOFDesc
 
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory
+from grudge.array_context import (PytestPyOpenCLArrayContextFactory,
+        PytestPytatoPyOpenCLArrayContextFactory)
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory])
