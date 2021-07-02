@@ -186,7 +186,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             continue
 
         if step % 10 == 0:
-            norm_u = op.norm(dcoll, event.state_component, 2)
+            norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
             plot(event, "fld-weak-%04d" % step)
 
         step += 1

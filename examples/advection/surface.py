@@ -216,7 +216,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     dt_stepper = set_up_rk4("u", dt, u0, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize)
 
-    norm_u = op.norm(dcoll, u0, 2)
+    norm_u = actx.to_numpy(op.norm(dcoll, u0, 2))
 
     step = 0
 
@@ -251,7 +251,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         step += 1
         if step % 10 == 0:
-            norm_u = op.norm(dcoll, event.state_component, 2)
+            norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
             plot(event, "fld-surface-%04d" % step)
 
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
