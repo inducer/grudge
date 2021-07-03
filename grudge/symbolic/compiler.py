@@ -1024,6 +1024,11 @@ class ToLoopyInstructionMapper:
                 % {"iel": iel, "idof": idof},
                 insns,
 
+                [
+                    lp.GlobalArg(name, shape=lp.auto, is_input=False)
+                    for name, dnr in zip(insn.names, insn.do_not_return)
+                    if not dnr
+                    ] + [...],
                 name="grudge_assign_%d" % self.insn_count,
 
                 # Single-insn kernels may have their no_sync_with resolve to an
