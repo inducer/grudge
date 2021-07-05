@@ -832,7 +832,7 @@ def face_mass(dcoll: DiscretizationCollection, *args):
 
     .. math::
 
-        \sum_{f=1}^{N_{\text{faces}}} \mathbf{M}_{f, E}\mathbf{f}|_f,
+        \sum_{f=1}^{N_{\text{faces}} } \mathbf{M}_{f, E}\mathbf{f}|_f,
 
     where
 
