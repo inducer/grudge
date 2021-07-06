@@ -288,6 +288,7 @@ class ExecutionMapper(mappers.Evaluator,
         in_discr = self.dcoll.discr_from_dd(op.dd_in)
         out_discr = self.dcoll.discr_from_dd(op.dd_out)
 
+        # FIXME: empty()
         result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
 
         prg = self._elwise_linear_loopy_prg()

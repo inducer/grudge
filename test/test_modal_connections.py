@@ -45,6 +45,7 @@ from grudge import DiscretizationCollection
 import grudge.dof_desc as dof_desc
 
 import pytest
+import numpy as np
 
 
 @pytest.mark.parametrize("nodal_group_factory", [
@@ -91,6 +92,9 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     # its inverse
     err = flat_norm(nodal_f - nodal_f_2)
 
+    if not np.isscalar(err):
+        err = actx.to_numpy(err)
+
     assert err <= 1e-13
 
 
@@ -134,5 +138,8 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     # This error should be small since we composed a map with
     # its inverse
     err = flat_norm(quad_f - quad_f_2)
+
+    if not np.isscalar(err):
+        err = actx.to_numpy(err)
 
     assert err <= 1e-11

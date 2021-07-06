@@ -26,10 +26,12 @@ import numpy as np
 
 from arraycontext import thaw
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import (PytestPyOpenCLArrayContextFactory,
+PytestPytatoPyOpenCLArrayContextFactory)
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+        PytestPytatoPyOpenCLArrayContextFactory])
 
 from grudge import DiscretizationCollection
 
@@ -141,9 +143,9 @@ def test_elementwise_reductions(actx_factory):
     elem_maxs = op.elementwise_max(dcoll, field)
     elem_sums = op.elementwise_sum(dcoll, field)
 
-    assert flat_norm(elem_mins - ref_mins, ord=np.inf) < 1.e-15
-    assert flat_norm(elem_maxs - ref_maxs, ord=np.inf) < 1.e-15
-    assert flat_norm(elem_sums - ref_sums, ord=np.inf) < 1.e-15
+    assert actx.to_numpy(flat_norm(elem_mins - ref_mins, ord=np.inf)) < 1.e-15
+    assert actx.to_numpy(flat_norm(elem_maxs - ref_maxs, ord=np.inf)) < 1.e-15
+    assert actx.to_numpy(flat_norm(elem_sums - ref_sums, ord=np.inf)) < 1.e-15
 
 
 # You can test individual routines by typing
