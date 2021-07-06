@@ -28,8 +28,10 @@ import os
 import numpy as np
 
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-from arraycontext import PyOpenCLArrayContext, thaw
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
 
 from meshmode.dof_array import flatten
 
@@ -71,7 +73,7 @@ class Plotter:
             return
 
         if self.dim == 1:
-            u = self.actx.to_numpy(flatten(evt.state_component[0]))
+            u = self.actx.to_numpy(flatten(evt.state_component))
 
             filename = "%s.png" % basename
             if not overwrite and os.path.exists(filename):
@@ -100,7 +102,11 @@ class Plotter:
 def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
+    )
 
     # {{{ parameters
 
@@ -143,17 +149,11 @@ def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
 
     # Initial velocity magnitudes
     if dim == 1:
-        u_init = [actx.np.sin(x[0])]
+        u_init = actx.np.sin(x[0])
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
-    u_init = make_obj_array(u_init)
-
-    burgers_operator = InviscidBurgers(
-        actx,
-        dcoll,
-        flux_type=flux_type
-    )
+    burgers_operator = InviscidBurgers(dcoll, flux_type=flux_type)
 
     def rhs(t, u):
         return burgers_operator.operator(t, u)
@@ -173,7 +173,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25, visualize=False):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
-        norm_u = op.norm(dcoll, event.state_component, 2)
+        norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
         assert norm_u < 5
 
         if step % 10 == 0:

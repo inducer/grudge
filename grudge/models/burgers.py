@@ -33,13 +33,16 @@ from grudge.models import HyperbolicOperator
 
 # {{{ Inviscid operator
 
-def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
+def burgers_numerical_flux(dcoll, num_flux_type, u_tpair, max_wavespeed):
     dd = u_tpair.dd
+    ut_avg = u_tpair.avg
+    actx = ut_avg.array_context
     normal = thaw(dcoll.normal(dd), actx)
     max_wavespeed = op.project(dcoll, "vol", dd, max_wavespeed)
 
     num_flux_type = num_flux_type.lower()
-    central = (0.5*u_tpair**2).avg @ normal
+
+    central = sum([ut_avg * normal[d] for d in range(dcoll.dim)])
     if num_flux_type == "central":
         return central
     elif num_flux_type == "lf":
@@ -51,11 +54,10 @@ def burgers_numerical_flux(actx, dcoll, num_flux_type, u_tpair, max_wavespeed):
 class InviscidBurgers(HyperbolicOperator):
     flux_types = ["central", "lf"]
 
-    def __init__(self, actx, dcoll, flux_type="central"):
+    def __init__(self, dcoll, flux_type="central"):
         if flux_type not in self.flux_types:
             raise NotImplementedError(f"unknown flux type: '{flux_type}'")
 
-        self.actx = actx
         self.dcoll = dcoll
         self.flux_type = flux_type
 
@@ -65,7 +67,7 @@ class InviscidBurgers(HyperbolicOperator):
 
     def operator(self, t, u):
         dcoll = self.dcoll
-        actx = self.actx
+        actx = u.array_context
         max_wavespeed = self.max_characteristic_velocity(actx, fields=u)
 
         def flux(u):
@@ -73,19 +75,18 @@ class InviscidBurgers(HyperbolicOperator):
 
         def numflux(tpair):
             return op.project(dcoll, tpair.dd, "all_faces",
-                              burgers_numerical_flux(actx, dcoll,
-                                                     self.flux_type,
+                              burgers_numerical_flux(dcoll, self.flux_type,
                                                      tpair, max_wavespeed))
 
         return (
             op.inverse_mass(
                 dcoll,
-                sum(op.weak_local_d_dx(dcoll, d, flux(u[d]))
+                sum(op.weak_local_d_dx(dcoll, d, flux(u))
                     for d in range(dcoll.dim))
                 - op.face_mass(
                     dcoll,
                     sum(numflux(tpair)
-                        for tpair in op.interior_trace_pairs(dcoll, u))
+                        for tpair in op.interior_trace_pairs(dcoll, flux(u)))
                 )
             )
         )
