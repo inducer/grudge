@@ -129,10 +129,10 @@ def main(ctx_factory, dim=3, order=4, visualize=False):
             step += 1
             e, h = maxwell_operator.split_eh(event.state_component)
 
-            norm_e0 = norm(u=e[0])
-            norm_e1 = norm(u=e[1])
-            norm_h0 = norm(u=h[0])
-            norm_h1 = norm(u=h[1])
+            norm_e0 = actx.to_numpy(norm(u=e[0]))
+            norm_e1 = actx.to_numpy(norm(u=e[1]))
+            norm_h0 = actx.to_numpy(norm(u=h[0]))
+            norm_h1 = actx.to_numpy(norm(u=h[1]))
 
             logger.info(
                 "[%04d] t = %.5f |e0| = %.5e, |e1| = %.5e, |h0| = %.5e, |h1| = %.5e",
