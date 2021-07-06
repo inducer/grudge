@@ -134,12 +134,12 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
 
     def operator(self, t, u):
         dcoll = self.dcoll
-        actx = self.actx
+        actx = u.array_context
 
         # dd_q = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
         dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
         # u_q = op.project(dcoll, "vol", dd_q, u)
-        u_f = op.project(dcoll, "vol", dd_f, u)
+        # u_f = op.project(dcoll, "vol", dd_f, u)
 
         # F_qq = burgers_flux_differencing_mat(actx, u, u)
         # F_qf = burgers_flux_differencing_mat(actx, u, u_f)
@@ -148,27 +148,24 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
 
         normal = thaw(dcoll.normal(dd_f), actx)
 
-        def two_point_flux(u_left, u_right):
-            return 1/6 * (u_left ** 2 + u_left * u_right + u_right ** 2)
-
         def energy_conserving_fluxes(tpair):
             return op.project(
                 dcoll, tpair.dd, dd_f,
                 1/6 * (tpair.ext * tpair.int + tpair.ext ** 2)
             )
 
-        return (
-            op.inverse_mass(
+        return -(
+            1/3 * sum(op.local_d_dx(dcoll, d, u ** 2)
+                      + u * op.local_d_dx(dcoll, d, u)
+                      for d in range(dcoll.dim))
+            + op.inverse_mass(
                 dcoll,
-                1/3 * sum(op.local_d_dx(dcoll, d, u[d] ** 2)
-                          + u[d] * op.local_d_dx(dcoll, d, u[d])
-                          for d in range(dcoll.dim))
-                + op.face_mass(
+                op.face_mass(
                     dcoll,
-                    normal * (
-                        sum(energy_conserving_fluxes(tpair)
-                            for tpair in op.interior_trace_pairs(dcoll, u))
-                        - 1/3 * op.project(dcoll, "vol", dd_f, u ** 2)
+                    sum((sum(energy_conserving_fluxes(tpair)
+                             for tpair in op.interior_trace_pairs(dcoll, u))
+                         - 1/3 * op.project(dcoll, "vol", dd_f, u ** 2)) * normal[d]
+                        for d in range(dcoll.dim)
                     )
                 )
             )
