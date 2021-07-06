@@ -88,7 +88,7 @@ def test_inverse_metric(actx_factory, dim):
         for j in range(mesh.dim):
             tgt = 1 if i == j else 0
 
-            err = flat_norm(mat[i, j] - tgt, ord=np.inf)
+            err = actx.to_numpy(flat_norm(mat[i, j] - tgt, ord=np.inf))
             logger.info("error[%d, %d]: %.5e", i, j, err)
             assert err < 1.0e-12, (i, j, err)
 
@@ -148,21 +148,21 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
         dcoll, dof_desc.DD_VOLUME, ones_volm * mop_1
     )
 
-    err_1 = abs(num_integral_1 - true_integral)
-    assert err_1 < 2e-9, err_1
+    err_1 = actx.to_numpy(abs(num_integral_1 - true_integral))
+    assert err_1 < 2e-08, err_1
 
     mop_2 = op.mass(dcoll, dd_quad, ones_quad)
     num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_volm * mop_2)
 
-    err_2 = abs(num_integral_2 - true_integral)
-    assert err_2 < 2e-9, err_2
+    err_2 = actx.to_numpy(abs(num_integral_2 - true_integral))
+    assert err_2 < 2e-08, err_2
 
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
         num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_quad * mop_2)
-        err_3 = abs(num_integral_3 - true_integral)
-        assert err_3 < 5e-10, err_3
+        err_3 = actx.to_numpy(abs(num_integral_3 - true_integral))
+        assert err_3 < 5e-08, err_3
 
 # }}}
 
@@ -255,13 +255,16 @@ def test_mass_surface_area(actx_factory, name):
 
         h_max = h_max_from_volume(dcoll)
 
+        if not np.isscalar(h_max):
+            h_max = actx.to_numpy(h_max)
+
         eoc.add_data_point(h_max, area_error)
 
     # }}}
 
     logger.info("surface area error\n%s", str(eoc))
 
-    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
+    assert eoc.max_error() < 3e-10 or eoc.order_estimate() > builder.order
 
 # }}}
 
@@ -328,6 +331,9 @@ def test_mass_operator_inverse(actx_factory, name):
         from grudge.dt_utils import h_max_from_volume
 
         h_max = h_max_from_volume(dcoll)
+
+        if not np.isscalar(h_max):
+            h_max = actx.to_numpy(h_max)
 
         eoc.add_data_point(h_max, inv_error)
 
@@ -1034,6 +1040,10 @@ def test_norm_complex(actx_factory, p):
     f = nodes[0] + 1j * nodes[0]
 
     norm = op.norm(dcoll, f, p)
+
+    if not np.isscalar(norm):
+        norm = actx.to_numpy(norm)
+
     if p == 2:
         ref_norm = ((1/3)*dim)**0.5
     elif p == np.inf:

@@ -78,6 +78,8 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     # geometric factors should satisfy: gfi+1 / gfi = 2
     min_factors = np.asarray(min_factors)
     ratios = min_factors[:-1] / min_factors[1:]
+    ratios = [actx.to_numpy(r) if not np.isscalar(r) else r for r in ratios]
+
     assert np.all(np.isclose(ratios, 2))
 
 
