@@ -271,6 +271,9 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         rel_linf_err = (
             op.norm(dcoll, div_u - expected_div_u, np.inf)
             / op.norm(dcoll, expected_div_u, np.inf))
+
+        if not np.isscalar(rel_linf_err):
+            rel_linf_err = actx.to_numpy(rel_linf_err)
         eoc_rec.add_data_point(1./n, rel_linf_err)
 
     print("L^inf error:")
