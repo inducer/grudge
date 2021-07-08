@@ -36,24 +36,6 @@ from pytools import memoize_in
 
 # {{{ Inviscid operator
 
-def burgers_numerical_flux(dcoll, num_flux_type, u_tpair, max_wavespeed):
-    dd = u_tpair.dd
-    ut_avg = u_tpair.avg
-    actx = ut_avg.array_context
-    normal = thaw(dcoll.normal(dd), actx)
-    max_wavespeed = op.project(dcoll, "vol", dd, max_wavespeed)
-
-    num_flux_type = num_flux_type.lower()
-
-    central = sum([ut_avg * normal[d] for d in range(dcoll.dim)])
-    if num_flux_type == "central":
-        return central
-    elif num_flux_type == "lf":
-        return central - 0.5 * max_wavespeed * u_tpair.diff
-    else:
-        raise NotImplementedError(f"flux '{num_flux_type}' is not implemented")
-
-
 class InviscidBurgers(HyperbolicOperator):
     flux_types = ["central", "lf"]
 
@@ -68,29 +50,71 @@ class InviscidBurgers(HyperbolicOperator):
         fields = kwargs["fields"]
         return op.elementwise_max(self.dcoll, abs(fields))
 
+    def entropy_function(self, u):
+        """Returns the entropy function.
+
+        :arg u: the state.
+        """
+        return 0.5 * (u**2)
+
+    def flux(self, u):
+        """Returns the flux for the Burgers operator in conservative form.
+
+        :arg u: the state.
+        """
+        return 0.5 * (u**2)
+
+    def numerical_fluxes(self, u):
+        """Returns the numerical fluxes on the interior and boundary faces.
+
+        :arg u: the state.
+        """
+        actx = u.array_context
+        dcoll = self.dcoll
+        num_flux_type = self.flux_type.lower()
+
+        def _numerical_flux(utpair):
+            dd = utpair.dd
+            f_avg = 0.5 * (self.flux(utpair.int) + self.flux(utpair.ext))
+            normal = thaw(dcoll.normal(dd), actx)
+
+            central = sum([f_avg * normal[d] for d in range(dcoll.dim)])
+
+            if num_flux_type == "central":
+                return op.project(dcoll, dd, "all_faces", central)
+            elif num_flux_type == "lf":
+                max_wavespeed = op.project(
+                    dcoll, "vol", dd,
+                    self.max_characteristic_velocity(actx, fields=u)
+                )
+                lf_flux = central - 0.5 * max_wavespeed * utpair.diff
+                return op.project(dcoll, dd, "all_faces", lf_flux)
+            else:
+                raise NotImplementedError(
+                    f"flux '{num_flux_type}' is not implemented"
+                )
+
+        # FIXME: Generalzie BC interface
+        # dir_bc = op.project(dcoll, "vol", self.bc_tag, self.bc)
+        # bdry_fluxes = _numerical_flux(op.bv_trace_pair(dcoll,
+        #                                                self.bc_tag,
+        #                                                u, dir_bc))
+        bdry_fluxes = 0
+
+        return (
+            sum(_numerical_flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
+            + bdry_fluxes
+        )
+
     def operator(self, t, u):
         dcoll = self.dcoll
-        actx = u.array_context
-        max_wavespeed = self.max_characteristic_velocity(actx, fields=u)
-
-        def flux(u):
-            return 0.5 * (u**2)
-
-        def numflux(tpair):
-            return op.project(dcoll, tpair.dd, "all_faces",
-                              burgers_numerical_flux(dcoll, self.flux_type,
-                                                     tpair, max_wavespeed))
+        dim = dcoll.dim
 
         return (
             op.inverse_mass(
                 dcoll,
-                sum(op.weak_local_d_dx(dcoll, d, flux(u))
-                    for d in range(dcoll.dim))
-                - op.face_mass(
-                    dcoll,
-                    sum(numflux(tpair)
-                        for tpair in op.interior_trace_pairs(dcoll, flux(u)))
-                )
+                sum(op.weak_local_d_dx(dcoll, d, self.flux(u)) for d in range(dim))
+                - op.face_mass(dcoll, self.numerical_fluxes(u))
             )
         )
 
