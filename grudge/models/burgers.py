@@ -94,15 +94,13 @@ class InviscidBurgers(HyperbolicOperator):
                     f"flux '{num_flux_type}' is not implemented"
                 )
 
-        # FIXME: Generalzie BC interface
-        # dir_bc = op.project(dcoll, "vol", self.bc_tag, self.bc)
-        # bdry_fluxes = _numerical_flux(op.bv_trace_pair(dcoll,
-        #                                                self.bc_tag,
-        #                                                u, dir_bc))
-        bdry_fluxes = 0
-
+        # FIXME: Generalzie BC interface; just prescribe u=0 on entire boundary
+        from meshmode.mesh import BTAG_ALL
+        dir_bc = op.project(dcoll, "vol", BTAG_ALL, dcoll.zeros(actx))
+        bdry_fluxes = _numerical_flux(op.bv_trace_pair(dcoll, BTAG_ALL, u, dir_bc))
         return (
-            sum(_numerical_flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
+            sum(_numerical_flux(tpair)
+                for tpair in op.interior_trace_pairs(dcoll, u))
             + bdry_fluxes
         )
 
@@ -124,6 +122,8 @@ class InviscidBurgers(HyperbolicOperator):
 # {{{ Entropy conservative inviscid operator
 
 def burgers_flux_differencing_mat(actx, state_i, state_j):
+    from meshmode.dof_array import DOFArray
+
     @memoize_in(actx, (burgers_flux_differencing_mat, "flux_diff_knl"))
     def energy_conserving_flux_prg():
         return make_loopy_program(
