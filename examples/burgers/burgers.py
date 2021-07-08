@@ -48,9 +48,11 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `weak.py`)
 
 class Plotter:
-    def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
+    def __init__(self, actx, dcoll, order, npoints, visualize=True, ylim=None):
         self.actx = actx
         self.dim = dcoll.ambient_dim
+        self.order = order
+        self.npoints = npoints
 
         self.visualize = visualize
         if not self.visualize:
@@ -87,7 +89,7 @@ class Plotter:
 
             ax.set_xlabel("$x$")
             ax.set_ylabel("$u$")
-            ax.set_title(f"t = {evt.t:.2f}")
+            ax.set_title(f"t = {evt.t:.2f} ($N={self.npoints}$, $k={self.order}$)")
             self.fig.savefig(filename)
             self.fig.clf()
         else:
@@ -118,7 +120,7 @@ def set_up_ssprk3(field_var_name, dt, fields, rhs, t_start=0):
 
 
 def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
-         entropy_conservative=False, visualize=False):
+         strong_form=False, entropy_conservative=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -133,23 +135,28 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     d = 1.0
 
     # final time
-    final_time = 0.5
+    final_time = 1.0
 
     # flux
     flux_type = "central"
+
+    if strong_form:
+        dgtype = "strong"
+    else:
+        dgtype = "weak"
 
     # }}}
 
     # {{{ discretization
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
+    from grudge import DiscretizationCollection
+
     mesh = generate_regular_rect_mesh(
         a=(0.0,)*dim,
         b=(d,)*dim,
         nelements_per_axis=(npoints,)*dim,
     )
-
-    from grudge import DiscretizationCollection
 
     dcoll = DiscretizationCollection(actx, mesh, order=order)
 
@@ -169,8 +176,9 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
         exp_name = "fld-burgers-esdg"
         burgers_op = EntropyConservativeInviscidBurgers(dcoll, flux_type=flux_type)
     else:
-        exp_name = "fld-burgers"
-        burgers_op = InviscidBurgers(dcoll, flux_type=flux_type)
+        exp_name = "fld-burgers-%s-%s" % (flux_type, dgtype)
+        burgers_op = InviscidBurgers(dcoll, flux_type=flux_type,
+                                     strong_form=strong_form)
 
     def rhs(t, u):
         return burgers_op.operator(t, u)
@@ -179,10 +187,10 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     # {{{ time stepping
 
-    dt = 1/3 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    dt = 1/4 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
     dt_stepper = set_up_ssprk3("u", dt, u_init, rhs)
-    plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[-1, 1])
+    plot = Plotter(actx, dcoll, order, npoints, visualize=visualize, ylim=[-1, 1])
 
     step = 0
     time = [0.0]
@@ -223,7 +231,7 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     ax.set_xlabel("$t$")
     ax.set_ylabel("$\\int_D \\frac{1}{2}u^2$")
-    ax.set_title("Integrated entropy vs time")
+    ax.set_title(f"Integrated entropy vs time ($N={npoints}$, $k={order}$)")
 
     fig.savefig("%s-entropy.png" % exp_name)
     fig.clf()
@@ -237,6 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--npoints", default=20, type=int)
     parser.add_argument("--visfreq", default=10, type=int)
+    parser.add_argument("--strong", action="store_true")
     parser.add_argument("--esdg", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
@@ -247,5 +256,6 @@ if __name__ == "__main__":
          order=args.order,
          npoints=args.npoints,
          vis_freq=args.visfreq,
+         strong_form=args.strong,
          entropy_conservative=args.esdg,
          visualize=args.visualize)
