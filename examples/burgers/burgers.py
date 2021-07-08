@@ -185,20 +185,48 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[-1, 1])
 
     step = 0
+    time = [0.0]
+    integrated_entropy = [
+        actx.to_numpy(
+            op.integral(dcoll, "vol", burgers_op.entropy_function(u_init))
+        )
+    ]
     for event in dt_stepper.run(t_end=final_time):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
-        norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
+        u_h = event.state_component
+        norm_u = actx.to_numpy(op.norm(dcoll, u_h, 2))
         assert norm_u < 5
 
         if step % vis_freq == 0:
             plot(event, "%s-%04d" % (exp_name, step))
 
+            time.append(event.t)
+            integrated_entropy.append(
+                actx.to_numpy(
+                    op.integral(dcoll, "vol", burgers_op.entropy_function(u_h))
+                )
+            )
+
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 
     # }}}
+
+    import matplotlib.pyplot as pt
+
+    fig = pt.figure(figsize=(8, 8), dpi=300)
+    ax = fig.gca()
+    ax.plot(time, integrated_entropy, "-")
+    ax.plot(time, integrated_entropy, "k.")
+
+    ax.set_xlabel("$t$")
+    ax.set_ylabel("$\int_D \frac{1}{2}u^2$")
+    ax.set_title(f"Integrated entropy vs time")
+
+    fig.savefig("%s-entropy.png" % exp_name)
+    fig.clf()
 
 
 if __name__ == "__main__":
