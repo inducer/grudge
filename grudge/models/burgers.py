@@ -25,7 +25,7 @@ THE SOFTWARE.
 """
 
 import grudge.op as op
-import grudge.dof_desc as dof_desc
+# import grudge.dof_desc as dof_desc
 
 from arraycontext import thaw, make_loopy_program
 
@@ -39,12 +39,13 @@ from pytools import memoize_in
 class InviscidBurgers(HyperbolicOperator):
     flux_types = ["central", "lf"]
 
-    def __init__(self, dcoll, flux_type="central"):
+    def __init__(self, dcoll, flux_type="central", strong_form=False):
         if flux_type not in self.flux_types:
             raise NotImplementedError(f"unknown flux type: '{flux_type}'")
 
         self.dcoll = dcoll
         self.flux_type = flux_type
+        self.strong_form = strong_form
 
     def max_characteristic_velocity(self, actx, **kwargs):
         fields = kwargs["fields"]
@@ -97,7 +98,10 @@ class InviscidBurgers(HyperbolicOperator):
         # FIXME: Generalzie BC interface; just prescribe u=0 on entire boundary
         from meshmode.mesh import BTAG_ALL
         dir_bc = op.project(dcoll, "vol", BTAG_ALL, dcoll.zeros(actx))
-        bdry_fluxes = _numerical_flux(op.bv_trace_pair(dcoll, BTAG_ALL, u, dir_bc))
+        bdry_fluxes = _numerical_flux(
+            op.bv_trace_pair(dcoll, BTAG_ALL,
+                             interior=u, exterior=dir_bc)
+        )
         return (
             sum(_numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, u))
@@ -107,14 +111,27 @@ class InviscidBurgers(HyperbolicOperator):
     def operator(self, t, u):
         dcoll = self.dcoll
         dim = dcoll.dim
+        f = self.flux(u)
 
-        return (
-            op.inverse_mass(
-                dcoll,
-                sum(op.weak_local_d_dx(dcoll, d, self.flux(u)) for d in range(dim))
-                - op.face_mass(dcoll, self.numerical_fluxes(u))
+        if self.strong_form:
+            normal = thaw(dcoll.normal("all_faces"), u.array_context)
+            f_faces = op.project(dcoll, "vol", "all_faces", f)
+            fn = sum(f_faces*ni for ni in normal)
+            return (
+                op.inverse_mass(
+                    dcoll,
+                    op.face_mass(dcoll, fn - self.numerical_fluxes(u))
+                )
+                - sum(op.local_d_dx(dcoll, d, f) for d in range(dim))
             )
-        )
+        else:
+            return (
+                op.inverse_mass(
+                    dcoll,
+                    sum(op.weak_local_d_dx(dcoll, d, f) for d in range(dim))
+                    - op.face_mass(dcoll, self.numerical_fluxes(u))
+                )
+            )
 
 # }}}
 
@@ -158,10 +175,10 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
 
     def operator(self, t, u):
         dcoll = self.dcoll
-        actx = u.array_context
+        dim = dcoll.dim
 
         # dd_q = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-        dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
+        # dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
         # u_q = op.project(dcoll, "vol", dd_q, u)
         # u_f = op.project(dcoll, "vol", dd_f, u)
 
@@ -170,29 +187,17 @@ class EntropyConservativeInviscidBurgers(InviscidBurgers):
         # F_fq = burgers_flux_differencing_mat(actx, u_f, u)
         # F_ff = burgers_flux_differencing_mat(actx, u_f, u_f)
 
-        normal = thaw(dcoll.normal(dd_f), actx)
+        normal = thaw(dcoll.normal("all_faces"), u.array_context)
+        f_faces = op.project(dcoll, "vol", "all_faces", self.flux(u))
+        fn = sum(f_faces*ni for ni in normal)
 
-        def energy_conserving_fluxes(tpair):
-            return op.project(
-                dcoll, tpair.dd, dd_f,
-                1/6 * (tpair.ext * tpair.int + tpair.ext ** 2)
-            )
-
-        return -(
-            1/3 * sum(op.local_d_dx(dcoll, d, u ** 2)
-                      + u * op.local_d_dx(dcoll, d, u)
-                      for d in range(dcoll.dim))
-            + op.inverse_mass(
+        return (
+            op.inverse_mass(
                 dcoll,
-                op.face_mass(
-                    dcoll,
-                    sum((sum(energy_conserving_fluxes(tpair)
-                             for tpair in op.interior_trace_pairs(dcoll, u))
-                         - 1/3 * op.project(dcoll, "vol", dd_f, u ** 2)) * normal[d]
-                        for d in range(dcoll.dim)
-                    )
-                )
+                op.face_mass(dcoll, fn - self.numerical_fluxes(u))
             )
+            - 1/3 * sum(op.local_d_dx(dcoll, d, u ** 2)
+                        + u * op.local_d_dx(dcoll, d, u) for d in range(dim))
         )
 
 # }}}
