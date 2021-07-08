@@ -98,7 +98,26 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=1, order=4, npoints=25,
+# {{{ SSPRK3 timestepper
+
+def set_up_ssprk3(field_var_name, dt, fields, rhs, t_start=0):
+    from leap.rk import SSPRK33MethodBuilder
+    from dagrt.codegen import PythonCodeGenerator
+
+    dt_method = SSPRK33MethodBuilder(component_id=field_var_name)
+    dt_code = dt_method.generate()
+    dt_stepper_class = PythonCodeGenerator("TimeStep").get_class(dt_code)
+    dt_stepper = dt_stepper_class({"<func>"+dt_method.component_id: rhs})
+
+    dt_stepper.set_up(t_start=t_start, dt_start=dt,
+                      context={dt_method.component_id: fields})
+
+    return dt_stepper
+
+# }}}
+
+
+def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
          entropy_conservative=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -111,10 +130,10 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
     # {{{ parameters
 
     # domain [0, d]^dim
-    d = 2*np.pi
+    d = 1.0
 
     # final time
-    final_time = 2
+    final_time = 0.5
 
     # flux
     flux_type = "central"
@@ -130,16 +149,9 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
         nelements_per_axis=(npoints,)*dim,
     )
 
-    discr_tag_to_group_factory = {}
-
     from grudge import DiscretizationCollection
 
-    dcoll = DiscretizationCollection(
-        actx,
-        mesh,
-        order=order,
-        discr_tag_to_group_factory=discr_tag_to_group_factory
-    )
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     # }}}
 
@@ -149,7 +161,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
 
     # Initial velocity magnitudes
     if dim == 1:
-        u_init = actx.np.sin(x[0])
+        u_init = actx.np.sin(2*np.pi*x[0])
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
@@ -167,11 +179,10 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
 
     # {{{ time stepping
 
-    dt = 1/2 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    dt = 1/3 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
-    from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u_init, rhs)
-    plot = Plotter(actx, dcoll, order, visualize=visualize)
+    dt_stepper = set_up_ssprk3("u", dt, u_init, rhs)
+    plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[-1, 1])
 
     step = 0
     for event in dt_stepper.run(t_end=final_time):
@@ -181,7 +192,7 @@ def main(ctx_factory, dim=1, order=4, npoints=25,
         norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
         assert norm_u < 5
 
-        if step % 10 == 0:
+        if step % vis_freq == 0:
             plot(event, "%s-%04d" % (exp_name, step))
 
         step += 1
@@ -196,7 +207,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dim", choices=[1, 2, 3], default=1, type=int)
     parser.add_argument("--order", default=4, type=int)
-    parser.add_argument("--npoints", default=25, type=int)
+    parser.add_argument("--npoints", default=20, type=int)
+    parser.add_argument("--visfreq", default=10, type=int)
     parser.add_argument("--esdg", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
@@ -206,5 +218,6 @@ if __name__ == "__main__":
          dim=args.dim,
          order=args.order,
          npoints=args.npoints,
+         vis_freq=args.visfreq,
          entropy_conservative=args.esdg,
          visualize=args.visualize)
