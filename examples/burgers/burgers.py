@@ -222,8 +222,8 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     ax.plot(time, integrated_entropy, "k.")
 
     ax.set_xlabel("$t$")
-    ax.set_ylabel("$\int_D \frac{1}{2}u^2$")
-    ax.set_title(f"Integrated entropy vs time")
+    ax.set_ylabel("$\\int_D \\frac{1}{2}u^2$")
+    ax.set_title("Integrated entropy vs time")
 
     fig.savefig("%s-entropy.png" % exp_name)
     fig.clf()
