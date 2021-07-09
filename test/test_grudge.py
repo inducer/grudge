@@ -26,7 +26,8 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
-from grudge.array_context import (PytestPyOpenCLArrayContextFactory,
+from grudge.array_context import (PytatoPyOpenCLArrayContext,
+    PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory)
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
@@ -355,6 +356,9 @@ def test_face_normal_surface(actx_factory, mesh_name):
     """Check that face normals are orthogonal to the surface normal"""
     actx = actx_factory()
 
+    if mesh_name == "2-1-ellipse" and isinstance(actx, PytatoPyOpenCLArrayContext):
+        pytest.xfail("PytatoPyOpenCLArrayContext lacks slicing option.")
+
     # {{{ geometry
 
     if mesh_name == "2-1-ellipse":
@@ -519,7 +523,7 @@ def test_2d_gauss_theorem(actx_factory):
     normal = thaw(dcoll.normal(BTAG_ALL), actx)
     int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
 
-    assert abs(int_1 - int_2) < 1e-13
+    assert actx.to_numpy(abs(int_1 - int_2)) < 1e-13
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
@@ -538,6 +542,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         and the face tangent).
     """
     actx = actx_factory()
+
+    if mesh_name == "2-1-ellipse" and isinstance(actx, PytatoPyOpenCLArrayContext):
+        pytest.xfail("PytatoPyOpenCLArrayContext lacks slicing option.")
 
     # {{{ cases
 
@@ -701,6 +708,9 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
     actx = actx_factory()
 
+    if isinstance(actx, PytatoPyOpenCLArrayContext):
+        pytest.xfail("Needs better stepper support in PytatoPyOpenCLArrayContext")
+
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
@@ -797,7 +807,6 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             nsteps = int(final_time/dt) + 1
         else:
             nsteps = int(final_time/actx.to_numpy(dt)) + 1
-            1/0 # test hangs, so bail
         dt = final_time/nsteps + 1e-15
 
         from grudge.shortcuts import set_up_rk4
@@ -852,6 +861,9 @@ def test_convergence_maxwell(actx_factory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
     actx = actx_factory()
+
+    if isinstance(actx, PytatoPyOpenCLArrayContext):
+        pytest.xfail("Needs better stepper support in PytatoPyOpenCLArrayContext")
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
