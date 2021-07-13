@@ -132,10 +132,10 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     # {{{ parameters
 
     # domain [0, d]^dim
-    d = 1.0
+    d = 2.0*np.pi
 
     # final time
-    final_time = 1.0
+    final_time = 2
 
     # flux
     flux_type = "central"
@@ -150,15 +150,31 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     # {{{ discretization
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
+    from meshmode.mesh.processing import glue_mesh_boundaries
     from grudge import DiscretizationCollection
+
+    bdry_names = ("x", "y", "z")
+
+    btag_to_face = {
+        "lower": ["-" + bdry_names[dim-1]],
+        "upper": ["+" + bdry_names[dim-1]]
+    }
 
     mesh = generate_regular_rect_mesh(
         a=(0.0,)*dim,
         b=(d,)*dim,
         nelements_per_axis=(npoints,)*dim,
+        order=order,
+        boundary_tag_to_face=btag_to_face
     )
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    glued_mesh = glue_mesh_boundaries(
+        mesh, glued_boundary_mappings=[
+            ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (d,)), 1e-15),
+        ]
+    )
+
+    dcoll = DiscretizationCollection(actx, glued_mesh, order=order)
 
     # }}}
 
@@ -168,7 +184,7 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     # Initial velocity magnitudes
     if dim == 1:
-        u_init = actx.np.sin(2*np.pi*x[0])
+        u_init = actx.np.sin(x[0])
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
