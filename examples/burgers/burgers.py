@@ -119,6 +119,25 @@ def set_up_ssprk3(field_var_name, dt, fields, rhs, t_start=0):
 # }}}
 
 
+def plot_entropy(time, integrated_entropy, exp_name, npoints, order):
+
+    import matplotlib.pyplot as pt
+
+    fig = pt.figure(figsize=(8, 8), dpi=300)
+    ax = fig.gca()
+    ax.plot(time, integrated_entropy, "-")
+    ax.plot(time, integrated_entropy, "k.")
+
+    ax.set_xlabel("$t$")
+    ax.set_ylabel(
+        "$\\int_D\\frac{1}{2}u(t)^2-\\frac{1}{2}u(0)^2$/$\\int_D\\frac{1}{2}u(0)^2$"
+    )
+    ax.set_title(f"Rel. diff integrated entropy vs time ($N={npoints}$, $k={order}$)")
+
+    fig.savefig("%s-entropy.png" % exp_name)
+    fig.clf()
+
+
 def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
          strong_form=False, entropy_conservative=False, visualize=False):
     cl_ctx = ctx_factory()
@@ -135,7 +154,7 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
     d = 2.0*np.pi
 
     # final time
-    final_time = 2
+    final_time = 1.5
 
     # flux
     flux_type = "central"
@@ -151,6 +170,10 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     from meshmode.mesh.processing import glue_mesh_boundaries
+    from meshmode.discretization.poly_element import (
+        default_simplex_group_factory,
+        QuadratureSimplexGroupFactory
+    )
     from grudge import DiscretizationCollection
 
     bdry_names = ("x", "y", "z")
@@ -170,11 +193,22 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     glued_mesh = glue_mesh_boundaries(
         mesh, glued_boundary_mappings=[
-            ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (d,)), 1e-15),
+            ("lower", "upper", (np.eye(dim), (0,)*(dim-1) + (d,)), 1e-16),
         ]
     )
 
-    dcoll = DiscretizationCollection(actx, glued_mesh, order=order)
+    dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+
+    dcoll = DiscretizationCollection(
+        actx,
+        glued_mesh,
+        discr_tag_to_group_factory={
+            dof_desc.DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim,
+                                                                   order=order),
+            dof_desc.DISCR_TAG_QUAD: default_simplex_group_factory(base_dim=dim,
+                                                                   order=3*order + 1)
+        }
+    )
 
     # }}}
 
@@ -184,7 +218,7 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     # Initial velocity magnitudes
     if dim == 1:
-        u_init = actx.np.sin(x[0])
+        u_init = 0.5 + actx.np.sin(x[0])
     else:
         raise NotImplementedError(f"Example not implemented for d={dim}")
 
@@ -203,54 +237,62 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
 
     # {{{ time stepping
 
-    dt = 1/4 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
+    dt = 1/10 * burgers_op.estimate_rk4_timestep(actx, dcoll, fields=u_init)
 
-    dt_stepper = set_up_ssprk3("u", dt, u_init, rhs)
-    plot = Plotter(actx, dcoll, order, npoints, visualize=visualize, ylim=[-1, 1])
+    from grudge.shortcuts import set_up_rk4
+
+    # dt_stepper = set_up_ssprk3("u", dt, u_init, rhs)
+    dt_stepper = set_up_rk4("u", dt, u_init, rhs)
+    plot = Plotter(actx, dcoll, order, npoints, visualize=visualize, ylim=[-1, 2])
 
     step = 0
     time = [0.0]
-    integrated_entropy = [
-        actx.to_numpy(
-            op.integral(dcoll, "vol", burgers_op.entropy_function(u_init))
+
+    init_ef = actx.to_numpy(
+        op.integral(
+            dcoll, dd_quad,
+            burgers_op.entropy_function(
+                op.project(dcoll, "vol", dd_quad, u_init)
+            )
         )
-    ]
+    )
+    integrated_entropy = [0.0]
+
     for event in dt_stepper.run(t_end=final_time):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
         u_h = event.state_component
         norm_u = actx.to_numpy(op.norm(dcoll, u_h, 2))
-        assert norm_u < 5
 
         if step % vis_freq == 0:
             plot(event, "%s-%04d" % (exp_name, step))
 
             time.append(event.t)
-            integrated_entropy.append(
-                actx.to_numpy(
-                    op.integral(dcoll, "vol", burgers_op.entropy_function(u_h))
+
+            ef_tn = actx.to_numpy(
+                op.integral(
+                    dcoll, dd_quad,
+                    burgers_op.entropy_function(
+                        op.project(dcoll, "vol", dd_quad, u_h)
+                    )
                 )
             )
+
+            integrated_entropy.append(
+                abs(init_ef - ef_tn)/init_ef
+            )
+
+        if norm_u > 5:
+            plot_entropy(time, integrated_entropy, exp_name, npoints, order)
+            raise RuntimeError("Solution norm is growing")
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 
     # }}}
 
-    import matplotlib.pyplot as pt
-
-    fig = pt.figure(figsize=(8, 8), dpi=300)
-    ax = fig.gca()
-    ax.plot(time, integrated_entropy, "-")
-    ax.plot(time, integrated_entropy, "k.")
-
-    ax.set_xlabel("$t$")
-    ax.set_ylabel("$\\int_D \\frac{1}{2}u^2$")
-    ax.set_title(f"Integrated entropy vs time ($N={npoints}$, $k={order}$)")
-
-    fig.savefig("%s-entropy.png" % exp_name)
-    fig.clf()
+    plot_entropy(time, integrated_entropy, exp_name, npoints, order)
 
 
 if __name__ == "__main__":
