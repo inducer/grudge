@@ -31,7 +31,7 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 import grudge.op as op
 
@@ -54,7 +54,7 @@ def test_nodal_reductions(actx_factory):
     builder = BoxMeshBuilder(ambient_dim=1)
 
     mesh = builder.get_mesh(4, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = make_discretization_collection(actx, mesh, order=builder.order)
     x = thaw(dcoll.nodes(), actx)
 
     def f(x):
@@ -108,7 +108,7 @@ def test_elementwise_reductions(actx_factory):
 
     nelements = 4
     mesh = builder.get_mesh(nelements, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = make_discretization_collection(actx, mesh, order=builder.order)
     x = thaw(dcoll.nodes(), actx)
 
     def f(x):
@@ -122,7 +122,7 @@ def test_elementwise_reductions(actx_factory):
         min_res = np.empty(grp_f.shape)
         max_res = np.empty(grp_f.shape)
         sum_res = np.empty(grp_f.shape)
-        for eidx in range(dcoll._volume_discr.groups[gidx].nelements):
+        for eidx in range(dcoll.discr_from_dd("vol").groups[gidx].nelements):
             element_data = actx.to_numpy(grp_f[eidx])
             min_res[eidx, :] = np.min(element_data)
             max_res[eidx, :] = np.max(element_data)
