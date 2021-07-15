@@ -569,13 +569,16 @@ class DiscretizationCollection:
 # {{{ Discretization construction routines
 
 def make_discretization_collection(
-        array_context: ArrayContext, mesh: Mesh,
+        array_context: ArrayContext,
+        discr_context,
         order=None,
         discr_tag_to_group_factory=None,
         mpi_communicator=None) -> DiscretizationCollection:
-    """Construct a discretization collection given an array context *array_context*,
-    mesh *mesh*, and user-provided discretization parameters.
+    """Construct a discretization collection given an array context *array_context*
+    and user-provided discretization parameters.
 
+    :arg discr_context: A :class:`~meshmode.mesh.Mesh` object to define
+        the discretization collection over.
     :arg discr_tag_to_group_factory: A mapping from discretization tags
         (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
         :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
@@ -588,6 +591,12 @@ def make_discretization_collection(
     :arg mpi_communicator: An (optional) MPI communicator.
     :returns: A :class:`DiscretizationCollection`.
     """
+    if not isinstance(discr_context, Mesh):
+        raise NotImplementedError(
+            "Currently `discr_context` must be a meshmode Mesh object"
+        )
+    mesh = discr_context
+
     from meshmode.discretization.poly_element import \
         default_simplex_group_factory
 
