@@ -119,14 +119,16 @@ def set_up_ssprk3(field_var_name, dt, fields, rhs, t_start=0):
 # }}}
 
 
+# {{{ Quick plotting helper functions
+
 def plot_entropy(time, integrated_entropy, exp_name, npoints, order):
 
     import matplotlib.pyplot as pt
 
     fig = pt.figure(figsize=(8, 8), dpi=300)
     ax = fig.gca()
-    ax.plot(time, integrated_entropy, "-")
-    ax.plot(time, integrated_entropy, "k.")
+    ax.plot(time, integrated_entropy, "b-")
+    ax.plot(time, integrated_entropy, "b.")
 
     ax.set_xlabel("$t$")
     ax.set_ylabel(
@@ -134,11 +136,36 @@ def plot_entropy(time, integrated_entropy, exp_name, npoints, order):
     )
     ax.set_title(f"Rel. diff integrated entropy vs time ($N={npoints}$, $k={order}$)")
 
+    ax.set_ylim([-1, 1])
+    ax.set_yscale("log")
+
     fig.savefig("%s-entropy.png" % exp_name)
     fig.clf()
 
 
-def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
+def plot_growth_factors(time, growth_factors, exp_name, npoints, order):
+
+    import matplotlib.pyplot as pt
+
+    fig = pt.figure(figsize=(8, 8), dpi=300)
+    ax = fig.gca()
+    ax.plot(time, growth_factors, "-")
+    ax.plot(time, growth_factors, "k.")
+
+    ax.set_xlabel("$t$")
+    ax.set_ylabel(
+        "$|| u(t) || / || u(0) ||$"
+    )
+    ax.set_title(f"Growth factor vs time ($N={npoints}$, $k={order}$)")
+    ax.set_ylim([0.9, 1.5])
+
+    fig.savefig("%s-factors.png" % exp_name)
+    fig.clf()
+
+# }}}
+
+
+def main(ctx_factory, dim=1, order=4, npoints=30, vis_freq=10,
          strong_form=False, entropy_conservative=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -257,6 +284,8 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
         )
     )
     integrated_entropy = [0.0]
+    norm_init = actx.to_numpy(op.norm(dcoll, u_init, 2))
+    sol_growth_factor = [1.0]
 
     for event in dt_stepper.run(t_end=final_time):
         if not isinstance(event, dt_stepper.StateComputed):
@@ -268,31 +297,35 @@ def main(ctx_factory, dim=1, order=4, npoints=20, vis_freq=10,
         if step % vis_freq == 0:
             plot(event, "%s-%04d" % (exp_name, step))
 
-            time.append(event.t)
+        time.append(event.t)
 
-            ef_tn = actx.to_numpy(
-                op.integral(
-                    dcoll, dd_quad,
-                    burgers_op.entropy_function(
-                        op.project(dcoll, "vol", dd_quad, u_h)
-                    )
+        ef_tn = actx.to_numpy(
+            op.integral(
+                dcoll, dd_quad,
+                burgers_op.entropy_function(
+                    op.project(dcoll, "vol", dd_quad, u_h)
                 )
             )
+        )
 
-            integrated_entropy.append(
-                abs(init_ef - ef_tn)/init_ef
-            )
+        integrated_entropy.append(
+            (ef_tn - init_ef)/abs(init_ef)
+        )
+        gt = norm_u / norm_init
+        sol_growth_factor.append(gt)
 
-        if norm_u > 5:
-            plot_entropy(time, integrated_entropy, exp_name, npoints, order)
-            raise RuntimeError("Solution norm is growing")
+        # if norm_u > 5:
+        #     plot_entropy(time, integrated_entropy, exp_name, npoints, order)
+        #     plot_growth_factors(time, sol_growth_factor, exp_name, npoints, order)
+        #     raise RuntimeError("Solution norm is growing")
 
         step += 1
-        logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+        logger.info("[%04d] t = %.5f |u| = %.5e Growth factor = %.5f", step, event.t, norm_u, gt)
 
     # }}}
 
     plot_entropy(time, integrated_entropy, exp_name, npoints, order)
+    plot_growth_factors(time, sol_growth_factor, exp_name, npoints, order)
 
 
 if __name__ == "__main__":
