@@ -273,7 +273,7 @@ def main():
     actx = AutoTuningArrayContext(queue, allocator=ImmediateAllocator(queue))
 
     dim = 3
-    nel_1d = 2**5
+    nel_1d = 2**5 # Order 6 runs out of memory with 2**5
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             coord_dtype=np.float64,
@@ -307,9 +307,11 @@ def main():
         return wave_operator(dcoll, c=1, w=w)
 
     t = 0
-    t_final = 10*dt
+    t_final = (21)*dt
     istep = 0
     while t < t_final:
+
+        print(f"===========TIME STEP {istep}===========")
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
@@ -321,11 +323,12 @@ def main():
                         ("v", fields[1:]),
                         ])
 
+        print(f"===========END TIME STEP {istep}===========")
         istep += 1
         t = istep*dt
 
-        assert op.norm(dcoll, fields[0], 2) < 1
-        print("===========BEGINNING NEXT TIME STEP===========")
+        # Should compare against base version at some point
+        #assert op.norm(dcoll, fields[0], 2) < 1
 
 
 if __name__ == "__main__":
