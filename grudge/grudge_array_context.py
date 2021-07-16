@@ -169,7 +169,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             print(transformations)
             program = dgk.apply_transformation_list(program, transformations)
 
-        elif program.name == "face_mass":
+        elif False:#program.name == "face_mass":
             hjson_file = pkg_resources.open_text(dgk, "face_mass_transform.hjson")
             pn = -1
             fp_format = None
@@ -187,7 +187,10 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = dgk.apply_transformation_list(program, transformations)
 
         # These still depend on the polynomial order = 3
-        elif program.name == "resample_by_mat":
+        elif "resample_by_mat" in program.name:
+            print(program)
+            program = lp.set_options(program, "write_cl")
+
             hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
     
             # Order 3: 10 x 10
@@ -231,7 +234,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = lp.split_iname(program, "idof", 20, outer_tag="g.1", slabs=(0,0))
             program = lp.split_iname(program, "idof_inner", 10, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))
                       
-        elif program.name == "resample_by_picking":
+        elif "resample_by_picking" in program.name:
             program = lp.split_iname(program, "iel", 96, outer_tag="g.0",
                                         slabs=(0, 1))
             program = lp.split_iname(program, "iel_inner", 96, outer_tag="ilp",
@@ -242,12 +245,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
              "flatten" in program.name:
             # This is hardcoded. Need to move this to separate transformation file
             #program = lp.set_options(program, "write_cl")
+            #program = lp.split_iname(program, "iel", 1024, outer_tag="g.0",
+            #                            slabs=(0, 1))
             program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
                                         slabs=(0, 1))
             program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
                                         inner_tag="l.0")
-            program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+            program = lp.split_iname(program, "idof", 32, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 1))
         else:
             print("USING FALLBACK TRANSORMATIONS FOR " + program.name)
             program = super().transform_loopy_program(program)
@@ -267,12 +272,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         #print("Input")
 
-        if program.name == "resample_by_mat":
+        if "resample_by_mat" in program.name:
             n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
             nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
                         n_to_nodes*n_from_nodes +
                         kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
-        elif program.name == "resample_by_picking":
+        elif "resample_by_picking" in program.name:
             # Double check this
             nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                         + kwargs["to_element_indices"].shape[0])*8
@@ -319,10 +324,12 @@ class AutoTuningArrayContext(GrudgeArrayContext):
         # This read could be slow
         transform_id = get_transformation_id(device_id)
 
+
         if "diff" in program.name or \
-           "elwise_linear" == program.name or \
+           "nodes" == program.name or \
            "face_mass" == program.name or \
-           "nodes" == program.name:
+           "elwise_linear" == program.name or \
+           "resample_by_mat" in program.name: # The lack of known array sizes breaks this
 
             # Set no_numpy and return_dict options here?
             program = set_memory_layout(program)
@@ -424,7 +431,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 out_file.close()
 
         # Maybe this should have an autotuner
-        elif program.name == "resample_by_picking":
+        elif "resample_by_picking" in program.name:
             for arg in program.args:
                 if arg.name == "n_to_nodes":
                     n_to_nodes = arg.tags.value
@@ -489,8 +496,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
         # These still depend on the polynomial order = 3
         # Never called?
         # This is going away anyway probably
-        elif program.name == "resample_by_mat":
-            hjson_file = pkg_resources.open_text(dgk, "resample_by_mat.hjson")
+        elif "resample_by_mat" in program.name:
+            hjson_file = pkg_resources.open_text(dgk, f"{program.name}.hjson")
     
             # Order 3: 10 x 10
             # Order 4: 15 x 35
