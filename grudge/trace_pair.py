@@ -160,7 +160,7 @@ class TracePair:
         :class:`~arraycontext.ArrayContainer` of them representing the
         difference (exterior - interior) of the pair values.
         """
-        return self.ext - self.ext
+        return self.ext - self.int
 
 # }}}
 
