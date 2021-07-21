@@ -86,6 +86,7 @@ class TracePair:
     .. autoattribute:: int
     .. autoattribute:: ext
     .. autoattribute:: avg
+    .. autoattribute:: diff
 
     .. automethod:: __getattr__
     .. automethod:: __getitem__
