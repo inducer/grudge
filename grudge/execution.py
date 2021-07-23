@@ -100,10 +100,10 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
     knl = lp.tag_inames(knl, "imatrix: ilp")
     return knl
 
-def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
+def elwise_linear_prg(nelements, nnodes_out, fp_format, nnodes_in=None, options=None):
 
     @memoize_in(elwise_linear_prg, (ExecutionMapper, "elwise_linear_knl"))
-    def _gen_elwise_linear_knl(nelements, nnodes, fp_format):
+    def _gen_elwise_linear_knl(nelements, nnodes_out, nnodes_in, fp_format):
 
         result = lp.make_kernel(
             """{[iel, idof, j]:
@@ -114,12 +114,12 @@ def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
             result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
-                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes), tags=IsDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nnodes,nnodes), tags=IsOpArray()),
+                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=IsDOFArray()),
+                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=IsDOFArray()),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=IsOpArray()),
                 lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes)),
-                lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes)),
+                lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes_out)),
+                lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes_in)),
             ],
             assumptions="nelements > 0 \
                         and ndiscr_nodes_out > 0 \
@@ -129,8 +129,11 @@ def elwise_linear_prg(nelements, nnodes, fp_format, options=None):
 
         #result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
         return result
-    
-    return _gen_elwise_linear_knl(nelements, nnodes, fp_format)
+  
+    if nnodes_in is None:
+        nnodes_in = nnodes_out 
+ 
+    return _gen_elwise_linear_knl(nelements, nnodes_out, nnodes_in, fp_format)
 
 def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
 

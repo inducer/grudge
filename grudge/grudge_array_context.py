@@ -415,7 +415,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             except FileNotFoundError:
                 from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
 
-                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=np.inf)
+                transformations = random_search(self.queue, program, generic_test, time_limit=60)
                 #parameters = random_search(self.queue, program, generic_test, time_limit=30)
                 #transformations = dgk.generate_transformation_list(*parameters)
                 #print(transformations)
