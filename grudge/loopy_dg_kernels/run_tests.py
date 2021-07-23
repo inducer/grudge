@@ -384,8 +384,8 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
     # Possibilities limited by size of global memory
     options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
     #Arbitrarily limit to at max 12 inline to limit search space
-    #options = k_inner_inner*options[options <= 12]
-    options = k_inner_inner*options[options <= 6]
+    options = k_inner_inner*options[options <= 12]
+    #options = k_inner_inner*options[options <= 6]
     return sorted(options, reverse=reverse)
 
 
@@ -591,7 +591,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             result_saved_list = trans_list
                         if time.time() - start > time_limit: 
                             result_list.sort()
-                            print("Avg time, Peak BW, Peak GFLOPS, Frac peak bandwidth, Frac peak GFlops")
+                            print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
                             for entry in result_list:
                                 print(entry)
                             print()
@@ -603,7 +603,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
 
     result_list.sort()
 
-    print("Avg time, Peak BW, Peak GFLOPS, Frac peak bandwidth, Frac peak GFlops")
+    print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
     for entry in result_list:
         print(entry)
     print()
@@ -757,7 +757,8 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
                     return choices
 
             if device_memory_bandwidth is not None and max_gflops is not None:
-                result_list.append((avg_time, frac_peak_GBps, frac_peak_gflops, (kio, kii, iio, iii, ji)))
+                result_list.append((avg_time, frac_peak_GBps*device_memory_bandwidth, frac_peak_gflops*max_gflops,
+                                     frac_peak_GBps, frac_peak_gflops, (kio, kii, iio, iii, ji)))
 
             if avg_time < avg_time_saved:
                 avg_time_saved = avg_time
@@ -776,7 +777,9 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     """    
 
     result_list.sort()
-    print("Avg time, Frac peak bandwidth, Frac peak GFlops")
+
+    print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
+    #print("Avg time, Frac peak bandwidth, Frac peak GFlops")
     for entry in result_list:
         print(entry)
     print()
@@ -948,9 +951,11 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 1000000, 20, np.float64)
+    #knl = diff_prg(3, 1000000, 120, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
+    dofs = 35
+    knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
