@@ -71,30 +71,30 @@ class Plotter:
         if not self.visualize:
             return
 
-        if self.dim == 1:
-            q = self.actx.to_numpy(flatten(evt.state_component))
+        assert self.dim == 1
 
-            filename = "%s.png" % basename
-            if not overwrite and os.path.exists(filename):
-                from meshmode import FileExistsError
-                raise FileExistsError("output file '%s' already exists" % filename)
+        state = evt.state_component
+        density = self.actx.to_numpy(flatten(state[0]))
+        energy = self.actx.to_numpy(flatten(state[1]))
+        momentum = self.actx.to_numpy(flatten(state[2]))
 
-            ax = self.fig.gca()
-            ax.plot(self.x, u, "-")
-            ax.plot(self.x, u, "k.")
-            if self.ylim is not None:
-                ax.set_ylim(self.ylim)
+        filename = "%s.png" % basename
+        if not overwrite and os.path.exists(filename):
+            from meshmode import FileExistsError
+            raise FileExistsError("output file '%s' already exists" % filename)
 
-            ax.set_xlabel("$x$")
-            ax.set_ylabel("$u$")
-            ax.set_title(f"t = {evt.t:.2f}")
+        ax = self.fig.gca()
+        ax.plot(self.x, density, "-")
+        ax.plot(self.x, density, "k.")
+        if self.ylim is not None:
+            ax.set_ylim(self.ylim)
 
-            self.fig.savefig(filename)
-            self.fig.clf()
-        else:
-            self.vis.write_vtk_file("%s.vtu" % basename, [
-                ("u", evt.state_component)
-                ], overwrite=overwrite)
+        ax.set_xlabel("$x$")
+        ax.set_ylabel("$\\rho$")
+        ax.set_title(f"t = {evt.t:.2f}")
+
+        self.fig.savefig(filename)
+        self.fig.clf()
 
 # }}}
 
@@ -147,11 +147,11 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         x = nodes[0]
         zeros = 0*x
 
-        _rhol = 0.125
-        _rhor = 1.0
+        _rhor = 0.125
+        _rhol = 1.0
         _x0 = 0.5
-        pleft = 0.1
-        pright = 1.0
+        pright = 0.1
+        pleft = 1.0
 
         rhor = zeros + _rhor
         rhol = zeros + _rhol
@@ -186,7 +186,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/4 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
@@ -204,16 +204,14 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
-        if step % 10 == 0:
+        if step % 1 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
             plot(event, "fld-sod-%04d" % step)
 
         step += 1
         logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
 
-        # NOTE: These are here to ensure the solution is bounded for the
-        # time interval specified
-        assert norm_u < 1
+        assert norm_q < 100
 
     # }}}
 
@@ -222,13 +220,11 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-         dim=args.dim,
          order=args.order,
          visualize=args.visualize)
