@@ -142,25 +142,28 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     # {{{ Euler operator
 
-    def sod_initial_condition(nodes, t=0):
+    def sod_initial_condition(nodes):
         gmn1 = 1.0 / (gamma - 1.0)
         x = nodes[0]
         zeros = 0*x
 
-        _rhor = 0.125
-        _rhol = 1.0
         _x0 = 0.5
-        pright = 0.1
-        pleft = 1.0
+        _rhoin = 1.0
+        _rhoout = 0.125
+        _pin = 1.0
+        _pout = 0.1
 
-        rhor = zeros + _rhor
-        rhol = zeros + _rhol
+        rhoin = zeros + _rhoin
+        rhoout = zeros + _rhoout
+
+        energyin = zeros + gmn1 * _pin
+        energyout = zeros + gmn1 * _pout
+
         x0 = zeros + _x0
-        energyl = zeros + gmn1 * pleft
-        energyr = zeros + gmn1 * pright
         yesno = actx.np.greater(x, x0)
-        density = actx.np.where(yesno, rhor, rhol)
-        energy = actx.np.where(yesno, energyr, energyl)
+
+        density = actx.np.where(yesno, rhoout, rhoin)
+        energy = actx.np.where(yesno, energyout, energyin)
         mom = make_obj_array([zeros for i in range(dim)])
 
         from grudge.models.euler import EulerState
@@ -169,24 +172,23 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
                           total_energy=energy,
                           momentum=mom)
 
+    nodes = thaw(dcoll.nodes(), actx)
+    q_init = sod_initial_condition(nodes)
+
     from grudge.models.euler import EulerOperator
 
     euler_operator = EulerOperator(
         dcoll,
-        # NOTE: BC interface is hard-coded in the operator class for now
-        bdry_fcts={BTAG_ALL: None},
+        bdry_fcts={BTAG_ALL: q_init},
         flux_type=flux_type,
         gamma=gamma,
         gas_const=gas_const,
     )
 
-    nodes = thaw(dcoll.nodes(), actx)
-    q_init = sod_initial_condition(nodes, t=0)
-
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = 1/4 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/10 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
