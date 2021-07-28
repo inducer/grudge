@@ -135,7 +135,8 @@ class EulerOperator(HyperbolicOperator):
         euler_flux_bnd = (
             sum(self.numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, q))
-            + sum(self.boundary_flux(q, btag) for btag in self.bdry_fcts)
+            + sum(self.boundary_numerical_flux(q, self.bdry_fcts[btag], btag)
+                  for btag in self.bdry_fcts)
         )
         return op.inverse_mass(
             dcoll,
@@ -153,20 +154,19 @@ class EulerOperator(HyperbolicOperator):
             momentum=np.outer(mom, mom) / q.density + np.eye(q.dim)*p
         )
 
-    def numerical_flux(self, q_tpair):
+    def numerical_flux(self, q_tpair, use_int_wavespeed=False):
         """Return the numerical flux across a face given the solution on
         both sides *q_tpair*.
         """
         actx = q_tpair.int.array_context
 
-        def _compute_wavespeed(q):
-            v = q.velocity
-            return actx.np.sqrt(np.dot(v, v)) + self.sound_speed(q)
-
-        lam = actx.np.maximum(
-            self.max_characteristic_velocity(actx, state=q_tpair.int),
-            self.max_characteristic_velocity(actx, state=q_tpair.ext)
-        )
+        if use_int_wavespeed:
+            lam = self.max_characteristic_velocity(actx, state=q_tpair.int)
+        else:
+            lam = actx.np.maximum(
+                self.max_characteristic_velocity(actx, state=q_tpair.int),
+                self.max_characteristic_velocity(actx, state=q_tpair.ext)
+            )
 
         normal = thaw(self.dcoll.normal(q_tpair.dd), actx)
 
@@ -180,15 +180,17 @@ class EulerOperator(HyperbolicOperator):
 
         return op.project(self.dcoll, q_tpair.dd, "all_faces", flux_weak)
 
-    def boundary_flux(self, q, btag):
-        actx = q.array_context
-        nhat = thaw(self.dcoll.normal(btag), actx)
-        q_bc = op.project(self.dcoll, "vol", btag, q)
-        # TODO: This just implements a solid wall BC for now
-        # (boundary flux is equal to the interior pressure contribution
-        # since v.n = 0 --- we do this by evaluating the euler flux)
-        bdry_flux = self.euler_flux(q_bc) @ nhat
-        return op.project(self.dcoll, btag, "all_faces", bdry_flux)
+    def boundary_numerical_flux(self, q, q_prescribe, btag):
+        """Return the numerical flux across a face given the solution on
+        both sides *q_tpair*, with an external state given by a prescribed
+        state *q_prescribe* at the boundaries denoted by *btag*.
+        """
+        bdry_tpair = TracePair(
+            btag,
+            interior=op.project(self.dcoll, "vol", btag, q),
+            exterior=op.project(self.dcoll, "vol", btag, q_prescribe)
+        )
+        return self.numerical_flux(bdry_tpair, use_int_wavespeed=True)
 
     def kinetic_energy(self, q):
         mom = q.momentum
