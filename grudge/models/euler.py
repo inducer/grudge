@@ -52,13 +52,13 @@ import grudge.op as op
 @dataclass_array_container
 @dataclass(frozen=True)
 class EulerState:
-    density: DOFArray
-    total_energy: DOFArray
+    mass: DOFArray
+    energy: DOFArray
     momentum: np.ndarray  # [object array of DOFArrays]
 
     @property
     def array_context(self):
-        return self.density.array_context
+        return self.mass.array_context
 
     @property
     def dim(self):
@@ -66,18 +66,18 @@ class EulerState:
 
     @property
     def velocity(self):
-        return self.momentum / self.density
+        return self.momentum / self.mass
 
     def join(self):
         return _join_fields(
             dim=self.dim,
-            density=self.density,
-            total_energy=self.total_energy,
+            mass=self.mass,
+            energy=self.energy,
             momentum=self.momentum
         )
 
 
-def _join_fields(dim, density, total_energy, momentum):
+def _join_fields(dim, mass, energy, momentum):
 
     def _aux_shape(ary, leading_shape):
         from meshmode.dof_array import DOFArray
@@ -95,16 +95,16 @@ def _join_fields(dim, density, total_energy, momentum):
             return ()
 
     aux_shapes = [
-        _aux_shape(density, ()),
-        _aux_shape(total_energy, ()),
+        _aux_shape(mass, ()),
+        _aux_shape(energy, ()),
         _aux_shape(momentum, (dim,))]
 
     from pytools import single_valued
     aux_shape = single_valued(aux_shapes)
 
     result = np.empty((2+dim,) + aux_shape, dtype=object)
-    result[0] = density
-    result[1] = total_energy
+    result[0] = mass
+    result[1] = energy
     result[2:dim+2] = momentum
 
     return result
@@ -127,8 +127,8 @@ class EulerOperator(HyperbolicOperator):
         dcoll = self.dcoll
 
         # Convert to array container
-        q = EulerState(density=q[0],
-                       total_energy=q[1],
+        q = EulerState(mass=q[0],
+                       energy=q[1],
                        momentum=q[2:2+dcoll.dim])
 
         actx = q.array_context
@@ -154,9 +154,9 @@ class EulerOperator(HyperbolicOperator):
         mom = q.momentum
 
         return EulerState(
-            density=mom,
-            total_energy=mom * (q.total_energy + p) / q.density,
-            momentum=np.outer(mom, mom) / q.density + np.eye(q.dim)*p
+            mass=mom,
+            energy=mom * (q.energy + p) / q.mass,
+            momentum=np.outer(mom, mom) / q.mass + np.eye(q.dim)*p
         )
 
     def numerical_flux(self, q_tpair):
@@ -216,10 +216,10 @@ class EulerOperator(HyperbolicOperator):
 
     def kinetic_energy(self, q):
         mom = q.momentum
-        return (0.5 * np.dot(mom, mom) / q.density)
+        return (0.5 * np.dot(mom, mom) / q.mass)
 
     def internal_energy(self, q):
-        return (q.total_energy - self.kinetic_energy(q))
+        return (q.energy - self.kinetic_energy(q))
 
     def pressure(self, q):
         return self.internal_energy(q) * (self.gamma - 1.0)
@@ -227,14 +227,63 @@ class EulerOperator(HyperbolicOperator):
     def temperature(self, q):
         return (
             (((self.gamma - 1.0) / self.gas_const)
-             * self.internal_energy(q) / q.density)
+             * self.internal_energy(q) / q.mass)
         )
 
     def sound_speed(self, q):
         actx = q.array_context
-        return actx.np.sqrt(self.gamma / q.density * self.pressure(q))
+        return actx.np.sqrt(self.gamma / q.mass * self.pressure(q))
 
     def max_characteristic_velocity(self, actx, **kwargs):
         q = kwargs["state"]
         v = q.velocity
         return actx.np.sqrt(np.dot(v, v)) + self.sound_speed(q)
+
+
+class EntropyStableEulerOperator(HyperbolicOperator):
+
+    def physical_entropy(self, rho, pressure):
+        actx = rho.array_context
+        return actx.np.log(pressure) - self.gamma*actx.np.log(rho)
+
+    def conservative_to_entropy_vars(self, cv):
+        gamma = self.gamma
+        inv_gamma_minus_one = 1/(gamma - 1)
+
+        rho = cv.mass
+        rho_e = cv.energy
+        velocity = cv.velocity
+
+        v_square = sum(v ** 2 for v in velocity)
+        p = self.pressure(cv)
+        s = self.physical_entropy(rho, p)
+        rho_p = rho / p
+
+        v1 = (gamma - s) * inv_gamma_minus_one - 0.5 * rho_p * v_square
+        v2 = -rho_p
+        v3 = rho_p * velocity
+
+        return EulerState(mass=v1, energy=v2, momentum=v3)
+
+    def entropy_to_conservative_vars(self, ev):
+        actx = ev.array_context
+        gamma = self.gamma
+        inv_gamma_minus_one = 1/(gamma - 1)
+
+        ev = ev * (gamma - 1)
+        v1 = ev.mass
+        v2 = ev.momentum
+        v3 = ev.energy
+
+        v_square = sum(v**2 for v in v2)
+        s = gamma - v1 + v_square/(2*v3)
+        rho_iota = (
+            ((gamma -1) / (-v3**gamma)**inv_gamma_minus_one)
+            * actx.np.exp(-s * inv_gamma_minus_one)
+        )
+
+        rho = -rho_iota * v3
+        rho_u = rho_iota * v2
+        rho_e = rho_iota * (1 - v_square/(2*v3))
+
+        return EulerState(mass=rho, energy=rho_u, momentum=rho_e)
