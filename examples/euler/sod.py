@@ -162,14 +162,14 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         x0 = zeros + _x0
         yesno = actx.np.greater(x, x0)
 
-        density = actx.np.where(yesno, rhoout, rhoin)
+        mass = actx.np.where(yesno, rhoout, rhoin)
         energy = actx.np.where(yesno, energyout, energyin)
         mom = make_obj_array([zeros for i in range(dim)])
 
         from grudge.models.euler import EulerState
 
-        return EulerState(density=density,
-                          total_energy=energy,
+        return EulerState(mass=mass,
+                          energy=energy,
                           momentum=mom)
 
     nodes = thaw(dcoll.nodes(), actx)
