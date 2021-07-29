@@ -170,13 +170,13 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         from grudge.models.euler import EulerState
 
-        return EulerState(density=mass,
-                          total_energy=energy,
+        return EulerState(mass=mass,
+                          energy=energy,
                           momentum=momentum)
 
-    from grudge.models.euler import EulerOperator
+    from grudge.models.euler import EulerOperator, EntropyStableEulerOperator
 
-    euler_operator = EulerOperator(
+    euler_operator = EntropyStableEulerOperator(
         dcoll,
         bdry_fcts={BTAG_ALL: vortex_initial_condition},
         flux_type=flux_type,
@@ -203,8 +203,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         vis.write_vtk_file(
             f"fld-vortex-{step:04d}.vtu",
             [
-                ("rho", q_init.density),
-                ("energy", q_init.total_energy),
+                ("rho", q_init.mass),
+                ("energy", q_init.energy),
                 ("momentum", q_init.momentum),
             ]
         )
