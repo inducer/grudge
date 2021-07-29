@@ -131,12 +131,17 @@ class EulerOperator(HyperbolicOperator):
                        total_energy=q[1],
                        momentum=q[2:2+dcoll.dim])
 
+        actx = q.array_context
+        nodes = thaw(self.dcoll.nodes(), actx)
+
         euler_flux_vol = self.euler_flux(q)
         euler_flux_bnd = (
             sum(self.numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, q))
-            + sum(self.boundary_numerical_flux(q, self.bdry_fcts[btag], btag)
-                  for btag in self.bdry_fcts)
+            + sum(
+                self.boundary_numerical_flux(q, self.bdry_fcts[btag](nodes, t), btag)
+                for btag in self.bdry_fcts
+            )
         )
         return op.inverse_mass(
             dcoll,
@@ -154,19 +159,16 @@ class EulerOperator(HyperbolicOperator):
             momentum=np.outer(mom, mom) / q.density + np.eye(q.dim)*p
         )
 
-    def numerical_flux(self, q_tpair, use_int_wavespeed=False):
+    def numerical_flux(self, q_tpair):
         """Return the numerical flux across a face given the solution on
         both sides *q_tpair*.
         """
         actx = q_tpair.int.array_context
 
-        if use_int_wavespeed:
-            lam = self.max_characteristic_velocity(actx, state=q_tpair.int)
-        else:
-            lam = actx.np.maximum(
-                self.max_characteristic_velocity(actx, state=q_tpair.int),
-                self.max_characteristic_velocity(actx, state=q_tpair.ext)
-            )
+        lam = actx.np.maximum(
+            self.max_characteristic_velocity(actx, state=q_tpair.int),
+            self.max_characteristic_velocity(actx, state=q_tpair.ext)
+        )
 
         normal = thaw(self.dcoll.normal(q_tpair.dd), actx)
 
@@ -176,7 +178,7 @@ class EulerOperator(HyperbolicOperator):
             exterior=self.euler_flux(q_tpair.ext)
         )
 
-        flux_weak = flux_tpair.avg @ normal - lam*q_tpair.diff / 2
+        flux_weak = flux_tpair.avg @ normal - lam/2.0*(q_tpair.int - q_tpair.ext)
 
         return op.project(self.dcoll, q_tpair.dd, "all_faces", flux_weak)
 
@@ -185,12 +187,31 @@ class EulerOperator(HyperbolicOperator):
         both sides *q_tpair*, with an external state given by a prescribed
         state *q_prescribe* at the boundaries denoted by *btag*.
         """
+        actx = q.array_context
+
         bdry_tpair = TracePair(
             btag,
             interior=op.project(self.dcoll, "vol", btag, q),
             exterior=op.project(self.dcoll, "vol", btag, q_prescribe)
         )
-        return self.numerical_flux(bdry_tpair, use_int_wavespeed=True)
+
+        normal = thaw(self.dcoll.normal(bdry_tpair.dd), actx)
+
+        bdry_flux_tpair = TracePair(
+            bdry_tpair.dd,
+            interior=self.euler_flux(bdry_tpair.int),
+            exterior=self.euler_flux(bdry_tpair.ext)
+        )
+
+        lam = actx.np.maximum(
+            self.max_characteristic_velocity(actx, state=bdry_tpair.int),
+            self.max_characteristic_velocity(actx, state=bdry_tpair.ext)
+        )
+
+        flux_weak = 0.5*(bdry_flux_tpair.int - bdry_flux_tpair.int) @ normal \
+            - lam/2.0*(bdry_tpair.int - bdry_tpair.ext)
+
+        return op.project(self.dcoll, bdry_tpair.dd, "all_faces", flux_weak)
 
     def kinetic_energy(self, q):
         mom = q.momentum
