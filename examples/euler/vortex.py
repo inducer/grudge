@@ -222,9 +222,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         step += 1
 
         if step % 1 == 0:
-            state = event.state_component
-            import ipdb; ipdb.set_trace()
             if visualize:
+                state = event.state_component
                 vis.write_vtk_file(
                     f"fld-vortex-{step:04d}.vtu",
                     [
