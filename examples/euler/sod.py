@@ -142,7 +142,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     # {{{ Euler operator
 
-    def sod_initial_condition(nodes):
+    def sod_initial_condition(nodes, t=0):
         gmn1 = 1.0 / (gamma - 1.0)
         x = nodes[0]
         zeros = 0*x
@@ -179,7 +179,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
     euler_operator = EulerOperator(
         dcoll,
-        bdry_fcts={BTAG_ALL: q_init},
+        bdry_fcts={BTAG_ALL: sod_initial_condition},
         flux_type=flux_type,
         gamma=gamma,
         gas_const=gas_const,
