@@ -203,13 +203,14 @@ class EulerOperator(HyperbolicOperator):
             exterior=self.euler_flux(bdry_tpair.ext)
         )
 
-        lam = actx.np.maximum(
-            self.max_characteristic_velocity(actx, state=bdry_tpair.int),
-            self.max_characteristic_velocity(actx, state=bdry_tpair.ext)
-        )
+        # lam = actx.np.maximum(
+        #     self.max_characteristic_velocity(actx, state=bdry_tpair.int),
+        #     self.max_characteristic_velocity(actx, state=bdry_tpair.ext)
+        # )
 
-        flux_weak = 0.5*(bdry_flux_tpair.int - bdry_flux_tpair.int) @ normal \
-            - lam/2.0*(bdry_tpair.int - bdry_tpair.ext)
+        # flux_weak = 0.5*(bdry_flux_tpair.int - bdry_flux_tpair.ext) @ normal \
+        #     - lam/2.0*(bdry_tpair.int - bdry_tpair.ext)
+        flux_weak = bdry_flux_tpair.ext @ normal
 
         return op.project(self.dcoll, bdry_tpair.dd, "all_faces", flux_weak)
 
