@@ -351,5 +351,20 @@ class EntropyStableEulerOperator(HyperbolicOperator):
 
         return EulerState(mass=fS_mass, energy=fS_energy, momentum=fS_momentum)
 
+    def operator(self, t, q):
+        dcoll = self.dcoll
+
+        # Convert to array container
+        q = EulerState(mass=q[0],
+                       energy=q[1],
+                       momentum=q[2:2+dcoll.dim])
+
+        actx = q.array_context
+        nodes = thaw(self.dcoll.nodes(), actx)
+
+        # Project to entropy variables using the conserved variables
+        v = self.conservative_to_entropy_vars(q)
+        q = self.entropy_to_conservative_vars(v)
+
 
 # }}}
