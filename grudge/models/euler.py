@@ -240,6 +240,23 @@ class EulerOperator(HyperbolicOperator):
         return actx.np.sqrt(np.dot(v, v)) + self.sound_speed(q)
 
 
+# {{{ Entropy stable operator
+
+def log_mean(actx, x, y, epsilon=1e-4):
+    """Computes the logarithmic mean using a numerically stable
+    stable approach outlined in Appendix B of
+    Ismail, Roe (2009). Affordable, entropy-consistent Euler flux functions II:
+    Entropy production at shocks.
+    [DOI: 10.1016/j.jcp.2009.04.021](https://doi.org/10.1016/j.jcp.2009.04.021)
+    """
+    f_squared =  (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y)
+    if f_squared < epsilon:
+        f = 1 + 1/3 * f_squared + 1/5 * (f_squared**2) + 1/7 * (f_squared**3)
+        return (x + y) / (2*f)
+    else:
+        return (x - y) / actx.np.log(x/y)
+
+
 class EntropyStableEulerOperator(HyperbolicOperator):
 
     def physical_entropy(self, rho, pressure):
@@ -287,3 +304,52 @@ class EntropyStableEulerOperator(HyperbolicOperator):
         rho_e = rho_iota * (1 - v_square/(2*v3))
 
         return EulerState(mass=rho, energy=rho_u, momentum=rho_e)
+
+    def flux_chandrashekar(self, cv_l, cv_r):
+        """Entropy conserving two-point flux by Chandrashekar (2013)
+        Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
+        for Compressible Euler and Navier-Stokes Equations
+        [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
+        """
+        actx = cv_l.array_context
+        gamma = self.gamma
+
+        # Extract primitive variables from conservative variables
+        rho_l = cv_l.mass
+        rho_r = cv_r.mass
+        v_l = cv_l.velocity
+        v_r = cv_r.velocity
+        p_l = self.pressure(cv_l)
+        p_r = self.pressure(cv_r)
+
+        ke_l = 0.5 * sum(v**2 for v in v_l)
+        ke_r = 0.5 * sum(v**2 for v in v_r)
+
+        beta_l = 0.5 * rho_l / p_l
+        beta_r = 0.5 * rho_r / p_r
+
+        # Compute averaged quantities
+        rho_avg = 0.5 * (rho_l + rho_r)
+        beta_avg = 0.5 * (beta_l + beta_r)
+        vel_avg = 0.5 * (v_l + v_r)
+
+        # Compute log-averaged quantities
+        rho_mean = log_mean(actx, rho_l, rho_r)
+        beta_mean = log_mean(actx, beta_l, beta_r)
+
+        p_mean = 0.5 * rho_avg / beta_avg
+        velocity_square_avg = ke_l + ke_r
+
+        identity = np.eye(self.dcoll.dim)
+
+        fS_mass = rho_mean * vel_avg
+        fS_momentum = fS_mass * vel_avg + identity * p_mean
+        fS_energy = fS_mass * (
+            0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
+            + np.dot(fS_momentum, vel_avg)
+        )
+
+        return EulerState(mass=fS_mass, energy=fS_energy, momentum=fS_momentum)
+
+
+# }}}
