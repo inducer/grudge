@@ -51,7 +51,7 @@ import grudge.op as op
                            rel_comparison=True)
 @dataclass_array_container
 @dataclass(frozen=True)
-class EulerState:
+class ArrayContainer:
     mass: DOFArray
     energy: DOFArray
     momentum: np.ndarray  # [object array of DOFArrays]
@@ -109,6 +109,12 @@ def _join_fields(dim, mass, energy, momentum):
 
     return result
 
+
+def convert_to_array_container(dim, ary):
+    return ArrayContainer(mass=ary[0],
+                          energy=ary[1],
+                          momentum=ary[2:2+dim])
+
 # }}}
 
 
@@ -127,9 +133,9 @@ class EulerOperator(HyperbolicOperator):
         dcoll = self.dcoll
 
         # Convert to array container
-        q = EulerState(mass=q[0],
-                       energy=q[1],
-                       momentum=q[2:2+dcoll.dim])
+        q = ArrayContainer(mass=q[0],
+                           energy=q[1],
+                           momentum=q[2:2+dcoll.dim])
 
         actx = q.array_context
         nodes = thaw(self.dcoll.nodes(), actx)
@@ -153,7 +159,7 @@ class EulerOperator(HyperbolicOperator):
         p = self.pressure(q)
         mom = q.momentum
 
-        return EulerState(
+        return ArrayContainer(
             mass=mom,
             energy=mom * (q.energy + p) / q.mass,
             momentum=np.outer(mom, mom) / q.mass + np.eye(q.dim)*p
@@ -242,7 +248,7 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
-def log_mean(actx, x, y, epsilon=1e-4):
+def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
     Ismail, Roe (2009). Affordable, entropy-consistent Euler flux functions II:
@@ -254,10 +260,50 @@ def log_mean(actx, x, y, epsilon=1e-4):
         f = 1 + 1/3 * f_squared + 1/5 * (f_squared**2) + 1/7 * (f_squared**3)
         return (x + y) / (2*f)
     else:
-        return (x - y) / actx.np.log(x/y)
+        return (x - y) / np.log(x/y)
 
 
-class EntropyStableEulerOperator(HyperbolicOperator):
+def flux_chandrashekar(cv_ll, cv_rr):
+    """Entropy conserving two-point flux by Chandrashekar (2013)
+    Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
+    for Compressible Euler and Navier-Stokes Equations
+    [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
+    """
+    rho_ll, v_ll, p_ll = cv_ll
+    rho_rr, v_rr, p_rr = cv_rr
+
+    beta_ll = 0.5 * rho_ll / p_ll
+    beta_rr = 0.5 * rho_rr / p_rr
+
+    specific_kin_ll = 0.5 * sum(v**2 for v in v_ll)
+    specific_kin_rr = 0.5 * sum(v**2 for v in v_rr)
+
+    # Compute the necessary mean values
+    rho_avg = 0.5 * (rho_ll + rho_rr)
+    rho_mean  = log_mean(rho_ll,  rho_rr)
+
+    beta_mean = log_mean(beta_ll, beta_rr)
+    beta_avg = 0.5 * (beta_ll + beta_rr)
+
+    v_avg = 0.5 * (v_ll + v_rr)
+    p_mean = 0.5 * rho_avg / beta_avg
+    velocity_square_avg = specific_kin_ll + specific_kin_rr
+
+    identity = np.eye(len(v_avg))
+
+    fS_mass = rho_mean * vel_avg
+    fS_momentum = fS_mass * vel_avg + identity * p_mean
+    fS_energy = fS_mass * (
+        0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
+        + np.dot(fS_momentum, vel_avg)
+    )
+    return fS_mass, fS_energy, fS_momentum
+
+
+#def hadamard_sum(D, two_point_volume_flux, state, dim)
+
+
+class EntropyStableEulerOperator(EulerOperator):
 
     def physical_entropy(self, rho, pressure):
         actx = rho.array_context
@@ -280,7 +326,7 @@ class EntropyStableEulerOperator(HyperbolicOperator):
         v2 = -rho_p
         v3 = rho_p * velocity
 
-        return EulerState(mass=v1, energy=v2, momentum=v3)
+        return ArrayContainer(mass=v1, energy=v2, momentum=v3)
 
     def entropy_to_conservative_vars(self, ev):
         actx = ev.array_context
@@ -303,68 +349,60 @@ class EntropyStableEulerOperator(HyperbolicOperator):
         rho_u = rho_iota * v2
         rho_e = rho_iota * (1 - v_square/(2*v3))
 
-        return EulerState(mass=rho, energy=rho_u, momentum=rho_e)
+        return ArrayContainer(mass=rho, energy=rho_u, momentum=rho_e)
 
-    def flux_chandrashekar(self, cv_l, cv_r):
-        """Entropy conserving two-point flux by Chandrashekar (2013)
-        Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
-        for Compressible Euler and Navier-Stokes Equations
-        [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
-        """
-        actx = cv_l.array_context
-        gamma = self.gamma
+    def compute_volume_integrals(self, q_cv):
+        # TODO Hand-write this damn calculation in Python instead
+        # of trying to go through loopy
 
-        # Extract primitive variables from conservative variables
-        rho_l = cv_l.mass
-        rho_r = cv_r.mass
-        v_l = cv_l.velocity
-        v_r = cv_r.velocity
-        p_l = self.pressure(cv_l)
-        p_r = self.pressure(cv_r)
-
-        ke_l = 0.5 * sum(v**2 for v in v_l)
-        ke_r = 0.5 * sum(v**2 for v in v_r)
-
-        beta_l = 0.5 * rho_l / p_l
-        beta_r = 0.5 * rho_r / p_r
-
-        # Compute averaged quantities
-        rho_avg = 0.5 * (rho_l + rho_r)
-        beta_avg = 0.5 * (beta_l + beta_r)
-        vel_avg = 0.5 * (v_l + v_r)
-
-        # Compute log-averaged quantities
-        rho_mean = log_mean(actx, rho_l, rho_r)
-        beta_mean = log_mean(actx, beta_l, beta_r)
-
-        p_mean = 0.5 * rho_avg / beta_avg
-        velocity_square_avg = ke_l + ke_r
-
-        identity = np.eye(self.dcoll.dim)
-
-        fS_mass = rho_mean * vel_avg
-        fS_momentum = fS_mass * vel_avg + identity * p_mean
-        fS_energy = fS_mass * (
-            0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
-            + np.dot(fS_momentum, vel_avg)
-        )
-
-        return EulerState(mass=fS_mass, energy=fS_energy, momentum=fS_momentum)
 
     def operator(self, t, q):
         dcoll = self.dcoll
 
         # Convert to array container
-        q = EulerState(mass=q[0],
-                       energy=q[1],
-                       momentum=q[2:2+dcoll.dim])
+        q = ArrayContainer(mass=q[0],
+                           energy=q[1],
+                           momentum=q[2:2+dcoll.dim])
 
         actx = q.array_context
         nodes = thaw(self.dcoll.nodes(), actx)
 
-        # Project to entropy variables using the conserved variables
-        v = self.conservative_to_entropy_vars(q)
-        q = self.entropy_to_conservative_vars(v)
+        # Modified conservative variables using the entropy variables
+        # Step 1: interpolate conserved vars to quadrature grid (if any)
+        # q -> V_q p
 
+        # Step 2: Convert conserved variables to entropy variables
+        v = self.conservative_to_entropy_vars(q)
+
+        # Step 3: Project the entropy variables
+        # FIXME: Assumes quad/interpolation collocated; so Vq = I; Vf = I.
+        # v = Minv * [Vq; Vf]^T v = Minv * v
+        # v_projected = convert_to_array_container(
+        #     dcoll.dim, op.inverse_mass(dcoll, v.join())
+        # )
+
+        # Step 4: Convert to conserved vars from projected entropy vars
+        # and interpolate to all nodes (volume + face)
+        q_projected = self.entropy_to_conservative_vars(v)
+        q_projected_faces = op.project(dcoll, "vol", "all_faces", q_projected)
+
+        import ipdb; ipdb.set_trace()
+
+        # Evaluate two-point entropy conservative flux at all combinations
+        # of elemental nodes
+        fSvv = self.flux_chandrashekar(q_projected, q_projected)
+        fSvf = self.flux_chandrashekar(q_projected, q_projected_faces)
+        fSfv = self.flux_chandrashekar(q_projected_faces, q_projected)
+
+        import ipdb; ipdb.set_trace()
+
+        fSff = (
+            sum(self.flux_chandrashekar(qtpair.int, qtpair.ext)
+                for qtpair in op.interior_trace_pairs(dcoll, q_projected))
+            + sum(
+                self.self.flux_chandrashekar(q_projected, self.bdry_fcts[btag](nodes, t), btag)
+                for btag in self.bdry_fcts
+            )
+        )
 
 # }}}
