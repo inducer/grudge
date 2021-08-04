@@ -168,11 +168,11 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
 
-        from grudge.models.euler import EulerState
+        from grudge.models.euler import ArrayContainer
 
-        return EulerState(mass=mass,
-                          energy=energy,
-                          momentum=momentum)
+        return ArrayContainer(mass=mass,
+                              energy=energy,
+                              momentum=momentum)
 
     from grudge.models.euler import EulerOperator, EntropyStableEulerOperator
 
