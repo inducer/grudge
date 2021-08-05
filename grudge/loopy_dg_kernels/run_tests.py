@@ -496,7 +496,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
                             if knl.name == "face_mass":
-                		knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
                             elif knl.name == "nodes":
                                 knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
