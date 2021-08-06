@@ -8,12 +8,14 @@ import loopy as lp
 #from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 #from loopy.kernel.data import AddressSpace
 
+"""
 import pycuda.gpuarray as cuarray
 import pycuda.driver as drv
 import pycuda.tools
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 from pycuda.curandom import rand as curand
+"""
 
 from modepy import equidistant_nodes
 from pytools.obj_array import make_obj_array
@@ -30,11 +32,10 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
-
-from grudge.grudge_array_context import set_memory_layout
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
     generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
 from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsOpArray, IsVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
+import  grudge.grudge_array_context as gac#import set_memory_layout
 
 def testBandwidth(fp_format=np.float32, nruns=100):
 
@@ -449,7 +450,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                 fp_bytes = arg.dtype.dtype.itemsize
 
     # Also fixes the parameters    
-    knl = set_memory_layout(knl)
+    knl = gac.set_memory_layout(knl)
 
     tested = []
 
@@ -496,13 +497,12 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
                             if knl.name == "face_mass":
-                                pass
-                                #knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
                             elif knl.name == "nodes":
                                 knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 knl = lp.tag_array_axes(knl, "vecf", "f,f")
-                            elif "resample_by_mat" in knl.name:
+                            elif "resample_by_mat" in knl.name: # Reads are scattered so prefetching is difficult
                                 pass
                                 #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 #knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
@@ -645,7 +645,6 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     # Imports
     from random import choice
     from grudge.grudge_tags import ParameterValue
-    from grudge.grudge_array_context import set_memory_layout
 
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
@@ -673,7 +672,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
                 fp_bytes = arg.dtype.dtype.itemsize
 
     # Also fixes the parameters    1
-    knl = set_memory_layout(knl)
+    knl = gac.set_memory_layout(knl)
 
     tested = []
 
