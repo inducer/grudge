@@ -33,6 +33,8 @@ from arraycontext import (
     dataclass_array_container,
 )
 
+from collections import namedtuple
+
 from dataclasses import dataclass
 
 from meshmode.dof_array import DOFArray
@@ -44,6 +46,8 @@ import grudge.op as op
 
 
 # {{{ Array container utilities
+
+LocalView = namedtuple("LocalView", "mass energy momentum")
 
 @with_container_arithmetic(bcast_obj_array=False,
                            bcast_container_types=(DOFArray, np.ndarray),
@@ -114,6 +118,19 @@ def convert_to_array_container(dim, ary):
     return ArrayContainer(mass=ary[0],
                           energy=ary[1],
                           momentum=ary[2:2+dim])
+
+
+def local_view(ary, eidx, gidx):
+    """Returns a local view for all fields belonging
+    to group with index *gidx* and element number *eidx*.
+    """
+    from pytools.obj_array import make_obj_array
+    return LocalView(
+        mass=ary.mass[gidx][eidx],
+        energy=ary.energy[gidx][eidx],
+        momentum=make_obj_array([ary.momentum[d][gidx][eidx]
+                                 for d in range(ary.dim)])
+    )
 
 # }}}
 
@@ -263,7 +280,7 @@ def log_mean(x, y, epsilon=1e-4):
         return (x - y) / np.log(x/y)
 
 
-def flux_chandrashekar(cv_ll, cv_rr):
+def flux_chandrashekar(cv_ll, cv_rr, gamma=1.4):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -291,16 +308,44 @@ def flux_chandrashekar(cv_ll, cv_rr):
 
     identity = np.eye(len(v_avg))
 
-    fS_mass = rho_mean * vel_avg
-    fS_momentum = fS_mass * vel_avg + identity * p_mean
+    fS_mass = rho_mean * v_avg
+    fS_momentum = fS_mass * v_avg + identity * p_mean
     fS_energy = fS_mass * (
         0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
-        + np.dot(fS_momentum, vel_avg)
+        + np.dot(fS_momentum, v_avg)
     )
     return fS_mass, fS_energy, fS_momentum
 
 
-#def hadamard_sum(D, two_point_volume_flux, state, dim)
+def flux_differencing_kernel(dcoll, q_v, q_f):
+    mesh = dcoll.mesh
+    dim = dcoll.dim
+
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_discr = dcoll.discr_from_dd("all_faces")
+
+    # Group loop
+    for gidx, mgrp in enumerate(mesh.groups):
+        vgrp = volm_discr.groups[gidx]
+        fgrp = face_discr.groups[gidx]
+        Nq = vgrp.nunit_dofs
+        Nqf = fgrp.nunit_dofs
+
+        # Element loop
+        for eidx in range(mgrp.nelements):
+
+            # Local state in element *eidx* and associated faces
+            local_qv = local_view(q_v, eidx, gidx)
+
+            # Compute local flux differencing inside the volume
+            local_fSvv = np.zeros(shape=(Nq, Nq))
+            import ipdb; ipdb.set_trace()
+
+            for i in range(Nq):
+                for j in range(Nq):
+                    local_fSvv[i, j] = flux_chandrashekar(local_qv[i], local_qv[j])
+
+            import ipdb; ipdb.set_trace()
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -351,28 +396,33 @@ class EntropyStableEulerOperator(EulerOperator):
 
         return ArrayContainer(mass=rho, energy=rho_u, momentum=rho_e)
 
-    def compute_volume_integrals(self, q_cv):
-        # TODO Hand-write this damn calculation in Python instead
-        # of trying to go through loopy
-
-
     def operator(self, t, q):
         dcoll = self.dcoll
 
-        # Convert to array container
-        q = ArrayContainer(mass=q[0],
-                           energy=q[1],
-                           momentum=q[2:2+dcoll.dim])
+        # # Convert to array container
+        # qv = ArrayContainer(mass=q[0],
+        #                     energy=q[1],
+        #                     momentum=q[2:2+dcoll.dim])
 
-        actx = q.array_context
-        nodes = thaw(self.dcoll.nodes(), actx)
+        # # Get all face values and convert to array container
+        # qfaces = op.project(dcoll, "vol", "all_faces", q)
+        # qf = ArrayContainer(mass=qfaces[0],
+        #                     energy=qfaces[1],
+        #                     momentum=qfaces[2:2+dcoll.dim])
+
+        # actx = qv.array_context
+
+        from grudge.sbp_op import weak_hybridized_local_sbp
+        weak_hybridized_local_sbp(dcoll, q)
+
+        # nodes = thaw(self.dcoll.nodes(), actx)
 
         # Modified conservative variables using the entropy variables
         # Step 1: interpolate conserved vars to quadrature grid (if any)
         # q -> V_q p
 
         # Step 2: Convert conserved variables to entropy variables
-        v = self.conservative_to_entropy_vars(q)
+        # v = self.conservative_to_entropy_vars(q)
 
         # Step 3: Project the entropy variables
         # FIXME: Assumes quad/interpolation collocated; so Vq = I; Vf = I.
@@ -383,26 +433,26 @@ class EntropyStableEulerOperator(EulerOperator):
 
         # Step 4: Convert to conserved vars from projected entropy vars
         # and interpolate to all nodes (volume + face)
-        q_projected = self.entropy_to_conservative_vars(v)
-        q_projected_faces = op.project(dcoll, "vol", "all_faces", q_projected)
+        # q_projected = self.entropy_to_conservative_vars(v)
+        # q_projected_faces = op.project(dcoll, "vol", "all_faces", q_projected)
 
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
 
         # Evaluate two-point entropy conservative flux at all combinations
         # of elemental nodes
-        fSvv = self.flux_chandrashekar(q_projected, q_projected)
-        fSvf = self.flux_chandrashekar(q_projected, q_projected_faces)
-        fSfv = self.flux_chandrashekar(q_projected_faces, q_projected)
+        # fSvv = self.flux_chandrashekar(q_projected, q_projected)
+        # fSvf = self.flux_chandrashekar(q_projected, q_projected_faces)
+        # fSfv = self.flux_chandrashekar(q_projected_faces, q_projected)
 
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
 
-        fSff = (
-            sum(self.flux_chandrashekar(qtpair.int, qtpair.ext)
-                for qtpair in op.interior_trace_pairs(dcoll, q_projected))
-            + sum(
-                self.self.flux_chandrashekar(q_projected, self.bdry_fcts[btag](nodes, t), btag)
-                for btag in self.bdry_fcts
-            )
-        )
+        # fSff = (
+        #     sum(self.flux_chandrashekar(qtpair.int, qtpair.ext)
+        #         for qtpair in op.interior_trace_pairs(dcoll, q_projected))
+        #     + sum(
+        #         self.self.flux_chandrashekar(q_projected, self.bdry_fcts[btag](nodes, t), btag)
+        #         for btag in self.bdry_fcts
+        #     )
+        # )
 
 # }}}
