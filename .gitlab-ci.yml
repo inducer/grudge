@@ -92,7 +92,7 @@ Python 3 Conda Examples:
 
 Documentation:
   script:
-  - EXTRA_INSTALL="pybind11 numpy"
+  - EXTRA_INSTALL="pybind11 numpy matplotlib"
   - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
   - ". ./build-docs.sh"
   tags:
