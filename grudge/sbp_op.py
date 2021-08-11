@@ -46,6 +46,41 @@ import grudge.dof_desc as dof_desc
 import numpy as np
 
 
+def quadrature_based_mass_matrix(actx: ArrayContext, element_group):
+    """todo
+    """
+    @keyed_memoize_in(
+        actx, quadrature_based_mass_matrix,
+        lambda grp: grp.discretization_key())
+    def get_ref_quad_mass_mat(grp):
+        from modepy import vandermonde
+
+        basis_fcts = grp.basis_obj().functions
+        quad_rule = grp.quadrature_rule()
+        vand = vandermonde(basis_fcts, quad_rule.nodes)
+        weights = np.diag(quad_rule.weights)
+        mass_mat = vand.T @ weights @ vand
+
+        return actx.freeze(actx.from_numpy(mass_mat))
+
+    return get_ref_quad_mass_mat(element_group)
+
+
+def quadrature_based_inverse_mass_matrix(actx: ArrayContext, element_group):
+    """todo
+    """
+    @keyed_memoize_in(
+        actx, quadrature_based_inverse_mass_matrix,
+        lambda grp: grp.discretization_key())
+    def get_ref_quad_inv_mass_mat(grp):
+        mass_mat = actx.to_numpy(
+            thaw(quadrature_based_mass_matrix(actx, grp), actx)
+        )
+        return actx.freeze(actx.from_numpy(np.linalg.inv(mass_mat)))
+
+    return get_ref_quad_inv_mass_mat(element_group)
+
+
 def quadrature_based_l2_projection_matrix(actx: ArrayContext, element_group):
     """todo
     """
@@ -59,10 +94,11 @@ def quadrature_based_l2_projection_matrix(actx: ArrayContext, element_group):
         vand = vandermonde(grp.basis_obj().functions, quad_rule.nodes)
         weights = np.diag(quad_rule.weights)
         inv_mass_mat = actx.to_numpy(
-            thaw(reference_inverse_mass_matrix(actx, grp), actx)
+            thaw(quadrature_based_inverse_mass_matrix(actx, grp), actx)
         )
+        p_mat = inv_mass_mat @ vand.T @ weights
 
-        return actx.freeze(actx.from_numpy(inv_mass_mat @ vand.T @ weights))
+        return actx.freeze(actx.from_numpy(p_mat))
 
     return get_ref_l2_proj_mat(element_group)
 
@@ -77,12 +113,11 @@ def quadrature_based_stiffness_matrices(actx: ArrayContext, element_group):
         from meshmode.discretization.poly_element import diff_matrices
 
         mass_mat = actx.to_numpy(
-            thaw(reference_mass_matrix(actx, grp, grp), actx)
+            thaw(quadrature_based_mass_matrix(actx, grp), actx)
         )
         quad_l2_proj_mat = actx.to_numpy(
             thaw(quadrature_based_l2_projection_matrix(actx, grp), actx)
         )
-
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
@@ -154,7 +189,8 @@ def boundary_matrices(
         for dim in range(vol_grp.dim):
             bdry_mat_i = np.diag(
                 np.concatenate(
-                    [face_quad_weights*face_normals[i][dim] for i in range(nfaces)]
+                    [face_quad_weights*face_normals[i][dim]
+                     for i in range(nfaces)]
                 )
             )
             mats.append(bdry_mat_i)
@@ -173,36 +209,42 @@ def hybridized_sbp_operators(
         lambda face_grp, vol_grp: (face_grp.discretization_key(),
                                    vol_grp.discretization_key()))
     def get_hybridized_sbp_mats(face_grp, vol_grp):
-        q_mats = actx.to_numpy(thaw(quadrature_based_stiffness_matrices(actx, vol_grp), actx))
-        e_mat = actx.to_numpy(thaw(surface_extrapolation_matrix(actx, face_grp, vol_grp), actx))
-        b_mats = actx.to_numpy(thaw(boundary_matrices(actx, face_grp, vol_grp), actx))
-
-        foo = np.asarray(
-                    [0.5 * np.block(
-                        [[q_mats[dim] - q_mats[dim].T, e_mat.T @ b_mats[dim]],
-                         [-b_mats[dim] @ e_mat, b_mats[dim]]]
-                    ) for dim in range(vol_grp.dim)]
-                )
-
-        return actx.freeze(
-            actx.from_numpy(
-                foo
-        ))
+        m_mat = actx.to_numpy(
+            thaw(quadrature_based_mass_matrix(actx, vol_grp), actx)
+        )
+        q_mats = actx.to_numpy(
+            thaw(quadrature_based_stiffness_matrices(actx, vol_grp), actx)
+        )
+        e_mat = actx.to_numpy(
+            thaw(surface_extrapolation_matrix(actx, face_grp, vol_grp), actx)
+        )
+        b_mats = actx.to_numpy(
+            thaw(boundary_matrices(actx, face_grp, vol_grp), actx)
+        )
+        qhi = np.asarray(
+            [0.5 * np.block([[q_mats[dim] - q_mats[dim].T, e_mat.T @ b_mats[dim]],
+                             [-b_mats[dim] @ e_mat, b_mats[dim]]])
+             for dim in range(vol_grp.dim)]
+        )
+        import ipdb; ipdb.set_trace()
+        return actx.freeze(actx.from_numpy(qhi))
 
     return get_hybridized_sbp_mats(face_element_group, vol_element_group)
 
 
-def _apply_hybridized_sbp_operator(dcoll, dd_v, dd_f, vec):
+def _apply_hybridized_sbp_flux_differencing(dcoll, dd_v, dd_f, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-            lambda vi: _apply_hybridized_sbp_operator(dcoll, dd_v, dd_f, vi), vec
+            lambda vi: _apply_hybridized_sbp_flux_differencing(
+                dcoll, dd_v, dd_f, vi
+            ), vec
         )
 
     actx = vec.array_context
     vol_discr = dcoll.discr_from_dd(dd_v)
     face_discr = dcoll.discr_from_dd(dd_f)
-    for vgrp, afgrp in zip(vol_discr.groups, face_discr.groups):
-        hybridized_sbp_operators(actx, afgrp, vgrp)
+    for afgrp, vgrp in zip(face_discr.groups, vol_discr.groups):
+        Qhs = hybridized_sbp_operators(actx, afgrp, vgrp)
 
 
 def weak_hybridized_local_sbp(
@@ -215,4 +257,6 @@ def weak_hybridized_local_sbp(
     if dd_f is None:
         dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
 
-    return _apply_hybridized_sbp_operator(dcoll, dd_v, dd_f, vec)
+    return _apply_hybridized_sbp_flux_differencing(
+        dcoll, dd_v, dd_f, vec
+    )
