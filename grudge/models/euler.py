@@ -289,7 +289,7 @@ def conservative_to_primitive(cv, gamma=1.4):
     rho = cv.density
     rhou = cv.momentum
     rhoe = cv.total_energy
-    velocity = cv.momentum / rho
+    velocity = np.array([mom/rho for mom in rhou])
     p = (gamma - 1) * (rhoe - 0.5 * sum(rhov**2 for rhov in rhou) / rho)
 
     return PrimitiveVars(density=rho, pressure=p, velocity=velocity)
@@ -358,7 +358,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     return fS_mass, fS_energy, fS_momentum
 
 
-def flux_differencing_kernel(dcoll, q_v, q_f):
+def flux_differencing_kernel(dcoll, q_v, q_f, gamma=1.4):
     actx = q_v.array_context
     mesh = dcoll.mesh
     dim = dcoll.dim
@@ -431,15 +431,26 @@ def flux_differencing_kernel(dcoll, q_v, q_f):
                 ) for d in range(dcoll.dim)]
             )
 
-            # Compute local flux differencing inside the volume
-            # local_fSvv = np.zeros(shape=(Nq, Nq))
-            # import ipdb; ipdb.set_trace()
+            for d in range(dcoll.dim):
+                for i in range(Nq_total):
+                    # FIXME: Revisit how local values are extracted here
+                    # This can likely be replaced with something better
+                    rhou_i = [local_rhou[dimidx][i] for dimidx in range(dcoll.dim)]
+                    # Define the state at the ith quadrature node
+                    q_i = ConservedVars(density=local_rho[i],
+                                        total_energy=local_rhoe[i],
+                                        momentum=rhou_i)
+                    for j in range(Nq_total):
+                        # FIXME: Revisit how local values are extracted here
+                        # This can likely be replaced with something better
+                        rhou_j = [local_rhou[dimidx][j] for dimidx in range(dcoll.dim)]
+                        # Define the state at the jth quadrature node
+                        q_j = ConservedVars(density=local_rho[j],
+                                            total_energy=local_rhoe[j],
+                                            momentum=rhou_j)
 
-            # for i in range(Nq):
-            #     for j in range(Nq):
-            #         local_fSvv[i, j] = flux_chandrashekar(local_qv[i], local_qv[j])
-
-            # import ipdb; ipdb.set_trace()
+                        volume_flux = flux_chandrashekar(q_i, q_j, d, gamma=gamma)
+                        import ipdb; ipdb.set_trace()
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -506,49 +517,9 @@ class EntropyStableEulerOperator(EulerOperator):
 
         actx = qv.array_context
 
-        flux_differencing_kernel(dcoll, qv, qf)
+        flux_differencing_kernel(dcoll, qv, qf, self.gamma)
 
         from grudge.sbp_op import weak_hybridized_local_sbp
         weak_hybridized_local_sbp(dcoll, q)
-
-        # nodes = thaw(self.dcoll.nodes(), actx)
-
-        # Modified conservative variables using the entropy variables
-        # Step 1: interpolate conserved vars to quadrature grid (if any)
-        # q -> V_q p
-
-        # Step 2: Convert conserved variables to entropy variables
-        # v = self.conservative_to_entropy_vars(q)
-
-        # Step 3: Project the entropy variables
-        # FIXME: Assumes quad/interpolation collocated; so Vq = I; Vf = I.
-        # v = Minv * [Vq; Vf]^T v = Minv * v
-        # v_projected = convert_to_array_container(
-        #     dcoll.dim, op.inverse_mass(dcoll, v.join())
-        # )
-
-        # Step 4: Convert to conserved vars from projected entropy vars
-        # and interpolate to all nodes (volume + face)
-        # q_projected = self.entropy_to_conservative_vars(v)
-        # q_projected_faces = op.project(dcoll, "vol", "all_faces", q_projected)
-
-        # import ipdb; ipdb.set_trace()
-
-        # Evaluate two-point entropy conservative flux at all combinations
-        # of elemental nodes
-        # fSvv = self.flux_chandrashekar(q_projected, q_projected)
-        # fSvf = self.flux_chandrashekar(q_projected, q_projected_faces)
-        # fSfv = self.flux_chandrashekar(q_projected_faces, q_projected)
-
-        # import ipdb; ipdb.set_trace()
-
-        # fSff = (
-        #     sum(self.flux_chandrashekar(qtpair.int, qtpair.ext)
-        #         for qtpair in op.interior_trace_pairs(dcoll, q_projected))
-        #     + sum(
-        #         self.self.flux_chandrashekar(q_projected, self.bdry_fcts[btag](nodes, t), btag)
-        #         for btag in self.bdry_fcts
-        #     )
-        # )
 
 # }}}
