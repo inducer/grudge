@@ -384,8 +384,8 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
     # Possibilities limited by size of global memory
     options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
     #Arbitrarily limit to at max 12 inline to limit search space
-    options = k_inner_inner*options[options <= 12]
-    #options = k_inner_inner*options[options <= 6]
+    #options = k_inner_inner*options[options <= 12]
+    options = k_inner_inner*options[options <= 6]
     return sorted(options, reverse=reverse)
 
 
@@ -609,12 +609,14 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     print()
 
 
+    
     print("Suggested loop splittings")
-    print(f"iel: {kio}")
-    print(f"iel_inner: {kii}")
-    print(f"idof: {iio}")
-    print(f"idof_inner: {iii}")
-    print(f"j: {ji}")
+    print(result_saved)
+    #print(f"iel: {kio}")
+    #print(f"iel_inner: {kii}")
+    #print(f"idof: {iio}")
+    #print(f"idof_inner: {iii}")
+    #print(f"j: {ji}")
  
     return result_saved_list
     #return result_saved
@@ -954,7 +956,7 @@ if __name__ == "__main__":
     #knl = diff_prg(3, 1000000, 120, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
-    dofs = 35
+    dofs = 84
     knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)

@@ -279,8 +279,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                         kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
         elif "resample_by_picking" in program.name:
             # Double check this
-            nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
+            if "rhs" not in program.name:
+                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                         + kwargs["to_element_indices"].shape[0])*8
+            else:
+                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
+
         else:
             print(program.name)
             #print(kwargs.keys())

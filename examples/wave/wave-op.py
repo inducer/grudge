@@ -281,7 +281,7 @@ def main():
             b=(0.5,)*dim,
             nelements_per_axis=(nel_1d,)*dim)
 
-    order = 4
+    order = 6
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
