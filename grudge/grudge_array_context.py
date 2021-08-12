@@ -8,6 +8,7 @@ from grudge.grudge_tags import (IsDOFArray, IsVecDOFArray, IsFaceDOFArray,
 from numpy import prod
 import hjson
 import numpy as np
+from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
 import pyopencl as cl
@@ -379,31 +380,23 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 hjson_file.close()
                 program = dgk.apply_transformation_list(program, transformations)
 
-            # File exists but a transformation is missing
             # How can the test times be excluded from the end-to-end time reports
+
+            # File exists but a transformation is missing
             except KeyError:
-                # There are other array sizes too. Need to handle those
                 # What if already have a set of transformation parameters but want to
                 # refine them more
                 # If there is a key error, the autotuner should be called to figure
                 # out a set of transformations and then write it back to the hjson file
                 print("ARRAY SIZE NOT IN TRANSFORMATION FILE")
 
-                from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
-
-
-                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=np.inf)
-                #parameters = random_search(self.queue, program, test_diff, time_limit=10)
-                #transformations = dgk.generate_transformation_list(*parameters)
+                transformations = random_search(self.queue, program, generic_test, time_limit=60*30)
                 program = dgk.apply_transformation_list(program, transformations)
                 
-                # How to save to file? It may need a new file or there may be an
-                # existing file to add it into
-
                 # Write the new transformations back to local file
                 hjson_file = open(f"{program.name}.hjson", "rt")
                 # Need to figure out how to copy existing transformations 
-                import hjson
+
                 od = hjson.load(hjson_file)
                 hjson_file.close()
                 od[transform_id][fp_string][ndofs] = transformations
@@ -414,20 +407,13 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 hjson.dump(od, out_file,default=convert)
                 out_file.close()
                  
-                #program = super().transform_loopy_program(program)
             # No transformation files exist
             except FileNotFoundError:
-                from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
 
-                transformations = random_search(self.queue, program, generic_test, time_limit=60)
-                #parameters = random_search(self.queue, program, generic_test, time_limit=30)
-                #transformations = dgk.generate_transformation_list(*parameters)
-                #print(transformations)
+                transformations = random_search(self.queue, program, generic_test, time_limit=60*30)
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations to a file
-                import hjson
-
                 # Will need a new transform_id
                 d = {transform_id: {fp_string: {str(ndofs): transformations} } }
                 out_file = open(f"{program.name}.hjson", "wt")
@@ -435,6 +421,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 out_file.close()
 
         # Maybe this should have an autotuner
+	# There isn't much room for optimization due to the indirection
         elif "resample_by_picking" in program.name:
             for arg in program.args:
                 if arg.name == "n_to_nodes":

@@ -8,12 +8,14 @@ import loopy as lp
 #from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 #from loopy.kernel.data import AddressSpace
 
+"""
 import pycuda.gpuarray as cuarray
 import pycuda.driver as drv
 import pycuda.tools
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 from pycuda.curandom import rand as curand
+"""
 
 from modepy import equidistant_nodes
 from pytools.obj_array import make_obj_array
@@ -30,11 +32,10 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
-
-from grudge.grudge_array_context import set_memory_layout
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
     generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
 from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsOpArray, IsVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
+import  grudge.grudge_array_context as gac#import set_memory_layout
 
 def testBandwidth(fp_format=np.float32, nruns=100):
 
@@ -373,44 +374,57 @@ def verifyResultFortran(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
     print("Norm3: " + str(np.linalg.norm((A_host3 @ X_host).T - B_host3)
             / np.linalg.norm(A_host3 @ X_host)))
 
-
-def k_inner_inner_options(reverse=True):
-    #return [32]
-    return sorted([8, 16, 32], reverse=reverse)
+def k_inner_inner_options(start_val=None):
+    options = [32, 16, 8]
+    start_ind = 0 if start_val is None else options.index(start_val)
+    options = options[start_ind:]
+    return options
 
 
 def k_inner_outer_options(n_in, k_inner_inner, sm_size,
-                            fp_bytes=4, reverse=False):
+                            fp_bytes=4, start_val=None):
     # Possibilities limited by size of global memory
     options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
     #Arbitrarily limit to at max 12 inline to limit search space
     #options = k_inner_inner*options[options <= 12]
+<<<<<<< HEAD
     options = k_inner_inner*options[options <= 6]
     return sorted(options, reverse=reverse)
 
+=======
+    options = list(k_inner_inner*options[options <= 6])
+    start_ind = 0 if start_val is None else options.index(start_val)
+    options = options[start_ind:]
+    return options
+>>>>>>> 1433f11b9385f001d6a08de8fc05b2f686c37bc2
 
-def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, reverse=True):
+def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_val=None):
     factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
     # Ensure total number of workitems is less than maximum
     usable_factors = factors[factors*k_inner_inner <= max_work_group_size]
-    return sorted(usable_factors, reverse=reverse)
+    options = sorted(usable_factors, reverse=True)
+    start_ind = 0 if start_val is None else options.index(start_val)
+    options = options[start_ind:]
+    return options
 
-
-def i_inner_outer_options(n_out, i_inner_inner, reverse=False):
+def i_inner_outer_options(n_out, i_inner_inner, start_val=None):
     # Select a number of inline blocks such that n_out % outer*inner == 0
     inline = np.arange(1, (n_out // i_inner_inner) + 1)
-    options = i_inner_inner*inline[n_out % (inline*i_inner_inner) == 0]
-    return sorted(options, reverse=reverse)
+    options = list(i_inner_inner*inline[n_out % (inline*i_inner_inner) == 0])
+    start_ind = 0 if start_val is None else options.index(start_val)
+    options = options[start_ind:]
+    return options
 
 
-def j_inner_options(n_in, reverse=False):
+def j_inner_options(n_in, start_val=None):
     factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
     # Should this be limited by the number of registers
-    return sorted(factors, reverse=reverse)
-    #return [n_in]#[10] # At least for orders 2,3,4 this is usually selected.
+    start_ind = 0 if start_val is None else factors.index(start_val)
+    factors = factors[start_ind:]
+    return factors
 
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
-        device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95):
+        device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
 
     # Imports
     from random import choice
@@ -442,12 +456,18 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                 fp_bytes = arg.dtype.dtype.itemsize
 
     # Also fixes the parameters    
-    knl = set_memory_layout(knl)
+    knl = gac.set_memory_layout(knl)
 
     tested = []
 
-    k_inner_inner_opt = k_inner_inner_options()
-    j_inner_opt = j_inner_options(n_in)
+    if start_param is not None:
+        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+    else:
+        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+
+    #k_inner_inner_opt = k_inner_inner_options(start_val=kii_s)
+    #kii_s = None
+    #j_inner_opt = j_inner_options(n_in)
     knl_base = knl.copy()
 
     avg_time_saved = float("inf")
@@ -457,148 +477,154 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     # Iterate over five search dimensions
     result_list = []
     start = time.time()
-    for kii in k_inner_inner_opt:
-        # This prevents shared memory from overflowing when running with the face mass kernel
-        if knl.name == "face_mass":
-            n_in_2 = n_in * nfaces
-        else:
-            n_in_2 = n_in
-        for kio in k_inner_outer_options(n_in_2, kii, local_mem_size, fp_bytes=fp_bytes):
-            for iii in i_inner_inner_options(n_out, kii,
-                    max_work_group_size=max_work_group_size):
-                for iio in i_inner_outer_options(n_out, iii):
-                    for ji in j_inner_opt:
+    print("HERE")
+    with open("output.txt", "a") as f:
+        for kii in k_inner_inner_options(start_val=kii_s):
+            # This prevents shared memory from overflowing when running with the face mass kernel
+            if knl.name == "face_mass":
+                n_in_2 = n_in * nfaces
+            else:
+                n_in_2 = n_in
+            for kio in k_inner_outer_options(n_in_2, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
+                kio_s = None # Set to None so will form the full set the next time around
+                for iii in i_inner_inner_options(n_out, kii,
+                        max_work_group_size=max_work_group_size, start_val=iii_s):
+                    iii_s = None
+                    for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
+                        iio_s = None
+                        for ji in j_inner_options(n_in, start_val=ji_s):
+                            ji_s = None
+                            print((kio, kii, iio, iii, ji))
+                            # Transform and run
+                            knl = knl_base.copy()
+                            knl = lp.split_iname(knl, "iel", kio, outer_tag="g.0", slabs=(0,1))
+                            knl = lp.split_iname(knl, "iel_inner", kii, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+                            knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
+                            knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
-                        print((kio, kii, iio, iii, ji))
-                        # Transform and run
-                        knl = knl_base.copy()
-                        knl = lp.split_iname(knl, "iel", kio, outer_tag="g.0", slabs=(0,1))
-                        knl = lp.split_iname(knl, "iel_inner", kii, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
-                        knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
-                        knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
-
-                        if knl.name == "face_mass":
-                            pass
-                            #knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-                            #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
-                        elif knl.name == "nodes":
-                            knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-                            knl = lp.tag_array_axes(knl, "vecf", "f,f")
-                        elif "resample_by_mat" in knl.name:
-                            pass
-                            #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-                            #knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
-                        else:   
-                            knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-                            knl = lp.tag_array_axes(knl, "vecf", "f,f")
-
-                        knl = lp.split_iname(knl, "j", ji, outer_tag="for", inner_tag="for")
-                        knl = lp.add_inames_for_unused_hw_axes(knl)
-
-
-                        # Change this to just use the transformation list instead of applying the transformations
-                        # directly
-                        trans_list = []
-                        if "diff" in knl.name:
-                            trans_list.append(["tag_inames", ["imatrix: ilp"]])
-                        trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-                        trans_list.append(["split_iname", ["iel_inner", kii], 
-                            {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-                        trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-                        trans_list.append(["split_iname", ["idof_inner", iii], 
-                            {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-
-                        if knl.name == "face_mass":
-                            pass
-                            #trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
-                            #    {"temporary_name":"vecf", "default_tag":"l.auto"}])
-                            #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
-                        elif knl.name == "nodes":
-                            trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
-                                {"temporary_name":"vecf", "default_tag":"l.auto"}])
-                            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-                        elif "resample_by_mat" in knl.name:
-                            # Indirection may prevent prefetching
-                            pass
-                        else:
-                            trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
-                                {"temporary_name":"vecf", "default_tag":"l.auto"}])
-                            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-
-                        trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
-                        trans_list.append(["add_inames_for_unused_hw_axes"]) 
-
-                        print(knl.name)
-                        print(trans_list)
-
-                        # Execute and analyze the results
-                        dev_arrays, avg_time = test_fn(queue, knl)
-
-                        choices = (kio, kii, iio, iii, ji)
-                        """
-                        if device_memory_bandwidth is not None:  # noqa
-                            #frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
-                            #    n_in, n_elem, max_gflops, device_memory_bandwidth,
-                            #    avg_time)
-                            bw  = analyze_knl_bandwidth(knl, avg_time)
-                            frac_peak_GBps = bw / device_memory_bandwidth
-                            result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
-                            if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
-                                # Should validate result here
+                            if knl.name == "face_mass":
+                                knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
+                            elif knl.name == "nodes":
+                                knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                knl = lp.tag_array_axes(knl, "vecf", "f,f")
+                            elif "resample_by_mat" in knl.name: # Reads are scattered so prefetching is difficult
                                 pass
-                                #print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
-                                #return (kio, kii, iio, iii, ji)
-                        """
-                        """
-                        # TODO: Fix flop calculation
-                        if max_gflops is not None and device_memory_bandwidth is not None:  # noqa
-                            frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
-                                n_in, n_elem, max_gflops, device_memory_bandwidth,
-                                avg_time)
-                            if frac_peak_gflops >= gflops_cutoff or frac_peak_GBps  >= bandwidth_cutoff:  # noqa
-                                # Should validate result here
-                                print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
-                                return (kio, kii, iio, iii, ji)
-                        """
-                        print(choices)
-                        if device_memory_bandwidth is not None:  # noqa
-                            bw = analyze_knl_bandwidth(knl, avg_time)
-                            frac_peak_GBps = bw / device_memory_bandwidth
-                            #result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
-                            if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
-                                # Should validate result here
-                                print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
-                                return choices
-                
-                        if max_gflops is not None:
-                            frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
-                            if frac_peak_gflops >= gflops_cutoff:
-                                # Should validate result here
-                                print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
-                                return choices
+                                #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                #knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
+                            else:   
+                                knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+                                knl = lp.tag_array_axes(knl, "vecf", "f,f")
 
-                        if device_memory_bandwidth is not None and max_gflops is not None:
-                            result_list.append((avg_time, 
-                                                frac_peak_GBps*bw, 
-                                                frac_peak_gflops*max_gflops, 
-                                                frac_peak_GBps, 
-                                                frac_peak_gflops, 
-                                                (kio, kii, iio, iii, ji)))
+                            knl = lp.split_iname(knl, "j", ji, outer_tag="for", inner_tag="for")
+                            knl = lp.add_inames_for_unused_hw_axes(knl)
 
-                        if avg_time < avg_time_saved:
-                            avg_time_saved = avg_time
-                            result_saved = choices
-                            result_saved_list = trans_list
-                        if time.time() - start > time_limit: 
-                            result_list.sort()
-                            print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
-                            for entry in result_list:
-                                print(entry)
-                            print()
 
-   
-                            #return result_saved_list
-                            return result_saved
+                            # Change this to just use the transformation list instead of applying the transformations
+                            # directly
+                            trans_list = []
+                            if "diff" in knl.name:
+                                trans_list.append(["tag_inames", ["imatrix: ilp"]])
+                            trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+                            trans_list.append(["split_iname", ["iel_inner", kii], 
+                                {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+                            trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+                            trans_list.append(["split_iname", ["idof_inner", iii], 
+                                {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+
+                            if knl.name == "face_mass":
+                                pass
+                                #trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
+                                #    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                                #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+                            elif knl.name == "nodes":
+                                trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
+                                    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                                trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+                            elif "resample_by_mat" in knl.name:
+                                # Indirection may prevent prefetching
+                                pass
+                            else:
+                                trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
+                                    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                                trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+
+                            trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+                            trans_list.append(["add_inames_for_unused_hw_axes"]) 
+
+                            print(knl.name)
+                            print(trans_list)
+
+                            # Execute and analyze the results
+                            dev_arrays, avg_time = test_fn(queue, knl)
+
+                            choices = (kio, kii, iio, iii, ji)
+                            """
+                            if device_memory_bandwidth is not None:  # noqa
+                                #frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
+                                #    n_in, n_elem, max_gflops, device_memory_bandwidth,
+                                #    avg_time)
+                                bw  = analyze_knl_bandwidth(knl, avg_time)
+                                frac_peak_GBps = bw / device_memory_bandwidth
+                                result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
+                                if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+                                    # Should validate result here
+                                    pass
+                                    #print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+                                    #return (kio, kii, iio, iii, ji)
+                            """
+                            """
+                            # TODO: Fix flop calculation
+                            if max_gflops is not None and device_memory_bandwidth is not None:  # noqa
+                                frac_peak_gflops, frac_peak_GBps = analyzeResult(n_out,
+                                    n_in, n_elem, max_gflops, device_memory_bandwidth,
+                                    avg_time)
+                                if frac_peak_gflops >= gflops_cutoff or frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+                                    # Should validate result here
+                                    print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+                                    return (kio, kii, iio, iii, ji)
+                            """
+                            print(choices)
+                            if device_memory_bandwidth is not None:  # noqa
+                                bw = analyze_knl_bandwidth(knl, avg_time)
+                                frac_peak_GBps = bw / device_memory_bandwidth
+                                #result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
+                                if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+                                    # Should validate result here
+                                    print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+                                    return choices
+                    
+                            if max_gflops is not None:
+                                frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
+                                if frac_peak_gflops >= gflops_cutoff:
+                                    # Should validate result here
+                                    print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+                                    return choices
+
+                            if device_memory_bandwidth is not None and max_gflops is not None:
+                                data = (avg_time, 
+                                                    frac_peak_GBps*bw, 
+                                                    frac_peak_gflops*max_gflops, 
+                                                    frac_peak_GBps, 
+                                                    frac_peak_gflops, 
+                                                    (kio, kii, iio, iii, ji))
+                                result_list.append(data)
+                                f.write(str(data) + "\n")
+                                
+                            if avg_time < avg_time_saved:
+                                avg_time_saved = avg_time
+                                result_saved = choices
+                                result_saved_list = trans_list
+                            if time.time() - start > time_limit: 
+                                result_list.sort()
+                                print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
+                                for entry in result_list:
+                                    print(entry)
+                                print()
+
+       
+                                #return result_saved_list
+                                return result_saved
 
 
     result_list.sort()
@@ -627,7 +653,6 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     # Imports
     from random import choice
     from grudge.grudge_tags import ParameterValue
-    from grudge.grudge_array_context import set_memory_layout
 
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
@@ -655,7 +680,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
                 fp_bytes = arg.dtype.dtype.itemsize
 
     # Also fixes the parameters    1
-    knl = set_memory_layout(knl)
+    knl = gac.set_memory_layout(knl)
 
     tested = []
 
@@ -953,14 +978,15 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    #knl = diff_prg(3, 1000000, 120, np.float64)
+    knl = diff_prg(3, 1000000, 56, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     dofs = 84
-    knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
+    #knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
+    start_param = None#(40, 8, 252, 4, 42)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
-    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0)
+    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
     print(result)
     #"""

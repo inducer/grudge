@@ -37,7 +37,7 @@ from grudge.discretization import DiscretizationCollection
 import grudge.op as op
 from grudge.shortcuts import make_visualizer
 from grudge.symbolic.primitives import TracePair
-
+from time import time
 
 # {{{ wave equation bits
 
@@ -271,17 +271,66 @@ def main():
     queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
     from pyopencl.tools import ImmediateAllocator
     actx = AutoTuningArrayContext(queue, allocator=ImmediateAllocator(queue))
+    from meshmode.mesh.generation import generate_regular_rect_mesh
 
     dim = 3
-    nel_1d = 2**5 # Order 6 runs out of memory with 2**5
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            coord_dtype=np.float64,
-            a=(-0.5,)*dim,
-            b=(0.5,)*dim,
-            nelements_per_axis=(nel_1d,)*dim)
+    order = 7
 
-    order = 6
+    #nel_1d = 2**5
+    #mesh = generate_regular_rect_mesh(
+    #        coord_dtype=np.float64,
+    #        a=(-0.5,)*dim,
+    #        b=(0.5,)*dim,
+    #        nelements_per_axis=(nel_1d,)*dim)
+    #print(mesh.nelements)
+
+    #exit()
+
+    #target_num_points = 11010048
+    #target_num_points = 9000000
+    target_num_points = 6000000 # Order fails assertion with more than this
+    order_points_mapping = {2:10, 3:20, 4:35, 5:56, 6:84, 7:120}
+
+
+    cur_points = 0
+    cur_points_old = 0
+    nel_1d = 0
+    mesh_old = None
+    mesh = None
+    while cur_points < target_num_points:
+        print(cur_points)
+        nel_1d += 1
+        mesh_old = mesh
+        mesh = generate_regular_rect_mesh(
+                coord_dtype=np.float64,
+                a=(-0.5,)*dim,
+                b=(0.5,)*dim,
+                nelements_per_axis=(nel_1d,)*dim)
+        cur_points_old = cur_points
+        cur_points = order_points_mapping[order]*mesh.nelements
+
+    # Pick whichever is closer
+    if (target_num_points - cur_points_old) < (cur_points - target_num_points):
+        mesh = mesh_old
+        nel_1d -= 1       
+
+    print(mesh.nelements)
+    #exit()
+
+    #nel_1d = #2**5 # Order 6 runs out of memory with 2**5
+
+    #for nel_1d in 2**np.arange(6,dtype=np.int32):
+    #from meshmode.mesh.generation import generate_regular_rect_mesh
+    #mesh = generate_regular_rect_mesh(
+    #        coord_dtype=np.float64,
+    #        a=(-0.5,)*dim,
+    #        b=(0.5,)*dim,
+    #        nelements_per_axis=(nel_1d,)*dim)
+
+        #print("%d elements" % mesh.nelements)
+    #print(mesh.nelements*np.array([10,20,35,56,84,120]))
+
+    #exit()
 
     if dim == 2:
         # no deep meaning here, just a fudge factor
@@ -292,7 +341,6 @@ def main():
     else:
         raise ValueError("don't have a stable time step guesstimate")
 
-    print("%d elements" % mesh.nelements)
 
     dcoll = DiscretizationCollection(actx, mesh, order=order)
 
@@ -303,18 +351,29 @@ def main():
 
     vis = make_visualizer(dcoll)
 
+    for field in fields:
+        print(field[0][0].shape)
+
     def rhs(t, w):
         return wave_operator(dcoll, c=1, w=w)
 
     t = 0
     t_final = (21)*dt
     istep = 0
+    start = time()
+    nsteps = 0
+
+    nelements, ndofs = fields[0][0].shape
+    npts = nelements*ndofs
+    print(npts)
+    #exit()
+
     while t < t_final:
 
         print(f"===========TIME STEP {istep}===========")
         fields = rk4_step(fields, t, dt, rhs)
 
-        if istep % 10 == 0:
+        if istep % 100 == 0:
             print(f"step: {istep} t: {t} L2: {op.norm(dcoll, fields[0], 2)} "
                   f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])}")
             vis.write_vtk_file("fld-wave-eager-%04d.vtu" % istep,
@@ -326,10 +385,16 @@ def main():
         print(f"===========END TIME STEP {istep}===========")
         istep += 1
         t = istep*dt
+        nsteps += 1
 
         # Should compare against base version at some point
         #assert op.norm(dcoll, fields[0], 2) < 1
-
+    end = time()
+    diff = end - start
+    nelements, ndofs = fields[0][0].shape
+    npts = nelements*ndofs
+    time_per_timestep_per_point = diff / nsteps / npts
+    print(f"AVERAGE STEP TIME PER POINT: {time_per_timestep_per_point}")
 
 if __name__ == "__main__":
     main()
