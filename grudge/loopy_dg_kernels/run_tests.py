@@ -387,16 +387,10 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
     options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
     #Arbitrarily limit to at max 12 inline to limit search space
     #options = k_inner_inner*options[options <= 12]
-<<<<<<< HEAD
-    options = k_inner_inner*options[options <= 6]
-    return sorted(options, reverse=reverse)
-
-=======
     options = list(k_inner_inner*options[options <= 6])
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
     return options
->>>>>>> 1433f11b9385f001d6a08de8fc05b2f686c37bc2
 
 def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_val=None):
     factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
