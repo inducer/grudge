@@ -42,12 +42,17 @@ from meshmode.dof_array import DOFArray
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
 
+from pytools.obj_array import make_obj_array
+
 import grudge.op as op
 
 
 # {{{ Array container utilities
 
 LocalView = namedtuple("LocalView", "mass energy momentum")
+PrimitiveVars = namedtuple("PrimitiveVars", "density pressure velocity")
+ConservedVars = namedtuple("ConservedVars", "density total_energy momentum")
+
 
 @with_container_arithmetic(bcast_obj_array=False,
                            bcast_container_types=(DOFArray, np.ndarray),
@@ -120,11 +125,26 @@ def convert_to_array_container(dim, ary):
                           momentum=ary[2:2+dim])
 
 
-def local_view(ary, eidx, gidx):
+def local_view(ary_v, ary_f, eidx, vgrp, afgrp):
     """Returns a local view for all fields belonging
     to group with index *gidx* and element number *eidx*.
     """
-    from pytools.obj_array import make_obj_array
+
+    gidx = vgrp.index
+    assert gidx == afgrp.index
+
+    local_mass = ary_v.mass[gidx][eidx]
+    import ipdb; ipdb.set_trace()
+
+    ary_vol = ary_v[gidx]
+    ary_faces = ary_f[gidx].reshape(
+        vgrp.mesh_el_group.nfaces,
+        vgrp.nelements,
+        afgrp.nunit_dofs
+    )
+
+    import ipdb; ipdb.set_trace()
+
     return LocalView(
         mass=ary.mass[gidx][eidx],
         energy=ary.energy[gidx][eidx],
@@ -265,6 +285,16 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
+def conservative_to_primitive(cv, gamma=1.4):
+    rho = cv.density
+    rhou = cv.momentum
+    rhoe = cv.total_energy
+    velocity = cv.momentum / rho
+    p = (gamma - 1) * (rhoe - 0.5 * sum(rhov**2 for rhov in rhou) / rho)
+
+    return PrimitiveVars(density=rho, pressure=p, velocity=velocity)
+
+
 def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
@@ -280,14 +310,26 @@ def log_mean(x, y, epsilon=1e-4):
         return (x - y) / np.log(x/y)
 
 
-def flux_chandrashekar(cv_ll, cv_rr, gamma=1.4):
+def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
+
+    :args q_ll: a tuple containing the "left" state
+    :args q_rr: a tuple containing the "right" state
+    :args orientation: an integer denoting the dimension axis;
+        e.g. 0 for x-direction, 1 for y-direction, 2 for z-direction.
     """
-    rho_ll, v_ll, p_ll = cv_ll
-    rho_rr, v_rr, p_rr = cv_rr
+    prim_ll = conservative_to_primitive(q_ll, gamma=gamma)
+    prim_rr = conservative_to_primitive(q_rr, gamma=gamma)
+
+    rho_ll = prim_ll.density
+    rho_rr = prim_rr.density
+    p_ll = prim_ll.pressure
+    p_rr = prim_rr.pressure
+    v_ll = prim_ll.velocity
+    v_rr = prim_rr.velocity
 
     beta_ll = 0.5 * rho_ll / p_ll
     beta_rr = 0.5 * rho_rr / p_rr
@@ -306,10 +348,9 @@ def flux_chandrashekar(cv_ll, cv_rr, gamma=1.4):
     p_mean = 0.5 * rho_avg / beta_avg
     velocity_square_avg = specific_kin_ll + specific_kin_rr
 
-    identity = np.eye(len(v_avg))
-
-    fS_mass = rho_mean * v_avg
-    fS_momentum = fS_mass * v_avg + identity * p_mean
+    fS_mass = rho_mean * v_avg[orientation]
+    fS_momentum = fS_mass * v_avg
+    fS_momentum[orientation] += p_mean
     fS_energy = fS_mass * (
         0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
         + np.dot(fS_momentum, v_avg)
@@ -318,6 +359,7 @@ def flux_chandrashekar(cv_ll, cv_rr, gamma=1.4):
 
 
 def flux_differencing_kernel(dcoll, q_v, q_f):
+    actx = q_v.array_context
     mesh = dcoll.mesh
     dim = dcoll.dim
 
@@ -329,23 +371,75 @@ def flux_differencing_kernel(dcoll, q_v, q_f):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
         Nq = vgrp.nunit_dofs
-        Nqf = fgrp.nunit_dofs
+        Nfaces = vgrp.shape.nfaces
+        Nqf = Nfaces * fgrp.nunit_dofs
+        Nq_total = Nq + Nqf
+
+        # States for the entire group
+        qv_mass = q_v.mass[gidx]
+        qv_energy = q_v.energy[gidx]
+        qv_momentum = make_obj_array([q_v.momentum[d][gidx]
+                                      for d in range(q_v.dim)])
+
+        # Reshape the face array data in the group
+        qf_mass = q_f.mass[gidx].reshape(
+            vgrp.mesh_el_group.nfaces,
+            vgrp.nelements,
+            fgrp.nunit_dofs
+        )
+        qf_energy = q_f.energy[gidx].reshape(
+            vgrp.mesh_el_group.nfaces,
+            vgrp.nelements,
+            fgrp.nunit_dofs
+        )
+        qf_momentum = make_obj_array([
+            q_f.momentum[d][gidx].reshape(
+                vgrp.mesh_el_group.nfaces,
+                vgrp.nelements,
+                fgrp.nunit_dofs
+            ) for d in range(dcoll.dim)
+        ])
 
         # Element loop
         for eidx in range(mgrp.nelements):
 
-            # Local state in element *eidx* and associated faces
-            local_qv = local_view(q_v, eidx, gidx)
+            # Augmented state vector in the cell *eidx*: [q_vol q_face]
+            # FIXME: This reshaping and concatenating business
+            # is a bit brute-force
+            local_rho_f = actx.np.concatenate(
+                [qf_mass[nf, eidx] for nf in range(Nfaces)]
+            )
+            local_rho = actx.np.concatenate([qv_mass[eidx], local_rho_f])
+
+            local_rhoe_f = actx.np.concatenate(
+                [qf_energy[nf, eidx] for nf in range(Nfaces)]
+            )
+            local_rhoe = actx.np.concatenate([qv_energy[eidx], local_rhoe_f])
+
+            local_rhou_v = make_obj_array(
+                [qv_momentum[d][eidx] for d in range(dcoll.dim)]
+            )
+            local_rhou_v_arys = [qv_momentum[d][eidx] for d in range(dcoll.dim)]
+            local_rhou_f_arys = [
+                actx.np.concatenate(
+                    [qf_momentum[d][nf, eidx] for nf in range(Nfaces)]
+                ) for d in range(dcoll.dim)
+            ]
+            local_rhou = make_obj_array(
+                [actx.np.concatenate(
+                    [local_rhou_v_arys[d], local_rhou_f_arys[d]]
+                ) for d in range(dcoll.dim)]
+            )
 
             # Compute local flux differencing inside the volume
-            local_fSvv = np.zeros(shape=(Nq, Nq))
-            import ipdb; ipdb.set_trace()
+            # local_fSvv = np.zeros(shape=(Nq, Nq))
+            # import ipdb; ipdb.set_trace()
 
-            for i in range(Nq):
-                for j in range(Nq):
-                    local_fSvv[i, j] = flux_chandrashekar(local_qv[i], local_qv[j])
+            # for i in range(Nq):
+            #     for j in range(Nq):
+            #         local_fSvv[i, j] = flux_chandrashekar(local_qv[i], local_qv[j])
 
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace()
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -399,18 +493,20 @@ class EntropyStableEulerOperator(EulerOperator):
     def operator(self, t, q):
         dcoll = self.dcoll
 
-        # # Convert to array container
-        # qv = ArrayContainer(mass=q[0],
-        #                     energy=q[1],
-        #                     momentum=q[2:2+dcoll.dim])
+        # Convert to array container
+        qv = ArrayContainer(mass=q[0],
+                            energy=q[1],
+                            momentum=q[2:2+dcoll.dim])
 
-        # # Get all face values and convert to array container
-        # qfaces = op.project(dcoll, "vol", "all_faces", q)
-        # qf = ArrayContainer(mass=qfaces[0],
-        #                     energy=qfaces[1],
-        #                     momentum=qfaces[2:2+dcoll.dim])
+        # Get all face values and convert to array container
+        qfaces = op.project(dcoll, "vol", "all_faces", q)
+        qf = ArrayContainer(mass=qfaces[0],
+                            energy=qfaces[1],
+                            momentum=qfaces[2:2+dcoll.dim])
 
-        # actx = qv.array_context
+        actx = qv.array_context
+
+        flux_differencing_kernel(dcoll, qv, qf)
 
         from grudge.sbp_op import weak_hybridized_local_sbp
         weak_hybridized_local_sbp(dcoll, q)
