@@ -55,7 +55,7 @@ def testBandwidth(fp_format=np.float32, nruns=100):
     knl = knl.copy(target=lp.PyOpenCLTarget(my_gpu_devices[0]))
     n0 = 2
     #knl = lp.split_iname(knl, "i1", 1024//2, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
-    knl = lp.split_iname(knl, "i1", 1024, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "i1", 256, inner_tag="l.0", outer_tag="g.0", slabs=(0,1))
     #knl = lp.split_iname(knl, "i1", 6*16, outer_tag="g.0") 
     #knl = lp.split_iname(knl, "i1_inner", 16, outer_tag="ilp", inner_tag="l.0", slabs=(0,1)) 
     #knl = lp.split_iname(knl, "i0", n0, inner_tag="l.1", outer_tag="g.1", slabs=(0,0))
@@ -375,7 +375,8 @@ def verifyResultFortran(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
             / np.linalg.norm(A_host3 @ X_host)))
 
 def k_inner_inner_options(start_val=None):
-    options = [32, 16, 8]
+    options = [64, 32, 16, 8] #For AMD GPU
+    #options = [32, 16, 8]
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
     return options
@@ -582,7 +583,6 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             if device_memory_bandwidth is not None:  # noqa
                                 bw = analyze_knl_bandwidth(knl, avg_time)
                                 frac_peak_GBps = bw / device_memory_bandwidth
-                                #result_list.append((frac_peak_GBps, (kio, kii, iio, iii, ji)))
                                 if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
                                     # Should validate result here
                                     print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
@@ -597,7 +597,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
 
                             if device_memory_bandwidth is not None and max_gflops is not None:
                                 data = (avg_time, 
-                                                    frac_peak_GBps*bw, 
+                                                    frac_peak_GBps*device_memory_bandwidth, 
                                                     frac_peak_gflops*max_gflops, 
                                                     frac_peak_GBps, 
                                                     frac_peak_gflops, 
@@ -895,6 +895,7 @@ if __name__ == "__main__":
     #print(bandwidths)
     """
     #testBandwidth()
+    #exit()
     """
     # Test elwise linear
     pn = 4
@@ -972,15 +973,15 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 1000000, 56, np.float64)
+    #knl = diff_prg(3, 1000000, 35, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
-    dofs = 84
-    #knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
+    dofs = 10
+    knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
     start_param = None#(40, 8, 252, 4, 42)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
-    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=11540, device_memory_bandwidth=1047, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
     print(result)
     #"""
