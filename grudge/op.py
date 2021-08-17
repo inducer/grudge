@@ -52,8 +52,12 @@ THE SOFTWARE.
 
 from arraycontext import (
     ArrayContext,
-    make_loopy_program
+    make_loopy_program,
+    map_array_container
 )
+
+from functools import partial
+
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
@@ -481,11 +485,9 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
 
 def _apply_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: _apply_mass_operator(dcoll,
-                                            dd_out,
-                                            dd_in, vi), vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
     from grudge.geometry import area_element
@@ -579,11 +581,9 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
 
 def _apply_inverse_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: _apply_inverse_mass_operator(dcoll,
-                                                    dd_out,
-                                                    dd_in, vi), vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
     from grudge.geometry import area_element
@@ -751,9 +751,9 @@ def reference_face_mass_matrix(
 
 
 def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: _apply_face_mass_operator(dcoll, dd, vi), vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_face_mass_operator, dcoll, dd), vec
         )
 
     from grudge.geometry import area_element
