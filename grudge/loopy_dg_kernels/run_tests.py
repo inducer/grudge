@@ -629,12 +629,14 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     print()
 
 
+    
     print("Suggested loop splittings")
-    print(f"iel: {kio}")
-    print(f"iel_inner: {kii}")
-    print(f"idof: {iio}")
-    print(f"idof_inner: {iii}")
-    print(f"j: {ji}")
+    print(result_saved)
+    #print(f"iel: {kio}")
+    #print(f"iel_inner: {kii}")
+    #print(f"idof: {iio}")
+    #print(f"idof_inner: {iii}")
+    #print(f"j: {ji}")
  
     return result_saved_list
     #return result_saved
@@ -970,12 +972,12 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    #knl = diff_prg(3, 1000000, 120, np.float64)
+    knl = diff_prg(3, 1000000, 56, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     dofs = 84
-    knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
-    start_param = (40, 8, 252, 4, 42)
+    #knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
+    start_param = None#(40, 8, 252, 4, 42)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
