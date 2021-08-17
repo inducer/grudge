@@ -32,14 +32,16 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
+from arraycontext import map_array_container
+
+from functools import partial
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
-from numbers import Number
+from meshmode.dof_array import DOFArray
 
-from pytools.obj_array import obj_array_vectorize
+from numbers import Number
 
 
 def project(dcoll: DiscretizationCollection, src, tgt, vec):
@@ -52,17 +54,15 @@ def project(dcoll: DiscretizationCollection, src, tgt, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or a
         :class:`~arraycontext.ArrayContainer`.
     """
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(project, dcoll, src, tgt), vec
+        )
+
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
 
-    if src == tgt:
-        return vec
-
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: project(dcoll, src, tgt, el), vec)
-
-    if isinstance(vec, Number):
+    if isinstance(vec, Number) or src == tgt:
         return vec
 
     return dcoll.connection_from_dds(src, tgt)(vec)
