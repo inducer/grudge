@@ -31,11 +31,18 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
+from arraycontext import (
+    thaw,
+    with_container_arithmetic,
+    dataclass_array_container
+)
 from grudge.array_context import PyOpenCLArrayContext
 
-from pytools.obj_array import flat_obj_array
+from dataclasses import dataclass
 
+from pytools.obj_array import flat_obj_array, make_obj_array
+
+from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
@@ -51,42 +58,57 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
+@with_container_arithmetic(bcast_obj_array=True, rel_comparison=True)
+@dataclass_array_container
+@dataclass(frozen=True)
+class WaveState:
+    u: DOFArray
+    v: np.ndarray  # [object array]
+
+    def __post_init__(self):
+        assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
+
+    @property
+    def array_context(self):
+        return self.u.array_context
+
+
 def wave_flux(dcoll, c, w_tpair):
-    u = w_tpair[0]
-    v = w_tpair[1:]
+    u = w_tpair.u
+    v = w_tpair.v
 
     normal = thaw(dcoll.normal(w_tpair.dd), u.int.array_context)
 
-    flux_weak = flat_obj_array(
-            np.dot(v.avg, normal),
-            normal*u.avg,
-            )
+    flux_weak = WaveState(
+        u=np.dot(v.avg, normal),
+        v=normal*u.avg
+    )
 
     # upwind
     v_jump = np.dot(normal, v.ext-v.int)
-    flux_weak += flat_obj_array(
-            0.5*(u.ext-u.int),
-            0.5*normal*v_jump,
-            )
+    flux_weak += WaveState(
+        u=0.5*(u.ext-u.int),
+        v=0.5*normal*v_jump,
+    )
 
     return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
 def wave_operator(dcoll, c, w):
-    u = w[0]
-    v = w[1:]
+    u = w.u
+    v = w.v
 
     dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
     dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
-    dir_bval = flat_obj_array(dir_u, dir_v)
-    dir_bc = flat_obj_array(-dir_u, dir_v)
+    dir_bval = WaveState(u=dir_u, v=dir_v)
+    dir_bc = WaveState(u=-dir_u, v=dir_v)
 
     return (
         op.inverse_mass(
             dcoll,
-            flat_obj_array(
-                -c*op.weak_local_div(dcoll, v),
-                -c*op.weak_local_grad(dcoll, u)
+            WaveState(
+                u=-c*op.weak_local_div(dcoll, v),
+                v=-c*op.weak_local_grad(dcoll, u)
             )
             + op.face_mass(
                 dcoll,
@@ -179,10 +201,10 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     dcoll = DiscretizationCollection(actx, local_mesh, order=order,
                     mpi_communicator=comm)
 
-    fields = flat_obj_array(
-            bump(actx, dcoll),
-            [dcoll.zeros(actx) for i in range(dcoll.dim)]
-            )
+    fields = WaveState(
+        u=bump(actx, dcoll),
+        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)])
+    )
 
     c = 1
     dt = 0.45 * estimate_rk4_timestep(actx, dcoll, c)
@@ -201,12 +223,12 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
-        l2norm = op.norm(dcoll, fields[0], 2)
+        l2norm = op.norm(dcoll, fields.u, 2)
 
         if istep % 10 == 0:
-            linfnorm = op.norm(dcoll, fields[0], np.inf)
-            nodalmax = op.nodal_max(dcoll, "vol", fields[0])
-            nodalmin = op.nodal_min(dcoll, "vol", fields[0])
+            linfnorm = op.norm(dcoll, fields.u, np.inf)
+            nodalmax = op.nodal_max(dcoll, "vol", fields.u)
+            nodalmin = op.nodal_min(dcoll, "vol", fields.u)
             if comm.rank == 0:
                 logger.info(f"step: {istep} t: {t} "
                             f"L2: {l2norm} "
@@ -218,8 +240,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
                     comm,
                     f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
-                        ("u", fields[0]),
-                        ("v", fields[1:]),
+                        ("u", fields.u),
+                        ("v", fields.v),
                     ]
                 )
 
