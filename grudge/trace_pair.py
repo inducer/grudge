@@ -48,10 +48,14 @@ THE SOFTWARE.
 from arraycontext import (
     ArrayContainer,
     with_container_arithmetic,
-    dataclass_array_container
+    dataclass_array_container,
+    map_array_container,
+    get_container_context_recursively
 )
 
 from dataclasses import dataclass
+
+from functools import partial
 
 from numbers import Number
 
@@ -60,7 +64,7 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 
 from grudge.discretization import DiscretizationCollection
 
-from meshmode.dof_array import flatten, unflatten
+from meshmode.dof_array import flatten_to_numpy, unflatten_from_numpy, DOFArray
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
@@ -272,6 +276,17 @@ def connected_ranks(dcoll: DiscretizationCollection):
     return get_connected_partitions(dcoll._volume_discr.mesh)
 
 
+def _convert_to_numpy_obj_ary(ary):
+    # FIXME? Need to convert numpy data to something that can be understood
+    # by unflatten_from_numpy ...
+    from pytools.obj_array import make_obj_array
+
+    if len(ary.shape) == 1:
+        return ary
+
+    return make_obj_array([subary for subary in ary])
+
+
 class _RankBoundaryCommunication:
     base_tag = 1273
 
@@ -282,7 +297,9 @@ class _RankBoundaryCommunication:
             self.tag += tag
 
         self.dcoll = dcoll
-        self.array_context = vol_field.array_context
+        # NOTE: get_container_context is unreliable, need to use recursive version
+        # to ensure we extract the nested array context
+        self.array_context = get_container_context_recursively(vol_field)
         self.remote_btag = BTAG_PARTITION(remote_rank)
         self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
 
@@ -290,7 +307,10 @@ class _RankBoundaryCommunication:
 
         self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
 
-        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
+        local_data = np.stack(
+            flatten_to_numpy(self.array_context, self.local_dof_array)
+        )
+
         comm = self.dcoll.mpi_communicator
 
         self.send_req = comm.Isend(local_data, remote_rank, tag=self.tag)
@@ -300,10 +320,11 @@ class _RankBoundaryCommunication:
     def finish(self):
         self.recv_req.Wait()
 
-        actx = self.array_context
-        remote_dof_array = unflatten(
-            self.array_context, self.bdry_discr,
-            actx.from_numpy(self.remote_data_host)
+        # FIXME: Need to check this...
+        remote_dof_array = unflatten_from_numpy(
+            self.array_context,
+            self.bdry_discr,
+            _convert_to_numpy_obj_ary(self.remote_data_host)
         )
 
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
@@ -316,17 +337,6 @@ class _RankBoundaryCommunication:
         return TracePair(self.remote_btag,
                          interior=self.local_dof_array,
                          exterior=swapped_remote_dof_array)
-
-
-def _cross_rank_trace_pairs_scalar_field(
-        dcoll: DiscretizationCollection, vec, tag=None) -> list:
-    if isinstance(vec, Number):
-        return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
-                for remote_rank in connected_ranks(dcoll)]
-    else:
-        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, vec, tag=tag)
-                   for remote_rank in connected_ranks(dcoll)]
-        return [rbcomm.finish() for rbcomm in rbcomms]
 
 
 def cross_rank_trace_pairs(
@@ -349,33 +359,13 @@ def cross_rank_trace_pairs(
         of arbitrary shape.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
-    if isinstance(ary, np.ndarray):
-        oshape = ary.shape
-        comm_vec = ary.flatten()
-
-        n, = comm_vec.shape
-        result = {}
-        # FIXME: Batch this communication rather than
-        # doing it in sequence.
-        for ivec in range(n):
-            for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, comm_vec[ivec]):
-                assert isinstance(rank_tpair.dd.domain_tag, dof_desc.DTAG_BOUNDARY)
-                assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
-                result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
-
-        return [
-            TracePair(
-                dd=dof_desc.as_dofdesc(
-                    dof_desc.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-                interior=make_obj_array([
-                    result[remote_rank, i].int for i in range(n)]).reshape(oshape),
-                exterior=make_obj_array([
-                    result[remote_rank, i].ext for i in range(n)]).reshape(oshape)
-            ) for remote_rank in connected_ranks(dcoll)
-        ]
+    if isinstance(ary, Number):
+        return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
+                for remote_rank in connected_ranks(dcoll)]
     else:
-        return _cross_rank_trace_pairs_scalar_field(dcoll, ary, tag=tag)
+        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, ary, tag=tag)
+                   for remote_rank in connected_ranks(dcoll)]
+        return [rbcomm.finish() for rbcomm in rbcomms]
 
 # }}}
 
