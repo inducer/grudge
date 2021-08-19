@@ -232,19 +232,48 @@ def hybridized_sbp_operators(
     return get_hybridized_sbp_mats(face_element_group, vol_element_group)
 
 
-def _apply_hybridized_sbp_flux_differencing(dcoll, dd_v, dd_f, vec):
+def _apply_hybridized_sbp_flux_differencing(
+        dcoll, dd_v, dd_f, xyz_axis, vol_fluxes):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
             lambda vi: _apply_hybridized_sbp_flux_differencing(
-                dcoll, dd_v, dd_f, vi
+                dcoll, dd_v, dd_f, xyz_axis, vi
             ), vec
         )
+
+    from grudge.geometry import \
+        inverse_surface_metric_derivative, area_element
 
     actx = vec.array_context
     vol_discr = dcoll.discr_from_dd(dd_v)
     face_discr = dcoll.discr_from_dd(dd_f)
-    for afgrp, vgrp in zip(face_discr.groups, vol_discr.groups):
-        Qhs = hybridized_sbp_operators(actx, afgrp, vgrp)
+
+    jacobian_dets = area_element(actx, dcoll, dd=dd_in)
+    geo_factors = actx.np.stack(
+        [inverse_surface_metric_derivative(actx, dcoll,
+                                           rst_axis, xyz_axis, dd=dd_in)
+         for rst_axis in range(dcoll.dim)]
+    )
+
+    # TODO: Check for non-affine and raise NotImplementedError
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ej,dej,dij,deij->ei",
+                        hybridized_sbp_operators(actx, afgrp, vgrp),
+                        jdet_i,
+                        vec_i,
+                        inv_jac_t_i,
+                        arg_names=("Jdet", "Gfac", "Qmat", "FluxDiff"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for afgrp, vgrp, jdet_i, gfact_i, fS_i in zip(face_discr.groups,
+                                                          vol_discr.groups,
+                                                          jacobian_dets,
+                                                          geo_factors,
+                                                          vol_fluxes)
+        )
+    )
 
 
 def weak_hybridized_local_sbp(
@@ -259,4 +288,9 @@ def weak_hybridized_local_sbp(
 
     return _apply_hybridized_sbp_flux_differencing(
         dcoll, dd_v, dd_f, vec
+    )
+
+    return make_obj_array(
+        [_apply_hybridized_sbp_flux_differencing(dcoll, dd_v, dd_f, xyz_axis, vec)
+         for xyz_axis in range(dcoll.dim)]
     )
