@@ -420,6 +420,8 @@ def j_inner_options(n_in, start_val=None):
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
 
+    # Should probably obtain device_memory_bandwidth from empirical tests
+
     # Imports
     from random import choice
     from grudge.grudge_tags import ParameterValue
