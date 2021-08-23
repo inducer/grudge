@@ -315,6 +315,106 @@ def full_quadrature_state(actx, dcoll, state):
     return result
 
 
+def split_quadrature_state(actx, dcoll, full_quad_state):
+    """Returns the split quadrature state for the volume and surface
+    discretizations.
+    """
+    mesh = dcoll.mesh
+    dim = dcoll.dim
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_discr = dcoll.discr_from_dd("all_faces")
+
+    # Group loop
+    mass_data_vol = []
+    energy_data_vol = []
+    momentum_data_vol = []
+    mass_data_face = []
+    energy_data_face = []
+    momentum_data_face = []
+    for gidx, _ in enumerate(mesh.groups):
+        vgrp = volm_discr.groups[gidx]
+        fgrp = face_discr.groups[gidx]
+        Nqv = vgrp.nunit_dofs
+        Nqf = fgrp.nunit_dofs
+        Nfacets = fgrp.nelements
+
+        mass = full_quad_state[0][gidx]
+        mass_data_vol.append(
+            actx.from_numpy(
+                # FIXME: cl.Array's hate this type of slicing...
+                actx.to_numpy(mass)[:,:Nqv].copy()
+            )
+        )
+        mass_data_face.append(
+            actx.from_numpy(
+                # FIXME: cl.Array's hate this type of slicing...
+                actx.to_numpy(mass)[:,Nqv:].copy()
+            ).reshape(Nfacets, Nqf)
+        )
+
+        energy = full_quad_state[1][gidx]
+        energy_data_vol.append(
+            actx.from_numpy(
+                # FIXME: cl.Array's hate this type of slicing...
+                actx.to_numpy(energy)[:,:Nqv].copy()
+            )
+        )
+        energy_data_face.append(
+            actx.from_numpy(
+                # FIXME: cl.Array's hate this type of slicing...
+                actx.to_numpy(energy)[:,Nqv:].copy()
+            ).reshape(Nfacets, Nqf)
+        )
+
+        momentum = [full_quad_state[2:dim+2][d][gidx] for d in range(dim)]
+        momentum_data_vol.append(
+            [
+                actx.from_numpy(
+                    # FIXME: cl.Array's hate this type of slicing...
+                    actx.to_numpy(m)[:,:Nqv].copy()
+                ) for m in momentum
+            ]
+        )
+        momentum_data_face.append(
+            [
+                actx.from_numpy(
+                    # FIXME: cl.Array's hate this type of slicing...
+                    actx.to_numpy(m)[:,Nqv:].copy()
+                ).reshape(Nfacets, Nqf) for m in momentum
+            ]
+        )
+
+    mass_dof_ary_vol = DOFArray(actx, data=tuple(mass_data_vol))
+    energy_dof_ary_vol = DOFArray(actx, data=tuple(energy_data_vol))
+    momentum_dof_ary_vol = make_obj_array(
+        [DOFArray(actx,
+                  data=tuple(mom_data[d]
+                             for mom_data in momentum_data_vol))
+                  for d in range(dim)]
+    )
+
+    mass_dof_ary_face = DOFArray(actx, data=tuple(mass_data_face))
+    energy_dof_ary_face = DOFArray(actx, data=tuple(energy_data_face))
+    momentum_dof_ary_face = make_obj_array(
+        [DOFArray(actx,
+                  data=tuple(mom_data[d]
+                             for mom_data in momentum_data_face))
+                  for d in range(dim)]
+    )
+
+    result_vol = np.empty((2+dim,), dtype=object)
+    result_vol[0] = mass_dof_ary_vol
+    result_vol[1] = energy_dof_ary_vol
+    result_vol[2:dim+2] = momentum_dof_ary_vol
+
+    result_face = np.empty((2+dim,), dtype=object)
+    result_face[0] = mass_dof_ary_face
+    result_face[1] = energy_dof_ary_face
+    result_face[2:dim+2] = momentum_dof_ary_face
+
+    return result_vol, result_face
+
+
 def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
@@ -492,7 +592,7 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
 
     # Convert back to mirgecom-like data structure
     QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_mass_data))
-    QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_energy_data))
+    QF_energy_dof_ary = DOFArray(actx, data=tuple(QF_energy_data))
     QF_momentum_dof_ary = make_obj_array(
         [DOFArray(actx,
                   data=tuple(mom_data[d]
@@ -502,7 +602,7 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
 
     result = np.empty((2+dim,), dtype=object)
     result[0] = QF_mass_dof_ary
-    result[1] = QF_mass_dof_ary
+    result[1] = QF_energy_dof_ary
     result[2:dim+2] = QF_momentum_dof_ary
 
     return result
@@ -561,11 +661,9 @@ class EntropyStableEulerOperator(EulerOperator):
         actx = q[0].array_context
 
         quad_state = full_quadrature_state(actx, dcoll, q)
-        flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
 
-        1/0
+        QF1 = flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
 
-        # from grudge.sbp_op import weak_hybridized_local_sbp
-        # weak_hybridized_local_sbp(dcoll, q)
+        QF_v, QF_f = split_quadrature_state(actx, dcoll, QF1)
 
 # }}}
