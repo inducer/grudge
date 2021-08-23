@@ -390,7 +390,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 # out a set of transformations and then write it back to the hjson file
                 print("ARRAY SIZE NOT IN TRANSFORMATION FILE")
 
-                transformations = random_search(self.queue, program, generic_test, time_limit=60*30)
+                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=60*30)
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations back to local file
@@ -410,7 +410,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # No transformation files exist
             except FileNotFoundError:
 
-                transformations = random_search(self.queue, program, generic_test, time_limit=60*30)
+                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=60*30)
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations to a file
