@@ -155,19 +155,19 @@ class EulerOperator(HyperbolicOperator):
 
     def euler_flux(self, q):
         p = self.pressure(q)
-        mom = q.momentum
+        mom = q[2:self.dcoll.dim+2]
 
         return ArrayContainer(
             mass=mom,
-            energy=mom * (q.energy + p) / q.mass,
-            momentum=np.outer(mom, mom) / q.mass + np.eye(q.dim)*p
-        )
+            energy=mom * (q[1] + p) / q[0],
+            momentum=np.outer(mom, mom) / q[0] + np.eye(self.dcoll.dim)*p
+        ).join()
 
     def numerical_flux(self, q_tpair):
         """Return the numerical flux across a face given the solution on
         both sides *q_tpair*.
         """
-        actx = q_tpair.int.array_context
+        actx = q_tpair.int[0].array_context
 
         lam = actx.np.maximum(
             self.max_characteristic_velocity(actx, state=q_tpair.int),
@@ -191,7 +191,7 @@ class EulerOperator(HyperbolicOperator):
         both sides *q_tpair*, with an external state given by a prescribed
         state *q_prescribe* at the boundaries denoted by *btag*.
         """
-        actx = q.array_context
+        actx = q[0].array_context
 
         bdry_tpair = TracePair(
             btag,
@@ -219,11 +219,11 @@ class EulerOperator(HyperbolicOperator):
         return op.project(self.dcoll, bdry_tpair.dd, "all_faces", flux_weak)
 
     def kinetic_energy(self, q):
-        mom = q.momentum
-        return (0.5 * np.dot(mom, mom) / q.mass)
+        mom = q[2:self.dcoll.dim+2]
+        return (0.5 * np.dot(mom, mom) / q[0])
 
     def internal_energy(self, q):
-        return (q.energy - self.kinetic_energy(q))
+        return (q[1] - self.kinetic_energy(q))
 
     def pressure(self, q):
         return self.internal_energy(q) * (self.gamma - 1.0)
@@ -235,12 +235,14 @@ class EulerOperator(HyperbolicOperator):
         )
 
     def sound_speed(self, q):
-        actx = q.array_context
-        return actx.np.sqrt(self.gamma / q.mass * self.pressure(q))
+        actx = q[0].array_context
+        return actx.np.sqrt(self.gamma / q[0] * self.pressure(q))
 
     def max_characteristic_velocity(self, actx, **kwargs):
         q = kwargs["state"]
-        v = q.velocity
+        rho = q[0]
+        rhov = q[2:self.dcoll.dim+2]
+        v = rhov / rho
         return actx.np.sqrt(np.dot(v, v)) + self.sound_speed(q)
 
 
@@ -659,11 +661,20 @@ class EntropyStableEulerOperator(EulerOperator):
     def operator(self, t, q):
         dcoll = self.dcoll
         actx = q[0].array_context
-
         quad_state = full_quadrature_state(actx, dcoll, q)
 
         QF1 = flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
+        QF_v, _ = split_quadrature_state(actx, dcoll, QF1)
 
-        QF_v, QF_f = split_quadrature_state(actx, dcoll, QF1)
+        nodes = thaw(dcoll.nodes(), actx)
+        num_flux_bnd = (
+            sum(self.numerical_flux(tpair)
+                for tpair in op.interior_trace_pairs(dcoll, q))
+            + sum(
+                self.boundary_numerical_flux(q, self.bdry_fcts[btag](nodes, t), btag)
+                for btag in self.bdry_fcts
+            )
+        )
+        return op.inverse_mass(dcoll, QF_v - op.face_mass(dcoll, num_flux_bnd))
 
 # }}}
