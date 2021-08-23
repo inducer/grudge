@@ -49,11 +49,6 @@ import grudge.op as op
 
 # {{{ Array container utilities
 
-LocalView = namedtuple("LocalView", "mass energy momentum")
-PrimitiveVars = namedtuple("PrimitiveVars", "density pressure velocity")
-ConservedVars = namedtuple("ConservedVars", "density total_energy momentum")
-
-
 @with_container_arithmetic(bcast_obj_array=False,
                            bcast_container_types=(DOFArray, np.ndarray),
                            matmul=True,
@@ -117,40 +112,6 @@ def _join_fields(dim, mass, energy, momentum):
     result[2:dim+2] = momentum
 
     return result
-
-
-def convert_to_array_container(dim, ary):
-    return ArrayContainer(mass=ary[0],
-                          energy=ary[1],
-                          momentum=ary[2:2+dim])
-
-
-def local_view(ary_v, ary_f, eidx, vgrp, afgrp):
-    """Returns a local view for all fields belonging
-    to group with index *gidx* and element number *eidx*.
-    """
-
-    gidx = vgrp.index
-    assert gidx == afgrp.index
-
-    local_mass = ary_v.mass[gidx][eidx]
-    import ipdb; ipdb.set_trace()
-
-    ary_vol = ary_v[gidx]
-    ary_faces = ary_f[gidx].reshape(
-        vgrp.mesh_el_group.nfaces,
-        vgrp.nelements,
-        afgrp.nunit_dofs
-    )
-
-    import ipdb; ipdb.set_trace()
-
-    return LocalView(
-        mass=ary.mass[gidx][eidx],
-        energy=ary.energy[gidx][eidx],
-        momentum=make_obj_array([ary.momentum[d][gidx][eidx]
-                                 for d in range(ary.dim)])
-    )
 
 # }}}
 
@@ -354,16 +315,6 @@ def full_quadrature_state(actx, dcoll, state):
     return result
 
 
-def conservative_to_primitive(cv, gamma=1.4):
-    rho = cv.density
-    rhou = cv.momentum
-    rhoe = cv.total_energy
-    velocity = np.array([mom/rho for mom in rhou])
-    p = (gamma - 1) * (rhoe - 0.5 * sum(rhov**2 for rhov in rhou) / rho)
-
-    return PrimitiveVars(density=rho, pressure=p, velocity=velocity)
-
-
 def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
@@ -390,15 +341,19 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     :args orientation: an integer denoting the dimension axis;
         e.g. 0 for x-direction, 1 for y-direction, 2 for z-direction.
     """
-    prim_ll = conservative_to_primitive(q_ll, gamma=gamma)
-    prim_rr = conservative_to_primitive(q_rr, gamma=gamma)
 
-    rho_ll = prim_ll.density
-    rho_rr = prim_rr.density
-    p_ll = prim_ll.pressure
-    p_rr = prim_rr.pressure
-    v_ll = prim_ll.velocity
-    v_rr = prim_rr.velocity
+    rho_ll, rhoe_ll, rhou_ll = q_ll
+    rho_rr, rhoe_rr, rhou_rr = q_rr
+
+    v_ll = np.array([rhou/rho_ll for rhou in rhou_ll])
+    v_rr = np.array([rhou/rho_rr for rhou in rhou_rr])
+
+    p_ll = (gamma - 1) * (
+        rhoe_ll - 0.5 * sum(rhov * v for rhov, v in zip(rhou_ll, v_ll))
+    )
+    p_rr = (gamma - 1) * (
+        rhoe_rr - 0.5 * sum(rhov * v for rhov, v in zip(rhou_rr, v_rr))
+    )
 
     # print(
     #     f"rho_ll = {rho_ll} "  + "\n"
@@ -462,20 +417,19 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
         for eidx in range(mgrp.nelements):
             for d in range(dim):
                 for i in range(Nq_total):
-                    q_i = ConservedVars(
-                        density=mass_ary[eidx][i],
-                        total_energy=energy_ary[eidx][i],
-                        momentum=[mom[eidx][i] for mom in momentum_arys]
+                    q_i = (
+                        mass_ary[eidx][i],
+                        energy_ary[eidx][i],
+                        [mom[eidx][i] for mom in momentum_arys]
                     )
                     for j in range(Nq_total):
-                        q_j = ConservedVars(
-                            density=mass_ary[eidx][j],
-                            total_energy=energy_ary[eidx][j],
-                            momentum=[mom[eidx][j] for mom in momentum_arys]
+                        q_j = (
+                            mass_ary[eidx][j],
+                            energy_ary[eidx][j],
+                            [mom[eidx][j] for mom in momentum_arys]
                         )
-                        volume_flux_ij = flux_chandrashekar(q_i, q_j,
-                                                            d, gamma=gamma)
-                        #print(volume_flux_ij)
+                        flux_ij = flux_chandrashekar(q_i, q_j, d, gamma=gamma)
+                        print(flux_ij)
 
 
 class EntropyStableEulerOperator(EulerOperator):
