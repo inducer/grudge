@@ -285,6 +285,75 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
+def full_quadrature_state(actx, dcoll, state):
+    """Return a concatentated state array of both volume and surface
+    degrees of freedom.
+    """
+    state_faces = op.project(dcoll, "vol", "all_faces", state)
+    mesh = dcoll.mesh
+    dim = dcoll.dim
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_discr = dcoll.discr_from_dd("all_faces")
+
+    # Group loop
+    mass_data = []
+    energy_data = []
+    momentum_data = []
+    for gidx, _ in enumerate(mesh.groups):
+        vgrp = volm_discr.groups[gidx]
+        fgrp = face_discr.groups[gidx]
+
+        # Volume and face data for the group *gidx*
+        # NOTE: Need to cast to numpy array because
+        # actx.np.concatenate(..., axis=1) doesn't work out of the box
+        # due to memory layout incompatibilities?
+        mass_data.append(actx.from_numpy(
+            np.concatenate(
+                [actx.to_numpy(state[0][gidx]),
+                 actx.to_numpy(state_faces[0][gidx].reshape(
+                     vgrp.nelements,
+                     vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
+                axis=1
+            )
+        ))
+        energy_data.append(actx.from_numpy(
+            np.concatenate(
+                [actx.to_numpy(state[1][gidx]),
+                 actx.to_numpy(state_faces[1][gidx].reshape(
+                     vgrp.nelements,
+                     vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
+                axis=1
+            )
+        ))
+        momentum_data.append([
+            actx.from_numpy(
+                np.concatenate(
+                    [actx.to_numpy(state[2:dim+2][d][gidx]),
+                     actx.to_numpy(state_faces[2:dim+2][d][gidx].reshape(
+                         vgrp.nelements,
+                         vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
+                    axis=1
+                )
+            ) for d in range(dim)
+        ])
+
+    mass_dof_ary = DOFArray(actx, data=tuple(mass_data))
+    energy_dof_ary = DOFArray(actx, data=tuple(energy_data))
+    momentum_dof_ary = make_obj_array(
+        [DOFArray(actx,
+                  data=tuple(mom_data[d]
+                             for mom_data in momentum_data))
+                  for d in range(dim)]
+    )
+
+    result = np.empty((2+dim,), dtype=object)
+    result[0] = mass_dof_ary
+    result[1] = energy_dof_ary
+    result[2:dim+2] = momentum_dof_ary
+
+    return result
+
+
 def conservative_to_primitive(cv, gamma=1.4):
     rho = cv.density
     rhou = cv.momentum
@@ -295,7 +364,7 @@ def conservative_to_primitive(cv, gamma=1.4):
     return PrimitiveVars(density=rho, pressure=p, velocity=velocity)
 
 
-def log_mean(x, y, epsilon=1e-4):
+def log_mean(actx, x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
     Ismail, Roe (2009). Affordable, entropy-consistent Euler flux functions II:
@@ -307,10 +376,10 @@ def log_mean(x, y, epsilon=1e-4):
         f = 1 + 1/3 * f_squared + 1/5 * (f_squared**2) + 1/7 * (f_squared**3)
         return (x + y) / (2*f)
     else:
-        return (x - y) / np.log(x/y)
+        return (x - y) / actx.np.log(x/y)
 
 
-def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
+def flux_chandrashekar(actx, q_ll, q_rr, orientation, gamma=1.4):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -331,6 +400,15 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     v_ll = prim_ll.velocity
     v_rr = prim_rr.velocity
 
+    # print(
+    #     f"rho_ll = {rho_ll} "  + "\n"
+    #     f"rho_rr = {rho_rr} "  + "\n"
+    #     f"p_ll = {p_ll} "  + "\n"
+    #     f"p_rr = {p_rr} "  + "\n"
+    #     f"v_ll = {v_ll} "  + "\n"
+    #     f"v_rr = {v_rr} " + "\n"
+    # )
+
     beta_ll = 0.5 * rho_ll / p_ll
     beta_rr = 0.5 * rho_rr / p_rr
 
@@ -339,9 +417,9 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
 
     # Compute the necessary mean values
     rho_avg = 0.5 * (rho_ll + rho_rr)
-    rho_mean  = log_mean(rho_ll,  rho_rr)
+    rho_mean  = log_mean(actx, rho_ll,  rho_rr)
 
-    beta_mean = log_mean(beta_ll, beta_rr)
+    beta_mean = log_mean(actx, beta_ll, beta_rr)
     beta_avg = 0.5 * (beta_ll + beta_rr)
 
     v_avg = 0.5 * (v_ll + v_rr)
@@ -449,8 +527,9 @@ def flux_differencing_kernel(dcoll, q_v, q_f, gamma=1.4):
                                             total_energy=local_rhoe[j],
                                             momentum=rhou_j)
 
-                        volume_flux = flux_chandrashekar(q_i, q_j, d, gamma=gamma)
-                        import ipdb; ipdb.set_trace()
+                        volume_flux_ij = flux_chandrashekar(actx, q_i, q_j,
+                                                            d, gamma=gamma)
+                        print(volume_flux_ij)
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -516,10 +595,14 @@ class EntropyStableEulerOperator(EulerOperator):
                             momentum=qfaces[2:2+dcoll.dim])
 
         actx = qv.array_context
+        full_quadrature_state(actx, dcoll, q)
+        1/0
 
         flux_differencing_kernel(dcoll, qv, qf, self.gamma)
 
-        from grudge.sbp_op import weak_hybridized_local_sbp
-        weak_hybridized_local_sbp(dcoll, q)
+        1/0
+
+        # from grudge.sbp_op import weak_hybridized_local_sbp
+        # weak_hybridized_local_sbp(dcoll, q)
 
 # }}}
