@@ -364,7 +364,7 @@ def conservative_to_primitive(cv, gamma=1.4):
     return PrimitiveVars(density=rho, pressure=p, velocity=velocity)
 
 
-def log_mean(actx, x, y, epsilon=1e-4):
+def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
     Ismail, Roe (2009). Affordable, entropy-consistent Euler flux functions II:
@@ -376,10 +376,10 @@ def log_mean(actx, x, y, epsilon=1e-4):
         f = 1 + 1/3 * f_squared + 1/5 * (f_squared**2) + 1/7 * (f_squared**3)
         return (x + y) / (2*f)
     else:
-        return (x - y) / actx.np.log(x/y)
+        return (x - y) / np.log(x/y)
 
 
-def flux_chandrashekar(actx, q_ll, q_rr, orientation, gamma=1.4):
+def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -417,9 +417,9 @@ def flux_chandrashekar(actx, q_ll, q_rr, orientation, gamma=1.4):
 
     # Compute the necessary mean values
     rho_avg = 0.5 * (rho_ll + rho_rr)
-    rho_mean  = log_mean(actx, rho_ll,  rho_rr)
+    rho_mean  = log_mean(rho_ll,  rho_rr)
 
-    beta_mean = log_mean(actx, beta_ll, beta_rr)
+    beta_mean = log_mean(beta_ll, beta_rr)
     beta_avg = 0.5 * (beta_ll + beta_rr)
 
     v_avg = 0.5 * (v_ll + v_rr)
@@ -436,100 +436,46 @@ def flux_chandrashekar(actx, q_ll, q_rr, orientation, gamma=1.4):
     return fS_mass, fS_energy, fS_momentum
 
 
-def flux_differencing_kernel(dcoll, q_v, q_f, gamma=1.4):
-    actx = q_v.array_context
+def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
     mesh = dcoll.mesh
     dim = dcoll.dim
 
     volm_discr = dcoll.discr_from_dd("vol")
     face_discr = dcoll.discr_from_dd("all_faces")
 
+    mass = quad_state[0]
+    energy = quad_state[1]
+    momentum = quad_state[2:dim+2]
+
     # Group loop
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
-        Nq = vgrp.nunit_dofs
-        Nfaces = vgrp.shape.nfaces
-        Nqf = Nfaces * fgrp.nunit_dofs
-        Nq_total = Nq + Nqf
+        Nq_total = vgrp.nunit_dofs + vgrp.shape.nfaces * fgrp.nunit_dofs
 
-        # States for the entire group
-        qv_mass = q_v.mass[gidx]
-        qv_energy = q_v.energy[gidx]
-        qv_momentum = make_obj_array([q_v.momentum[d][gidx]
-                                      for d in range(q_v.dim)])
-
-        # Reshape the face array data in the group
-        qf_mass = q_f.mass[gidx].reshape(
-            vgrp.mesh_el_group.nfaces,
-            vgrp.nelements,
-            fgrp.nunit_dofs
-        )
-        qf_energy = q_f.energy[gidx].reshape(
-            vgrp.mesh_el_group.nfaces,
-            vgrp.nelements,
-            fgrp.nunit_dofs
-        )
-        qf_momentum = make_obj_array([
-            q_f.momentum[d][gidx].reshape(
-                vgrp.mesh_el_group.nfaces,
-                vgrp.nelements,
-                fgrp.nunit_dofs
-            ) for d in range(dcoll.dim)
-        ])
+        # Convert group arrays into numpy arrays
+        mass_ary = actx.to_numpy(mass[gidx])
+        energy_ary = actx.to_numpy(energy[gidx])
+        momentum_arys = [actx.to_numpy(momentum[d][gidx]) for d in range(dim)]
 
         # Element loop
         for eidx in range(mgrp.nelements):
-
-            # Augmented state vector in the cell *eidx*: [q_vol q_face]
-            # FIXME: This reshaping and concatenating business
-            # is a bit brute-force
-            local_rho_f = actx.np.concatenate(
-                [qf_mass[nf, eidx] for nf in range(Nfaces)]
-            )
-            local_rho = actx.np.concatenate([qv_mass[eidx], local_rho_f])
-
-            local_rhoe_f = actx.np.concatenate(
-                [qf_energy[nf, eidx] for nf in range(Nfaces)]
-            )
-            local_rhoe = actx.np.concatenate([qv_energy[eidx], local_rhoe_f])
-
-            local_rhou_v = make_obj_array(
-                [qv_momentum[d][eidx] for d in range(dcoll.dim)]
-            )
-            local_rhou_v_arys = [qv_momentum[d][eidx] for d in range(dcoll.dim)]
-            local_rhou_f_arys = [
-                actx.np.concatenate(
-                    [qf_momentum[d][nf, eidx] for nf in range(Nfaces)]
-                ) for d in range(dcoll.dim)
-            ]
-            local_rhou = make_obj_array(
-                [actx.np.concatenate(
-                    [local_rhou_v_arys[d], local_rhou_f_arys[d]]
-                ) for d in range(dcoll.dim)]
-            )
-
-            for d in range(dcoll.dim):
+            for d in range(dim):
                 for i in range(Nq_total):
-                    # FIXME: Revisit how local values are extracted here
-                    # This can likely be replaced with something better
-                    rhou_i = [local_rhou[dimidx][i] for dimidx in range(dcoll.dim)]
-                    # Define the state at the ith quadrature node
-                    q_i = ConservedVars(density=local_rho[i],
-                                        total_energy=local_rhoe[i],
-                                        momentum=rhou_i)
+                    q_i = ConservedVars(
+                        density=mass_ary[eidx][i],
+                        total_energy=energy_ary[eidx][i],
+                        momentum=[mom[eidx][i] for mom in momentum_arys]
+                    )
                     for j in range(Nq_total):
-                        # FIXME: Revisit how local values are extracted here
-                        # This can likely be replaced with something better
-                        rhou_j = [local_rhou[dimidx][j] for dimidx in range(dcoll.dim)]
-                        # Define the state at the jth quadrature node
-                        q_j = ConservedVars(density=local_rho[j],
-                                            total_energy=local_rhoe[j],
-                                            momentum=rhou_j)
-
-                        volume_flux_ij = flux_chandrashekar(actx, q_i, q_j,
+                        q_j = ConservedVars(
+                            density=mass_ary[eidx][j],
+                            total_energy=energy_ary[eidx][j],
+                            momentum=[mom[eidx][j] for mom in momentum_arys]
+                        )
+                        volume_flux_ij = flux_chandrashekar(q_i, q_j,
                                                             d, gamma=gamma)
-                        print(volume_flux_ij)
+                        #print(volume_flux_ij)
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -582,23 +528,10 @@ class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
         dcoll = self.dcoll
+        actx = q[0].array_context
 
-        # Convert to array container
-        qv = ArrayContainer(mass=q[0],
-                            energy=q[1],
-                            momentum=q[2:2+dcoll.dim])
-
-        # Get all face values and convert to array container
-        qfaces = op.project(dcoll, "vol", "all_faces", q)
-        qf = ArrayContainer(mass=qfaces[0],
-                            energy=qfaces[1],
-                            momentum=qfaces[2:2+dcoll.dim])
-
-        actx = qv.array_context
-        full_quadrature_state(actx, dcoll, q)
-        1/0
-
-        flux_differencing_kernel(dcoll, qv, qf, self.gamma)
+        quad_state = full_quadrature_state(actx, dcoll, q)
+        flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
 
         1/0
 
