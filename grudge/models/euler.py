@@ -488,7 +488,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
 
 
 def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
-    """Computes the flux differencing operation: ∑_j Q[i, j] * f_S(q_i, q_j),
+    """Computes the flux differencing operation: ∑_j 2Q[i, j] * f_S(q_i, q_j),
     where Q is a hybridized SBP derivative matrix and f_S is
     an entropy-conservative two-point flux.
 
@@ -580,9 +580,9 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
                         f_mass, f_energy, f_momentum = \
                             flux_chandrashekar(q_i, q_j, d, gamma=gamma)
 
-                        QF_mass[eidx, i] += Q[i, j] * f_mass
-                        QF_energy[eidx, i] += Q[i, j] * f_energy
-                        QF_momentum[:, eidx, i] += Q[i, j] * f_momentum
+                        QF_mass[eidx, i] += 2*Q[i, j] * f_mass
+                        QF_energy[eidx, i] += 2*Q[i, j] * f_energy
+                        QF_momentum[:, eidx, i] += 2*Q[i, j] * f_momentum
 
         # Append group data
         QF_mass_data.append(actx.from_numpy(QF_mass))
