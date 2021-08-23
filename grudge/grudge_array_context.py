@@ -364,6 +364,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # FP format is very specific. Could have integer arrays?
             # What about mixed data types?
             fp_string = get_fp_string(fp_format)
+            search_fn = exhaustive_search#random_search
 
             # TODO: Should search in current directory for transform file
             try:
@@ -390,7 +391,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 # out a set of transformations and then write it back to the hjson file
                 print("ARRAY SIZE NOT IN TRANSFORMATION FILE")
 
-                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=60*30)
+                transformations = search_fn(self.queue, program, generic_test, time_limit=60*60)
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations back to local file
@@ -410,7 +411,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # No transformation files exist
             except FileNotFoundError:
 
-                transformations = exhaustive_search(self.queue, program, generic_test, time_limit=60*30)
+                transformations = search_fn(self.queue, program, generic_test, time_limit=60*60)
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations to a file
