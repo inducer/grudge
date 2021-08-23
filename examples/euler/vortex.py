@@ -172,9 +172,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         return ArrayContainer(mass=mass,
                               energy=energy,
-                              momentum=momentum)
+                              momentum=momentum).join()
 
-    from grudge.models.euler import EulerOperator, EntropyStableEulerOperator
+    from grudge.models.euler import EntropyStableEulerOperator
 
     euler_operator = EntropyStableEulerOperator(
         dcoll,
@@ -212,7 +212,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("q", dt, q_init.join(), rhs)
+    dt_stepper = set_up_rk4("q", dt, q_init, rhs)
 
     norm_q = 0.0
     for event in dt_stepper.run(t_end=final_time):
