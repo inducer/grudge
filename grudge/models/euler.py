@@ -345,15 +345,11 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     rho_ll, rhoe_ll, rhou_ll = q_ll
     rho_rr, rhoe_rr, rhou_rr = q_rr
 
-    v_ll = np.array([rhou/rho_ll for rhou in rhou_ll])
-    v_rr = np.array([rhou/rho_rr for rhou in rhou_rr])
+    v_ll = rhou_ll / rho_ll
+    v_rr = rhou_rr / rho_rr
 
-    p_ll = (gamma - 1) * (
-        rhoe_ll - 0.5 * sum(rhov * v for rhov, v in zip(rhou_ll, v_ll))
-    )
-    p_rr = (gamma - 1) * (
-        rhoe_rr - 0.5 * sum(rhov * v for rhov, v in zip(rhou_rr, v_rr))
-    )
+    p_ll = (gamma - 1) * (rhoe_ll - 0.5 * sum(rhou_ll * v_ll))
+    p_rr = (gamma - 1) * (rhoe_rr - 0.5 * sum(rhou_rr * v_rr))
 
     # print(
     #     f"rho_ll = {rho_ll} "  + "\n"
@@ -392,6 +388,16 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
 
 
 def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
+    """Computes the flux differencing operation: ∑_j Q[i, j] * f_S(q_i, q_j),
+    where Q is a hybridized SBP derivative matrix and f_S is
+    an entropy-conservative two-point flux.
+
+    See `flux_chandrashekar` for a concrete implementation of such a two-point
+    flux routine.
+    """
+    from grudge.sbp_op import hybridized_sbp_operators
+    from grudge.geometry import area_element, inverse_metric_derivative_mat
+
     mesh = dcoll.mesh
     dim = dcoll.dim
 
@@ -402,34 +408,104 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
     energy = quad_state[1]
     momentum = quad_state[2:dim+2]
 
+    # Geometry terms for building the physical derivative operators
+    jacobian_dets = area_element(actx, dcoll)
+    geo_factors = inverse_metric_derivative_mat(actx, dcoll)
+
     # Group loop
+    QF_mass_data = []
+    QF_energy_data = []
+    QF_momentum_data = []
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
         Nq_total = vgrp.nunit_dofs + vgrp.shape.nfaces * fgrp.nunit_dofs
 
+        # Get SBP hybridized derivative operators (as numpy arrays)
+        qmats = actx.to_numpy(hybridized_sbp_operators(actx, fgrp, vgrp))
+
+        # Get geometry factors for the group *gidx*
+        jac_k = actx.to_numpy(jacobian_dets[gidx])
+        gmat = np.array(
+            [[actx.to_numpy(geo_factors[row, col][gidx])
+              for col in range(dim)]
+             for row in range(dim)]
+        )
+
         # Convert group arrays into numpy arrays
         mass_ary = actx.to_numpy(mass[gidx])
         energy_ary = actx.to_numpy(energy[gidx])
-        momentum_arys = [actx.to_numpy(momentum[d][gidx]) for d in range(dim)]
+        momentum_ary = np.array([actx.to_numpy(momentum[d][gidx])
+                                 for d in range(dim)])
+
+        # Group arrays for the Hadamard row-sum (component-wise)
+        QF_mass = np.zeros(mass_ary.shape)
+        QF_energy = np.zeros(energy_ary.shape)
+        QF_momentum = np.zeros(momentum_ary.shape)
 
         # Element loop
         for eidx in range(mgrp.nelements):
+            # NOTE: Assumes affine (jacobian det is constant in each cell)
+            j_k = jac_k[eidx][0]
+
+            # Element-local state data
+            local_mass = mass_ary[eidx]
+            local_energy = energy_ary[eidx]
+            local_momentum = momentum_ary[:, eidx]
+
+            # Compute flux differencing in each cell and apply the
+            # hybridized SBP operator
             for d in range(dim):
+                # Build physical SBP operator
+                Q = sum(j_k*gmat[d, j][eidx][0]*qmats[j, :, :]
+                        for j in range(dim))
+
+                # Loop over all (vol + surface) quadrature nodes and compute
+                # the Hadamard row-sum
                 for i in range(Nq_total):
-                    q_i = (
-                        mass_ary[eidx][i],
-                        energy_ary[eidx][i],
-                        [mom[eidx][i] for mom in momentum_arys]
-                    )
+                    q_i = (local_mass[i],
+                           local_energy[i],
+                           local_momentum[:, i])
+
+                    # Loop over all (vol + surface) quadrature nodes
                     for j in range(Nq_total):
-                        q_j = (
-                            mass_ary[eidx][j],
-                            energy_ary[eidx][j],
-                            [mom[eidx][j] for mom in momentum_arys]
-                        )
-                        flux_ij = flux_chandrashekar(q_i, q_j, d, gamma=gamma)
-                        print(flux_ij)
+                        q_j = (local_mass[j],
+                               local_energy[j],
+                               local_momentum[:, j])
+
+                        # Apply derivative to each component
+                        # (mass, energy, momentum);
+                        # flux_chandrashekar returns a tuple of the form
+                        # (f_mass, f_energy, f_momentum)
+                        f_mass, f_energy, f_momentum = \
+                            flux_chandrashekar(q_i, q_j, d, gamma=gamma)
+
+                        QF_mass[eidx, i] += Q[i, j] * f_mass
+                        QF_energy[eidx, i] += Q[i, j] * f_energy
+                        QF_momentum[:, eidx, i] += Q[i, j] * f_momentum
+
+        # Append group data
+        QF_mass_data.append(actx.from_numpy(QF_mass))
+        QF_energy_data.append(actx.from_numpy(QF_energy))
+        QF_momentum_data.append([actx.from_numpy(QF_momentum[d])
+                                 for d in range(dim)])
+
+    # Convert back to mirgecom-like data structure
+    QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_mass_data))
+    QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_energy_data))
+    QF_momentum_dof_ary = make_obj_array(
+        [DOFArray(actx,
+                  data=tuple(mom_data[d]
+                             for mom_data in QF_momentum_data))
+                  for d in range(dim)]
+    )
+
+    result = np.empty((2+dim,), dtype=object)
+    result[0] = QF_mass_dof_ary
+    result[1] = QF_mass_dof_ary
+    result[2:dim+2] = QF_momentum_dof_ary
+
+    return result
 
 
 class EntropyStableEulerOperator(EulerOperator):

@@ -226,7 +226,6 @@ def hybridized_sbp_operators(
                              [-b_mats[dim] @ e_mat, b_mats[dim]]])
              for dim in range(vol_grp.dim)]
         )
-        import ipdb; ipdb.set_trace()
         return actx.freeze(actx.from_numpy(qhi))
 
     return get_hybridized_sbp_mats(face_element_group, vol_element_group)
