@@ -5,6 +5,9 @@ _conf_url = \
 with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
+extensions = globals()["extensions"] + [
+    "matplotlib.sphinxext.plot_directive"]
+
 copyright = "2015-21, grudge contributors"
 author = "grudge contributors"
 
