@@ -663,29 +663,54 @@ class EntropyStableEulerOperator(EulerOperator):
         actx = q[0].array_context
 
         print("Creating volume + surface state arrays...")
+        # NOTE: Generates a state array whose DOFArray entries are
+        # laid out as:
+        # [v_1, ... , v_nq, f1_1, ..., f1_nfq, f2_1, ..., f2_nfq, ...],
+        # where v_i denote field values at volume quadrature nodes and
+        # fi_j denotes field values on the i-th face. The array size is thus:
+        # (number of vol quadrature nodes) + Nfaces * (number of nodes per face)
         quad_state = full_quadrature_state(actx, dcoll, q)
         print("Finished volume + surface state arrays.")
 
         print("Performing flux differencing...")
+        # NOTE: Performs flux differencing in the volume of cells, requires
+        # accessing nodes in both the volume and faces. The operation has the
+        # form:
+        # ∑_d ∑_j 2Q_d[i, j] * F_d(q_i, q_j)
+        # where Q_d is the hybridized SBP operator for the d-th dimension axis,
+        # and F_d is an entropy conservative two-point flux. The routine
+        # computes the Hadamard (element-wise) multiplication + row sum:
+        # QF = ∑_d (2Q_d * F_d)1
         QF1 = flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
         print("Finished flux differencing.")
 
         print("Splitting quadrature state array...")
-        QF_v, QF_f = split_quadrature_state(actx, dcoll, QF1)
+        # NOTE: The result of the flux differencing routine *QF* is then
+        # split into volume and surface restrictions. In Jesse's papers,
+        # this corresponds to applying the volume and surface interpolation
+        # matrices in each cell:
+        # [V_q; V_f].T * QF = QF_q + QF_f
+        QF_q, QF_f = split_quadrature_state(actx, dcoll, QF1)
         print("Finished splitting quadrature state array.")
 
         print("Computing interface numerical fluxes...")
+        # NOTE: Lastly, we compute the numerical fluxes across neighboring
+        # elements, plus the surface contribution from the flux differencing:
+        # QF_f + V_f.T B_i (f*_i - f(q_f))
         nodes = thaw(dcoll.nodes(), actx)
-        num_flux_bnd = (
+        num_flux_bnd = QF_f + (
             sum(self.numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, q))
-            + sum(
+            - sum(
                 self.boundary_numerical_flux(q, self.bdry_fcts[btag](nodes, t), btag)
                 for btag in self.bdry_fcts
             )
         )
         print("Finished computing interface numerical fluxes.")
 
-        return op.inverse_mass(dcoll, QF_v + op.face_mass(dcoll, QF_f - num_flux_bnd))
+        # Put everything together:
+        # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
+        #               -V_f.T B_d (f*_d - f(q_f)))
+        return op.inverse_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
 
 # }}}
