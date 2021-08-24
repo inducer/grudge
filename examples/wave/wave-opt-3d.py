@@ -30,10 +30,12 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
+from arraycontext import thaw, freeze
 from grudge.array_context import PyOpenCLArrayContext
+from meshmode.array_context import (
+    PytatoPyOpenCLArrayContext as PytatoArrayContextBase)
 
-from grudge.shortcuts import set_up_rk4
+from time import time
 from grudge import DiscretizationCollection
 
 from pytools.obj_array import flat_obj_array
@@ -44,14 +46,71 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+class PytatoArrayContext(PytatoArrayContextBase):
+    def transform_dag(self, dag):
+        import pytato as pt
+
+        # {{{ collapse data wrappers
+
+        data_wrapper_cache = {}
+
+        def cached_data_wrapper_if_present(ary):
+            if isinstance(ary, pt.DataWrapper):
+                cache_key = (ary.data.data.int_ptr, ary.data.offset,
+                             ary.shape, ary.data.strides)
+                try:
+                    result = data_wrapper_cache[cache_key]
+                except KeyError:
+                    result = ary
+                    data_wrapper_cache[cache_key] = result
+
+                return result
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag, cached_data_wrapper_if_present)
+
+        # }}}
+
+        # {{{ get rid of copies for different views of a cl-array
+
+        def eliminate_reshapes_of_data_wrappers(ary):
+            if (isinstance(ary, pt.Reshape)
+                    and isinstance(ary.array, pt.DataWrapper)):
+                return pt.make_data_wrapper(ary.array.data.reshape(ary.shape))
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag,
+                                        eliminate_reshapes_of_data_wrappers)
+
+        # }}}
+
+        return dag
+
+
+def rk4_step(y, t, h, f):
+    k1 = f(t, y)
+    k2 = f(t+h/2, y + h/2*k1)
+    k3 = f(t+h/2, y + h/2*k2)
+    k4 = f(t+h, y + h*k3)
+    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+
+
+def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+    if lazy:
+        actx = PytatoArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        )
+    else:
+        actx = PyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -70,7 +129,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
-            np.sin(source_omega*t)
+            actx.np.sin(source_omega*t)
             * actx.np.exp(
                 -np.dot(source_center_dist, source_center_dist)
                 / source_width**2
@@ -79,7 +138,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     x = thaw(dcoll.nodes(), actx)
     ones = dcoll.zeros(actx) + 1
-    c = actx.np.where(np.dot(x, x) < 0.15, 0.1 * ones, 0.2 * ones)
+    c = actx.np.where(actx.np.less(np.dot(x, x), 0.15), 0.1 * ones, 0.2 * ones)
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -105,22 +164,21 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         return wave_op.operator(t, w)
 
     dt = 2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)
-    dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 1
     nsteps = int(final_t/dt) + 1
 
-    logger.info("dt=%g nsteps=%d", dt, nsteps)
+    logger.info(f"{mesh.elements} elements, dt={dt}, nsteps={nsteps}")
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(dcoll)
 
-    step = 0
+    t = 0.
+    step = 1
 
     def norm(u):
         return op.norm(dcoll, u, 2)
 
-    from time import time
     t_last_step = time()
 
     if visualize:
@@ -135,42 +193,49 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             ]
         )
 
-    for event in dt_stepper.run(t_end=final_t):
-        if isinstance(event, dt_stepper.StateComputed):
-            assert event.component_id == "w"
+    compiled_rhs = actx.compile(rhs)
 
-            step += 1
+    while t < final_t:
+        # thaw+freeze to see similar expression graphs in rk4
+        fields = thaw(freeze(fields, actx), actx)
 
-            if step % 10 == 0:
-                logger.info(f"step: {step} t: {time()-t_last_step} "
-                            f"L2: {norm(u=event.state_component[0])}")
-                if visualize:
-                    vis.write_vtk_file(
-                        f"fld-var-propogation-speed-{step:04d}.vtu",
-                        [
-                            ("u", event.state_component[0]),
-                            ("v", event.state_component[1:]),
-                            ("c", c),
-                        ]
-                    )
+        fields = rk4_step(fields, t, dt, compiled_rhs)
+
+        if step % 10 == 0:
+            actx.queue.finish()
+            logger.info(f"step: {step} t: {time()-t_last_step} secs. "
+                        f"L2: {norm(u=fields[0])}")
+
+            if visualize:
+                vis.write_vtk_file(
+                    f"fld-var-propogation-speed-{step:04d}.vtu",
+                    [
+                        ("u", fields[0]),
+                        ("v", fields[1:]),
+                        ("c", c),
+                    ]
+                )
+
+            assert norm(u=fields[0]) < 1
             t_last_step = time()
 
-            # NOTE: These are here to ensure the solution is bounded for the
-            # time interval specified
-            assert norm(u=event.state_component[0]) < 1
+        t += dt
+        step += 1
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--dim", default=3, type=int)
     parser.add_argument("--order", default=4, type=int)
-    parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--visualize", action="store_true", default=False)
+    parser.add_argument("--lazy", action="store_true", default=False)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
