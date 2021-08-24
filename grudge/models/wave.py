@@ -220,7 +220,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         self.source_f = source_f
 
         ones = dcoll.zeros(actx) + 1
-        self.sign = freeze(actx.np.where(c > 0, ones, -ones))
+        self.sign = freeze(actx.np.where(actx.np.greater(c, 0), ones, -ones))
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag

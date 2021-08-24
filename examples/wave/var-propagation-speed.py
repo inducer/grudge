@@ -70,7 +70,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
-            np.sin(source_omega*t)
+            actx.np.sin(source_omega*t)
             * actx.np.exp(
                 -np.dot(source_center_dist, source_center_dist)
                 / source_width**2
@@ -79,7 +79,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     x = thaw(dcoll.nodes(), actx)
     ones = dcoll.zeros(actx) + 1
-    c = actx.np.where(np.dot(x, x) < 0.15, 0.1 * ones, 0.2 * ones)
+    c = actx.np.where(actx.np.less(np.dot(x, x), 0.15), 0.1 * ones, 0.2 * ones)
 
     from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -105,7 +105,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         return wave_op.operator(t, w)
 
     dt = 2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)
-    dt_stepper = set_up_rk4("w", dt, fields, rhs)
+    dt_stepper = set_up_rk4("w", dt, fields, actx.compile(rhs))
 
     final_t = 1
     nsteps = int(final_t/dt) + 1
