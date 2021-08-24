@@ -274,7 +274,7 @@ def main():
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
     dim = 3
-    order = 7
+    order = 2
 
     #nel_1d = 2**5
     #mesh = generate_regular_rect_mesh(

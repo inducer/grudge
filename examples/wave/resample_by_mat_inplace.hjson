@@ -1,0 +1,166 @@
+{
+  72a3ce98-5d21-48bf-b402-6ee96bafd1b6:
+  {
+    FP64:
+    {
+      15:
+      [
+        [
+          split_iname
+          [
+            iel
+            8
+          ]
+          {
+            outer_tag: g.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            iel_inner
+            8
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            idof
+            3
+          ]
+          {
+            outer_tag: g.1
+            slabs:
+            [
+              0
+              0
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            idof_inner
+            3
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.1
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            j
+            35
+          ]
+          {
+            outer_tag: for
+            inner_tag: for
+          }
+        ]
+        [
+          add_inames_for_unused_hw_axes
+        ]
+      ]
+      28:
+      [
+        [
+          split_iname
+          [
+            iel
+            8
+          ]
+          {
+            outer_tag: g.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            iel_inner
+            8
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            idof
+            2
+          ]
+          {
+            outer_tag: g.1
+            slabs:
+            [
+              0
+              0
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            idof_inner
+            2
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.1
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            j
+            21
+          ]
+          {
+            outer_tag: for
+            inner_tag: for
+          }
+        ]
+        [
+          add_inames_for_unused_hw_axes
+        ]
+      ]
+    }
+  }
+}
