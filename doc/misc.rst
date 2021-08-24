@@ -104,7 +104,7 @@ Licensing
 
 :mod:`grudge` is licensed to you under the MIT/X Consortium license:
 
-Copyright (c) 2014-16 Andreas Klöckner and Contributors.
+Copyright (c) 2014-21 Andreas Klöckner and Contributors.
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation

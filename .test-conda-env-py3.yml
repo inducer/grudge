@@ -11,3 +11,7 @@ dependencies:
 - pyopencl
 - python=3
 - gmsh
+
+# test scripts use ompi-specific arguments
+- openmpi
+- mpi4py
