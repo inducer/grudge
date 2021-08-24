@@ -32,6 +32,8 @@ import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
+from meshmode.array_context import (
+    PytatoPyOpenCLArrayContext as PytatoArrayContextBase)
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -44,14 +46,49 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+class PytatoArrayContext(PytatoArrayContextBase):
+    def transform_dag(self, dag):
+        import pytato as pt
+
+        # {{{ collapse data wrappers
+
+        data_wrapper_cache = {}
+
+        def cached_data_wrapper_if_present(ary):
+            if isinstance(ary, pt.DataWrapper):
+                cache_key = (ary.data.data.int_ptr, ary.data.offset,
+                             ary.shape, ary.data.strides)
+                try:
+                    result = data_wrapper_cache[cache_key]
+                except KeyError:
+                    result = ary
+                    data_wrapper_cache[cache_key] = result
+
+                return result
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag, cached_data_wrapper_if_present)
+
+        # }}}
+
+        return dag
+
+
+def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+    if lazy:
+        actx = PytatoArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        )
+    else:
+        actx = PyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -164,13 +201,15 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--dim", default=3, type=int)
     parser.add_argument("--order", default=4, type=int)
-    parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--visualize", action="store_true", default=False)
+    parser.add_argument("--lazy", action="store_true", default=False)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
