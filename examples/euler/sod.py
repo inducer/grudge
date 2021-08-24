@@ -206,12 +206,12 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         if not isinstance(event, dt_stepper.StateComputed):
             continue
 
-        # if step % 1 == 0:
-        #     norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-        #     plot(event, "fld-sod-%04d" % step)
+        if step % 1 == 0:
+            norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
+            plot(event, "fld-sod-%04d" % step)
 
-        # step += 1
-        # logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
+        step += 1
+        logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
 
         assert norm_q < 100
 
