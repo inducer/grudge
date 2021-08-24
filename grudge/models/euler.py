@@ -661,11 +661,20 @@ class EntropyStableEulerOperator(EulerOperator):
     def operator(self, t, q):
         dcoll = self.dcoll
         actx = q[0].array_context
+
+        print("Creating volume + surface state arrays...")
         quad_state = full_quadrature_state(actx, dcoll, q)
+        print("Finished volume + surface state arrays.")
 
+        print("Performing flux differencing...")
         QF1 = flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
-        QF_v, _ = split_quadrature_state(actx, dcoll, QF1)
+        print("Finished flux differencing.")
 
+        print("Splitting quadrature state array...")
+        QF_v, QF_f = split_quadrature_state(actx, dcoll, QF1)
+        print("Finished splitting quadrature state array.")
+
+        print("Computing interface numerical fluxes...")
         nodes = thaw(dcoll.nodes(), actx)
         num_flux_bnd = (
             sum(self.numerical_flux(tpair)
@@ -675,6 +684,8 @@ class EntropyStableEulerOperator(EulerOperator):
                 for btag in self.bdry_fcts
             )
         )
-        return op.inverse_mass(dcoll, QF_v - op.face_mass(dcoll, num_flux_bnd))
+        print("Finished computing interface numerical fluxes.")
+
+        return op.inverse_mass(dcoll, QF_v + op.face_mass(dcoll, QF_f - num_flux_bnd))
 
 # }}}
