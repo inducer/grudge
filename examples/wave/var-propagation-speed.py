@@ -72,6 +72,20 @@ class PytatoArrayContext(PytatoArrayContextBase):
 
         # }}}
 
+        # {{{ get rid of copies for different views of a cl-array
+
+        def eliminate_reshapes_of_data_wrappers(ary):
+            if (isinstance(ary, pt.Reshape)
+                    and isinstance(ary.array, pt.DataWrapper)):
+                return pt.make_data_wrapper(ary.array.data.reshape(ary.shape))
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag,
+                                        eliminate_reshapes_of_data_wrappers)
+
+        # }}}
+
         return dag
 
 
