@@ -77,15 +77,15 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
         """,
         kernel_data=[
             lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
-                offset=lp.auto, tags=IsVecDOFArray(), is_output_only=True),
+                offset=lp.auto, tags=[IsVecDOFArray()], is_output=True),
             lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
-                offset=lp.auto, tags=IsVecOpArray()),
+                offset=lp.auto, tags=[IsVecOpArray()]),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
-                offset=lp.auto, tags=IsDOFArray()),
-            lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
-            lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
-            lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
-            lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
+                offset=lp.auto, tags=[IsDOFArray()]),
+            lp.ValueArg("nelements", tags=[ParameterValue(n_elem)]),
+            lp.ValueArg("nmatrices", tags=[ParameterValue(n_mat)]),
+            lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(n_out)]),
+            lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(n_in)])
         ],
         assumptions="nelements > 0 \
                      and ndiscr_nodes_out > 0 \
@@ -116,12 +116,12 @@ def elwise_linear_prg(nelements, nnodes_out, fp_format, nnodes_in=None, options=
             result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=IsDOFArray()),
-                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=IsDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=IsOpArray()),
-                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes_out)),
-                lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes_in)),
+                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=[IsDOFArray()]),
+                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=[IsDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=[IsOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(nnodes_out)]),
+                lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(nnodes_in)]),
             ],
             assumptions="nelements > 0 \
                         and ndiscr_nodes_out > 0 \
@@ -151,13 +151,13 @@ def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
             result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=IsDOFArray(), is_output_only=True),
-                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=IsFaceDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=IsFaceMassOpArray()),
-                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
-                lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
-                lp.ValueArg("nface_nodes", tags=ParameterValue(nface_nodes)), 
+                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=[IsDOFArray()], is_output=True),
+                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=[IsFaceDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=[IsFaceMassOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("nfaces", tags=[ParameterValue(nfaces)]),
+                lp.ValueArg("nvol_nodes", tags=[ParameterValue(nvol_nodes)]),
+                lp.ValueArg("nface_nodes", tags=[ParameterValue(nface_nodes)]), 
                 "..."
             ],
             name="face_mass")
@@ -249,8 +249,8 @@ class ExecutionMapper(mappers.Evaluator,
                 result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("operand", None, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", None, shape=lp.auto, tags=[IsDOFArray()]),
                     ...
                 ],
                 name="grudge_elementwise_%s" % op_name)

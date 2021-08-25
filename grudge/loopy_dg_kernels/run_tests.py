@@ -5,7 +5,7 @@ import pyopencl.array
 import pyopencl.clrandom
 
 import loopy as lp
-#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 #from loopy.kernel.data import AddressSpace
 
 """
@@ -46,8 +46,9 @@ def testBandwidth(fp_format=np.float32, nruns=100):
     ctx = cl.create_some_context(interactive=True)
     queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
-    from pyopencl.tools import ImmediateAllocator
+    from pyopencl.tools import ImmediateAllocator, MemoryPool
     allocator = ImmediateAllocator(queue)
+    mem_pool = MemoryPool(allocator) 
 
 
     knl = lp.make_copy_kernel("c,c", old_dim_tags="c,c")
@@ -74,7 +75,7 @@ def testBandwidth(fp_format=np.float32, nruns=100):
     len_list = sorted(list(set(len_list)))
 
     #data = np.random.randint(-127, 128, (1,max_bytes), dtype=np.int8)
-    #inpt = cl.array.to_device(queue, data, allocator=allocator)
+    #inpt = cl.array.to_device(queue, data, allocator=mem_pool)
 
     print(len_list)
 
@@ -84,9 +85,9 @@ def testBandwidth(fp_format=np.float32, nruns=100):
         #n = 2**i
         kern = lp.fix_parameters(knl, n0=n0, n1=n)
         #data = np.random.randint(-127, 128, (1,n), dtype=np.int8)
-        #inpt = cl.array.to_device(queue, data, allocator=allocator)
+        #inpt = cl.array.to_device(queue, data, allocator=mem_pool)
         inpt = cl.clrandom.rand(queue, (n0, n), dtype=fp_format)
-        outpt = cl.array.Array(queue, (n0, n), dtype=fp_format, allocator=allocator)
+        outpt = cl.array.Array(queue, (n0, n), dtype=fp_format, allocator=mem_pool)
      
         #kern = lp.set_options(kern, "write_code")  # Output code before editing it
 
@@ -154,12 +155,13 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
         f.write(dammit.unicode_markup)
         f.close()
 
-        from pyopencl.tools import ImmediateAllocator
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
         allocator = ImmediateAllocator(queue)
+        mem_pool = MemoryPool(allocator)
 
-        X_dev = cl.array.Array(queue, (n_elem, n_in), dtype=fp_format, order="F", allocator=allocator)
+        X_dev = cl.array.Array(queue, (n_elem, n_in), dtype=fp_format, order="F", allocator=mem_pool)
         cl.clrandom.fill_rand(X_dev, queue=queue)
-        B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=allocator,order="F")
+        B_dev = cl.array.Array(queue, (n_elem, n_out), dtype=fp_format, allocator=mem_pool,order="F")
         A_dev = cl.clrandom.rand(queue, (n_out, n_in), dtype=fp_format)
 
         if warmup:
@@ -222,35 +224,36 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
         f.close()
         """
 
-        from pyopencl.tools import ImmediateAllocator
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
         allocator = ImmediateAllocator(queue)
+        mem_pool = MemoryPool(allocator)
 
         arg_dict = {}
-        for arg in kern.args:
-            if isinstance(arg.tags, IsDOFArray):
-                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, arg.dtype, order="F", allocator=allocator)
-                if not arg.is_output_only:
+        for arg in kern.default_entrypoint.args:
+            if IsDOFArray() in arg.tags:
+                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, arg.dtype, order="F", allocator=mem_pool)
+                if not arg.is_output:
                     cl.clrandom.fill_rand(arg_dict[arg.name], queue)
-            elif isinstance(arg.tags, IsVecDOFArray):
-                if arg.is_output_only:
-                    obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=allocator, order="F") for i in range(arg.shape[0])]
+            elif IsVecDOFArray() in arg.tags:
+                if arg.is_output:
+                    obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=mem_pool, order="F") for i in range(arg.shape[0])]
                     arg_dict[arg.name] = make_obj_array(obj_array)
                 else:
                     print("Input VecDOFArrays are not currently supported")
                     exit()
-            elif isinstance(arg.tags, IsVecOpArray):
+            elif IsVecOpArray() in arg.tags:
                 obj_array = [cl.clrandom.rand(queue, arg.shape[1:], dtype=arg.dtype) for i in range(arg.shape[0])]
                 arg_dict[arg.name] = make_obj_array(obj_array)
-            elif isinstance(arg.tags, IsOpArray):
+            elif IsOpArray() in arg.tags:
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
-            elif isinstance(arg.tags, IsFaceDOFArray):
+            elif IsFaceDOFArray() in arg.tags:
                 fp_bytes = arg.dtype.numpy_dtype.itemsize
                 nfaces, nelements, nface_nodes = arg.shape
                 strides = (fp_bytes*nelements, fp_bytes*1, fp_bytes*nelements*nfaces) #original
                 arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
-                    strides=strides, allocator=allocator)
+                    strides=strides, allocator=mem_pool)
                 cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
-            elif isinstance(arg.tags, IsFaceMassOpArray):
+            elif IsFaceMassOpArray() in arg.tags:
                 # Are these strides correct?
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
             elif isinstance(arg, lp.ArrayArg):
@@ -287,7 +290,7 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
 def analyze_knl_bandwidth(knl, avg_time):
     nbytes = 0
-    for arg in knl.args:
+    for arg in knl.default_entrypoint.args:
         print(arg.name)
         print(arg.shape)
         print(type(arg.dtype))
@@ -303,15 +306,15 @@ def analyze_FLOPS(knl, peak_gflops, avg_time):
 
     n_mat = 1
     nfaces = 1
-    for arg in knl.args:
-        if isinstance(arg.tags, IsDOFArray):
+    for arg in knl.default_entrypoint.args:
+        if IsDOFArray() in arg.tags:
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
-        elif isinstance(arg.tags, IsVecOpArray):
+        elif IsVecOpArray() in arg.tags:
             n_mat, n_out, n_in = arg.shape
-        elif isinstance(arg.tags, IsOpArray):
+        elif IsOpArray() in arg.tags:
             n_out, n_in = arg.shape
-        elif isinstance(arg.tags, IsFaceDOFArray):
+        elif IsFaceDOFArray() in arg.tags:
             nfaces, n_elem, n_in = arg.shape
     
     
@@ -434,20 +437,20 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
 
     transform_list = []
 
-    for arg in knl.args:
-        if "resample_by_mat" not in knl.name:
-            if isinstance(arg.tags, IsDOFArray):
+    for arg in knl.default_entrypoint.args:
+        if "resample_by_mat" not in knl.default_entrypoint.name:
+            if IsDOFArray() in arg.tags:
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
                 #n_in = n_out # Not true for non-square
-            elif isinstance(arg.tags, IsVecOpArray):
+            elif IsVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
-            elif isinstance(arg.tags, IsOpArray):
+            elif IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
-            elif isinstance(arg.tags, IsFaceDOFArray):
+            elif IsFaceDOFArray() in arg.tags:
                 nfaces, n_elem, n_in = arg.shape
         else:
-            if isinstance(arg.tags, IsOpArray):
+            if IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
 
@@ -473,11 +476,10 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
     # Iterate over five search dimensions
     result_list = []
     start = time.time()
-    print("HERE")
     with open("output.txt", "a") as f:
         for kii in k_inner_inner_options(start_val=kii_s):
             # This prevents shared memory from overflowing when running with the face mass kernel
-            if knl.name == "face_mass":
+            if knl.default_entrypoint.name == "face_mass":
                 n_in_2 = n_in * nfaces
             else:
                 n_in_2 = n_in
@@ -498,13 +500,13 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
                             knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
-                            if knl.name == "face_mass":
+                            if knl.default_entrypoint.name == "face_mass":
                                 knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
-                            elif knl.name == "nodes":
+                            elif knl.default_entrypoint.name == "nodes":
                                 knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 knl = lp.tag_array_axes(knl, "vecf", "f,f")
-                            elif "resample_by_mat" in knl.name: # Reads are scattered so prefetching is difficult
+                            elif "resample_by_mat" in knl.default_entrypoint.name: # Reads are scattered so prefetching is difficult
                                 pass
                                 #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                                 #knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
@@ -519,7 +521,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             # Change this to just use the transformation list instead of applying the transformations
                             # directly
                             trans_list = []
-                            if "diff" in knl.name:
+                            if "diff" in knl.default_entrypoint.name:
                                 trans_list.append(["tag_inames", ["imatrix: ilp"]])
                             trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
                             trans_list.append(["split_iname", ["iel_inner", kii], 
@@ -528,16 +530,16 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             trans_list.append(["split_iname", ["idof_inner", iii], 
                                 {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
 
-                            if knl.name == "face_mass":
+                            if knl.default_entrypoint.name == "face_mass":
                                 pass
                                 #trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
                                 #    {"temporary_name":"vecf", "default_tag":"l.auto"}])
                                 #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
-                            elif knl.name == "nodes":
+                            elif knl.default_entrypoint.name == "nodes":
                                 trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
                                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
                                 trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-                            elif "resample_by_mat" in knl.name:
+                            elif "resample_by_mat" in knl.default_entrypoint.name:
                                 # Indirection may prevent prefetching
                                 pass
                             else:
@@ -548,7 +550,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                             trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
                             trans_list.append(["add_inames_for_unused_hw_axes"]) 
 
-                            print(knl.name)
+                            print(knl.default_entrypoint.name)
                             print(trans_list)
 
                             # Execute and analyze the results
@@ -658,24 +660,24 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     result_saved_list = []
 
     # Get sizes
-    for arg in knl.args:
-        if "resample_by_mat" not in knl.name:
-            if isinstance(arg.tags, IsDOFArray):
+    for arg in knl.default_entrypoint.args:
+        if "resample_by_mat" not in knl.default_entrypoint.name:
+            if IsDOFArray() in arg.tags:
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
                 #n_in = n_out
-            elif isinstance(arg.tags, IsVecOpArray):
+            elif IsVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
-            elif isinstance(arg.tags, IsOpArray):
+            elif IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
-            elif isinstance(arg.tags, IsFaceDOFArray):
+            elif IsFaceDOFArray() in arg.tags:
                 nfaces, n_elem, n_in = arg.shape
         else:
-            if isinstance(arg.tags, IsOpArray):
+            if IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
 
-    # Also fixes the parameters    1
+    # Also fixes the parameters
     knl = gac.set_memory_layout(knl)
 
     tested = []
@@ -690,7 +692,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
         # Can be more intelligent by ensuring choices are not run multiple times
         # Maybe could use expressions
         kii = choice(k_inner_inner_opt)
-        if knl.name == "face_mass":
+        if knl.default_entrypoint.name == "face_mass":
             kio = choice(k_inner_outer_options(n_in*nfaces, kii, local_mem_size, fp_bytes=fp_bytes))
         else:
             kio = choice(k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes))
@@ -702,21 +704,21 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
         if choices not in tested:
             print(choices)
             knl = knl_base.copy()
-            if "diff" in knl.name:
+            if "diff" in knl.default_entrypoint.name:
                 knl = lp.tag_inames(knl, "imatrix: ilp")
             knl = lp.split_iname(knl, "iel", kio, outer_tag="g.0", slabs=(0,1))
             knl = lp.split_iname(knl, "iel_inner", kii, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
             knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
             knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
-            if knl.name == "face_mass":
+            if knl.default_entrypoint.name == "face_mass":
                 knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                 # Both N1,N0,N2 and N0,N1,N2 both seem to give memory errors..
                 #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2")
-            elif knl.name == "nodes":
+            elif knl.default_entrypoint.name == "nodes":
                 knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
                 knl = lp.tag_array_axes(knl, "vecf", "f,f")
-            elif "resample_by_mat" in knl.name:
+            elif "resample_by_mat" in knl.default_entrypoint.name:
                 pass
                 # Indirection may prevent prefetching
                 #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
@@ -731,7 +733,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
             # Change this to just use the transformation list instead of applying the transformations
             # directly
             trans_list = []
-            if "diff" in knl.name:
+            if "diff" in knl.default_entrypoint.name:
                 trans_list.append(["tag_inames", ["imatrix: ilp"]])
             trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
             trans_list.append(["split_iname", ["iel_inner", kii], 
@@ -740,15 +742,15 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
             trans_list.append(["split_iname", ["idof_inner", iii], 
                 {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
 
-            if knl.name == "face_mass":
+            if knl.default_entrypoint.name == "face_mass":
                 trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
                 #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
-            elif knl.name == "nodes":
+            elif knl.default_entrypoint.name == "nodes":
                 trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
                 trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-            elif "resample_by_mat" in knl.name:
+            elif "resample_by_mat" in knl.default_entrypoint.name:
                 # Indirection may prevent prefetching
                 pass
             else:
@@ -952,13 +954,13 @@ if __name__ == "__main__":
     knl = lp.split_iname(knl, "i0", 48, outer_tag="g.0")
     knl = lp.split_iname(knl, "i0_inner", 16, outer_tag="ilp", inner_tag="l.0")
     knl = lp.split_iname(knl, "i1", 35, outer_tag="g.1", inner_tag="l.1")
-    for arg in knl.args:
+    for arg in knl.default_entrypoint.args:
         if arg.name == "input":
             arg.tags = IsDOFArray()
             arg.shape = (178746, 35)
         if arg.name == "output":
             arg.tags = IsDOFArray()
-            arg.is_output_only = True 
+            arg.is_output = True 
             arg.shape = (178746, 35)
 
     print(knl)
@@ -974,7 +976,8 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 1000000, 56, np.float64)
+    knl = diff_prg(3, 100000, 56, np.float64)
+    #exit()
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     dofs = 84

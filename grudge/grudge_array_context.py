@@ -38,17 +38,19 @@ def get_order_from_dofs(dofs):
 
 def set_memory_layout(program):
     # This assumes arguments have only one tag
-    for arg in program.args:
-        if isinstance(arg.tags, IsDOFArray):
+    for arg in program.default_entrypoint.args:
+        if IsDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "f,f")
-        elif isinstance(arg.tags, IsVecDOFArray):
+        elif IsVecDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-        elif isinstance(arg.tags, IsVecOpArray):
+        elif IsVecOpArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "sep,c,c")
-        elif isinstance(arg.tags, IsFaceDOFArray):
+        elif IsFaceDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
-        elif isinstance(arg.tags, ParameterValue):
-            program = lp.fix_parameters(program, **{arg.name: arg.tags.value})
+        else:
+            for tag in arg.tags:
+                if isinstance(tag, ParameterValue):
+                    program = lp.fix_parameters(program, **{arg.name: tag.value})
 
         program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
     return program
@@ -102,12 +104,12 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             fp_format = None
             print(program)
             for arg in program.args:
-                if isinstance(arg.tags, IsOpArray):
+                if IsOpArray() in arg.tags:
                     dim = 1
                     ndofs = arg.shape[1]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif isinstance(arg.tags, IsVecOpArray):
+                elif IsVecOpArray() in arg.tags:
                     dim = arg.shape[0]
                     ndofs = arg.shape[2]
                     fp_format = arg.dtype.numpy_dtype
@@ -346,16 +348,16 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             fp_format = None
             #print(program)
             for arg in program.args:
-                if isinstance(arg.tags, IsOpArray):
+                if IsOpArray() in arg.tags():
                     dim = 1
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif isinstance(arg.tags, IsVecOpArray):
+                elif IsVecOpArray() in arg.tags:
                     ndofs = arg.shape[1]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif isinstance(arg.tags, IsFaceMassOpArray):
+                elif IsFaceMassOpArray() in arg.tags():
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
                     break

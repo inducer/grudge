@@ -31,6 +31,8 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
+# A lot of this could probably be deleted
+
 def gen_face_mass_knl_merged(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
     knl =  lp.make_kernel(
          """{[iel,idof,fj]:
