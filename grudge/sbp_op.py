@@ -296,3 +296,51 @@ def hybridized_sbp_operators(
 #         [_apply_hybridized_sbp_flux_differencing(dcoll, dd_v, dd_f, xyz_axis, vec)
 #          for xyz_axis in range(dcoll.dim)]
 #     )
+
+
+def _apply_inverse_sbp_mass_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: _apply_inverse_sbp_mass_operator(dcoll,
+                                                        dd_out,
+                                                        dd_in, vi), vec
+        )
+
+    from grudge.geometry import area_element
+
+    if dd_out != dd_in:
+        raise ValueError(
+            "Cannot compute inverse of a mass matrix mapping "
+            "between different element groups; inverse is not "
+            "guaranteed to be well-defined"
+        )
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd(dd_in)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            # Based on https://arxiv.org/pdf/1608.03836.pdf
+            # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+            actx.einsum("ei,ij,ej->ei",
+                        jac_inv,
+                        quadrature_based_inverse_mass_matrix(actx,
+                                                             element_group=grp),
+                        vec_i,
+                        arg_names=("mass_mat", "jac", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec)
+        )
+    )
+
+
+def inverse_sbp_mass(dcoll: DiscretizationCollection, vec):
+    """todo.
+    """
+    return _apply_inverse_sbp_mass_operator(
+        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+    )

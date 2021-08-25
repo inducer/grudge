@@ -726,7 +726,9 @@ class EntropyStableEulerOperator(EulerOperator):
         # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        dqhat = op.inverse_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
+        from grudge.sbp_op import inverse_sbp_mass
+
+        dqhat = inverse_sbp_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
         print("Finished applying mass and lifting operators.")
 
         print("Converting state arrays to nodal data...")
