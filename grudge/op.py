@@ -93,6 +93,7 @@ from grudge.trace_pair import (  # noqa: F401
     bdry_trace_pair,
     bv_trace_pair
 )
+import pytato as pt
 
 
 # {{{ Derivative operators
@@ -804,11 +805,13 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                                 vgrp.nelements,
                                 afgrp.nunit_dofs
                             ),
-                            vec=vec_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                afgrp.nunit_dofs
-                            ))["result"]
+                            vec=actx.tag(pt.tags.ImplementAs(
+                                            pt.tags.ImplStored("rstrct_vals")),
+                                         vec_i.reshape(
+                                             vgrp.mesh_el_group.nfaces,
+                                             vgrp.nelements,
+                                             afgrp.nunit_dofs)
+                                         ))["result"]
 
             for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_discr.groups,
