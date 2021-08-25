@@ -33,7 +33,8 @@ import pyopencl.tools as cl_tools
 from arraycontext import thaw, freeze
 from grudge.array_context import PyOpenCLArrayContext
 from meshmode.array_context import (
-    PytatoPyOpenCLArrayContext as PytatoArrayContextBase)
+    SingleGridWorkBalancingPytatoArrayContext)
+from arraycontext.impl.pytato.compile import FromActxCompile
 
 from time import time
 from grudge import DiscretizationCollection
@@ -46,7 +47,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class PytatoArrayContext(PytatoArrayContextBase):
+class HopefullySmartPytatoArrayContext(
+        SingleGridWorkBalancingPytatoArrayContext):
     def transform_dag(self, dag):
         import pytato as pt
 
@@ -77,7 +79,8 @@ class PytatoArrayContext(PytatoArrayContextBase):
         def eliminate_reshapes_of_data_wrappers(ary):
             if (isinstance(ary, pt.Reshape)
                     and isinstance(ary.array, pt.DataWrapper)):
-                return pt.make_data_wrapper(ary.array.data.reshape(ary.shape))
+                return (pt.make_data_wrapper(ary.array.data.reshape(ary.shape))
+                        .tagged(ary.tags))
             else:
                 return ary
 
@@ -88,6 +91,34 @@ class PytatoArrayContext(PytatoArrayContextBase):
 
         return dag
 
+    def transform_loopy_program(self, t_unit):
+        if t_unit.default_entrypoint.tags_of_type(FromActxCompile):
+            import loopy as lp
+            t_unit = lp.inline_callable_kernel(t_unit, "face_mass")
+            knl = t_unit.default_entrypoint
+
+            # get rid of noops
+            noops = {insn.id for insn in knl.instructions
+                     if isinstance(insn, lp.NoOpInstruction)}
+            knl = lp.remove_instructions(knl, noops)
+
+            # add the 2 gbarriers
+            knl = lp.add_barrier(knl,
+                                 insn_before="writes:rstrct_vals*",
+                                 insn_after="iname:face_iel*",
+                                 within_inames=frozenset())
+            knl = lp.add_barrier(knl,
+                                 insn_before="iname:face_iel*",
+                                 insn_after="writes:_pt_out*",
+                                 within_inames=frozenset())
+
+            print(knl)
+            1/0
+
+            return t_unit.with_kernel(knl)
+        else:
+            return super().transform_loopy_program(t_unit)
+
 
 def rk4_step(y, t, h, f):
     k1 = f(t, y)
@@ -97,20 +128,14 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
+def main(ctx_factory, dim=2, order=4, visualize=False,
+         actx_class=PyOpenCLArrayContext):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    if lazy:
-        actx = PytatoArrayContext(
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        )
-    else:
-        actx = PyOpenCLArrayContext(
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
-        )
+    actx = actx_class(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+    )
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -163,7 +188,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
     def rhs(t, w):
         return wave_op.operator(t, w)
 
-    dt = 2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)
+    dt = 1/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)
 
     final_t = 1
     nsteps = int(final_t/dt) + 1
@@ -204,7 +229,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
         if step % 10 == 0:
             actx.queue.finish()
             logger.info(f"step: {step} t: {time()-t_last_step} secs. "
-                        f"L2: {norm(u=fields[0])}")
+                        f"L2: {actx.to_numpy(norm(u=fields[0]))}")
 
             if visualize:
                 vis.write_vtk_file(
@@ -216,7 +241,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
                     ]
                 )
 
-            assert norm(u=fields[0]) < 1
+            assert actx.to_numpy(norm(u=fields[0])) < 1
             t_last_step = time()
 
         t += dt
@@ -230,12 +255,22 @@ if __name__ == "__main__":
     parser.add_argument("--dim", default=3, type=int)
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument("--lazy", action="store_true", default=False)
+    parser.add_argument("--dumblazy", action="store_true", default=False)
+    parser.add_argument("--hopefullysmartlazy", action="store_true", default=False)
     args = parser.parse_args()
+
+    assert not (args.dumblazy and args.hopefullysmartlazy)
+
+    if args.dumblazy:
+        actx_class = SingleGridWorkBalancingPytatoArrayContext
+    elif args.hopefullysmartlazy:
+        actx_class = HopefullySmartPytatoArrayContext
+    else:
+        actx_class = PyOpenCLArrayContext
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
          visualize=args.visualize,
-         lazy=args.lazy)
+         actx_class=actx_class)
