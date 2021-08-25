@@ -338,7 +338,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_characteristic_velocity(self, actx, **kwargs):
-        return actx.np.fabs(thaw(self.c, actx))
+        return actx.np.abs(thaw(self.c, actx))
 
 # }}}
 
