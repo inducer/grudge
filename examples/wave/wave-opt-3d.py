@@ -40,6 +40,7 @@ from time import time
 from grudge import DiscretizationCollection
 
 from pytools.obj_array import flat_obj_array
+from loopy.symbolic import (get_dependencies, CombineMapper)
 
 import grudge.op as op
 
@@ -47,10 +48,53 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class IndirectAccessChecker(CombineMapper):
+    """
+    On calling returns *True* iff the *array_name* was accessed indirectly.
+    """
+    def __init__(self, array_name, all_inames):
+        self.array_name = array_name
+        self.all_inames = all_inames
+
+    def combine(self, values):
+        return any(values)
+
+    def map_subscript(self, expr):
+        if expr.aggregate.name == self.array_name:
+            return not (get_dependencies(expr.index_tuple) <= self.all_inames)
+        else:
+            return super().map_subscript(expr)
+
+    def map_variable(self, expr):
+        return False
+
+    def map_constant(self, exrpr):
+        return False
+
+
 class HopefullySmartPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
+
+    DO_CSE = False
+
     def transform_dag(self, dag):
         import pytato as pt
+
+        # {{{ CSE
+
+        if self.DO_CSE:
+            nusers = pt.analysis.get_nusers(dag)
+
+            def materialize(ary: pt.Array) -> pt.Array:
+                if ((not isinstance(ary, (pt.InputArgumentBase, pt.NamedArray)))
+                        and nusers[ary] > 1):
+                    return ary.tagged(pt.tags.ImplementAs(pt.tags.ImplStored("cse")))
+
+                return ary
+
+            dag = pt.transform.map_and_copy(dag, materialize)
+
+        # }}}
 
         # {{{ collapse data wrappers
 
@@ -112,8 +156,96 @@ class HopefullySmartPytatoArrayContext(
                                  insn_after="writes:_pt_out*",
                                  within_inames=frozenset())
 
-            print(knl)
-            1/0
+            # {{{ Plot the digraph of the CSEs
+
+            if 0 and self.DO_CSE:
+                rmap = knl.reader_map()
+                print("digraph {")
+
+                for tv in knl.temporary_variables.values():
+                    indirect_access_checker = IndirectAccessChecker(tv.name,
+                                                                    knl.all_inames())
+                    if tv.name.startswith("cse"):
+                        for insn_id in rmap.get(tv.name, ()):
+                            insn = knl.id_to_insn[insn_id]
+                            if indirect_access_checker(insn.expression):
+                                color = "red"
+                            else:
+                                color = "blue"
+
+                            print(f"  {tv.name} -> {insn.assignee_name}"
+                                  f"[color={color}]")
+
+                print("}")
+                1/0
+
+            # }}}
+
+            # {{{ loop fusion
+
+            # Since u, v_0, v_1, v_2 all correspond to the same function space
+            # we fuse the loop nests corresponding to v_0, v_1, v_2 into the
+            # semantic equivalent loop of 'u'.
+
+            # idof == 0, implies v_0
+            # idof == 1, implies v_1
+            # idof == 2, implies v_2
+
+            # fuse all restriction loops
+            for idof in range(3):
+                # face loop
+                knl = lp.rename_iname(knl,
+                                      f"rstrct_vals_{idof}_dim0",
+                                      "rstrct_vals_dim0",
+                                      existing_ok=True)
+
+                # element loop
+                knl = lp.rename_iname(knl,
+                                      f"rstrct_vals_{idof}_dim1",
+                                      "rstrct_vals_dim1",
+                                      existing_ok=True)
+
+                # face loop
+                knl = lp.rename_iname(knl,
+                                      f"rstrct_vals_{idof}_dim2",
+                                      "rstrct_vals_dim2",
+                                      existing_ok=True)
+            knl = lp.rename_iname(knl, "rstrct_vals_dim0", "iface_rstrct")
+            knl = lp.rename_iname(knl, "rstrct_vals_dim1", "iel_rstrct")
+            knl = lp.rename_iname(knl, "rstrct_vals_dim2", "iface_dof_rstrct")
+
+            # fuse all face-mass loops
+            for idof in range(3):
+                # element loop
+                knl = lp.rename_iname(knl,
+                                      f"face_iel_{idof}",
+                                      "face_iel",
+                                      existing_ok=True)
+
+                # vol. dof
+                knl = lp.rename_iname(knl,
+                                      f"face_idof_{idof}",
+                                      "face_idof",
+                                      existing_ok=True)
+
+            knl = lp.rename_iname(knl, "face_iel", "iel_face_mass")
+            knl = lp.rename_iname(knl, "face_idof", "idof_face_mass")
+
+            # fuse all final grad/div einsums
+            for idof in range(4):
+                # element loop
+                knl = lp.rename_iname(knl,
+                                      f"_pt_out_{idof}_0_dim0",
+                                      "iel_out",
+                                      existing_ok=True)
+
+                # vol. dof
+                knl = lp.rename_iname(knl,
+                                      f"_pt_out_{idof}_0_dim1",
+                                      "idof_out",
+                                      existing_ok=True)
+
+            # }}}
 
             return t_unit.with_kernel(knl)
         else:
