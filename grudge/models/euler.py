@@ -45,6 +45,7 @@ from grudge.trace_pair import TracePair
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
+import grudge.dof_desc as dof_desc
 
 
 # {{{ Array container utilities
@@ -126,6 +127,12 @@ class EulerOperator(HyperbolicOperator):
         self.flux_type = flux_type
         self.gamma = gamma
         self.gas_const = gas_const
+
+        dd_modal = dof_desc.DD_VOLUME_MODAL
+        dd_volume = dof_desc.DD_VOLUME
+
+        self.map_to_modal = dcoll.connection_from_dds(dd_volume, dd_modal)
+        self.map_to_nodal = dcoll.connection_from_dds(dd_modal, dd_volume)
 
     def operator(self, t, q):
         dcoll = self.dcoll
@@ -662,6 +669,11 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q[0].array_context
 
+        print("Converting state arrays to modal coefficients...")
+        # NOTE: Convert data to modal coefficients
+        qhat = self.map_to_modal(q)
+        print("Finished converting to modal coefficients.")
+
         print("Creating volume + surface state arrays...")
         # NOTE: Generates a state array whose DOFArray entries are
         # laid out as:
@@ -669,7 +681,7 @@ class EntropyStableEulerOperator(EulerOperator):
         # where v_i denote field values at volume quadrature nodes and
         # fi_j denotes field values on the i-th face. The array size is thus:
         # (number of vol quadrature nodes) + Nfaces * (number of nodes per face)
-        quad_state = full_quadrature_state(actx, dcoll, q)
+        quad_state = full_quadrature_state(actx, dcoll, qhat)
         print("Finished volume + surface state arrays.")
 
         print("Performing flux differencing...")
@@ -700,17 +712,28 @@ class EntropyStableEulerOperator(EulerOperator):
         nodes = thaw(dcoll.nodes(), actx)
         num_flux_bnd = QF_f + (
             sum(self.numerical_flux(tpair)
-                for tpair in op.interior_trace_pairs(dcoll, q))
+                for tpair in op.interior_trace_pairs(dcoll, qhat))
             - sum(
-                self.boundary_numerical_flux(q, self.bdry_fcts[btag](nodes, t), btag)
+                # TODO: Need to think about this part for the modal case
+                self.boundary_numerical_flux(qhat, self.bdry_fcts[btag](nodes, t), btag)
                 for btag in self.bdry_fcts
             )
         )
         print("Finished computing interface numerical fluxes.")
 
-        # Put everything together:
+        print("Applying inverse mass and lifting operators...")
+        # NOTE: Put everything together by applying lifting on surface terms
+        # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        return op.inverse_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
+        dqhat = op.inverse_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
+        print("Finished applying mass and lifting operators.")
+
+        print("Converting state arrays to nodal data...")
+        # NOTE: Convert data back to nodal
+        dq = self.map_to_nodal(dqhat)
+        print("Finished converting state arrays.")
+
+        return dq
 
 # }}}
