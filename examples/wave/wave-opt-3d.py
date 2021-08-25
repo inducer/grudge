@@ -129,7 +129,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
-            actx.np.sin(source_omega*t)
+            np.sin(source_omega*t)
             * actx.np.exp(
                 -np.dot(source_center_dist, source_center_dist)
                 / source_width**2
@@ -168,7 +168,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, lazy=False):
     final_t = 1
     nsteps = int(final_t/dt) + 1
 
-    logger.info(f"{mesh.elements} elements, dt={dt}, nsteps={nsteps}")
+    logger.info(f"{mesh.nelements} elements, dt={dt}, nsteps={nsteps}")
 
     from grudge.shortcuts import make_visualizer
     vis = make_visualizer(dcoll)
