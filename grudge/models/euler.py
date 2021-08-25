@@ -710,7 +710,7 @@ class EntropyStableEulerOperator(EulerOperator):
         # elements, plus the surface contribution from the flux differencing:
         # QF_f + V_f.T B_i (f*_i - f(q_f))
         nodes = thaw(dcoll.nodes(), actx)
-        num_flux_bnd = QF_f + (
+        f_bdry = QF_f + (
             sum(self.numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, qhat))
             - sum(
@@ -726,9 +726,9 @@ class EntropyStableEulerOperator(EulerOperator):
         # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        from grudge.sbp_op import inverse_sbp_mass
+        from grudge.sbp_op import inverse_sbp_mass, sbp_lift_operator
 
-        dqhat = inverse_sbp_mass(dcoll, -QF_q - op.face_mass(dcoll, num_flux_bnd))
+        dqhat = inverse_sbp_mass(dcoll, -QF_q - sbp_lift_operator(dcoll, f_bdry))
         print("Finished applying mass and lifting operators.")
 
         print("Converting state arrays to nodal data...")

@@ -39,7 +39,7 @@ from grudge.op import (
 
 from meshmode.dof_array import DOFArray
 
-from pytools import keyed_memoize_in
+from pytools import memoize_in, keyed_memoize_in
 from pytools.obj_array import obj_array_vectorize
 
 import grudge.dof_desc as dof_desc
@@ -47,7 +47,7 @@ import numpy as np
 
 
 def quadrature_based_mass_matrix(actx: ArrayContext, element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_mass_matrix,
@@ -67,7 +67,7 @@ def quadrature_based_mass_matrix(actx: ArrayContext, element_group):
 
 
 def quadrature_based_inverse_mass_matrix(actx: ArrayContext, element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_inverse_mass_matrix,
@@ -82,7 +82,7 @@ def quadrature_based_inverse_mass_matrix(actx: ArrayContext, element_group):
 
 
 def quadrature_based_l2_projection_matrix(actx: ArrayContext, element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_l2_projection_matrix,
@@ -104,7 +104,7 @@ def quadrature_based_l2_projection_matrix(actx: ArrayContext, element_group):
 
 
 def quadrature_based_stiffness_matrices(actx: ArrayContext, element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_stiffness_matrices,
@@ -138,7 +138,7 @@ def quadrature_based_stiffness_matrices(actx: ArrayContext, element_group):
 
 def surface_extrapolation_matrix(
     actx: ArrayContext, face_element_group, vol_element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, surface_extrapolation_matrix,
@@ -176,7 +176,7 @@ def surface_extrapolation_matrix(
 
 def boundary_matrices(
     actx: ArrayContext, face_element_group, vol_element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, boundary_matrices,
@@ -208,7 +208,7 @@ def boundary_matrices(
 
 def hybridized_sbp_operators(
         actx: ArrayContext, face_element_group, vol_element_group):
-    """todo
+    """todo.
     """
     @keyed_memoize_in(
         actx, hybridized_sbp_operators,
@@ -232,70 +232,6 @@ def hybridized_sbp_operators(
         return actx.freeze(actx.from_numpy(qhi))
 
     return get_hybridized_sbp_mats(face_element_group, vol_element_group)
-
-
-# def _apply_hybridized_sbp_flux_differencing(
-#         dcoll, dd_v, dd_f, xyz_axis, vol_fluxes):
-#     if isinstance(vec, np.ndarray):
-#         return obj_array_vectorize(
-#             lambda vi: _apply_hybridized_sbp_flux_differencing(
-#                 dcoll, dd_v, dd_f, xyz_axis, vi
-#             ), vec
-#         )
-
-#     from grudge.geometry import \
-#         inverse_surface_metric_derivative, area_element
-
-#     actx = vec.array_context
-#     vol_discr = dcoll.discr_from_dd(dd_v)
-#     face_discr = dcoll.discr_from_dd(dd_f)
-
-#     jacobian_dets = area_element(actx, dcoll, dd=dd_in)
-#     geo_factors = actx.np.stack(
-#         [inverse_surface_metric_derivative(actx, dcoll,
-#                                            rst_axis, xyz_axis, dd=dd_in)
-#          for rst_axis in range(dcoll.dim)]
-#     )
-
-#     # TODO: Check for non-affine and raise NotImplementedError
-#     return DOFArray(
-#         actx,
-#         data=tuple(
-#             actx.einsum("ej,dej,dij,deij->ei",
-#                         hybridized_sbp_operators(actx, afgrp, vgrp),
-#                         jdet_i,
-#                         vec_i,
-#                         inv_jac_t_i,
-#                         arg_names=("Jdet", "Gfac", "Qmat", "FluxDiff"),
-#                         tagged=(FirstAxisIsElementsTag(),))
-
-#             for afgrp, vgrp, jdet_i, gfact_i, fS_i in zip(face_discr.groups,
-#                                                           vol_discr.groups,
-#                                                           jacobian_dets,
-#                                                           geo_factors,
-#                                                           vol_fluxes)
-#         )
-#     )
-
-
-# def weak_hybridized_local_sbp(
-#     dcoll: DiscretizationCollection, vec, dd_v=None, dd_f=None):
-#     """todo
-#     """
-#     if dd_v is None:
-#         dd_v = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-
-#     if dd_f is None:
-#         dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
-
-#     return _apply_hybridized_sbp_flux_differencing(
-#         dcoll, dd_v, dd_f, vec
-#     )
-
-#     return make_obj_array(
-#         [_apply_hybridized_sbp_flux_differencing(dcoll, dd_v, dd_f, xyz_axis, vec)
-#          for xyz_axis in range(dcoll.dim)]
-#     )
 
 
 def _apply_inverse_sbp_mass_operator(
@@ -344,3 +280,120 @@ def inverse_sbp_mass(dcoll: DiscretizationCollection, vec):
     return _apply_inverse_sbp_mass_operator(
         dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
     )
+
+def sbp_lifting_matrix(
+        actx: ArrayContext, face_element_group, vol_element_group, dtype):
+    """todo.
+    """
+    @keyed_memoize_in(
+        actx, sbp_lifting_matrix,
+        lambda face_grp, vol_grp: (face_grp.discretization_key(),
+                                   vol_grp.discretization_key()))
+    def get_ref_sbp_lifting_mat(face_grp, vol_grp):
+        nfaces = vol_grp.mesh_el_group.nfaces
+        assert face_grp.nelements == nfaces * vol_grp.nelements
+
+        matrix = np.empty(
+            (vol_grp.nunit_dofs,
+            nfaces,
+            face_grp.nunit_dofs),
+            dtype=dtype
+        )
+
+        from modepy import vandermonde, faces_for_shape
+
+        vol_basis = vol_grp.basis_obj()
+        faces = faces_for_shape(vol_grp.shape)
+        # NOTE: Assumes same quadrature rule on each face
+        face_quadrature = face_grp.quadrature_rule()
+
+        for iface, face in enumerate(faces):
+            mapped_nodes = face.map_to_volume(face_quadrature.nodes)
+            Vf = vandermonde(vol_basis.functions, mapped_nodes)
+            matrix[:, iface, :] = Vf.T @ np.diag(face_quadrature.weights)
+
+        return actx.freeze(actx.from_numpy(matrix))
+
+    return get_ref_sbp_lifting_mat(face_element_group, vol_element_group)
+
+
+def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: _apply_sbp_lift_operator(dcoll, dd, vi), vec
+        )
+
+    from grudge.geometry import area_element
+
+    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    face_discr = dcoll.discr_from_dd(dd)
+    dtype = vec.entry_dtype
+    actx = vec.array_context
+
+    assert len(face_discr.groups) == len(volm_discr.groups)
+    surf_area_elements = area_element(actx, dcoll, dd=dd)
+
+    @memoize_in(actx, (_apply_sbp_lift_operator, "face_lift_knl"))
+    def prg():
+        t_unit = make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[f]: 0 <= f < nfaces}",
+                "{[idof]: 0 <= idof < nvol_nodes}",
+                "{[jdof]: 0 <= jdof < nface_nodes}"
+            ],
+            """
+            result[iel, idof] = sum(f, sum(jdof, mat[idof, f, jdof]
+                                                 * jac_surf[f, iel, jdof]
+                                                 * vec[f, iel, jdof]))
+            """,
+            name="face_lift"
+        )
+        import loopy as lp
+        from meshmode.transform_metadata import (
+                ConcurrentElementInameTag, ConcurrentDOFInameTag)
+        return lp.tag_inames(t_unit, {
+            "iel": ConcurrentElementInameTag(),
+            "idof": ConcurrentDOFInameTag()})
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(prg(),
+                            mat=sbp_lifting_matrix(
+                                actx,
+                                face_element_group=afgrp,
+                                vol_element_group=vgrp,
+                                dtype=dtype
+                            ),
+                            jac_surf=surf_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs
+                            ),
+                            vec=vec_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs
+                            ))["result"]
+
+            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
+                                                     face_discr.groups,
+                                                     vec,
+                                                     surf_area_elements)
+        )
+    )
+
+
+def sbp_lift_operator(dcoll: DiscretizationCollection, *args):
+    """todo.
+    """
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    return _apply_sbp_lift_operator(dcoll, dd, vec)
