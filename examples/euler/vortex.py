@@ -137,8 +137,18 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         nelements_per_axis=(nel_1d,)*dim)
 
     from grudge import DiscretizationCollection
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from meshmode.discretization.poly_element import \
+        (PolynomialWarpAndBlend2DRestrictingGroupFactory,
+         QuadratureSimplexGroupFactory)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+        }
+    )
 
     # }}}
 
