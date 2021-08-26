@@ -46,61 +46,127 @@ import grudge.dof_desc as dof_desc
 import numpy as np
 
 
-def quadrature_based_mass_matrix(actx: ArrayContext, element_group):
+def quadrature_based_mass_matrix(
+    actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_mass_matrix,
-        lambda grp: grp.discretization_key())
-    def get_ref_quad_mass_mat(grp):
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_quad_mass_mat(base_grp, quad_grp):
         from modepy import vandermonde
 
-        basis_fcts = grp.basis_obj().functions
-        quad_rule = grp.quadrature_rule()
-        vand = vandermonde(basis_fcts, quad_rule.nodes)
-        weights = np.diag(quad_rule.weights)
-        mass_mat = vand.T @ weights @ vand
+        basis = base_grp.basis_obj()
+        vdm_inv = np.linalg.inv(vandermonde(basis.functions,
+                                            base_grp.unit_nodes))
+        vdm_q = vandermonde(basis.functions, quad_grp.unit_nodes) @ vdm_inv
+        weights = np.diag(quad_grp.quadrature_rule().weights)
 
-        return actx.freeze(actx.from_numpy(mass_mat))
+        return actx.freeze(actx.from_numpy(vdm_q.T @ weights @ vdm_q))
 
-    return get_ref_quad_mass_mat(element_group)
+    return get_ref_quad_mass_mat(base_element_group, quad_element_group)
 
 
-def quadrature_based_inverse_mass_matrix(actx: ArrayContext, element_group):
+def quadrature_based_inverse_mass_matrix(
+    actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_inverse_mass_matrix,
-        lambda grp: grp.discretization_key())
-    def get_ref_quad_inv_mass_mat(grp):
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_quad_inv_mass_mat(base_grp, quad_grp):
         mass_mat = actx.to_numpy(
-            thaw(quadrature_based_mass_matrix(actx, grp), actx)
+            thaw(quadrature_based_mass_matrix(actx, base_grp, quad_grp), actx)
         )
         return actx.freeze(actx.from_numpy(np.linalg.inv(mass_mat)))
 
-    return get_ref_quad_inv_mass_mat(element_group)
+    return get_ref_quad_inv_mass_mat(base_element_group, quad_element_group)
 
 
-def quadrature_based_l2_projection_matrix(actx: ArrayContext, element_group):
+def quadrature_based_l2_projection_matrix(
+    actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_l2_projection_matrix,
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_l2_proj_mat(base_grp, quad_grp):
+        from modepy import vandermonde
+
+        basis = base_grp.basis_obj()
+        vdm_inv = np.linalg.inv(vandermonde(basis.functions,
+                                            base_grp.unit_nodes))
+        vdm_q = vandermonde(basis.functions, quad_grp.unit_nodes) @ vdm_inv
+        weights = np.diag(quad_grp.quadrature_rule().weights)
+        inv_mass_mat = actx.to_numpy(
+            thaw(quadrature_based_inverse_mass_matrix(
+                actx, base_grp, quad_grp), actx)
+        )
+        return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T @ weights)))
+
+    return get_ref_l2_proj_mat(base_element_group, quad_element_group)
+
+
+def quadrature_project(dcoll: DiscretizationCollection, dd_q, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: quadrature_project(dcoll, dd_q, el), vec)
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd("vol")
+    quad_discr = dcoll.discr_from_dd(dd_q)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej->ei",
+                        quadrature_based_l2_projection_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            quad_element_group=qgrp
+                        ),
+                        vec_i,
+                        arg_names=("P_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
+        )
+    )
+
+
+def quadrature_volume_interpolation(dcoll: DiscretizationCollection, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+                lambda el: quadrature_volume_interpolation(dcoll, el), vec)
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd("vol")
+
+    @keyed_memoize_in(
+        actx, quadrature_volume_interpolation,
         lambda grp: grp.discretization_key())
-    def get_ref_l2_proj_mat(grp):
+    def get_volume_vand(grp):
         from modepy import vandermonde
 
         quad_rule = grp.quadrature_rule()
         vand = vandermonde(grp.basis_obj().functions, quad_rule.nodes)
-        weights = np.diag(quad_rule.weights)
-        inv_mass_mat = actx.to_numpy(
-            thaw(quadrature_based_inverse_mass_matrix(actx, grp), actx)
+        return actx.freeze(actx.from_numpy(vand))
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej->ei",
+                        get_volume_vand(grp),
+                        vec_i,
+                        arg_names=("Vq", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for grp, vec_i in zip(discr.groups, vec)
         )
-        p_mat = inv_mass_mat @ vand.T @ weights
-
-        return actx.freeze(actx.from_numpy(p_mat))
-
-    return get_ref_l2_proj_mat(element_group)
+    )
 
 
 def quadrature_based_stiffness_matrices(actx: ArrayContext, element_group):
