@@ -159,9 +159,9 @@ class HopefullySmartPytatoArrayContext(
                            "cse_27", "cse_28", "cse_29", "cse_30", "cse_32",
                            "cse_34", "cse_36"}
 
-            cse_kernel1_outputs = {"cse", "cse_0", "cse_4", "cse_6", "cse_8"}
-            cse_kernel2_outputs = {"cse_11", "cse_31", "cse_33", "cse_35"}
-            cse_kernel3_outputs = {"cse_30", "cse_32", "cse_34", "cse_36"}
+            # Why a list and not a 'set': Loopy's model of substitutions not
+            # having dependencies forces it to add fake dependencies to
+            # instructions. So, in short "order matters".
 
             assert len(cse_kernel1 & cse_kernel2) == 0
             assert len(cse_kernel3 & cse_kernel2) == 0
@@ -169,6 +169,17 @@ class HopefullySmartPytatoArrayContext(
             assert len(cse_kernel1 | cse_kernel2 | cse_kernel3) == 38
             assert ((cse_kernel1 | cse_kernel2 | cse_kernel3)
                     < set(knl.temporary_variables))
+
+            priv_cse_kernel2_vars = ["cse_3", "cse_10",
+                                     "cse_1", "cse_2", "cse_7", "cse_9", "cse_5"]
+
+            priv_cse_kernel3_vars = ["cse_24", "cse_29",
+                                     "cse_26", "cse_27", "cse_28", "cse_13",
+                                     "cse_23", "cse_25",
+                                     "cse_12", "cse_14", "cse_22",
+                                     "cse_19", "cse_21",
+                                     "cse_16", "cse_18", "cse_20",
+                                     "cse_15", "cse_17"]
 
             knl = lp.map_instructions(knl,
                       " or ".join(f"writes:{var_name}"
@@ -192,11 +203,11 @@ class HopefullySmartPytatoArrayContext(
                     knl = lp.rename_iname(knl, f"{var_name}_dim1", f"idof_cse_{i}",
                                           existing_ok=True)
 
-            for _, var_names in enumerate((cse_kernel1 - cse_kernel1_outputs,
-                                           cse_kernel2 - cse_kernel2_outputs,
-                                           cse_kernel3 - cse_kernel3_outputs)):
+            for var_names in (priv_cse_kernel2_vars,
+                              priv_cse_kernel3_vars):
                 for var_name in var_names:
                     knl = lp.assignment_to_subst(knl, var_name)
+                for var_name in var_names[::-1]:
                     knl = precompute_for_single_kernel(
                         knl, t_unit.callables_table, f"{var_name}_subst",
                         sweep_inames=(),
@@ -312,10 +323,11 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
-            print(knl)
+            t_unit = t_unit.with_kernel(knl)
+            print(lp.generate_code_v2(t_unit).device_code())
             1/0
 
-            return t_unit.with_kernel(knl)
+            return t_unit
         else:
             return super().transform_loopy_program(t_unit)
 
