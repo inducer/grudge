@@ -138,6 +138,8 @@ class HopefullySmartPytatoArrayContext(
     def transform_loopy_program(self, t_unit):
         if t_unit.default_entrypoint.tags_of_type(FromActxCompile):
             import loopy as lp
+            from loopy.transform.precompute import precompute_for_single_kernel
+
             t_unit = lp.inline_callable_kernel(t_unit, "face_mass")
             knl = t_unit.default_entrypoint
 
@@ -161,32 +163,44 @@ class HopefullySmartPytatoArrayContext(
             cse_kernel2_outputs = {"cse_11", "cse_31", "cse_33", "cse_35"}
             cse_kernel3_outputs = {"cse_30", "cse_32", "cse_34", "cse_36"}
 
-            assert len(cse_kernel1 & cse_kernel2)
-            assert len(cse_kernel3 & cse_kernel2)
-            assert len(cse_kernel3 & cse_kernel1)
+            assert len(cse_kernel1 & cse_kernel2) == 0
+            assert len(cse_kernel3 & cse_kernel2) == 0
+            assert len(cse_kernel3 & cse_kernel1) == 0
             assert len(cse_kernel1 | cse_kernel2 | cse_kernel3) == 38
             assert ((cse_kernel1 | cse_kernel2 | cse_kernel3)
                     < set(knl.temporary_variables))
 
             knl = lp.map_instructions(knl,
-                      " or ".join(f"writes: {var_name}"
+                      " or ".join(f"writes:{var_name}"
                                   for var_name in cse_kernel1),
                       lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
 
             knl = lp.map_instructions(knl,
-                      " or ".join(f"writes: {var_name}"
+                      " or ".join(f"writes:{var_name}"
                                   for var_name in cse_kernel2),
                       lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
 
             knl = lp.map_instructions(knl,
-                      " or ".join(f"writes: {var_name}"
+                      " or ".join(f"writes:{var_name}"
                                   for var_name in cse_kernel3),
                       lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
 
-            # Step 1: Fuse all the loops in each of these CSE kernels
-            # Step 2: Precompute the "non-output" global temporaries to private
-            # variables
-            raise NotImplementedError
+            for i, var_names in enumerate((cse_kernel1, cse_kernel2, cse_kernel3)):
+                for var_name in var_names:
+                    knl = lp.rename_iname(knl, f"{var_name}_dim0", f"iel_cse_{i}",
+                                          existing_ok=True)
+                    knl = lp.rename_iname(knl, f"{var_name}_dim1", f"idof_cse_{i}",
+                                          existing_ok=True)
+
+            for _, var_names in enumerate((cse_kernel1 - cse_kernel1_outputs,
+                                           cse_kernel2 - cse_kernel2_outputs,
+                                           cse_kernel3 - cse_kernel3_outputs)):
+                for var_name in var_names:
+                    knl = lp.assignment_to_subst(knl, var_name)
+                    knl = precompute_for_single_kernel(
+                        knl, t_unit.callables_table, f"{var_name}_subst",
+                        sweep_inames=(),
+                        temporary_address_space=lp.AddressSpace.PRIVATE)
 
             # }}}
 
@@ -297,6 +311,9 @@ class HopefullySmartPytatoArrayContext(
                                       existing_ok=True)
 
             # }}}
+
+            print(knl)
+            1/0
 
             return t_unit.with_kernel(knl)
         else:
@@ -457,3 +474,5 @@ if __name__ == "__main__":
          order=args.order,
          visualize=args.visualize,
          actx_class=actx_class)
+
+# vim: fdm=marker
