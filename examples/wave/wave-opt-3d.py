@@ -181,21 +181,6 @@ class HopefullySmartPytatoArrayContext(
                                      "cse_16", "cse_18", "cse_20",
                                      "cse_15", "cse_17"]
 
-            knl = lp.map_instructions(knl,
-                      " or ".join(f"writes:{var_name}"
-                                  for var_name in cse_kernel1),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
-
-            knl = lp.map_instructions(knl,
-                      " or ".join(f"writes:{var_name}"
-                                  for var_name in cse_kernel2),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
-
-            knl = lp.map_instructions(knl,
-                      " or ".join(f"writes:{var_name}"
-                                  for var_name in cse_kernel3),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
-
             for i, var_names in enumerate((cse_kernel1, cse_kernel2, cse_kernel3)):
                 for var_name in var_names:
                     knl = lp.rename_iname(knl, f"{var_name}_dim0", f"iel_cse_{i}",
@@ -203,15 +188,33 @@ class HopefullySmartPytatoArrayContext(
                     knl = lp.rename_iname(knl, f"{var_name}_dim1", f"idof_cse_{i}",
                                           existing_ok=True)
 
-            for var_names in (priv_cse_kernel2_vars,
-                              priv_cse_kernel3_vars):
+            for i, var_names in enumerate((priv_cse_kernel2_vars,
+                                           priv_cse_kernel3_vars)):
                 for var_name in var_names:
                     knl = lp.assignment_to_subst(knl, var_name)
                 for var_name in var_names[::-1]:
                     knl = precompute_for_single_kernel(
                         knl, t_unit.callables_table, f"{var_name}_subst",
                         sweep_inames=(),
-                        temporary_address_space=lp.AddressSpace.PRIVATE)
+                        temporary_address_space=lp.AddressSpace.PRIVATE,
+                        compute_insn_id=f"cse_knl{i+2}_prcmpt_{var_name}")
+
+            knl = lp.map_instructions(knl,
+                      " or ".join(f"writes:{var_name}"
+                                  for var_name in cse_kernel1),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join([f"writes:{var_name}"
+                                   for var_name in cse_kernel2]
+                                  + ["id:cse_knl2_prcmpt_*"]),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join([f"writes:{var_name}"
+                                   for var_name in cse_kernel3]
+                                  + ["id:cse_knl3_prcmpt_*"]),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
 
             # }}}
 
@@ -324,7 +327,8 @@ class HopefullySmartPytatoArrayContext(
             # }}}
 
             t_unit = t_unit.with_kernel(knl)
-            print(lp.generate_code_v2(t_unit).device_code())
+            print(t_unit)
+            # print(lp.generate_code_v2(t_unit).device_code())
             1/0
 
             return t_unit
