@@ -386,8 +386,6 @@ def hybridized_sbp_operators(
             thaw(boundary_matrices(actx, vol_grp, quad_face_grp), actx)
         )
         q_mats = np.asarray(
-            # NOTE: need to use a modal differentiation matrix:
-            # D_modal = V^{-1} D_nodal
             [p_mat.T @ mass_mat @ diff_mat @ vdm_inv @ p_mat
                 for diff_mat in diff_matrices(vol_grp)]
         )
@@ -406,26 +404,20 @@ def hybridized_sbp_operators(
 
 
 def _apply_inverse_sbp_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd_base, dd_quad, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
             lambda vi: _apply_inverse_sbp_mass_operator(dcoll,
-                                                        dd_out,
-                                                        dd_in, vi), vec
+                                                        dd_base,
+                                                        dd_quad, vi), vec
         )
 
     from grudge.geometry import area_element
 
-    if dd_out != dd_in:
-        raise ValueError(
-            "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups; inverse is not "
-            "guaranteed to be well-defined"
-        )
-
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_in)
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in)
+    discr = dcoll.discr_from_dd(dd_base)
+    quad_discr = dcoll.discr_from_dd(dd_quad)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_quad)
 
     return DOFArray(
         actx,
@@ -434,22 +426,26 @@ def _apply_inverse_sbp_mass_operator(
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
             actx.einsum("ei,ij,ej->ei",
                         jac_inv,
-                        quadrature_based_inverse_mass_matrix(actx,
-                                                             element_group=grp),
+                        quadrature_based_inverse_mass_matrix(
+                            actx,
+                            base_grp,
+                            quad_grp
+                        ),
                         vec_i,
-                        arg_names=("mass_mat", "jac", "vec"),
+                        arg_names=("jac_inv", "mass_inv", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec)
+            for base_grp, quad_grp, jac_inv, vec_i in zip(
+                discr.groups, quad_discr.groups, inv_area_elements, vec)
         )
     )
 
 
-def inverse_sbp_mass(dcoll: DiscretizationCollection, vec):
+def inverse_sbp_mass(dcoll: DiscretizationCollection, dd, vec):
     """todo.
     """
     return _apply_inverse_sbp_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+        dcoll, dof_desc.DD_VOLUME, dd, vec
     )
 
 
@@ -459,65 +455,57 @@ def sbp_lifting_matrix(
     """
     @keyed_memoize_in(
         actx, sbp_lifting_matrix,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
-    def get_ref_sbp_lifting_mat(face_grp, vol_grp):
-        nfaces = vol_grp.mesh_el_group.nfaces
-        assert face_grp.nelements == nfaces * vol_grp.nelements
-
-        matrix = np.empty(
-            (vol_grp.nunit_dofs,
-            nfaces,
-            face_grp.nunit_dofs),
-            dtype=dtype
+        lambda base_grp, quad_face_grp: (base_grp.discretization_key(),
+                                         quad_face_grp.discretization_key()))
+    def get_ref_sbp_lifting_mat(base_grp, quad_face_grp):
+        dim = base_grp.dim
+        b_mats = actx.to_numpy(
+            thaw(boundary_matrices(actx, base_grp, quad_face_grp), actx)
+        )
+        vf_mat = actx.to_numpy(
+            surface_quadrature_interpolation_matrix(
+                actx,
+                base_element_group=base_grp,
+                quad_face_element_group=quad_face_grp,
+                dtype=dtype
+            )
         )
 
-        from modepy import vandermonde, faces_for_shape
-
-        vol_basis = vol_grp.basis_obj()
-        faces = faces_for_shape(vol_grp.shape)
-        # NOTE: Assumes same quadrature rule on each face
-        face_quadrature = face_grp.quadrature_rule()
-
-        for iface, face in enumerate(faces):
-            mapped_nodes = face.map_to_volume(face_quadrature.nodes)
-            Vf = vandermonde(vol_basis.functions, mapped_nodes)
-            matrix[:, iface, :] = Vf.T @ np.diag(face_quadrature.weights)
-
-        return actx.freeze(actx.from_numpy(matrix))
+        return actx.freeze(actx.from_numpy(np.asarray([vf_mat.T @ b_mats[d]
+                                                       for d in range(dim)])))
 
     return get_ref_sbp_lifting_mat(face_element_group, vol_element_group)
 
 
-def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd, vec):
+def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-            lambda vi: _apply_sbp_lift_operator(dcoll, dd, vi), vec
+            lambda vi: _apply_sbp_lift_operator(dcoll, dd_f, vi), vec
         )
 
     from grudge.geometry import area_element
 
-    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    face_discr = dcoll.discr_from_dd(dd)
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_quad_discr = dcoll.discr_from_dd(dd_f)
     dtype = vec.entry_dtype
     actx = vec.array_context
 
-    assert len(face_discr.groups) == len(volm_discr.groups)
-    surf_area_elements = area_element(actx, dcoll, dd=dd)
+    assert len(face_quad_discr.groups) == len(volm_discr.groups)
+    surf_area_elements = area_element(actx, dcoll, dd=dd_f)
 
     @memoize_in(actx, (_apply_sbp_lift_operator, "face_lift_knl"))
     def prg():
         t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
-                "{[f]: 0 <= f < nfaces}",
+                "{[f]: 0 <= d < dim}",
                 "{[idof]: 0 <= idof < nvol_nodes}",
                 "{[jdof]: 0 <= jdof < nface_nodes}"
             ],
             """
-            result[iel, idof] = sum(f, sum(jdof, mat[idof, f, jdof]
-                                                 * jac_surf[f, iel, jdof]
-                                                 * vec[f, iel, jdof]))
+            result[iel, idof] = sum(d, sum(jdof, mat[d, idof, jdof]
+                                                 * jac_surf[iel, jdof]
+                                                 * vec[iel, jdof]))
             """,
             name="face_lift"
         )
@@ -539,18 +527,13 @@ def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd, vec):
                                 dtype=dtype
                             ),
                             jac_surf=surf_ae_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                afgrp.nunit_dofs
+                                vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
                             ),
-                            vec=vec_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                afgrp.nunit_dofs
-                            ))["result"]
+                            vec=vec_i)["result"]
 
-            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
-                                                     face_discr.groups,
+            for vgrp, qfgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
+                                                     face_quad_discr.groups,
                                                      vec,
                                                      surf_area_elements)
         )
