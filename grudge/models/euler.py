@@ -255,74 +255,6 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
-def full_quadrature_state(actx, dcoll, state):
-    """Return a concatentated state array of both volume and surface
-    degrees of freedom.
-    """
-    state_faces = op.project(dcoll, "vol", "all_faces", state)
-    mesh = dcoll.mesh
-    dim = dcoll.dim
-    volm_discr = dcoll.discr_from_dd("vol")
-    face_discr = dcoll.discr_from_dd("all_faces")
-
-    # Group loop
-    mass_data = []
-    energy_data = []
-    momentum_data = []
-    for gidx, _ in enumerate(mesh.groups):
-        vgrp = volm_discr.groups[gidx]
-        fgrp = face_discr.groups[gidx]
-
-        # Volume and face data for the group *gidx*
-        # NOTE: Need to cast to numpy array because
-        # actx.np.concatenate(..., axis=1) doesn't work out of the box
-        # due to memory layout incompatibilities?
-        mass_data.append(actx.from_numpy(
-            np.concatenate(
-                [actx.to_numpy(state[0][gidx]),
-                 actx.to_numpy(state_faces[0][gidx].reshape(
-                     vgrp.nelements,
-                     vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
-                axis=1
-            )
-        ))
-        energy_data.append(actx.from_numpy(
-            np.concatenate(
-                [actx.to_numpy(state[1][gidx]),
-                 actx.to_numpy(state_faces[1][gidx].reshape(
-                     vgrp.nelements,
-                     vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
-                axis=1
-            )
-        ))
-        momentum_data.append([
-            actx.from_numpy(
-                np.concatenate(
-                    [actx.to_numpy(state[2:dim+2][d][gidx]),
-                     actx.to_numpy(state_faces[2:dim+2][d][gidx].reshape(
-                         vgrp.nelements,
-                         vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs))],
-                    axis=1
-                )
-            ) for d in range(dim)
-        ])
-
-    mass_dof_ary = DOFArray(actx, data=tuple(mass_data))
-    energy_dof_ary = DOFArray(actx, data=tuple(energy_data))
-    momentum_dof_ary = make_obj_array(
-        [DOFArray(actx,
-                  data=tuple(mom_data[d]
-                             for mom_data in momentum_data))
-                  for d in range(dim)]
-    )
-
-    result = np.empty((2+dim,), dtype=object)
-    result[0] = mass_dof_ary
-    result[1] = energy_dof_ary
-    result[2:dim+2] = momentum_dof_ary
-
-    return result
-
 
 def split_quadrature_state(actx, dcoll, full_quad_state):
     """Returns the split quadrature state for the volume and surface
@@ -424,6 +356,57 @@ def split_quadrature_state(actx, dcoll, full_quad_state):
     return result_vol, result_face
 
 
+def conservative_to_entropy_vars(dcoll, cv_state, gamma=1.4):
+    dim = dcoll.dim
+
+    rho = cv_state[0]
+    rho_e = cv_state[1]
+    rho_u = cv_state[2:dim+2]
+
+    actx = rho.array_context
+    u = rho_u / rho
+    u_square = sum(v ** 2 for v in u)
+    p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
+    s = actx.np.log(p) - gamma*actx.np.log(rho)
+    rho_p = rho / p
+
+    result = np.empty((2+dim,), dtype=object)
+    result[0] = ((gamma - s)/(gamma - 1)) - 0.5 * rho_p * u_square
+    result[1] = -rho_p
+    result[2:dim+2] = rho_p * u
+
+    return result
+
+
+def entropy_to_conservative_vars(dcoll, ev_state, gamma=1.4):
+    # See Hughes, Franca, Mallet (1986) A new finite element formulation for CFD
+    # (DOI: 10.1016/0045-7825(86)90127-1)
+    dim = dcoll.dim
+    inv_gamma_minus_one = 1/(gamma - 1)
+
+    # Convert to entropy `-rho * s` used by Hughes, France, Mallet (1986)
+    ev_state = ev_state * (gamma - 1)
+
+    v1 = ev_state[0]
+    v2t4 = ev_state[2:dim+2]
+    v5 = ev_state[1]
+
+    actx = v1.array_context
+
+    v_square = sum(v**2 for v in v2t4)
+    s = gamma - v1 + v_square/(2*v5)
+    rho_iota = (
+        ((gamma - 1) / (-v5)**gamma)**(inv_gamma_minus_one)
+    ) * actx.np.exp(-s * inv_gamma_minus_one)
+
+    result = np.empty((2+dim,), dtype=object)
+    result[0] = -rho_iota * v5
+    result[1] = rho_iota * (1 - v_square/(2*v5))
+    result[2:dim+2] = rho_iota * v2t4
+
+    return result
+
+
 def log_mean(x, y, epsilon=1e-4):
     """Computes the logarithmic mean using a numerically stable
     stable approach outlined in Appendix B of
@@ -496,7 +479,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     return fS_mass, fS_energy, fS_momentum
 
 
-def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
+def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
     """Computes the flux differencing operation: ∑_j 2Q[i, j] * f_S(q_i, q_j),
     where Q is a hybridized SBP derivative matrix and f_S is
     an entropy-conservative two-point flux.
@@ -507,28 +490,24 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
     from grudge.sbp_op import hybridized_sbp_operators
     from grudge.geometry import area_element, inverse_metric_derivative_mat
 
+    state_faces = op.project(dcoll, "vol", "all_faces", state)
     mesh = dcoll.mesh
     dim = dcoll.dim
 
     volm_discr = dcoll.discr_from_dd("vol")
     face_discr = dcoll.discr_from_dd("all_faces")
 
-    mass = quad_state[0]
-    energy = quad_state[1]
-    momentum = quad_state[2:dim+2]
-
     # Geometry terms for building the physical derivative operators
     jacobian_dets = area_element(actx, dcoll)
     geo_factors = inverse_metric_derivative_mat(actx, dcoll)
 
     # Group loop
-    QF_mass_data = []
-    QF_energy_data = []
-    QF_momentum_data = []
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
-        Nq_total = vgrp.nunit_dofs + vgrp.shape.nfaces * fgrp.nunit_dofs
+        Nq_vol = vgrp.nunit_dofs
+        Nq_faces = vgrp.shape.nfaces * fgrp.nunit_dofs
+        Nq_total = Nq_vol + Nq_faces
 
         # Get SBP hybridized derivative operators (as numpy arrays)
         qmats = actx.to_numpy(hybridized_sbp_operators(actx, fgrp, vgrp))
@@ -541,26 +520,47 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
              for row in range(dim)]
         )
 
-        # Convert group arrays into numpy arrays
-        mass_ary = actx.to_numpy(mass[gidx])
-        energy_ary = actx.to_numpy(energy[gidx])
-        momentum_ary = np.array([actx.to_numpy(momentum[d][gidx])
-                                 for d in range(dim)])
-
-        # Group arrays for the Hadamard row-sum (component-wise)
-        QF_mass = np.zeros(mass_ary.shape)
-        QF_energy = np.zeros(energy_ary.shape)
-        QF_momentum = np.zeros(momentum_ary.shape)
+        # Reshape face data
+        mass_f = state_faces[0][gidx].reshape(
+            vgrp.nelements,
+            vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
+        )
+        energy_f = state_faces[1][gidx].reshape(
+            vgrp.nelements,
+            vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
+        )
+        momentum_f = [
+            state_faces[2:dim+2][d][gidx].reshape(
+                vgrp.nelements,
+                vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
+            ) for d in range(dim)
+        ]
 
         # Element loop
         for eidx in range(mgrp.nelements):
+
+            # Local arrays for the Hadamard row-sum
+            QF_mass = np.zeros(shape=(Nq_total,))
+            QF_energy = np.zeros(shape=(Nq_total,))
+            QF_momentum = np.zeros(shape=(dim, Nq_total))
+
             # NOTE: Assumes affine (jacobian det is constant in each cell)
             j_k = jac_k[eidx][0]
 
-            # Element-local state data
-            local_mass = mass_ary[eidx]
-            local_energy = energy_ary[eidx]
-            local_momentum = momentum_ary[:, eidx]
+            # Element-local state data (concatenated vol + surface quad data)
+            local_mass = np.concatenate(
+                [actx.to_numpy(state[0][gidx][eidx]),
+                 actx.to_numpy(mass_f[eidx])]
+            )
+            local_energy = np.concatenate(
+                [actx.to_numpy(state[1][gidx][eidx]),
+                 actx.to_numpy(energy_f[eidx])]
+            )
+            local_momentum = np.array(
+                [np.concatenate([actx.to_numpy(state[2:dim+2][d][gidx][eidx]),
+                                 actx.to_numpy(momentum_f[d][eidx])])
+                 for d in range(dim)]
+            )
 
             # Compute flux differencing in each cell and apply the
             # hybridized SBP operator
@@ -589,9 +589,16 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
                         f_mass, f_energy, f_momentum = \
                             flux_chandrashekar(q_i, q_j, d, gamma=gamma)
 
-                        QF_mass[eidx, i] += 2*Q[i, j] * f_mass
-                        QF_energy[eidx, i] += 2*Q[i, j] * f_energy
-                        QF_momentum[:, eidx, i] += 2*Q[i, j] * f_momentum
+                        QF_mass[i] += 2*Q[i, j] * f_mass
+                        QF_energy[i] += 2*Q[i, j] * f_energy
+                        QF_momentum[:, i] += 2*Q[i, j] * f_momentum
+
+            QF_mass_v = QF_mass[:Nq_vol]
+            QF_mass_f = QF_mass[Nq_vol:Nq_vol+Nq_faces]
+            QF_energy_v = QF_energy[:Nq_vol]
+            QF_energy_f = QF_energy[Nq_vol:Nq_vol+Nq_faces]
+            QF_momentum_v = QF_momentum[:, :Nq_vol]
+            QF_momentum_f = QF_momentum[:, Nq_vol:Nq_vol+Nq_faces]
 
         # Append group data
         QF_mass_data.append(actx.from_numpy(QF_mass))
@@ -619,72 +626,34 @@ def flux_differencing_kernel(actx, dcoll, quad_state, gamma=1.4):
 
 class EntropyStableEulerOperator(EulerOperator):
 
-    def physical_entropy(self, rho, pressure):
-        actx = rho.array_context
-        return actx.np.log(pressure) - self.gamma*actx.np.log(rho)
-
-    def conservative_to_entropy_vars(self, cv):
-        gamma = self.gamma
-        inv_gamma_minus_one = 1/(gamma - 1)
-
-        rho = cv.mass
-        rho_e = cv.energy
-        velocity = cv.velocity
-
-        v_square = sum(v ** 2 for v in velocity)
-        p = self.pressure(cv)
-        s = self.physical_entropy(rho, p)
-        rho_p = rho / p
-
-        v1 = (gamma - s) * inv_gamma_minus_one - 0.5 * rho_p * v_square
-        v2 = -rho_p
-        v3 = rho_p * velocity
-
-        return ArrayContainer(mass=v1, energy=v2, momentum=v3)
-
-    def entropy_to_conservative_vars(self, ev):
-        actx = ev.array_context
-        gamma = self.gamma
-        inv_gamma_minus_one = 1/(gamma - 1)
-
-        ev = ev * (gamma - 1)
-        v1 = ev.mass
-        v2 = ev.momentum
-        v3 = ev.energy
-
-        v_square = sum(v**2 for v in v2)
-        s = gamma - v1 + v_square/(2*v3)
-        rho_iota = (
-            ((gamma -1) / (-v3**gamma)**inv_gamma_minus_one)
-            * actx.np.exp(-s * inv_gamma_minus_one)
-        )
-
-        rho = -rho_iota * v3
-        rho_u = rho_iota * v2
-        rho_e = rho_iota * (1 - v_square/(2*v3))
-
-        return ArrayContainer(mass=rho, energy=rho_u, momentum=rho_e)
-
     def operator(self, t, q):
+        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD
+
+        dq = dof_desc.DOFDesc("vol", DISCR_TAG_QUAD)
+        df = dof_desc.DOFDesc("all_faces", DISCR_TAG_QUAD)
+
         dcoll = self.dcoll
         actx = q[0].array_context
 
-        print("Converting state arrays to modal coefficients...")
-        # NOTE: Convert data to modal coefficients
-        qhat = self.map_to_modal(q)
-        print("Finished converting to modal coefficients.")
+        print("Interpolating to quadrature grid...")
+        qq = op.project(dcoll, "vol", dq, q)
+        print("Finished interpolating to quadrature grid.")
 
-        print("Creating volume + surface state arrays...")
-        # NOTE: Generates a state array whose DOFArray entries are
-        # laid out as:
-        # [v_1, ... , v_nq, f1_1, ..., f1_nfq, f2_1, ..., f2_nfq, ...],
-        # where v_i denote field values at volume quadrature nodes and
-        # fi_j denotes field values on the i-th face. The array size is thus:
-        # (number of vol quadrature nodes) + Nfaces * (number of nodes per face)
-        quad_state = full_quadrature_state(actx, dcoll, qhat)
-        print("Finished volume + surface state arrays.")
+        print("Computing auxiliary conservative variables...")
+        v = conservative_to_entropy_vars(dcoll, qq, gamma=self.gamma)
 
-        print("Performing flux differencing...")
+        from grudge.sbp_op import quadrature_project
+
+        print("Projecting entropy variables...")
+        vtilde = quadrature_project(dcoll, dq, v)
+
+        print("Forming state in terms of projected entropy variables...")
+        qtilde = entropy_to_conservative_vars(dcoll, vtilde, gamma=self.gamma)
+        print("Finished auxiliary conservative variables.")
+
+        1/0
+
+        print("Performing volume flux differencing...")
         # NOTE: Performs flux differencing in the volume of cells, requires
         # accessing nodes in both the volume and faces. The operation has the
         # form:
@@ -692,25 +661,16 @@ class EntropyStableEulerOperator(EulerOperator):
         # where Q_d is the hybridized SBP operator for the d-th dimension axis,
         # and F_d is an entropy conservative two-point flux. The routine
         # computes the Hadamard (element-wise) multiplication + row sum:
-        # QF = ∑_d (2Q_d * F_d)1
-        QF1 = flux_differencing_kernel(actx, dcoll, quad_state, self.gamma)
-        print("Finished flux differencing.")
-
-        print("Splitting quadrature state array...")
-        # NOTE: The result of the flux differencing routine *QF* is then
-        # split into volume and surface restrictions. In Jesse's papers,
-        # this corresponds to applying the volume and surface interpolation
-        # matrices in each cell:
-        # [V_q; V_f].T * QF = QF_q + QF_f
-        QF_q, QF_f = split_quadrature_state(actx, dcoll, QF1)
-        print("Finished splitting quadrature state array.")
+        # VhTQF1 = [V_q; V_f].T @ (∑_d (2Q_d * F_d)1)
+        VhTQF1 = flux_differencing_kernel(actx, dcoll, qhat, self.gamma)
+        print("Finished volume flux differencing.")
 
         print("Computing interface numerical fluxes...")
         # NOTE: Lastly, we compute the numerical fluxes across neighboring
         # elements, plus the surface contribution from the flux differencing:
         # QF_f + V_f.T B_i (f*_i - f(q_f))
         nodes = thaw(dcoll.nodes(), actx)
-        f_bdry = QF_f + (
+        f_bdry = (
             sum(self.numerical_flux(tpair)
                 for tpair in op.interior_trace_pairs(dcoll, qhat))
             - sum(
@@ -728,7 +688,7 @@ class EntropyStableEulerOperator(EulerOperator):
         #               -V_f.T B_d (f*_d - f(q_f)))
         from grudge.sbp_op import inverse_sbp_mass, sbp_lift_operator
 
-        dqhat = inverse_sbp_mass(dcoll, -QF_q - sbp_lift_operator(dcoll, f_bdry))
+        dqhat = inverse_sbp_mass(dcoll, -VhTQF1 - sbp_lift_operator(dcoll, f_bdry))
         print("Finished applying mass and lifting operators.")
 
         print("Converting state arrays to nodal data...")
