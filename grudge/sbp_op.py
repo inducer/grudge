@@ -36,6 +36,7 @@ from grudge.op import (
     reference_inverse_mass_matrix,
     reference_derivative_matrices
 )
+from grudge.trace_pair import TracePair
 
 from meshmode.dof_array import DOFArray
 
@@ -391,9 +392,9 @@ def hybridized_sbp_operators(
         )
         e_mat = vf_mat @ p_mat
         q_skew_hybridized = np.asarray(
-            [0.5 * np.block([[q_mats[dim] - q_mats[dim].T, e_mat.T @ b_mats[dim]],
-                             [-b_mats[dim] @ e_mat, b_mats[dim]]])
-             for dim in range(vol_grp.dim)]
+            [0.5 * np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
+                             [-b_mats[d] @ e_mat, b_mats[d]]])
+             for d in range(vol_grp.dim)]
         )
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
@@ -552,3 +553,28 @@ def sbp_lift_operator(dcoll: DiscretizationCollection, *args):
         raise TypeError("invalid number of arguments")
 
     return _apply_sbp_lift_operator(dcoll, dd, vec)
+
+
+def local_interior_trace_pair(
+    dcoll: DiscretizationCollection, dd, vec) -> TracePair:
+    r"""Return a :class:`TracePair` for the interior faces of
+    *dcoll* with a discretization tag specified by *discr_tag*.
+    This does not include interior faces on different MPI ranks.
+
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`TracePair` object.
+    """
+
+    import ipdb; ipdb.set_trace()
+
+    def get_opposite_face(el):
+        if isinstance(el, Number):
+            return el
+        else:
+            return dcoll.opposite_face_connection()(el)
+
+    e = obj_array_vectorize(get_opposite_face, i)
+    import ipdb; ipdb.set_trace()
+
+    return TracePair(dd.with_dtag("int_faces"), interior=i, exterior=e)
