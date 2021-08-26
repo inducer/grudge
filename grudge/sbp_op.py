@@ -66,6 +66,44 @@ def volume_quadrature_interpolation_matrix(
     return get_volume_vand(base_element_group, quad_element_group)
 
 
+def surface_quadrature_interpolation_matrix(
+    actx: ArrayContext, base_element_group, quad_face_element_group, dtype):
+    """todo.
+    """
+    @keyed_memoize_in(
+        actx, surface_quadrature_interpolation_matrix,
+        lambda base_grp, quad_face_grp: (base_grp.discretization_key(),
+                                         quad_face_grp.discretization_key()))
+    def get_surface_vand(base_grp, quad_face_grp):
+        nfaces = base_grp.mesh_el_group.nfaces
+        assert quad_face_grp.nelements == nfaces * base_grp.nelements
+
+        matrix = np.empty(
+            (quad_face_grp.nunit_dofs,
+            nfaces,
+            base_grp.nunit_dofs),
+            dtype=dtype
+        )
+
+        from modepy import vandermonde, faces_for_shape
+
+        basis = base_grp.basis_obj()
+        vdm_inv = np.linalg.inv(vandermonde(basis.functions,
+                                            base_grp.unit_nodes))
+        faces = faces_for_shape(base_grp.shape)
+        # NOTE: Assumes same quadrature rule on each face
+        face_quadrature = quad_face_grp.quadrature_rule()
+
+        for iface, face in enumerate(faces):
+            mapped_nodes = face.map_to_volume(face_quadrature.nodes)
+            matrix[:, iface, :] = \
+                vandermonde(basis.functions, mapped_nodes) @ vdm_inv
+
+        return actx.freeze(actx.from_numpy(matrix))
+
+    return get_surface_vand(base_element_group, quad_face_element_group)
+
+
 def quadrature_based_mass_matrix(
     actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
@@ -180,6 +218,54 @@ def quadrature_volume_interpolation(dcoll: DiscretizationCollection, dq, vec):
                         tagged=(FirstAxisIsElementsTag(),))
 
             for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
+        )
+    )
+
+
+def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: quadrature_surface_interpolation(dcoll, df, el), vec)
+
+    actx = vec.array_context
+    dtype = vec.entry_dtype
+    discr = dcoll.discr_from_dd("vol")
+    quad_face_discr = dcoll.discr_from_dd(df)
+
+    @memoize_in(actx, (quadrature_surface_interpolation, "face_interp_knl"))
+    def prg():
+        t_unit = make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[f]: 0 <= f < nfaces}",
+                "{[idof]: 0 <= idof < nface_nodes}",
+                "{[jdof]: 0 <= jdof < nvol_nodes}"
+            ],
+            """
+            result[iel, f, idof] = sum(jdof, mat[idof, f, jdof] * vec[iel, jdof])
+            """,
+            name="face_interp"
+        )
+        import loopy as lp
+        from meshmode.transform_metadata import (
+                ConcurrentElementInameTag, ConcurrentDOFInameTag)
+        return lp.tag_inames(t_unit, {
+            "iel": ConcurrentElementInameTag(),
+            "idof": ConcurrentDOFInameTag()})
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(prg(),
+                            mat=surface_quadrature_interpolation_matrix(
+                                actx,
+                                base_element_group=bgrp,
+                                quad_face_element_group=qfgrp,
+                                dtype=dtype
+                            ),
+                            vec=vec_i)["result"]
+            for bgrp, qfgrp, vec_i in zip(
+                discr.groups, quad_face_discr.groups, vec)
         )
     )
 
