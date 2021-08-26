@@ -741,14 +741,12 @@ class EntropyStableEulerOperator(EulerOperator):
         #               -V_f.T B_d (f*_d - f(q_f)))
         from grudge.sbp_op import inverse_sbp_mass, sbp_lift_operator
 
-        dqhat = inverse_sbp_mass(dcoll, -VhTQF1 - sbp_lift_operator(dcoll, f_bdry))
+        VfTBFbdry = sbp_lift_operator(dcoll, df, f_bdry)
+        dqhat = inverse_sbp_mass(dcoll, dq, -VhTQF1 - VfTBFbdry)
         print("Finished applying mass and lifting operators.")
 
-        print("Converting state arrays to nodal data...")
-        # NOTE: Convert data back to nodal
-        dq = self.map_to_nodal(dqhat)
-        print("Finished converting state arrays.")
+        1/0
 
-        return dq
+        return dqhat
 
 # }}}
