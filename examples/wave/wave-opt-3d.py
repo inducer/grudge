@@ -75,7 +75,7 @@ class IndirectAccessChecker(CombineMapper):
 class HopefullySmartPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
 
-    DO_CSE = False
+    DO_CSE = True
 
     def transform_dag(self, dag):
         import pytato as pt
@@ -146,15 +146,66 @@ class HopefullySmartPytatoArrayContext(
                      if isinstance(insn, lp.NoOpInstruction)}
             knl = lp.remove_instructions(knl, noops)
 
-            # add the 2 gbarriers
+            # {{{ CSE kernels
+
+            cse_kernel1 = {"cse", "cse_0", "cse_6", "cse_8", "cse_4"}
+            cse_kernel2 = {"cse_1", "cse_2", "cse_3", "cse_5", "cse_7", "cse_9",
+                           "cse_10", "cse_11", "cse_31", "cse_33", "cse_35"}
+            cse_kernel3 = {"cse_12", "cse_13", "cse_14", "cse_15", "cse_16",
+                           "cse_17", "cse_18", "cse_19", "cse_20", "cse_21",
+                           "cse_22", "cse_23", "cse_24", "cse_25", "cse_26",
+                           "cse_27", "cse_28", "cse_29", "cse_30", "cse_32",
+                           "cse_34", "cse_36"}
+
+            cse_kernel1_outputs = {"cse", "cse_0", "cse_4", "cse_6", "cse_8"}
+            cse_kernel2_outputs = {"cse_11", "cse_31", "cse_33", "cse_35"}
+            cse_kernel3_outputs = {"cse_30", "cse_32", "cse_34", "cse_36"}
+
+            assert len(cse_kernel1 & cse_kernel2)
+            assert len(cse_kernel3 & cse_kernel2)
+            assert len(cse_kernel3 & cse_kernel1)
+            assert len(cse_kernel1 | cse_kernel2 | cse_kernel3) == 38
+            assert ((cse_kernel1 | cse_kernel2 | cse_kernel3)
+                    < set(knl.temporary_variables))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join(f"writes: {var_name}"
+                                  for var_name in cse_kernel1),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join(f"writes: {var_name}"
+                                  for var_name in cse_kernel2),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join(f"writes: {var_name}"
+                                  for var_name in cse_kernel3),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
+
+            # Step 1: Fuse all the loops in each of these CSE kernels
+            # Step 2: Precompute the "non-output" global temporaries to private
+            # variables
+            raise NotImplementedError
+
+            # }}}
+
+            # add the 5 gbarriers
+            knl = lp.add_barrier(knl,
+                                 insn_before="tag:cse_knl1",
+                                 insn_after="tag:cse_knl2")
+            knl = lp.add_barrier(knl,
+                                 insn_before="tag:cse_knl2",
+                                 insn_after="tag:cse_knl3")
+            knl = lp.add_barrier(knl,
+                                 insn_before="tag:cse_knl3",
+                                 insn_after="writes:rstrct_vals*")
             knl = lp.add_barrier(knl,
                                  insn_before="writes:rstrct_vals*",
-                                 insn_after="iname:face_iel*",
-                                 within_inames=frozenset())
+                                 insn_after="iname:face_iel*")
             knl = lp.add_barrier(knl,
                                  insn_before="iname:face_iel*",
-                                 insn_after="writes:_pt_out*",
-                                 within_inames=frozenset())
+                                 insn_after="writes:_pt_out*")
 
             # {{{ Plot the digraph of the CSEs
 
