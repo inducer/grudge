@@ -107,6 +107,120 @@ def surface_quadrature_interpolation_matrix(
     return get_surface_vand(base_element_group, quad_face_element_group)
 
 
+def quadrature_volume_interpolation(dcoll: DiscretizationCollection, dq, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: quadrature_volume_interpolation(dcoll, dq, el), vec)
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd("vol")
+    quad_discr = dcoll.discr_from_dd(dq)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej->ei",
+                        volume_quadrature_interpolation_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            quad_element_group=qgrp
+                        ),
+                        vec_i,
+                        arg_names=("Vq_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
+        )
+    )
+
+
+def map_to_nodal_from_volume(dcoll: DiscretizationCollection, dq, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: map_to_nodal_from_volume(dcoll, dq, el), vec)
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd("vol")
+    quad_discr = dcoll.discr_from_dd(dq)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ji,ej->ei",
+                        volume_quadrature_interpolation_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            quad_element_group=qgrp
+                        ),
+                        vec_i,
+                        arg_names=("Vq_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
+        )
+    )
+
+
+def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: quadrature_surface_interpolation(dcoll, df, el), vec)
+
+    actx = vec.array_context
+    dtype = vec.entry_dtype
+    discr = dcoll.discr_from_dd("vol")
+    quad_face_discr = dcoll.discr_from_dd(df)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej->ei",
+                        surface_quadrature_interpolation_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            quad_face_element_group=qfgrp,
+                            dtype=dtype
+                        ),
+                        vec_i,
+                        arg_names=("Vf_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qfgrp, vec_i in zip(discr.groups,
+                                          quad_face_discr.groups, vec)
+        )
+    )
+
+
+def map_to_nodal_from_surface(dcoll: DiscretizationCollection, df, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda el: map_to_nodal_from_surface(dcoll, df, el), vec)
+
+    actx = vec.array_context
+    dtype = vec.entry_dtype
+    discr = dcoll.discr_from_dd("vol")
+    quad_face_discr = dcoll.discr_from_dd(df)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ji,ej->ei",
+                        surface_quadrature_interpolation_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            quad_face_element_group=qfgrp,
+                            dtype=dtype
+                        ),
+                        vec_i,
+                        arg_names=("Vf_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qfgrp, vec_i in zip(discr.groups,
+                                          quad_face_discr.groups, vec)
+        )
+    )
+
+
 def quadrature_based_mass_matrix(
     actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
@@ -198,192 +312,42 @@ def quadrature_project(dcoll: DiscretizationCollection, dd_q, vec):
     )
 
 
-def quadrature_volume_interpolation(dcoll: DiscretizationCollection, dq, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: quadrature_volume_interpolation(dcoll, dq, el), vec)
-
-    actx = vec.array_context
-    discr = dcoll.discr_from_dd("vol")
-    quad_discr = dcoll.discr_from_dd(dq)
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej->ei",
-                        volume_quadrature_interpolation_matrix(
-                            actx,
-                            base_element_group=bgrp,
-                            quad_element_group=qgrp
-                        ),
-                        vec_i,
-                        arg_names=("Vq_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
-
-            for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
-        )
-    )
-
-
-def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: quadrature_surface_interpolation(dcoll, df, el), vec)
-
-    actx = vec.array_context
-    dtype = vec.entry_dtype
-    discr = dcoll.discr_from_dd("vol")
-    quad_face_discr = dcoll.discr_from_dd(df)
-
-    @memoize_in(actx, (quadrature_surface_interpolation, "face_interp_knl"))
-    def prg():
-        t_unit = make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof]: 0 <= idof < nface_nodes}",
-                "{[jdof]: 0 <= jdof < nvol_nodes}"
-            ],
-            """
-            result[iel, idof] = sum(jdof, mat[idof, jdof] * vec[iel, jdof])
-            """,
-            name="face_interp"
-        )
-        import loopy as lp
-        from meshmode.transform_metadata import (
-                ConcurrentElementInameTag, ConcurrentDOFInameTag)
-        return lp.tag_inames(t_unit, {
-            "iel": ConcurrentElementInameTag(),
-            "idof": ConcurrentDOFInameTag()})
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.call_loopy(prg(),
-                            mat=surface_quadrature_interpolation_matrix(
-                                actx,
-                                base_element_group=bgrp,
-                                quad_face_element_group=qfgrp,
-                                dtype=dtype
-                            ),
-                            vec=vec_i)["result"]
-            for bgrp, qfgrp, vec_i in zip(
-                discr.groups, quad_face_discr.groups, vec)
-        )
-    )
-
-
-def quadrature_based_stiffness_matrices(
-    actx: ArrayContext, base_element_group, quad_element_group):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, quadrature_based_stiffness_matrices,
-        lambda base_grp, quad_grp: (base_grp.discretization_key(),
-                                    quad_grp.discretization_key()))
-    def get_quad_ref_derivative_mats(base_grp, quad_grp):
-        from modepy import vandermonde
-        from meshmode.discretization.poly_element import diff_matrices
-
-        vand = vandermonde(base_grp.basis_obj().functions, base_grp.unit_nodes)
-        vdm_inv = np.linalg.inv(vand)
-
-        mass_mat = actx.to_numpy(
-            thaw(quadrature_based_mass_matrix(actx, base_grp, quad_grp), actx)
-        )
-        p_mat = actx.to_numpy(
-            thaw(
-                quadrature_based_l2_projection_matrix(actx, base_grp, quad_grp),
-                actx
-            )
-        )
-        return actx.freeze(
-            actx.from_numpy(
-                np.asarray(
-                    # NOTE: need to use a modal differentiation matrix:
-                    # D_modal = V^{-1} D_nodal
-                    [p_mat.T @ mass_mat @ diff_mat @ vdm_inv @ p_mat
-                     for diff_mat in diff_matrices(base_grp)]
-                )
-            )
-        )
-
-    return get_quad_ref_derivative_mats(base_element_group, quad_element_group)
-
-
-def surface_extrapolation_matrix(
-    actx: ArrayContext, face_element_group, vol_element_group):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, surface_extrapolation_matrix,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
-    def get_surface_extrapolation_mat(face_grp, vol_grp):
-        import modepy as mp
-
-        # Special case for 1-D where faces are 0-dim vertices
-        if vol_grp.dim == 1:
-            all_surface_nodes = np.array([[-1.0, 1.0]])
-        else:
-            surface_quad_nodes = face_grp.unit_nodes
-            faces = mp.faces_for_shape(vol_grp.shape)
-            nfaces = len(faces)
-
-            all_surface_nodes = faces[0].map_to_volume(surface_quad_nodes)
-            for fidx in range(1, nfaces):
-                all_surface_nodes = np.append(
-                    all_surface_nodes,
-                    faces[fidx].map_to_volume(surface_quad_nodes), 1
-                )
-
-        basis = vol_grp.basis_obj()
-        vand_face = mp.vandermonde(basis.functions, all_surface_nodes)
-        quad_l2_proj_mat = \
-            actx.to_numpy(
-                thaw(quadrature_based_l2_projection_matrix(actx, vol_grp), actx)
-            )
-
-        return actx.freeze(actx.from_numpy(vand_face @ quad_l2_proj_mat))
-
-    return get_surface_extrapolation_mat(face_element_group, vol_element_group)
-
-
 def boundary_matrices(
-    actx: ArrayContext, face_element_group, vol_element_group):
+    actx: ArrayContext, base_element_group, face_quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, boundary_matrices,
         lambda face_grp, vol_grp: (face_grp.discretization_key(),
                                    vol_grp.discretization_key()))
-    def get_ref_boundary_mats(face_grp, vol_grp):
-        import modepy as mp
+    def get_ref_boundary_mats(base_grp, face_quad_grp):
+        from modepy import faces_for_shape, face_normal
 
-        faces = mp.faces_for_shape(vol_grp.shape)
-        face_normals = [mp.face_normal(face) for face in faces]
+        faces = faces_for_shape(base_grp.shape)
+        # NOTE: assumes affine cells (normal components constant)
+        face_normals = [face_normal(face) for face in faces]
         # NOTE: assumes same quadrature rule on all faces
-        face_quad_weights = face_grp.weights
+        face_quad_weights = face_quad_grp.weights
         nfaces = len(faces)
 
-        mats = []
-        for dim in range(vol_grp.dim):
-            bdry_mat_i = np.diag(
-                np.concatenate(
-                    [face_quad_weights*face_normals[i][dim]
-                     for i in range(nfaces)]
+        return actx.freeze(
+            actx.from_numpy(
+                np.asarray(
+                    [np.diag(
+                        np.concatenate([face_quad_weights*face_normals[i][dim]
+                                        for i in range(nfaces)])
+                    ) for dim in range(base_grp.dim)]
                 )
             )
-            mats.append(bdry_mat_i)
+        )
 
-        return actx.freeze(actx.from_numpy(np.asarray(mats)))
-
-    return get_ref_boundary_mats(face_element_group, vol_element_group)
+    return get_ref_boundary_mats(base_element_group, face_quad_element_group)
 
 
 def hybridized_sbp_operators(
         actx: ArrayContext,
         face_element_group, face_quad_element_group,
-        vol_element_group, vol_quad_element_group):
+        vol_element_group, vol_quad_element_group, dtype):
     """todo.
     """
     @keyed_memoize_in(
@@ -396,21 +360,44 @@ def hybridized_sbp_operators(
         )
     )
     def get_hybridized_sbp_mats(face_grp, quad_face_grp, vol_grp, quad_vol_grp):
-        q_mats = actx.to_numpy(
-            thaw(quadrature_based_stiffness_matrices(actx, vol_grp), actx)
+        from modepy import vandermonde
+        from meshmode.discretization.poly_element import diff_matrices
+
+        vand = vandermonde(vol_grp.basis_obj().functions, vol_grp.unit_nodes)
+        vdm_inv = np.linalg.inv(vand)
+        mass_mat = actx.to_numpy(
+            thaw(quadrature_based_mass_matrix(actx, vol_grp, quad_vol_grp), actx)
         )
-        e_mat = actx.to_numpy(
-            thaw(surface_extrapolation_matrix(actx, face_grp, vol_grp), actx)
+        p_mat = actx.to_numpy(
+            thaw(
+                quadrature_based_l2_projection_matrix(actx, vol_grp, quad_vol_grp),
+                actx
+            )
+        )
+        vf_mat = actx.to_numpy(
+            thaw(
+                surface_quadrature_interpolation_matrix(actx, vol_grp,
+                                                        quad_face_grp,
+                                                        dtype=dtype),
+                actx
+            )
         )
         b_mats = actx.to_numpy(
-            thaw(boundary_matrices(actx, face_grp, vol_grp), actx)
+            thaw(boundary_matrices(actx, vol_grp, quad_face_grp), actx)
         )
-        qhi = np.asarray(
+        q_mats = np.asarray(
+            # NOTE: need to use a modal differentiation matrix:
+            # D_modal = V^{-1} D_nodal
+            [p_mat.T @ mass_mat @ diff_mat @ vdm_inv @ p_mat
+                for diff_mat in diff_matrices(vol_grp)]
+        )
+        e_mat = vf_mat @ p_mat
+        q_skew_hybridized = np.asarray(
             [0.5 * np.block([[q_mats[dim] - q_mats[dim].T, e_mat.T @ b_mats[dim]],
                              [-b_mats[dim] @ e_mat, b_mats[dim]]])
              for dim in range(vol_grp.dim)]
         )
-        return actx.freeze(actx.from_numpy(qhi))
+        return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
     return get_hybridized_sbp_mats(
         face_element_group, face_quad_element_group,
@@ -464,6 +451,7 @@ def inverse_sbp_mass(dcoll: DiscretizationCollection, vec):
     return _apply_inverse_sbp_mass_operator(
         dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
     )
+
 
 def sbp_lifting_matrix(
         actx: ArrayContext, face_element_group, vol_element_group, dtype):
