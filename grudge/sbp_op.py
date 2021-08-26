@@ -94,12 +94,15 @@ def surface_quadrature_interpolation_matrix(
         # NOTE: Assumes same quadrature rule on each face
         face_quadrature = quad_face_grp.quadrature_rule()
 
-        for iface, face in enumerate(faces):
-            mapped_nodes = face.map_to_volume(face_quadrature.nodes)
-            matrix[:, iface, :] = \
-                vandermonde(basis.functions, mapped_nodes) @ vdm_inv
-
-        return actx.freeze(actx.from_numpy(matrix))
+        surface_nodes = np.concatenate(
+            [face.map_to_volume(face_quadrature.nodes) for face in faces],
+            axis=1
+        )
+        return actx.freeze(
+            actx.from_numpy(
+                vandermonde(basis.functions, surface_nodes) @ vdm_inv
+            )
+        )
 
     return get_surface_vand(base_element_group, quad_face_element_group)
 
@@ -237,12 +240,11 @@ def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
         t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
-                "{[f]: 0 <= f < nfaces}",
                 "{[idof]: 0 <= idof < nface_nodes}",
                 "{[jdof]: 0 <= jdof < nvol_nodes}"
             ],
             """
-            result[iel, f, idof] = sum(jdof, mat[idof, f, jdof] * vec[iel, jdof])
+            result[iel, idof] = sum(jdof, mat[idof, jdof] * vec[iel, jdof])
             """,
             name="face_interp"
         )
@@ -270,37 +272,42 @@ def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
     )
 
 
-def quadrature_based_stiffness_matrices(actx: ArrayContext, element_group):
+def quadrature_based_stiffness_matrices(
+    actx: ArrayContext, base_element_group, quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, quadrature_based_stiffness_matrices,
-        lambda grp: grp.discretization_key())
-    def get_quad_ref_derivative_mats(grp):
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_quad_ref_derivative_mats(base_grp, quad_grp):
         from modepy import vandermonde
         from meshmode.discretization.poly_element import diff_matrices
 
-        vand = vandermonde(grp.basis_obj().functions, grp.unit_nodes)
-        V_inv = np.linalg.inv(vand)
+        vand = vandermonde(base_grp.basis_obj().functions, base_grp.unit_nodes)
+        vdm_inv = np.linalg.inv(vand)
 
-        M_mat = actx.to_numpy(
-            thaw(quadrature_based_mass_matrix(actx, grp), actx)
+        mass_mat = actx.to_numpy(
+            thaw(quadrature_based_mass_matrix(actx, base_grp, quad_grp), actx)
         )
-        P_mat = actx.to_numpy(
-            thaw(quadrature_based_l2_projection_matrix(actx, grp), actx)
+        p_mat = actx.to_numpy(
+            thaw(
+                quadrature_based_l2_projection_matrix(actx, base_grp, quad_grp),
+                actx
+            )
         )
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
                     # NOTE: need to use a modal differentiation matrix:
                     # D_modal = V^{-1} D_nodal
-                    [P_mat.T @ M_mat @ V_inv @ D_mat @ P_mat
-                     for D_mat in diff_matrices(grp)]
+                    [p_mat.T @ mass_mat @ diff_mat @ vdm_inv @ p_mat
+                     for diff_mat in diff_matrices(base_grp)]
                 )
             )
         )
 
-    return get_quad_ref_derivative_mats(element_group)
+    return get_quad_ref_derivative_mats(base_element_group, quad_element_group)
 
 
 def surface_extrapolation_matrix(
@@ -374,14 +381,21 @@ def boundary_matrices(
 
 
 def hybridized_sbp_operators(
-        actx: ArrayContext, face_element_group, vol_element_group):
+        actx: ArrayContext,
+        face_element_group, face_quad_element_group,
+        vol_element_group, vol_quad_element_group):
     """todo.
     """
     @keyed_memoize_in(
         actx, hybridized_sbp_operators,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
-    def get_hybridized_sbp_mats(face_grp, vol_grp):
+        lambda face_grp, quad_face_grp, vol_grp, quad_vol_grp: (
+            face_grp.discretization_key(),
+            quad_face_grp.discretization_key(),
+            vol_grp.discretization_key(),
+            quad_vol_grp.discretization_key()
+        )
+    )
+    def get_hybridized_sbp_mats(face_grp, quad_face_grp, vol_grp, quad_vol_grp):
         q_mats = actx.to_numpy(
             thaw(quadrature_based_stiffness_matrices(actx, vol_grp), actx)
         )
@@ -398,7 +412,10 @@ def hybridized_sbp_operators(
         )
         return actx.freeze(actx.from_numpy(qhi))
 
-    return get_hybridized_sbp_mats(face_element_group, vol_element_group)
+    return get_hybridized_sbp_mats(
+        face_element_group, face_quad_element_group,
+        vol_element_group, vol_quad_element_group
+    )
 
 
 def _apply_inverse_sbp_mass_operator(
