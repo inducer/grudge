@@ -324,9 +324,25 @@ def boundary_matrices(
     def get_ref_boundary_mats(base_grp, face_quad_grp):
         from modepy import faces_for_shape, face_normal
 
+        dim = base_grp.dim
         faces = faces_for_shape(base_grp.shape)
-        # NOTE: assumes affine cells (normal components constant)
-        face_normals = [face_normal(face) for face in faces]
+        # FIXME: missing scaling factors here, need J_f (Jacobian det of the
+        # change of coordinates to the reference face.).
+        # face_normals = [face_normal(face, normalize=True) for face in faces]
+        # Hard-coding this in for now for simplices:
+        if dim == 1:
+            nrstJ = [np.array([-1.]), np.array([1.])]
+        elif dim == 2:
+            nrstJ = [np.array([ 0., -1.]),
+                     np.array([-1.,  0.]),
+                     np.array([1., 1.])]
+        else:
+            assert dim == 3
+            nrstJ = [np.array([ 0.,  0., -1.]),
+                     np.array([ 0., -1.,  0.]),
+                     np.array([-1.,  0.,  0.]),
+                     np.array([1.,  1.,  1.])]
+
         # NOTE: assumes same quadrature rule on all faces
         face_quad_weights = face_quad_grp.weights
         nfaces = len(faces)
@@ -335,9 +351,9 @@ def boundary_matrices(
             actx.from_numpy(
                 np.asarray(
                     [np.diag(
-                        np.concatenate([face_quad_weights*face_normals[i][dim]
+                        np.concatenate([face_quad_weights*nrstJ[i][d]
                                         for i in range(nfaces)])
-                    ) for dim in range(base_grp.dim)]
+                    ) for d in range(base_grp.dim)]
                 )
             )
         )
@@ -375,6 +391,14 @@ def hybridized_sbp_operators(
                 actx
             )
         )
+        vq_mat = actx.to_numpy(
+            thaw(
+                volume_quadrature_interpolation_matrix(actx, vol_grp,
+                                                       quad_vol_grp),
+                actx
+            )
+        )
+        w_q_mat = np.diag(quad_vol_grp.quadrature_rule().weights)
         vf_mat = actx.to_numpy(
             thaw(
                 surface_quadrature_interpolation_matrix(actx, vol_grp,
@@ -387,13 +411,13 @@ def hybridized_sbp_operators(
             thaw(boundary_matrices(actx, vol_grp, quad_face_grp), actx)
         )
         q_mats = np.asarray(
-            [p_mat.T @ mass_mat @ diff_mat @ vdm_inv @ p_mat
+            [p_mat.T @ mass_mat @ diff_mat @ p_mat
                 for diff_mat in diff_matrices(vol_grp)]
         )
         e_mat = vf_mat @ p_mat
-        q_skew_hybridized = np.asarray(
-            [0.5 * np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
-                             [-b_mats[d] @ e_mat, b_mats[d]]])
+        q_skew_hybridized = 0.5 * np.asarray(
+            [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
+                       [-b_mats[d] @ e_mat, b_mats[d]]])
              for d in range(vol_grp.dim)]
         )
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
