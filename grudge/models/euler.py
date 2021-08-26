@@ -479,7 +479,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     return fS_mass, fS_energy, fS_momentum
 
 
-def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
+def flux_differencing_kernel(actx, dcoll, dq, df, state, state_faces, gamma=1.4):
     """Computes the flux differencing operation: ∑_j 2Q[i, j] * f_S(q_i, q_j),
     where Q is a hybridized SBP derivative matrix and f_S is
     an entropy-conservative two-point flux.
@@ -490,27 +490,42 @@ def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
     from grudge.sbp_op import hybridized_sbp_operators
     from grudge.geometry import area_element, inverse_metric_derivative_mat
 
-    state_faces = op.project(dcoll, "vol", "all_faces", state)
     mesh = dcoll.mesh
     dim = dcoll.dim
+    dtype = state[0].entry_dtype
 
     volm_discr = dcoll.discr_from_dd("vol")
     face_discr = dcoll.discr_from_dd("all_faces")
+    volm_quad_discr = dcoll.discr_from_dd(dq)
+    face_quad_discr = dcoll.discr_from_dd(df)
 
     # Geometry terms for building the physical derivative operators
     jacobian_dets = area_element(actx, dcoll)
     geo_factors = inverse_metric_derivative_mat(actx, dcoll)
 
     # Group loop
+    QF_mass_data = []
+    QF_energy_data = []
+    QF_momentum_data = []
+    QF_mass_face_data = []
+    QF_energy_face_data = []
+    QF_momentum_face_data = []
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
-        Nq_vol = vgrp.nunit_dofs
-        Nq_faces = vgrp.shape.nfaces * fgrp.nunit_dofs
+        vqgrp = volm_quad_discr.groups[gidx]
+        fqgrp = face_quad_discr.groups[gidx]
+
+        Nelements = mgrp.nelements
+        Nq_vol = vqgrp.nunit_dofs
+        Nq_faces = vqgrp.shape.nfaces * fqgrp.nunit_dofs
         Nq_total = Nq_vol + Nq_faces
 
         # Get SBP hybridized derivative operators (as numpy arrays)
-        qmats = actx.to_numpy(hybridized_sbp_operators(actx, fgrp, vgrp))
+        qmats = actx.to_numpy(
+            thaw(hybridized_sbp_operators(actx, fgrp, fqgrp,
+                                          vgrp, vqgrp, dtype), actx)
+        )
 
         # Get geometry factors for the group *gidx*
         jac_k = actx.to_numpy(jacobian_dets[gidx])
@@ -520,29 +535,21 @@ def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
              for row in range(dim)]
         )
 
-        # Reshape face data
-        mass_f = state_faces[0][gidx].reshape(
-            vgrp.nelements,
-            vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
-        )
-        energy_f = state_faces[1][gidx].reshape(
-            vgrp.nelements,
-            vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
-        )
-        momentum_f = [
-            state_faces[2:dim+2][d][gidx].reshape(
-                vgrp.nelements,
-                vgrp.mesh_el_group.nfaces*fgrp.nunit_dofs
-            ) for d in range(dim)
-        ]
-
+        # group arrays for the Hadamard row-sum
+        QF_mass = np.empty(shape=(Nelements, Nq_vol), dtype=dtype)
+        QF_energy = np.empty(shape=(Nelements, Nq_vol), dtype=dtype)
+        QF_momentum = np.empty(shape=(dim, Nelements, Nq_vol), dtype=dtype)
+        QF_mass_faces = np.empty(shape=(Nelements, Nq_faces), dtype=dtype)
+        QF_energy_faces = np.empty(shape=(Nelements, Nq_faces), dtype=dtype)
+        QF_momentum_faces = np.empty(shape=(dim, Nelements, Nq_faces),
+                                     dtype=dtype)
         # Element loop
-        for eidx in range(mgrp.nelements):
+        for eidx in range(Nelements):
 
             # Local arrays for the Hadamard row-sum
-            QF_mass = np.zeros(shape=(Nq_total,))
-            QF_energy = np.zeros(shape=(Nq_total,))
-            QF_momentum = np.zeros(shape=(dim, Nq_total))
+            QF_rho = np.zeros(shape=(Nq_total,))
+            QF_rhoe = np.zeros(shape=(Nq_total,))
+            QF_rhou = np.zeros(shape=(dim, Nq_total))
 
             # NOTE: Assumes affine (jacobian det is constant in each cell)
             j_k = jac_k[eidx][0]
@@ -550,16 +557,17 @@ def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
             # Element-local state data (concatenated vol + surface quad data)
             local_mass = np.concatenate(
                 [actx.to_numpy(state[0][gidx][eidx]),
-                 actx.to_numpy(mass_f[eidx])]
+                 actx.to_numpy(state_faces[0][gidx][eidx])]
             )
             local_energy = np.concatenate(
                 [actx.to_numpy(state[1][gidx][eidx]),
-                 actx.to_numpy(energy_f[eidx])]
+                 actx.to_numpy(state_faces[1][gidx][eidx])]
             )
             local_momentum = np.array(
-                [np.concatenate([actx.to_numpy(state[2:dim+2][d][gidx][eidx]),
-                                 actx.to_numpy(momentum_f[d][eidx])])
-                 for d in range(dim)]
+                [np.concatenate(
+                    [actx.to_numpy(state[2:dim+2][d][gidx][eidx]),
+                     actx.to_numpy(state_faces[2:dim+2][d][gidx][eidx])]
+                ) for d in range(dim)]
             )
 
             # Compute flux differencing in each cell and apply the
@@ -589,22 +597,26 @@ def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
                         f_mass, f_energy, f_momentum = \
                             flux_chandrashekar(q_i, q_j, d, gamma=gamma)
 
-                        QF_mass[i] += 2*Q[i, j] * f_mass
-                        QF_energy[i] += 2*Q[i, j] * f_energy
-                        QF_momentum[:, i] += 2*Q[i, j] * f_momentum
+                        QF_rho[i] += 2*Q[i, j] * f_mass
+                        QF_rhoe[i] += 2*Q[i, j] * f_energy
+                        QF_rhou[:, i] += 2*Q[i, j] * f_momentum
 
-            QF_mass_v = QF_mass[:Nq_vol]
-            QF_mass_f = QF_mass[Nq_vol:Nq_vol+Nq_faces]
-            QF_energy_v = QF_energy[:Nq_vol]
-            QF_energy_f = QF_energy[Nq_vol:Nq_vol+Nq_faces]
-            QF_momentum_v = QF_momentum[:, :Nq_vol]
-            QF_momentum_f = QF_momentum[:, Nq_vol:Nq_vol+Nq_faces]
+            QF_mass[eidx, :] = QF_rho[:Nq_vol]
+            QF_mass_faces[eidx, :] = QF_rho[Nq_vol:Nq_vol+Nq_faces]
+            QF_energy[eidx, :] = QF_rhoe[:Nq_vol]
+            QF_energy_faces[eidx, :] = QF_rhoe[Nq_vol:Nq_vol+Nq_faces]
+            QF_momentum[:, eidx, :] = QF_rhou[:, :Nq_vol]
+            QF_momentum_faces[:, eidx, :] = QF_rhou[:, Nq_vol:Nq_vol+Nq_faces]
 
         # Append group data
         QF_mass_data.append(actx.from_numpy(QF_mass))
         QF_energy_data.append(actx.from_numpy(QF_energy))
         QF_momentum_data.append([actx.from_numpy(QF_momentum[d])
                                  for d in range(dim)])
+        QF_mass_face_data.append(actx.from_numpy(QF_mass_faces))
+        QF_energy_face_data.append(actx.from_numpy(QF_energy_faces))
+        QF_momentum_face_data.append([actx.from_numpy(QF_momentum_faces[d])
+                                      for d in range(dim)])
 
     # Convert back to mirgecom-like data structure
     QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_mass_data))
@@ -621,7 +633,21 @@ def flux_differencing_kernel(actx, dcoll, state, gamma=1.4):
     result[1] = QF_energy_dof_ary
     result[2:dim+2] = QF_momentum_dof_ary
 
-    return result
+    QF_mass_face_dof_ary = DOFArray(actx, data=tuple(QF_mass_face_data))
+    QF_energy_face_dof_ary = DOFArray(actx, data=tuple(QF_energy_face_data))
+    QF_momentum_face_dof_ary = make_obj_array(
+        [DOFArray(actx,
+                  data=tuple(mom_data[d]
+                             for mom_data in QF_momentum_face_data))
+                  for d in range(dim)]
+    )
+
+    result_faces = np.empty((2+dim,), dtype=object)
+    result_faces[0] = QF_mass_face_dof_ary
+    result_faces[1] = QF_energy_face_dof_ary
+    result_faces[2:dim+2] = QF_momentum_face_dof_ary
+
+    return result, result_faces
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -635,23 +661,40 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q[0].array_context
 
+        from grudge.sbp_op import \
+            quadrature_volume_interpolation, quadrature_surface_interpolation
+
         print("Interpolating to quadrature grid...")
-        qq = op.project(dcoll, "vol", dq, q)
+        # NOTE: Compute qq = Vq * q
+        qq = quadrature_volume_interpolation(dcoll, dq, q)
         print("Finished interpolating to quadrature grid.")
 
         print("Computing auxiliary conservative variables...")
-        v = conservative_to_entropy_vars(dcoll, qq, gamma=self.gamma)
+        # NOTE: Compute the entropy variables from state data: vq = v(qq)
+        vq = conservative_to_entropy_vars(dcoll, qq, gamma=self.gamma)
 
         from grudge.sbp_op import quadrature_project
 
         print("Projecting entropy variables...")
-        vtilde = quadrature_project(dcoll, dq, v)
+        # NOTE: Project the entropy variables to get modal coefficients
+        # v = Pq * vq
+        v = quadrature_project(dcoll, dq, vq)
+        # Interpolate coefficients to quadrature grid:
+        # vtildeq = Vq * v
+        # vtildef = Vf * v
+        vtildeq = quadrature_volume_interpolation(dcoll, dq, v)
+        vtildef = quadrature_surface_interpolation(dcoll, df, v)
 
         print("Forming state in terms of projected entropy variables...")
-        qtilde = entropy_to_conservative_vars(dcoll, vtilde, gamma=self.gamma)
+        # NOTE: Construct the "auxiliary conservative variables" using
+        # the projected entropy variables:
+        # qtilde = q(vtildeq)
+        # qtilde_face = q(vtildeqf)
+        qtilde = entropy_to_conservative_vars(
+            dcoll, vtildeq, gamma=self.gamma)
+        qtilde_face = entropy_to_conservative_vars(
+            dcoll, vtildef, gamma=self.gamma)
         print("Finished auxiliary conservative variables.")
-
-        1/0
 
         print("Performing volume flux differencing...")
         # NOTE: Performs flux differencing in the volume of cells, requires
@@ -661,14 +704,24 @@ class EntropyStableEulerOperator(EulerOperator):
         # where Q_d is the hybridized SBP operator for the d-th dimension axis,
         # and F_d is an entropy conservative two-point flux. The routine
         # computes the Hadamard (element-wise) multiplication + row sum:
-        # VhTQF1 = [V_q; V_f].T @ (∑_d (2Q_d * F_d)1)
-        VhTQF1 = flux_differencing_kernel(actx, dcoll, qhat, self.gamma)
+        # [QF1q, QF1f] = (∑_d (2Q_d * F_d)1)
+        QF1q, QF1f = flux_differencing_kernel(actx, dcoll, dq, df,
+                                              qtilde, qtilde_face, self.gamma)
         print("Finished volume flux differencing.")
+
+        from grudge.sbp_op import \
+            map_to_nodal_from_volume, map_to_nodal_from_surface
+
+        print("Applying [Vq; Vf].T...")
+        VqTQF1q = map_to_nodal_from_volume(dcoll, dq, QF1q)
+        VfTQF1f = map_to_nodal_from_surface(dcoll, df, QF1f)
+        VhTQF1 = VqTQF1q + VfTQF1f
+        print("Finished applying [Vq; Vf].T")
 
         print("Computing interface numerical fluxes...")
         # NOTE: Lastly, we compute the numerical fluxes across neighboring
         # elements, plus the surface contribution from the flux differencing:
-        # QF_f + V_f.T B_i (f*_i - f(q_f))
+        # V_f.T B_i (f*_i - f(qtilde_faces))
         nodes = thaw(dcoll.nodes(), actx)
         f_bdry = (
             sum(self.numerical_flux(tpair)
