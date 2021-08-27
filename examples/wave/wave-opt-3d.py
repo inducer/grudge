@@ -68,7 +68,10 @@ class IndirectAccessChecker(CombineMapper):
     def map_variable(self, expr):
         return False
 
-    def map_constant(self, exrpr):
+    def map_constant(self, expr):
+        return False
+
+    def map_resolved_function(self, expr):
         return False
 
 
@@ -130,6 +133,27 @@ class HopefullySmartPytatoArrayContext(
 
         dag = pt.transform.map_and_copy(dag,
                                         eliminate_reshapes_of_data_wrappers)
+
+        # }}}
+
+        # {{{ materialize inverse mass inputs
+
+        def materialize_inverse_mass_inputs(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "ei,ij,ej->ei":
+                    arg1, arg2, arg3 = expr.args
+                    return pt.einsum(my_tag.spec,
+                                     arg1,
+                                     arg2,
+                                     arg3.tagged(pt.tags.ImplementAs(
+                                         pt.tags.ImplStored("mass_inv_inp"))))
+                else:
+                    return expr
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, materialize_inverse_mass_inputs)
 
         # }}}
 
@@ -218,7 +242,37 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
-            # add the 5 gbarriers
+            # {{{ Stats
+
+            if 0:
+                from loopy.kernel.array import ArrayBase
+                from pytools import product
+                t_unit = t_unit.with_kernel(knl)
+
+                op_map = lp.get_op_map(t_unit,
+                                       subgroup_size=32)
+                f64_ops = op_map.filter_by(dtype=[np.float64],
+                                           kernel_name="_pt_kernel").eval_and_sum({})
+
+                # {{{ footprint gathering
+
+                nfootprint_bytes = 0
+
+                for ary in knl.args + list(knl.temporary_variables.values()):
+                    if (isinstance(ary, ArrayBase)
+                            and ary.address_space == lp.AddressSpace.GLOBAL):
+                        nfootprint_bytes += (product(ary.shape)
+                                             * ary.dtype.itemsize)
+
+                # }}}
+
+                print("Double-prec. GFlOps:", f64_ops * 1e-9)
+                print("Footprint GBs:", nfootprint_bytes * 1e-9)
+                1/0
+
+            # }}}
+
+            # add the 6 gbarriers
             knl = lp.add_barrier(knl,
                                  insn_before="tag:cse_knl1",
                                  insn_after="tag:cse_knl2")
@@ -233,6 +287,9 @@ class HopefullySmartPytatoArrayContext(
                                  insn_after="iname:face_iel*")
             knl = lp.add_barrier(knl,
                                  insn_before="iname:face_iel*",
+                                 insn_after="writes:mass_inv_inp*")
+            knl = lp.add_barrier(knl,
+                                 insn_before="writes:mass_inv_inp*",
                                  insn_after="writes:_pt_out*")
 
             # {{{ Plot the digraph of the CSEs
@@ -240,20 +297,22 @@ class HopefullySmartPytatoArrayContext(
             if 0 and self.DO_CSE:
                 rmap = knl.reader_map()
                 print("digraph {")
+                for arg in knl.args:
+                    print(f"  {arg.name} [shape=record]")
 
-                for tv in knl.temporary_variables.values():
+                for tv in (knl.args
+                           + list(knl.temporary_variables.values())):
                     indirect_access_checker = IndirectAccessChecker(tv.name,
                                                                     knl.all_inames())
-                    if tv.name.startswith("cse"):
-                        for insn_id in rmap.get(tv.name, ()):
-                            insn = knl.id_to_insn[insn_id]
-                            if indirect_access_checker(insn.expression):
-                                color = "red"
-                            else:
-                                color = "blue"
+                    for insn_id in rmap.get(tv.name, ()):
+                        insn = knl.id_to_insn[insn_id]
+                        if indirect_access_checker(insn.expression):
+                            color = "red"
+                        else:
+                            color = "blue"
 
-                            print(f"  {tv.name} -> {insn.assignee_name}"
-                                  f"[color={color}]")
+                        print(f"  {tv.name} -> {insn.assignee_name}"
+                              f"[color={color}]")
 
                 print("}")
                 1/0
@@ -310,7 +369,31 @@ class HopefullySmartPytatoArrayContext(
             knl = lp.rename_iname(knl, "face_iel", "iel_face_mass")
             knl = lp.rename_iname(knl, "face_idof", "idof_face_mass")
 
-            # fuse all final grad/div einsums
+            # fuse all div/grad + lift terms
+            knl = lp.rename_iname(knl,
+                                  "mass_inv_inp_dim0",
+                                  "iel_diff",
+                                  existing_ok=True)
+
+            # vol. dof
+            knl = lp.rename_iname(knl,
+                                  "mass_inv_inp_dim1",
+                                  "idof_diff",
+                                  existing_ok=True)
+            for idof in range(3):
+                # element loop
+                knl = lp.rename_iname(knl,
+                                      f"mass_inv_inp_{idof}_dim0",
+                                      "iel_diff",
+                                      existing_ok=True)
+
+                # vol. dof
+                knl = lp.rename_iname(knl,
+                                      f"mass_inv_inp_{idof}_dim1",
+                                      "idof_diff",
+                                      existing_ok=True)
+
+            # fuse all final output loops (result of inverse mass)
             for idof in range(4):
                 # element loop
                 knl = lp.rename_iname(knl,
@@ -326,10 +409,48 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
+            l_one_size = 4
+            l_zero_size = 16
+
+            # {{{ elementwise CSE kernels: elementwise parallelization
+
+            for i in range(3):
+                knl = lp.split_iname(knl, f"iel_cse_{i}", l_one_size,
+                                     inner_tag="l.1", outer_tag="g.0")
+                knl = lp.split_iname(knl, f"idof_cse_{i}", l_zero_size,
+                                     inner_tag="l.0")
+
+            # }}}
+
+            # {{{ elementwise compute at face: elementwise parallelization
+
+            knl = lp.split_iname(knl, "iel_rstrct", l_one_size,
+                                 inner_tag="l.1", outer_tag="g.0")
+            knl = lp.split_iname(knl, "iface_dof_rstrct", l_zero_size,
+                                 inner_tag="l.0")
+
+            # }}}
+
+            # {{{ einsums
+
+            knl = lp.split_iname(knl, "iel_face_mass", l_one_size,
+                                 inner_tag="l.1", outer_tag="g.0")
+            knl = lp.split_iname(knl, "idof_face_mass", l_zero_size,
+                                 inner_tag="l.0")
+
+            knl = lp.split_iname(knl, "iel_diff", l_one_size,
+                                 inner_tag="l.1", outer_tag="g.0")
+            knl = lp.split_iname(knl, "idof_diff", l_zero_size,
+                                 inner_tag="l.0")
+
+            knl = lp.split_iname(knl, "iel_out", l_one_size,
+                                 inner_tag="l.1", outer_tag="g.0")
+            knl = lp.split_iname(knl, "idof_out", l_zero_size,
+                                 inner_tag="l.0")
+
+            # }}}
+
             t_unit = t_unit.with_kernel(knl)
-            print(t_unit)
-            # print(lp.generate_code_v2(t_unit).device_code())
-            1/0
 
             return t_unit
         else:
