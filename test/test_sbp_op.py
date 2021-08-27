@@ -119,6 +119,87 @@ def test_skew_hybridized_constant_preserving(actx_factory, dim, order):
     assert bool(hopefully_zero < 1e-12)
 
 
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("order", [2, 3])
+def test_skew_hybridized_sbp_property(actx_factory, dim, order):
+    actx = actx_factory()
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+
+    nel_1d = 5
+    box_ll = -5.0
+    box_ur = 5.0
+    mesh = generate_regular_rect_mesh(
+        a=(box_ll,)*dim,
+        b=(box_ur,)*dim,
+        nelements_per_axis=(nel_1d,)*dim)
+
+    from grudge import DiscretizationCollection
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from meshmode.discretization.poly_element import \
+        default_simplex_group_factory, QuadratureSimplexGroupFactory
+
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+        }
+    )
+
+    dd_q = DOFDesc("vol", DISCR_TAG_QUAD)
+    dd_f = DOFDesc("all_faces", DISCR_TAG_QUAD)
+
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_discr = dcoll.discr_from_dd("all_faces")
+    quad_discr = dcoll.discr_from_dd(dd_q)
+    quad_face_discr = dcoll.discr_from_dd(dd_f)
+    dtype = volm_discr.zeros(actx).entry_dtype
+
+    from meshmode.discretization.poly_element import diff_matrices
+
+    for vgrp, fgrp, qgrp, qfgrp in zip(volm_discr.groups,
+                                       face_discr.groups,
+                                       quad_discr.groups,
+                                       quad_face_discr.groups):
+        mass_mat = actx.to_numpy(
+            thaw(sbp_op.quadrature_based_mass_matrix(
+                actx, vgrp, qgrp), actx)
+        )
+        p_mat = actx.to_numpy(
+            thaw(
+                sbp_op.quadrature_based_l2_projection_matrix(
+                    actx, vgrp, qgrp),
+                actx
+            )
+        )
+        vf_mat = actx.to_numpy(
+            thaw(
+                sbp_op.surface_quadrature_interpolation_matrix(
+                    actx,
+                    base_element_group=vgrp,
+                    quad_face_element_group=qfgrp,
+                    dtype=dtype
+                ), actx
+            )
+        )
+        b_mats = actx.to_numpy(
+            thaw(sbp_op.boundary_matrices(
+                actx, vgrp, qfgrp), actx)
+        )
+        q_mats = np.asarray(
+            [p_mat.T @ mass_mat @ diff_mat @ p_mat
+                for diff_mat in diff_matrices(vgrp)]
+        )
+        e_mat = vf_mat @ p_mat
+        for idx in range(dim):
+            # Checks the generalized SBP property:
+            # Qi + Qi.T = E.T @ Bi @ E
+            # c.f. Lemma 1. https://arxiv.org/pdf/1708.01243.pdf
+            assert np.allclose(q_mats[idx] + q_mats[idx].T,
+                               e_mat.T @ b_mats[idx] @ e_mat, rtol=1e-14)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
