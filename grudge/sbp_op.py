@@ -377,11 +377,8 @@ def hybridized_sbp_operators(
         )
     )
     def get_hybridized_sbp_mats(face_grp, quad_face_grp, vol_grp, quad_vol_grp):
-        from modepy import vandermonde
         from meshmode.discretization.poly_element import diff_matrices
 
-        vand = vandermonde(vol_grp.basis_obj().functions, vol_grp.unit_nodes)
-        vdm_inv = np.linalg.inv(vand)
         mass_mat = actx.to_numpy(
             thaw(quadrature_based_mass_matrix(actx, vol_grp, quad_vol_grp), actx)
         )
@@ -391,20 +388,14 @@ def hybridized_sbp_operators(
                 actx
             )
         )
-        vq_mat = actx.to_numpy(
-            thaw(
-                volume_quadrature_interpolation_matrix(actx, vol_grp,
-                                                       quad_vol_grp),
-                actx
-            )
-        )
-        w_q_mat = np.diag(quad_vol_grp.quadrature_rule().weights)
         vf_mat = actx.to_numpy(
             thaw(
-                surface_quadrature_interpolation_matrix(actx, vol_grp,
-                                                        quad_face_grp,
-                                                        dtype=dtype),
-                actx
+                surface_quadrature_interpolation_matrix(
+                    actx,
+                    base_element_group=vol_grp,
+                    quad_face_element_group=quad_face_grp,
+                    dtype=dtype
+                ), actx
             )
         )
         b_mats = actx.to_numpy(
@@ -429,20 +420,19 @@ def hybridized_sbp_operators(
 
 
 def _apply_inverse_sbp_mass_operator(
-        dcoll: DiscretizationCollection, dd_base, dd_quad, vec):
+        dcoll: DiscretizationCollection, dd_quad, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-            lambda vi: _apply_inverse_sbp_mass_operator(dcoll,
-                                                        dd_base,
-                                                        dd_quad, vi), vec
+            lambda vi: _apply_inverse_sbp_mass_operator(dcoll, dd_quad, vi),
+            vec
         )
 
     from grudge.geometry import area_element
 
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_base)
+    discr = dcoll.discr_from_dd("vol")
     quad_discr = dcoll.discr_from_dd(dd_quad)
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_quad)
+    inv_area_elements = 1./area_element(actx, dcoll)
 
     return DOFArray(
         actx,
@@ -466,12 +456,10 @@ def _apply_inverse_sbp_mass_operator(
     )
 
 
-def inverse_sbp_mass(dcoll: DiscretizationCollection, dd, vec):
+def inverse_sbp_mass(dcoll: DiscretizationCollection, dq, vec):
     """todo.
     """
-    return _apply_inverse_sbp_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dd, vec
-    )
+    return _apply_inverse_sbp_mass_operator(dcoll, dq, vec)
 
 
 def sbp_lifting_matrix(
@@ -499,13 +487,15 @@ def sbp_lifting_matrix(
         return actx.freeze(actx.from_numpy(np.asarray([vf_mat.T @ b_mats[d]
                                                        for d in range(dim)])))
 
-    return get_ref_sbp_lifting_mat(face_element_group, vol_element_group)
+    return get_ref_sbp_lifting_mat(vol_element_group, face_element_group)
 
 
-def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
+def _apply_sbp_lift_operator(
+    dcoll: DiscretizationCollection, dd_f, vec, orientation):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-            lambda vi: _apply_sbp_lift_operator(dcoll, dd_f, vi), vec
+            lambda vi: _apply_sbp_lift_operator(
+                dcoll, dd_f, vi, orientation), vec
         )
 
     from grudge.geometry import area_element
@@ -523,14 +513,13 @@ def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
         t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
-                "{[f]: 0 <= d < dim}",
                 "{[idof]: 0 <= idof < nvol_nodes}",
                 "{[jdof]: 0 <= jdof < nface_nodes}"
             ],
             """
-            result[iel, idof] = sum(d, sum(jdof, mat[d, idof, jdof]
-                                                 * jac_surf[iel, jdof]
-                                                 * vec[iel, jdof]))
+            result[iel, idof] = sum(jdof, mat[idof, jdof]
+                                          * jac_surf[iel, jdof]
+                                          * vec[iel, jdof])
             """,
             name="face_lift"
         )
@@ -544,18 +533,23 @@ def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
     return DOFArray(
         actx,
         data=tuple(
-            actx.call_loopy(prg(),
-                            mat=sbp_lifting_matrix(
-                                actx,
-                                face_element_group=afgrp,
-                                vol_element_group=vgrp,
-                                dtype=dtype
-                            ),
-                            jac_surf=surf_ae_i.reshape(
-                                vgrp.nelements,
-                                vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
-                            ),
-                            vec=vec_i)["result"]
+            actx.call_loopy(
+                prg(),
+                mat=sbp_lifting_matrix(
+                    actx,
+                    face_element_group=qfgrp,
+                    vol_element_group=vgrp,
+                    dtype=dtype
+                )[orientation],
+                jac_surf=surf_ae_i.reshape(
+                    vgrp.nelements,
+                    vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
+                ),
+                vec=vec_i.reshape(
+                    vgrp.nelements,
+                    vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
+                )
+            )["result"]
 
             for vgrp, qfgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_quad_discr.groups,
@@ -565,7 +559,7 @@ def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
     )
 
 
-def sbp_lift_operator(dcoll: DiscretizationCollection, *args):
+def sbp_lift_operator(dcoll: DiscretizationCollection, orientation, *args):
     """todo.
     """
     if len(args) == 1:
@@ -576,29 +570,23 @@ def sbp_lift_operator(dcoll: DiscretizationCollection, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_sbp_lift_operator(dcoll, dd, vec)
+    return _apply_sbp_lift_operator(dcoll, dd, vec, orientation)
 
 
-def local_interior_trace_pair(
-    dcoll: DiscretizationCollection, dd, vec) -> TracePair:
-    r"""Return a :class:`TracePair` for the interior faces of
-    *dcoll* with a discretization tag specified by *discr_tag*.
-    This does not include interior faces on different MPI ranks.
-
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s.
-    :returns: a :class:`TracePair` object.
+def local_interior_trace_pair(dcoll, vec, dd_f_interior):
+    """todo.
     """
+    from grudge.op import project
 
-    import ipdb; ipdb.set_trace()
+    # Restrict to interior faces *dd_f_interior*
+    i = project(dcoll, "vol", dd_f_interior, vec)
 
     def get_opposite_face(el):
-        if isinstance(el, Number):
-            return el
-        else:
-            return dcoll.opposite_face_connection()(el)
+        # Make sure we stay on the quadrature grid.
+        # Use Vq instead?
+        return project(dcoll, "int_faces", dd_f_interior,
+                        dcoll.opposite_face_connection()(el))
 
     e = obj_array_vectorize(get_opposite_face, i)
-    import ipdb; ipdb.set_trace()
 
-    return TracePair(dd.with_dtag("int_faces"), interior=i, exterior=e)
+    return TracePair(dd_f_interior, interior=i, exterior=e)
