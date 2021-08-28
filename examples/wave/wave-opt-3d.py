@@ -157,6 +157,26 @@ class HopefullySmartPytatoArrayContext(
 
         # }}}
 
+        # {{{ rewrite einsum node of divs
+
+        def rewrite_einsum_exprs(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "dij,ej,ej,dej->ei":
+                    arg0, arg1, arg2, arg3 = expr.args
+                    return (pt.einsum("ej,ej,eij->ei", arg1, arg2,
+                                      pt.einsum("dij,dej->eij", arg0, arg3))
+                            .tagged((tag
+                                     for tag in expr.tags if tag != my_tag)))
+                else:
+                    return expr
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, rewrite_einsum_exprs)
+
+        # }}}
+
         return dag
 
     def transform_loopy_program(self, t_unit):
