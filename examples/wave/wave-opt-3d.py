@@ -183,8 +183,11 @@ class HopefullySmartPytatoArrayContext(
         if t_unit.default_entrypoint.tags_of_type(FromActxCompile):
             import loopy as lp
             from loopy.transform.precompute import precompute_for_single_kernel
+            from loopy.transform.instruction import simplify_indices
 
             t_unit = lp.inline_callable_kernel(t_unit, "face_mass")
+            t_unit = simplify_indices(t_unit)
+
             knl = t_unit.default_entrypoint
 
             # get rid of noops
@@ -425,6 +428,18 @@ class HopefullySmartPytatoArrayContext(
                 knl = lp.rename_iname(knl,
                                       f"_pt_out_{idof}_0_dim1",
                                       "idof_out",
+                                      existing_ok=True)
+
+            # we aren't going to parallelize the reductions, realize them so
+            # that we can do apply other loop transformations to them.
+            t_unit = t_unit.with_kernel(knl)
+            t_unit = lp.realize_reduction(t_unit)
+            knl = t_unit.default_entrypoint
+
+            for i in range(3):
+                knl = lp.rename_iname(knl, f"face_f_{i}", "face_f",
+                                      existing_ok=True)
+                knl = lp.rename_iname(knl, f"face_jdof_{i}", "face_jdof",
                                       existing_ok=True)
 
             # }}}
