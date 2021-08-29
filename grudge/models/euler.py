@@ -235,12 +235,6 @@ class EulerOperator(HyperbolicOperator):
     def pressure(self, q):
         return self.internal_energy(q) * (self.gamma - 1.0)
 
-    def temperature(self, q):
-        return (
-            (((self.gamma - 1.0) / self.gas_const)
-             * self.internal_energy(q) / q.mass)
-        )
-
     def sound_speed(self, q):
         actx = q[0].array_context
         return actx.np.sqrt(self.gamma / q[0] * self.pressure(q))
@@ -279,42 +273,36 @@ def euler_flux(dcoll, cv_state, gamma=1.4):
     return [_euler_flux(idx) for idx in range(dim)]
 
 
-def conservative_to_entropy_vars(dcoll, cv_state, gamma=1.4):
+def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     dim = dcoll.dim
-
     rho = cv_state[0]
     rho_e = cv_state[1]
     rho_u = cv_state[2:dim+2]
-
-    actx = rho.array_context
     u = rho_u / rho
     u_square = sum(v ** 2 for v in u)
     p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
     s = actx.np.log(p) - gamma*actx.np.log(rho)
     rho_p = rho / p
 
-    result = np.empty((2+dim,), dtype=object)
-    result[0] = ((gamma - s)/(gamma - 1)) - 0.5 * rho_p * u_square
-    result[1] = -rho_p
-    result[2:dim+2] = rho_p * u
+    entropy_vars = np.empty((2+dim,), dtype=object)
+    entropy_vars[0] = ((gamma - s)/(gamma - 1)) - 0.5 * rho_p * u_square
+    entropy_vars[1] = -rho_p
+    entropy_vars[2:dim+2] = rho_p * u
 
-    return result
+    return entropy_vars
 
 
-def entropy_to_conservative_vars(dcoll, ev_state, gamma=1.4):
-    # See Hughes, Franca, Mallet (1986) A new finite element formulation for CFD
-    # (DOI: 10.1016/0045-7825(86)90127-1)
+def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
+    # See Hughes, Franca, Mallet (1986) A new finite element
+    # formulation for CFD: (DOI: 10.1016/0045-7825(86)90127-1)
     dim = dcoll.dim
     inv_gamma_minus_one = 1/(gamma - 1)
 
     # Convert to entropy `-rho * s` used by Hughes, France, Mallet (1986)
     ev_state = ev_state * (gamma - 1)
-
     v1 = ev_state[0]
     v2t4 = ev_state[2:dim+2]
     v5 = ev_state[1]
-
-    actx = v1.array_context
 
     v_square = sum(v**2 for v in v2t4)
     s = gamma - v1 + v_square/(2*v5)
@@ -322,12 +310,39 @@ def entropy_to_conservative_vars(dcoll, ev_state, gamma=1.4):
         ((gamma - 1) / (-v5)**gamma)**(inv_gamma_minus_one)
     ) * actx.np.exp(-s * inv_gamma_minus_one)
 
-    result = np.empty((2+dim,), dtype=object)
-    result[0] = -rho_iota * v5
-    result[1] = rho_iota * (1 - v_square/(2*v5))
-    result[2:dim+2] = rho_iota * v2t4
+    conserved_vars = np.empty((2+dim,), dtype=object)
+    conserved_vars[0] = -rho_iota * v5
+    conserved_vars[1] = rho_iota * (1 - v_square/(2*v5))
+    conserved_vars[2:dim+2] = rho_iota * v2t4
 
-    return result
+    return conserved_vars
+
+
+def entropy_projection(actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
+    """todo.
+    """
+    from grudge.sbp_op import (quadrature_project,
+                               volume_quadrature_interpolation,
+                               volume_and_surface_quadrature_interpolation)
+
+    # Interpolate cv_state to vol quad grid: u_q = V_q u
+    cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
+    # Convert to entropy variables: v_q = v(u_q)
+    ev_state_q = conservative_to_entropy_vars(
+        actx, dcoll, cv_state_q, gamma=gamma)
+    # Project entropy variables and interpolate the result to the
+    # volume and surface quadrature nodes:
+    # vtilde = [vtilde_q; vtilde_f] = [V_q; V_f] .* P_q * v_q
+    # NOTE: Potential optimization: fuse [V_q; V_f] .* P_q
+    ev_state = quadrature_project(dcoll, dd_q, ev_state_q)
+    aux_ev_state_q = volume_and_surface_quadrature_interpolation(
+        dcoll, dd_q, dd_f, ev_state
+    )
+    # Convert from project entropy to conservative variables:
+    # utilde = [utilde_q; utilde_f] = u(vtilde) = u([vtilde_q; vtilde_f])
+    aux_cv_state_q = entropy_to_conservative_vars(
+        actx, dcoll, aux_ev_state_q, gamma=gamma)
+    return aux_cv_state_q, ev_state
 
 
 def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
@@ -401,7 +416,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     return fS_mass, fS_energy, fS_momentum
 
 
-def volume_flux_differencing(actx, dcoll, dq, df, state, state_faces, gamma=1.4):
+def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     """Computes the flux differencing operation: ∑_j 2Q[i, j] * f_S(q_i, q_j),
     where Q is a hybridized SBP derivative matrix and f_S is
     an entropy-conservative two-point flux.
@@ -425,13 +440,16 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, state_faces, gamma=1.4)
     jacobian_dets = area_element(actx, dcoll)
     geo_factors = inverse_metric_derivative_mat(actx, dcoll)
 
-    # Group loop
+    rho = state[0]
+    rhoe = state[1]
+    rhou = state[2:dim+2]
+
+    # Group array lists for the computed result
     QF_mass_data = []
     QF_energy_data = []
     QF_momentum_data = []
-    QF_mass_face_data = []
-    QF_energy_face_data = []
-    QF_momentum_face_data = []
+
+    # Group loop
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
         fgrp = face_discr.groups[gidx]
@@ -443,10 +461,17 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, state_faces, gamma=1.4)
         Nq_faces = vqgrp.shape.nfaces * fqgrp.nunit_dofs
         Nq_total = Nq_vol + Nq_faces
 
-        # Get SBP hybridized derivative operators (as numpy arrays)
+        # Get state values for the group
+        rho_gidx = rho[gidx]
+        rhoe_gidx = rhoe[gidx]
+        rhou_gidx = [ru[gidx] for ru in rhou]
+
+        # Get SBP hybridized derivative operators on the ref element
         qmats = actx.to_numpy(
-            thaw(hybridized_sbp_operators(actx, fgrp, fqgrp,
-                                          vgrp, vqgrp, dtype), actx)
+            thaw(hybridized_sbp_operators(actx,
+                                          vgrp,
+                                          vqgrp, fqgrp,
+                                          dtype), actx)
         )
 
         # Get geometry factors for the group *gidx*
@@ -457,88 +482,99 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, state_faces, gamma=1.4)
              for row in range(dim)]
         )
 
-        # group arrays for the Hadamard row-sum
-        QF_mass = np.empty(shape=(Nelements, Nq_vol), dtype=dtype)
-        QF_energy = np.empty(shape=(Nelements, Nq_vol), dtype=dtype)
-        QF_momentum = np.empty(shape=(dim, Nelements, Nq_vol), dtype=dtype)
-        QF_mass_faces = np.empty(shape=(Nelements, Nq_faces), dtype=dtype)
-        QF_energy_faces = np.empty(shape=(Nelements, Nq_faces), dtype=dtype)
-        QF_momentum_faces = np.empty(shape=(dim, Nelements, Nq_faces),
-                                     dtype=dtype)
+        # Group arrays for the Hadamard row-sum
+        dQF_rho = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
+        dQF_rhoe = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
+        dQF_rhou = np.empty(shape=(dim, Nelements, Nq_total), dtype=dtype)
+
         # Element loop
         for eidx in range(Nelements):
-
-            # Local arrays for the Hadamard row-sum
-            QF_rho = np.zeros(shape=(Nq_total,))
-            QF_rhoe = np.zeros(shape=(Nq_total,))
-            QF_rhou = np.zeros(shape=(dim, Nq_total))
-
             # NOTE: Assumes affine (jacobian det is constant in each cell)
             j_k = jac_k[eidx][0]
+            # Build physical SBP operators
+            Qrst = [sum(j_k*gmat[d, j][eidx][0]*qmats[j, :, :]
+                        for j in range(dim)) for d in range(dim)]
 
-            # Element-local state data (concatenated vol + surface quad data)
-            local_mass = np.concatenate(
-                [actx.to_numpy(state[0][gidx][eidx]),
-                 actx.to_numpy(state_faces[0][gidx][eidx])]
+            # Element-local state data
+            local_rho = actx.to_numpy(rho_gidx[eidx])
+            local_rhoe = actx.to_numpy(rhoe_gidx[eidx])
+            local_rhou = np.array(
+                [actx.to_numpy(rhou_gidx[d][eidx]) for d in range(dim)]
             )
-            local_energy = np.concatenate(
-                [actx.to_numpy(state[1][gidx][eidx]),
-                 actx.to_numpy(state_faces[1][gidx][eidx])]
-            )
-            local_momentum = np.array(
-                [np.concatenate(
-                    [actx.to_numpy(state[2:dim+2][d][gidx][eidx]),
-                     actx.to_numpy(state_faces[2:dim+2][d][gidx][eidx])]
-                ) for d in range(dim)]
-            )
+
+            # Local arrays for the Hadamard row-sum
+            dq_rho = np.zeros(shape=(Nq_total,))
+            dq_rhoe = np.zeros(shape=(Nq_total,))
+            dq_rhou = np.zeros(shape=(dim, Nq_total))
 
             # Compute flux differencing in each cell and apply the
             # hybridized SBP operator
             for d in range(dim):
-                # Build physical SBP operator
-                Q = sum(j_k*gmat[d, j][eidx][0]*qmats[j, :, :]
-                        for j in range(dim))
-
+                Qskew_d = Qrst[d] - Qrst[d].T
                 # Loop over all (vol + surface) quadrature nodes and compute
                 # the Hadamard row-sum
                 for i in range(Nq_total):
-                    q_i = (local_mass[i],
-                           local_energy[i],
-                           local_momentum[:, i])
+                    q_i = (local_rho[i],
+                           local_rhoe[i],
+                           local_rhou[:, i])
+
+                    dq_rho_i = dq_rho[i]
+                    dq_rhoe_i = dq_rhoe[i]
+                    dq_rhou_i = dq_rhou[:, i]
 
                     # Loop over all (vol + surface) quadrature nodes
                     for j in range(Nq_total):
-                        q_j = (local_mass[j],
-                               local_energy[j],
-                               local_momentum[:, j])
+                        # Computes only the upper-triangular part of the
+                        # hadamard sum (Q .* F). We avoid computing the
+                        # lower-triangular part using the fact that Q is
+                        # skew-symmetric and F is symmetric.
+                        # Also skips subblock of Q which we know is
+                        # zero by construction.
+                        if j > i and not (i > Nq_vol and j > Nq_vol):
+                            # Apply derivative to each component
+                            # (mass, energy, momentum);
+                            # flux_chandrashekar returns a tuple of the form
+                            # (fS_mass, fS_energy, fS_momentum)
+                            fS_mass, fS_energy, fS_momentum = \
+                                flux_chandrashekar(
+                                    q_i,
+                                    (local_rho[j], local_rhoe[j], local_rhou[:, j]),
+                                    d,
+                                    gamma=gamma)
 
-                        # Apply derivative to each component
-                        # (mass, energy, momentum);
-                        # flux_chandrashekar returns a tuple of the form
-                        # (f_mass, f_energy, f_momentum)
-                        f_mass, f_energy, f_momentum = \
-                            flux_chandrashekar(q_i, q_j, d, gamma=gamma)
+                            # Compute upper triangular entry of 2Q .* F
+                            QF_rho_ij = Qskew_d[i, j] * fS_mass
+                            QF_rhoe_ij = Qskew_d[i, j] * fS_energy
+                            QF_rhou_ij = Qskew_d[i, j] * fS_momentum
 
-                        QF_rho[i] += 2*Q[i, j] * f_mass
-                        QF_rhoe[i] += 2*Q[i, j] * f_energy
-                        QF_rhou[:, i] += 2*Q[i, j] * f_momentum
+                            # Accumulate upper triangular part
+                            dq_rho_i += QF_rho_ij
+                            dq_rhoe_i += QF_rhoe_ij
+                            dq_rhou_i += QF_rhou_ij
 
-            QF_mass[eidx, :] = QF_rho[:Nq_vol]
-            QF_mass_faces[eidx, :] = QF_rho[Nq_vol:Nq_vol+Nq_faces]
-            QF_energy[eidx, :] = QF_rhoe[:Nq_vol]
-            QF_energy_faces[eidx, :] = QF_rhoe[Nq_vol:Nq_vol+Nq_faces]
-            QF_momentum[:, eidx, :] = QF_rhou[:, :Nq_vol]
-            QF_momentum_faces[:, eidx, :] = QF_rhou[:, Nq_vol:Nq_vol+Nq_faces]
+                            # Accumulate lower triangular part
+                            dq_rho[j] -= QF_rho_ij
+                            dq_rhoe[j] -= QF_rhoe_ij
+                            dq_rhou[:, j] -= QF_rhou_ij
+                        # end if
+                    # end j
+                    dq_rho[i] += dq_rho_i
+                    dq_rhoe[i] += dq_rhoe_i
+                    dq_rhou[:, i] += dq_rhou_i
+                # end i
+            # end d
+
+            dQF_rho[eidx, :] = dq_rho
+            dQF_rhoe[eidx, :] = dq_rhoe
+            dQF_rhou[:, eidx, :] = dq_rhou
+        # end e
 
         # Append group data
-        QF_mass_data.append(actx.from_numpy(QF_mass))
-        QF_energy_data.append(actx.from_numpy(QF_energy))
-        QF_momentum_data.append([actx.from_numpy(QF_momentum[d])
+        QF_mass_data.append(actx.from_numpy(dQF_rho))
+        QF_energy_data.append(actx.from_numpy(dQF_rhoe))
+        QF_momentum_data.append([actx.from_numpy(dQF_rhou[d])
                                  for d in range(dim)])
-        QF_mass_face_data.append(actx.from_numpy(QF_mass_faces))
-        QF_energy_face_data.append(actx.from_numpy(QF_energy_faces))
-        QF_momentum_face_data.append([actx.from_numpy(QF_momentum_faces[d])
-                                      for d in range(dim)])
+    # end g
 
     # Convert back to mirgecom-like data structure
     QF_mass_dof_ary = DOFArray(actx, data=tuple(QF_mass_data))
@@ -555,47 +591,14 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, state_faces, gamma=1.4)
     result[1] = QF_energy_dof_ary
     result[2:dim+2] = QF_momentum_dof_ary
 
-    QF_mass_face_dof_ary = DOFArray(actx, data=tuple(QF_mass_face_data))
-    QF_energy_face_dof_ary = DOFArray(actx, data=tuple(QF_energy_face_data))
-    QF_momentum_face_dof_ary = make_obj_array(
-        [DOFArray(actx,
-                  data=tuple(mom_data[d]
-                             for mom_data in QF_momentum_face_data))
-                  for d in range(dim)]
-    )
+    from grudge.sbp_op import volume_and_surface_quadrature_adjoint
 
-    result_faces = np.empty((2+dim,), dtype=object)
-    result_faces[0] = QF_mass_face_dof_ary
-    result_faces[1] = QF_energy_face_dof_ary
-    result_faces[2:dim+2] = QF_momentum_face_dof_ary
-
-    return result, result_faces
-
-
-def reshape_face_dofs(dcoll, df, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: reshape_face_dofs(dcoll, df, vi), vec)
-
-    actx = vec.array_context
-    discr = dcoll.discr_from_dd("vol")
-    quad_face_discr = dcoll.discr_from_dd(df)
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            vec_i.reshape(
-                vgrp.nelements,
-                vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
-            )
-            for vgrp, qfgrp, vec_i in zip(
-                discr.groups, quad_face_discr.groups, vec)
-        )
-    )
+    # Apply Vh.T = [Vq; Vf].T to the result
+    return volume_and_surface_quadrature_adjoint(dcoll, dq, df, result)
 
 
 def trace_pair_flux_chandrashekar(
-    dcoll, q_int, q_ext, gamma=1.4, df=None, reshape=False):
+        dcoll, tpair, gamma=1.4, reshape=False):
     """Entropy conserving numerical flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -604,6 +607,10 @@ def trace_pair_flux_chandrashekar(
     # NOTE: this version of flux_chandrashekar is written to take full arrays
     # of interior/exterior values (not point-wise like `flux_chandrashekar`).
     dim = dcoll.dim
+    dd_intfaces = tpair.dd
+    dd_allfaces = dd_intfaces.with_dtag("all_faces")
+    q_int = tpair.int
+    q_ext = tpair.ext
     actx = q_int[0].array_context
 
     def log_mean(x, y, epsilon=1e-4):
@@ -646,6 +653,26 @@ def trace_pair_flux_chandrashekar(
     rho_mean = log_mean(rho_int, rho_ext)
     beta_mean = log_mean(beta_int, beta_ext)
 
+    def reshape_face_quad_dofs(dcoll, vec):
+        if isinstance(vec, np.ndarray):
+            return obj_array_vectorize(
+                lambda vi: reshape_face_quad_dofs(dcoll, vi), vec)
+
+        discr = dcoll.discr_from_dd("vol")
+        face_discr = dcoll.discr_from_dd(dd_allfaces)
+
+        return DOFArray(
+            actx,
+            data=tuple(
+                vec_i.reshape(
+                    vgrp.nelements,
+                    vgrp.mesh_el_group.nfaces * fgrp.nunit_dofs
+                )
+                for vgrp, fgrp, vec_i in zip(
+                    discr.groups, face_discr.groups, vec)
+            )
+        )
+
     num_fluxes = []
     for idx in range(dim):
         num_flux = np.empty((2+dim,), dtype=object)
@@ -656,14 +683,12 @@ def trace_pair_flux_chandrashekar(
             0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
             + sum(num_flux[2:dim+2] * v_avg)
         )
-        # If data is on the interior faces, extend to all faces via zero
-        if df is not None:
-            num_flux = op.project(dcoll, "int_faces", df, num_flux)
+        num_flux = op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
         # FIXME: interior trace pairs still have original dof ordering;
         # reshaping to (nelem, n_total_face_dofs)
         if reshape:
-            num_flux = reshape_face_dofs(dcoll, df, num_flux)
+            num_flux = reshape_face_quad_dofs(dcoll, num_flux)
 
         num_fluxes.append(num_flux)
 
@@ -683,82 +708,52 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q[0].array_context
 
-        from grudge.sbp_op import \
-            quadrature_volume_interpolation, quadrature_surface_interpolation
-
-        print("Interpolating to quadrature grid...")
-        # NOTE: Compute qq = Vq * q
-        qq = quadrature_volume_interpolation(dcoll, dq, q)
-        print("Finished interpolating to quadrature grid.")
-
         print("Computing auxiliary conservative variables...")
-        # NOTE: Compute the entropy variables from state data: vq = v(qq)
-        vq = conservative_to_entropy_vars(dcoll, qq, gamma=gamma)
-
-        from grudge.sbp_op import quadrature_project
-
-        print("Projecting entropy variables...")
-        # NOTE: Project the entropy variables to get modal coefficients
-        # v = Pq * vq
-        v = quadrature_project(dcoll, dq, vq)
-        # Interpolate coefficients to quadrature grid:
-        # vtildeq = Vq * v
-        # vtildef = Vf * v
-        vtildeq = quadrature_volume_interpolation(dcoll, dq, v)
-        vtildef = quadrature_surface_interpolation(dcoll, df, v)
-
-        print("Forming state in terms of projected entropy variables...")
-        # NOTE: Construct the "auxiliary conservative variables" using
-        # the projected entropy variables:
-        # qtilde = q(vtildeq)
-        # qtilde_face = q(vtildeqf)
-        qtilde = entropy_to_conservative_vars(
-            dcoll, vtildeq, gamma=gamma)
-        qtilde_allfaces = entropy_to_conservative_vars(
-            dcoll, vtildef, gamma=gamma)
+        qtilde_allquad, entropy_vars = entropy_projection(
+            actx, dcoll, dq, df, q, gamma=gamma)
         print("Finished auxiliary conservative variables.")
 
         print("Performing volume flux differencing...")
         # NOTE: Performs flux differencing in the volume of cells, requires
         # accessing nodes in both the volume and faces. The operation has the
         # form:
-        # ∑_d ∑_j 2Q_d[i, j] * F_d(q_i, q_j)
-        # where Q_d is the hybridized SBP operator for the d-th dimension axis,
-        # and F_d is an entropy conservative two-point flux. The routine
+        # ∑_d ∑_j Vh.T @ 2Q_d[i, j] * F_d(q_i, q_j)
+        # where Q_d is the skew-hybridized SBP operator for the d-th dimension
+        # axis, and F_d is an entropy conservative two-point flux. The routine
         # computes the Hadamard (element-wise) multiplication + row sum:
-        # [QF1q, QF1f] = (∑_d (2Q_d * F_d)1)
-        QF1q, QF1f = volume_flux_differencing(actx, dcoll, dq, df,
-                                              qtilde, qtilde_allfaces, gamma)
+        # dQF1 = Vh.T @ (∑_d (2Q_d * F_d)1)
+        dQF1 = volume_flux_differencing(
+            actx, dcoll, dq, df, qtilde_allquad, gamma)
         print("Finished volume flux differencing.")
-
-        from grudge.sbp_op import \
-            map_to_nodal_from_volume, map_to_nodal_from_surface
-
-        print("Applying [Vq; Vf].T...")
-        VqTQF1q = map_to_nodal_from_volume(dcoll, dq, QF1q)
-        VfTQF1f = map_to_nodal_from_surface(dcoll, df, QF1f)
-        vol_flux_diff = VqTQF1q + VfTQF1f
-        print("Finished applying [Vq; Vf].T")
 
         from grudge.sbp_op import local_interior_trace_pair
 
         print("Computing interface numerical fluxes...")
-        # NOTE: Lastly, we compute the numerical fluxes across neighboring
-        # elements, plus the surface contribution from the flux differencing:
-        # V_f.T B_i (f*_i - f_i(qtilde_allfaces))
-        qtilde_tpair = local_interior_trace_pair(dcoll, qtilde, df_int)
-        num_fluxes = trace_pair_flux_chandrashekar(dcoll,
-                                                   qtilde_tpair.int,
-                                                   qtilde_tpair.ext,
-                                                   gamma=gamma, df=df,
-                                                   reshape=True)
-        # Compute euler flux at all faces: f_i(qtilde_allfaces)
-        bdry_fluxes = euler_flux(dcoll, qtilde_allfaces, gamma=gamma)
+        def entropy_tpair(tpair):
+            dd_intfaces = tpair.dd
+            dd_intfaces_quad = dd_intfaces.with_discr_tag(DISCR_TAG_QUAD)
+            vint = tpair.int
+            vext = tpair.ext
+            vtilde_tpair = op.project(
+                dcoll, dd_intfaces, dd_intfaces_quad, tpair)
+            return TracePair(
+                dd_intfaces_quad,
+                interior=entropy_to_conservative_vars(
+                    actx, dcoll, vtilde_tpair.int, gamma=gamma
+                ),
+                exterior=entropy_to_conservative_vars(
+                    actx, dcoll, vtilde_tpair.ext, gamma=gamma
+                )
+            )
 
+        num_fluxes = [
+            trace_pair_flux_chandrashekar(dcoll, entropy_tpair(tpair),
+                                          gamma=gamma, reshape=True)
+            for tpair in op.interior_trace_pairs(dcoll, entropy_vars)
+        ]
+        # TODO: BCs
         # nodes = thaw(dcoll.nodes(), actx)
         # f_bdry = (
-        #     entropy_stable_numerical_flux_surface_integral(
-        #         dcoll, qtilde_tpair, qtilde_allfaces, df, gamma=gamma)
         #     # TODO: Scrutinize BCs
         #     - sum(
         #         self.boundary_numerical_flux(
@@ -775,12 +770,14 @@ class EntropyStableEulerOperator(EulerOperator):
         #               -V_f.T B_d (f*_d - f(q_f)))
         from grudge.sbp_op import inverse_sbp_mass, sbp_lift_operator
 
-        # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * (f_iS(q+, q) - f_i(q))
+        # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
         lifted_fluxes = sum(
-            sbp_lift_operator(dcoll, idx, df, num_fluxes[idx] - bdry_fluxes[idx])
-            for idx in range(dcoll.dim)
+            sum(
+                sbp_lift_operator(dcoll, idx, df, local_fluxes[idx])
+                for idx in range(dcoll.dim)
+            ) for local_fluxes in num_fluxes
         )
-        dqhat = inverse_sbp_mass(dcoll, dq, -vol_flux_diff - lifted_fluxes)
+        dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
         print("Finished applying mass and lifting operators.")
 
         #import ipdb; ipdb.set_trace()

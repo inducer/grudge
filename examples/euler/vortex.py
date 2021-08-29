@@ -178,11 +178,12 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
 
-        from grudge.models.euler import ArrayContainer
+        result = np.empty((2+dim,), dtype=object)
+        result[0] = mass
+        result[1] = energy
+        result[2:dim+2] = momentum
 
-        return ArrayContainer(mass=mass,
-                              energy=energy,
-                              momentum=momentum).join()
+        return result
 
     from grudge.models.euler import EntropyStableEulerOperator
 
