@@ -23,7 +23,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from grudge import DiscretizationCollection
+from grudge import op, DiscretizationCollection
 from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
 import grudge.sbp_op as sbp_op
 
@@ -43,8 +43,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.parametrize("order", [2, 3, 4])
-def test_entropy_projected_variables(actx_factory, order):
+def test_entropy_and_conservative_variables(actx_factory):
 
     def simple_smooth_function(actx, dcoll, t=0, gamma=1.4, dd=None):
         _beta = 5
@@ -80,53 +79,40 @@ def test_entropy_projected_variables(actx_factory, order):
     actx = actx_factory()
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
-
-    dim = 2
-    nel_1d = 5
-    box_ll = -5.0
-    box_ur = 5.0
-    mesh = generate_regular_rect_mesh(
-        a=(box_ll,)*dim,
-        b=(box_ur,)*dim,
-        nelements_per_axis=(nel_1d,)*dim)
-
     from meshmode.discretization.poly_element import \
         default_simplex_group_factory, QuadratureSimplexGroupFactory
-
-    dcoll = DiscretizationCollection(
-        actx, mesh,
-        discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
-        }
-    )
-    state = simple_smooth_function(actx, dcoll)
-    ddq = DOFDesc("vol", DISCR_TAG_QUAD)
+    from meshmode.dof_array import flat_norm
 
     from grudge.models.euler import \
         conservative_to_entropy_vars, entropy_to_conservative_vars
 
-    entropy_vars = conservative_to_entropy_vars(dcoll, state)
-    convserved_vars = entropy_to_conservative_vars(dcoll, entropy_vars)
+    dim = 2
+    order = 3
+    resolution = 5
+    box_ll = -5.0
+    box_ur = 5.0
+    ddq = DOFDesc("vol", DISCR_TAG_QUAD)
+    ddf = DOFDesc("all_faces", DISCR_TAG_QUAD)
+    discr_tag_to_group_factory={
+        DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
+        DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+    }
+    mesh = generate_regular_rect_mesh(
+        a=(box_ll,)*dim,
+        b=(box_ur,)*dim,
+        nelements_per_axis=(resolution,)*dim)
 
-    from meshmode.dof_array import flat_norm
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory=discr_tag_to_group_factory
+    )
+    state = simple_smooth_function(actx, dcoll)
 
-    assert bool(flat_norm(convserved_vars - state, 2) < 1e-13)
+    entropy_vars = conservative_to_entropy_vars(actx, dcoll, state)
+    conservative_vars = entropy_to_conservative_vars(actx, dcoll, entropy_vars)
 
-    # # Compute uq = Vq * u
-    # uq = sbp_op.quadrature_volume_interpolation(dcoll, ddq, state)
-    # # Compute the entropy variables from state data: vq = v(uq)
-    # vq = conservative_to_entropy_vars(dcoll, uq)
-    # # Project the entropy variables to get modal coefficients
-    # # v = Pq * vq
-    # v = sbp_op.quadrature_project(dcoll, ddq, vq)
-    # # Interpolate coefficients to quadrature grid:
-    # # vtildeq = Vq * v
-    # vtildeq = sbp_op.quadrature_volume_interpolation(dcoll, ddq, v)
-    # # Construct the "auxiliary conservative variables" using
-    # # the projected entropy variables:
-    # # utildeq = q(vtildeq)
-    # utildeq = entropy_to_conservative_vars(dcoll, vtildeq)
+    err = actx.to_numpy(flat_norm(state - conservative_vars, 2))
+    assert err < 1e-13
 
 
 # You can test individual routines by typing
