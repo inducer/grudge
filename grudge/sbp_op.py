@@ -382,32 +382,18 @@ def boundary_integration_matrices(
         face_quad_weights = np.tile(face_quad_grp.weights, nfaces)
         nq_per_face = face_quad_grp.nunit_dofs
 
-        # FIXME: missing scaling factors here, need Jhat_f
-        # (Jacobian det of the change of coordinates to the reference face).
-        # from modepy import face_normal
-        # face_normals = [face_normal(face) for face in faces]
-        # e = np.ones(shape=(nq_per_face,))
-        # nrstj = np.array(
-        #     [np.concatenate([face_normal[idx]*e
-        #                      for face_normal in face_normals])
-        #         for idx in range(dim)]
-        # )
-        if dim == 1:
-            nrstj = np.array([[-1., 1.]])
-        elif dim == 2:
-            e = np.ones(shape=(nq_per_face,))
-            z = np.zeros(shape=(nq_per_face,))
-            nrstj = np.array([np.concatenate([z, -e, e]),
-                              np.concatenate([-e, z, e])])
-        elif dim == 3:
-            e = np.ones(shape=(nq_per_face,))
-            z = np.zeros(shape=(nq_per_face,))
-            nrstj = np.array([np.concatenate([z, z, -e, e]),
-                              np.concatenate([z, -e, z, e]),
-                              np.concatenate([-e, z, z, e])])
-        else:
-            raise ValueError(f"Bad value of dim: {dim}")
+        from modepy import face_normal
 
+        face_normals = [face_normal(face) for face in faces]
+
+        e = np.ones(shape=(nq_per_face,))
+        nrstj = np.array(
+            # nsrtJ = nhat * Jhatf, where nhat is the reference normal
+            # and Jhatf is the Jacobian det. of the transformation from
+            # the face of the reference element to the reference face.
+            [np.concatenate([np.sign(nhat[idx])*e for nhat in face_normals])
+             for idx in range(dim)]
+        )
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
