@@ -81,7 +81,7 @@ def transform_face_mass(t_unit):
     knl = t_unit.default_entrypoint
 
     n_elements_per_wg = 4
-    n_work_items_per_element = 8
+    n_work_items_per_element = 32
 
     knl = lp.split_iname(knl, "iel_face_mass", n_elements_per_wg,
                          outer_tag="g.0")
@@ -91,6 +91,7 @@ def transform_face_mass(t_unit):
     # Preftch rstrct vals into private address space
     for dof_var_name in ["rstrct_vals", "rstrct_vals_0",
                          "rstrct_vals_1", "rstrct_vals_2"]:
+        new_insn_id = f"{dof_var_name}_prftch"
         knl = add_prefetch_for_single_kernel(
                     knl, t_unit.callables_table,
                     var_name=dof_var_name,
@@ -100,7 +101,13 @@ def transform_face_mass(t_unit):
                                                   "idof_face_mass_inner",
                                                   "face_f"}),
                     temporary_address_space=lp.AddressSpace.PRIVATE,
+                    prefetch_insn_id=new_insn_id,
                     default_tag=None)
+        new_insns = [insn.copy(depends_on=frozenset({"g_barrier_2",
+                                                     f"{dof_var_name}_store"}))
+                     if insn.id == new_insn_id else insn
+                     for insn in knl.instructions]
+        knl = knl.copy(instructions=new_insns)
 
     # {{{ inside each face_f prefetch the reference lifting matrix
 
@@ -151,7 +158,7 @@ def transform_face_mass(t_unit):
 
     # }}}
 
-    # {{{
+    # {{{ privatize variables and duplicate accumulators
 
     knl = lp.privatize_temporaries_with_inames(knl, "idof_face_mass_outer",
                                                only_var_names={"acc_face_f",
@@ -577,7 +584,7 @@ class HopefullySmartPytatoArrayContext(
 
             # {{{ face mass transformations
 
-            if 0:
+            if 1:
                 t_unit = t_unit.with_kernel(knl)
                 t_unit = transform_face_mass(t_unit)
                 knl = t_unit.default_entrypoint
