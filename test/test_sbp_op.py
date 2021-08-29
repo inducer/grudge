@@ -131,7 +131,7 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
             )
         )
         b_mats = actx.to_numpy(
-            thaw(sbp_op.boundary_matrices(
+            thaw(sbp_op.boundary_integration_matrices(
                 actx, vgrp, qfgrp), actx)
         )
         q_mats = np.asarray(
