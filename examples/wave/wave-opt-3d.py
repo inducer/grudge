@@ -75,6 +75,115 @@ class IndirectAccessChecker(CombineMapper):
         return False
 
 
+def transform_face_mass(t_unit):
+    import loopy as lp
+    from loopy.transform.data import add_prefetch_for_single_kernel
+    knl = t_unit.default_entrypoint
+
+    n_elements_per_wg = 4
+    n_work_items_per_element = 8
+
+    knl = lp.split_iname(knl, "iel_face_mass", n_elements_per_wg,
+                         outer_tag="g.0")
+    knl = lp.split_iname(knl, "idof_face_mass",
+                         n_work_items_per_element)
+
+    # Preftch rstrct vals into private address space
+    for dof_var_name in ["rstrct_vals", "rstrct_vals_0",
+                         "rstrct_vals_1", "rstrct_vals_2"]:
+        knl = add_prefetch_for_single_kernel(
+                    knl, t_unit.callables_table,
+                    var_name=dof_var_name,
+                    sweep_inames=["face_jdof"],
+                    fetch_outer_inames=frozenset({"iel_face_mass_outer",
+                                                  "iel_face_mass_inner",
+                                                  "idof_face_mass_inner",
+                                                  "face_f"}),
+                    temporary_address_space=lp.AddressSpace.PRIVATE,
+                    default_tag=None)
+
+    # {{{ inside each face_f prefetch the reference lifting matrix
+
+    knl = add_prefetch_for_single_kernel(
+                knl, t_unit.callables_table,
+                var_name="_pt_in_13",
+                sweep_inames=["idof_face_mass_inner",
+                              "idof_face_mass_outer",
+                              "face_jdof"],
+                fetch_outer_inames=frozenset({"iel_face_mass_outer",
+                                              "face_f"}),
+                temporary_address_space=lp.AddressSpace.LOCAL,
+                dim_arg_names=["iprftch_ref_mat_0",
+                               "iprftch_ref_mat_1"],
+                default_tag=None)
+    knl = lp.join_inames(knl, ("iprftch_ref_mat_0", "_pt_in_13_dim_2"),
+                        "iprftch_ref_mat")
+    knl = lp.split_iname(
+        lp.split_iname(knl, "iprftch_ref_mat",
+                       n_work_items_per_element * n_elements_per_wg),
+        "iprftch_ref_mat_inner",
+        n_work_items_per_element,
+        inner_tag="l.0", outer_tag="l.1")
+
+    # }}}
+
+    # {{{ inside each face_f, prefetch the jacobian to shared
+
+    knl = add_prefetch_for_single_kernel(
+                knl, t_unit.callables_table,
+                var_name="_pt_in_12",
+                sweep_inames=["iel_face_mass_inner",
+                              "face_jdof"],
+                fetch_outer_inames=frozenset({"iel_face_mass_outer", "face_f"}),
+                temporary_address_space=lp.AddressSpace.LOCAL,
+                dim_arg_names=["iprftch_jac_0",
+                               "iprftch_jac_1"],
+                default_tag=None)
+
+    knl = lp.join_inames(knl, ("iprftch_jac_1", "_pt_in_12_dim_2"),
+                        "iprftch_jac")
+    knl = lp.split_iname(
+        lp.split_iname(knl, "iprftch_jac",
+                       n_work_items_per_element * n_elements_per_wg),
+        "iprftch_jac_inner",
+        n_work_items_per_element,
+        inner_tag="l.0", outer_tag="l.1")
+
+    # }}}
+
+    # {{{
+
+    knl = lp.privatize_temporaries_with_inames(knl, "idof_face_mass_outer",
+                                               only_var_names={"acc_face_f",
+                                                               "acc_face_f_0",
+                                                               "acc_face_f_1",
+                                                               "acc_face_f_2"})
+    knl = lp.duplicate_inames(knl,
+                              inames=("idof_face_mass_outer",),
+                              new_inames=["idof_face_mass_outer_init"],
+                              within=("id:face_insn_face_f_init"
+                                      " or id:face_insn_0_face_f_0_init"
+                                      " or id:face_insn_1_face_f_1_init"
+                                      " or id:face_insn_2_face_f_2_init"))
+    knl = lp.duplicate_inames(knl,
+                              inames=("idof_face_mass_outer",),
+                              new_inames=["idof_face_mass_outer_update"],
+                              within=("id:face_insn"
+                                      " or id:face_insn_0"
+                                      " or id:face_insn_1"
+                                      " or id:face_insn_2"))
+
+    # }}}
+
+    knl = lp.tag_inames(knl, {"iel_face_mass_inner": "l.1",
+                              "idof_face_mass_inner": "l.0"})
+
+    t_unit = t_unit.with_kernel(knl)
+    # print(lp.generate_code_v2(t_unit).device_code())
+
+    return t_unit
+
+
 class HopefullySmartPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
 
@@ -466,12 +575,21 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
-            # {{{ einsums
+            # {{{ face mass transformations
 
-            knl = lp.split_iname(knl, "iel_face_mass", l_one_size,
-                                 inner_tag="l.1", outer_tag="g.0")
-            knl = lp.split_iname(knl, "idof_face_mass", l_zero_size,
-                                 inner_tag="l.0")
+            if 0:
+                t_unit = t_unit.with_kernel(knl)
+                t_unit = transform_face_mass(t_unit)
+                knl = t_unit.default_entrypoint
+            else:
+                knl = lp.split_iname(knl, "iel_face_mass", l_one_size,
+                                     inner_tag="l.1", outer_tag="g.0")
+                knl = lp.split_iname(knl, "idof_face_mass", l_zero_size,
+                                     inner_tag="l.0")
+
+            # }}}
+
+            # {{{ einsums
 
             knl = lp.split_iname(knl, "iel_diff", l_one_size,
                                  inner_tag="l.1", outer_tag="g.0")
