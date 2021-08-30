@@ -127,6 +127,7 @@ class EulerOperator(HyperbolicOperator):
         self.flux_type = flux_type
         self.gamma = gamma
         self.gas_const = gas_const
+        self.lf_stabilization = flux_type == "lf"
 
         dd_modal = dof_desc.DD_VOLUME_MODAL
         dd_volume = dof_desc.DD_VOLUME
@@ -366,15 +367,6 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     p_ll = (gamma - 1) * (rhoe_ll - 0.5 * sum(rhou_ll * v_ll))
     p_rr = (gamma - 1) * (rhoe_rr - 0.5 * sum(rhou_rr * v_rr))
 
-    # print(
-    #     f"rho_ll = {rho_ll} "  + "\n"
-    #     f"rho_rr = {rho_rr} "  + "\n"
-    #     f"p_ll = {p_ll} "  + "\n"
-    #     f"p_rr = {p_rr} "  + "\n"
-    #     f"v_ll = {v_ll} "  + "\n"
-    #     f"v_rr = {v_rr} " + "\n"
-    # )
-
     beta_ll = 0.5 * rho_ll / p_ll
     beta_rr = 0.5 * rho_rr / p_rr
 
@@ -424,7 +416,8 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     See `flux_chandrashekar` for a concrete implementation of such a two-point
     flux routine.
     """
-    from grudge.sbp_op import hybridized_sbp_operators
+    from grudge.sbp_op import \
+        hybridized_sbp_operators, volume_and_surface_quadrature_interpolation
     from grudge.geometry import area_element, inverse_metric_derivative_mat
 
     mesh = dcoll.mesh
@@ -437,8 +430,14 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     face_quad_discr = dcoll.discr_from_dd(df)
 
     # Geometry terms for building the physical derivative operators
-    jacobian_dets = area_element(actx, dcoll)
-    geo_factors = inverse_metric_derivative_mat(actx, dcoll)
+    # (interpolated to volume+surface quadrature nodes)
+    jacobian_dets = volume_and_surface_quadrature_interpolation(
+        dcoll, dq, df, area_element(actx, dcoll)
+    )
+    drstdxyz = volume_and_surface_quadrature_interpolation(
+        dcoll, dq, df, inverse_metric_derivative_mat(actx, dcoll)
+    )
+    rstxyzj = jacobian_dets * drstdxyz
 
     rho = state[0]
     rhoe = state[1]
@@ -461,6 +460,11 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
         Nq_faces = vqgrp.shape.nfaces * fqgrp.nunit_dofs
         Nq_total = Nq_vol + Nq_faces
 
+        # Get geometric terms for the group
+        vgeo_gidx = [[actx.to_numpy(rstxyzj[ridx][cidx][gidx])
+                      for ridx in range(dim)]
+                     for cidx in range(dim)]
+
         # Get state values for the group
         rho_gidx = rho[gidx]
         rhoe_gidx = rhoe[gidx]
@@ -474,14 +478,6 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                                           dtype), actx)
         )
 
-        # Get geometry factors for the group *gidx*
-        jac_k = actx.to_numpy(jacobian_dets[gidx])
-        gmat = np.array(
-            [[actx.to_numpy(geo_factors[row, col][gidx])
-              for col in range(dim)]
-             for row in range(dim)]
-        )
-
         # Group arrays for the Hadamard row-sum
         dQF_rho = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
         dQF_rhoe = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
@@ -489,11 +485,13 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
 
         # Element loop
         for eidx in range(Nelements):
-            # NOTE: Assumes affine (jacobian det is constant in each cell)
-            j_k = jac_k[eidx][0]
+            vgeo = [[vgeo_gidx[ridx][cidx][eidx]
+                     for ridx in range(dim)]
+                    for cidx in range(dim)]
+
             # Build physical SBP operators
-            Qrst = [sum(j_k*gmat[d, j][eidx][0]*qmats[j, :, :]
-                        for j in range(dim)) for d in range(dim)]
+            Qxyz = [vgeo[j][d]*qmats[j, :, :]
+                    for j in range(dim) for d in range(dim)]
 
             # Element-local state data
             local_rho = actx.to_numpy(rho_gidx[eidx])
@@ -510,7 +508,7 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
             # Compute flux differencing in each cell and apply the
             # hybridized SBP operator
             for d in range(dim):
-                Qskew_d = Qrst[d] - Qrst[d].T
+                Qskew_d = Qxyz[d] - Qxyz[d].T
                 # Loop over all (vol + surface) quadrature nodes and compute
                 # the Hadamard row-sum
                 for i in range(Nq_total):
@@ -597,11 +595,11 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     return volume_and_surface_quadrature_adjoint(dcoll, dq, df, result)
 
 
-def trace_pair_flux_chandrashekar(
-        dcoll, tpair, gamma=1.4, reshape=False):
-    """Entropy conserving numerical flux by Chandrashekar (2013)
-    Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
-    for Compressible Euler and Navier-Stokes Equations
+def entropy_stable_numerical_flux_chandrashekar(
+        dcoll, tpair, gamma=1.4, lf_stabilization=False):
+    """Entropy stable numerical flux based on the entropy conserving flux in
+    Chandrashekar (2013) Kinetic Energy Preserving and Entropy Stable Finite
+    Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
     # NOTE: this version of flux_chandrashekar is written to take full arrays
@@ -653,46 +651,33 @@ def trace_pair_flux_chandrashekar(
     rho_mean = log_mean(rho_int, rho_ext)
     beta_mean = log_mean(beta_int, beta_ext)
 
-    def reshape_face_quad_dofs(dcoll, vec):
-        if isinstance(vec, np.ndarray):
-            return obj_array_vectorize(
-                lambda vi: reshape_face_quad_dofs(dcoll, vi), vec)
-
-        discr = dcoll.discr_from_dd("vol")
-        face_discr = dcoll.discr_from_dd(dd_allfaces)
-
-        return DOFArray(
-            actx,
-            data=tuple(
-                vec_i.reshape(
-                    vgrp.nelements,
-                    vgrp.mesh_el_group.nfaces * fgrp.nunit_dofs
-                )
-                for vgrp, fgrp, vec_i in zip(
-                    discr.groups, face_discr.groups, vec)
-            )
-        )
-
-    num_fluxes = []
+    flux = np.empty((2+dim, dim), dtype=object)
     for idx in range(dim):
-        num_flux = np.empty((2+dim,), dtype=object)
-        num_flux[0] = rho_mean * v_avg[idx]
-        num_flux[2:dim+2] = num_flux[0] * v_avg
-        num_flux[2:dim+2][idx] += p_mean
-        num_flux[1] = num_flux[0] * (
+        flux_i = np.empty((2+dim,), dtype=object)
+        flux_i[0] = rho_mean * v_avg[idx]
+        flux_i[2:dim+2] = flux_i[0] * v_avg
+        flux_i[2:dim+2][idx] += p_mean
+        flux_i[1] = flux_i[0] * (
             0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
-            + sum(num_flux[2:dim+2] * v_avg)
+            + sum(flux_i[2:dim+2] * v_avg)
         )
-        num_flux = op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
-        # FIXME: interior trace pairs still have original dof ordering;
-        # reshaping to (nelem, n_total_face_dofs)
-        if reshape:
-            num_flux = reshape_face_quad_dofs(dcoll, num_flux)
+        flux[:, idx] = flux_i
 
-        num_fluxes.append(num_flux)
+    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    num_flux = flux @ normal
 
-    return num_fluxes
+    if lf_stabilization:
+        # compute jump penalization parameter
+        lam = actx.np.maximum(
+            actx.np.sqrt(gamma * (p_int / rho_int))
+            + actx.np.sqrt(np.dot(v_int, v_int)),
+            actx.np.sqrt(gamma * (p_ext / rho_ext))
+            + actx.np.sqrt(np.dot(v_ext, v_ext))
+        )
+        num_flux -= 0.5 * lam * (q_ext - q_int)
+
+    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -726,8 +711,6 @@ class EntropyStableEulerOperator(EulerOperator):
             actx, dcoll, dq, df, qtilde_allquad, gamma)
         print("Finished volume flux differencing.")
 
-        from grudge.sbp_op import local_interior_trace_pair
-
         print("Computing interface numerical fluxes...")
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
@@ -746,11 +729,14 @@ class EntropyStableEulerOperator(EulerOperator):
                 )
             )
 
-        num_fluxes = [
-            trace_pair_flux_chandrashekar(dcoll, entropy_tpair(tpair),
-                                          gamma=gamma, reshape=True)
-            for tpair in op.interior_trace_pairs(dcoll, entropy_vars)
-        ]
+        num_fluxes = sum(
+            entropy_stable_numerical_flux_chandrashekar(
+                dcoll,
+                entropy_tpair(tpair),
+                gamma=gamma,
+                lf_stabilization=self.lf_stabilization
+            ) for tpair in op.interior_trace_pairs(dcoll, entropy_vars)
+        )
         # TODO: BCs
         # nodes = thaw(dcoll.nodes(), actx)
         # f_bdry = (
@@ -768,15 +754,10 @@ class EntropyStableEulerOperator(EulerOperator):
         # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        from grudge.sbp_op import inverse_sbp_mass, sbp_lift_operator
+        from grudge.sbp_op import inverse_sbp_mass
 
         # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
-        lifted_fluxes = sum(
-            sum(
-                sbp_lift_operator(dcoll, idx, df, local_fluxes[idx])
-                for idx in range(dcoll.dim)
-            ) for local_fluxes in num_fluxes
-        )
+        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes)
         dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
         print("Finished applying mass and lifting operators.")
 
