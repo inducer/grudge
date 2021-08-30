@@ -454,8 +454,13 @@ class DiscretizationCollection:
 
     @memoize_method
     def _discr_tag_volume_discr(self, discretization_tag):
-        from meshmode.discretization import Discretization
+        assert discretization_tag is not None
 
+        # Refuse to re-make the volume discretization
+        if discretization_tag is DISCR_TAG_BASE:
+            return self._volume_discr
+
+        from meshmode.discretization import Discretization
         return Discretization(
             self._setup_actx, self._volume_discr.mesh,
             self.group_factory_for_discretization_tag(discretization_tag)
