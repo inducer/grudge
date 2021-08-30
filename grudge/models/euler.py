@@ -194,7 +194,7 @@ class EulerOperator(HyperbolicOperator):
 
         return op.project(self.dcoll, q_tpair.dd, "all_faces", flux_weak)
 
-    def boundary_numerical_flux(self, q, q_prescribe, btag):
+    def boundary_numerical_flux(self, q, q_prescribe, btag, qtag=None):
         """Return the numerical flux across a face given the solution on
         both sides *q_tpair*, with an external state given by a prescribed
         state *q_prescribe* at the boundaries denoted by *btag*.
@@ -680,15 +680,38 @@ def entropy_stable_numerical_flux_chandrashekar(
     return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
 
+def entropy_stable_boundary_numerical_flux_prescribed(
+        dcoll, ev_state, cv_prescribe, dd_bc,
+        qtag=None, gamma=1.4, lf_stabilization=False):
+    """todo.
+    """
+    dim = dcoll.dim
+    dd_bcq = dd_bc.with_qtag(qtag)
+    actx = ev_state[0].array_context
+
+    ev_state = op.project(dcoll, "vol", dd_bc, ev_state)
+    ev_bcq = op.project(dcoll, dd_bc, dd_bcq, ev_state)
+
+    bdry_tpair = TracePair(
+        dd_bcq,
+        interior=entropy_to_conservative_vars(
+            actx, dcoll, ev_bcq, gamma=gamma
+        ),
+        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
+    )
+    return entropy_stable_numerical_flux_chandrashekar(
+        dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
+
+
 class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
-        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD
+        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
 
         gamma = self.gamma
-        dq = dof_desc.DOFDesc("vol", DISCR_TAG_QUAD)
-        df = dof_desc.DOFDesc("all_faces", DISCR_TAG_QUAD)
-        df_int = dof_desc.DOFDesc("int_faces", DISCR_TAG_QUAD)
+        dq = DOFDesc("vol", DISCR_TAG_QUAD)
+        df = DOFDesc("all_faces", DISCR_TAG_QUAD)
+        df_int = DOFDesc("int_faces", DISCR_TAG_QUAD)
 
         dcoll = self.dcoll
         actx = q[0].array_context
@@ -729,7 +752,7 @@ class EntropyStableEulerOperator(EulerOperator):
                 )
             )
 
-        num_fluxes = sum(
+        num_fluxes_int = sum(
             entropy_stable_numerical_flux_chandrashekar(
                 dcoll,
                 entropy_tpair(tpair),
@@ -737,16 +760,20 @@ class EntropyStableEulerOperator(EulerOperator):
                 lf_stabilization=self.lf_stabilization
             ) for tpair in op.interior_trace_pairs(dcoll, entropy_vars)
         )
-        # TODO: BCs
-        # nodes = thaw(dcoll.nodes(), actx)
-        # f_bdry = (
-        #     # TODO: Scrutinize BCs
-        #     - sum(
-        #         self.boundary_numerical_flux(
-        #             qtilde, self.bdry_fcts[btag](nodes, t), btag)
-        #         for btag in self.bdry_fcts
-        #     )
-        # )
+
+        # Boundary conditions (prescribed)
+        num_fluxes_bdry = (
+            - sum(
+                entropy_stable_boundary_numerical_flux_prescribed(
+                    dcoll,
+                    entropy_vars,
+                    self.bdry_fcts[btag](thaw(dcoll.nodes(btag), actx), t),
+                    dd_bc=as_dofdesc(btag),
+                    qtag=DISCR_TAG_QUAD,
+                    lf_stabilization=self.lf_stabilization
+                ) for btag in self.bdry_fcts
+            )
+        )
         print("Finished computing interface numerical fluxes.")
 
         print("Applying inverse mass and lifting operators...")
@@ -757,12 +784,9 @@ class EntropyStableEulerOperator(EulerOperator):
         from grudge.sbp_op import inverse_sbp_mass
 
         # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
-        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes)
+        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes_int + num_fluxes_bdry)
         dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
         print("Finished applying mass and lifting operators.")
-
-        #import ipdb; ipdb.set_trace()
-        1/0
 
         return dqhat
 
