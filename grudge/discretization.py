@@ -78,6 +78,8 @@ class DiscretizationCollection:
     .. automethod:: normal
     """
 
+    # {{{ constructor
+
     def __init__(self, array_context: ArrayContext, mesh: Mesh,
                  order=None,
                  discr_tag_to_group_factory=None, mpi_communicator=None,
@@ -137,7 +139,7 @@ class DiscretizationCollection:
                 discr_tag_to_group_factory[DISCR_TAG_BASE] = \
                         default_simplex_group_factory(base_dim=mesh.dim, order=order)
 
-        # Modal discr should always comes from the base discretization
+        # Modal discr should always come from the base discretization
         discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
             _generate_modal_group_factory(
                 discr_tag_to_group_factory[DISCR_TAG_BASE]
@@ -169,6 +171,8 @@ class DiscretizationCollection:
 
         self.mpi_communicator = mpi_communicator
 
+    # }}}
+
     @property
     def quad_tag_to_group_factory(self):
         warn("`DiscretizationCollection.quad_tag_to_group_factory` "
@@ -188,6 +192,8 @@ class DiscretizationCollection:
         else:
             return self.mpi_communicator.Get_rank() \
                     == self.get_management_rank_index()
+
+    # {{{ distributed
 
     def _set_up_distributed_communication(self, mpi_communicator, array_context):
         from_dd = DOFDesc("vol", DISCR_TAG_BASE)
@@ -256,6 +262,10 @@ class DiscretizationCollection:
 
         return self._dist_boundary_connections[dd.domain_tag.tag.part_nr]
 
+    # }}}
+
+    # {{{ discr_from_dd
+
     @memoize_method
     def discr_from_dd(self, dd):
         """Provides a :class:`meshmode.discretization.Discretization`
@@ -296,6 +306,10 @@ class DiscretizationCollection:
             return self._boundary_connection(dd.domain_tag.tag).to_discr
         else:
             raise ValueError("DOF desc tag not understood: " + str(dd))
+
+    # }}}
+
+    # {{{ connection_from_dds
 
     @memoize_method
     def connection_from_dds(self, from_dd, to_dd):
@@ -414,6 +428,10 @@ class DiscretizationCollection:
         else:
             raise ValueError("cannot interpolate from: " + str(from_dd))
 
+    # }}}
+
+    # {{{ group_factory_for_discretization_tag
+
     def group_factory_for_quadrature_tag(self, discretization_tag):
         warn("`DiscretizationCollection.group_factory_for_quadrature_tag` "
              "is deprecated and will go away in 2022. Use "
@@ -432,6 +450,8 @@ class DiscretizationCollection:
 
         return self.discr_tag_to_group_factory[discretization_tag]
 
+    # }}}
+
     @memoize_method
     def _discr_tag_volume_discr(self, discretization_tag):
         from meshmode.discretization import Discretization
@@ -440,8 +460,6 @@ class DiscretizationCollection:
             self._setup_actx, self._volume_discr.mesh,
             self.group_factory_for_discretization_tag(discretization_tag)
         )
-
-    # {{{ modal to nodal connections
 
     @memoize_method
     def _modal_discr(self, domain_tag):
@@ -452,6 +470,8 @@ class DiscretizationCollection:
             self._setup_actx, discr_base.mesh,
             self.group_factory_for_discretization_tag(DISCR_TAG_MODAL)
         )
+
+    # {{{ connection factories: modal<->nodal
 
     @memoize_method
     def _modal_to_nodal_connection(self, to_dd):
@@ -485,7 +505,7 @@ class DiscretizationCollection:
 
     # }}}
 
-    # {{{ boundary
+    # {{{ connection factories: boundary
 
     @memoize_method
     def _boundary_connection(self, boundary_tag):
@@ -498,7 +518,7 @@ class DiscretizationCollection:
 
     # }}}
 
-    # {{{ interior faces
+    # {{{ connection factories: interior faces
 
     @memoize_method
     def _interior_faces_connection(self):
@@ -529,7 +549,7 @@ class DiscretizationCollection:
 
     # }}}
 
-    # {{{ all-faces
+    # {{{ connection factories: all-faces
 
     @memoize_method
     def _all_faces_volume_connection(self):
@@ -622,7 +642,6 @@ class DiscretizationCollection:
             dd = DD_VOLUME
         return self.discr_from_dd(dd).nodes()
 
-    @memoize_method
     def normal(self, dd):
         r"""Get the unit normal to the specified surface discretization, *dd*.
 
