@@ -642,7 +642,6 @@ class DiscretizationCollection:
             dd = DD_VOLUME
         return self.discr_from_dd(dd).nodes()
 
-    @memoize_method
     def normal(self, dd):
         r"""Get the unit normal to the specified surface discretization, *dd*.
 
