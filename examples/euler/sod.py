@@ -67,13 +67,12 @@ class Plotter:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
 
-    def __call__(self, evt, basename, overwrite=True):
+    def __call__(self, state, basename, overwrite=True):
         if not self.visualize:
             return
 
         assert self.dim == 1
 
-        state = evt.state_component
         density = self.actx.to_numpy(flatten(state[0]))
         energy = self.actx.to_numpy(flatten(state[1]))
         momentum = self.actx.to_numpy(flatten(state[2]))
@@ -91,7 +90,7 @@ class Plotter:
 
         ax.set_xlabel("$x$")
         ax.set_ylabel("$\\rho$")
-        ax.set_title(f"t = {evt.t:.2f}")
+        # ax.set_title(f"t = {evt.t:.2f}")
 
         self.fig.savefig(filename)
         self.fig.clf()
@@ -135,8 +134,18 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         order=order)
 
     from grudge import DiscretizationCollection
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from meshmode.discretization.poly_element import \
+        (default_simplex_group_factory,
+         QuadratureSimplexGroupFactory)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+        }
+    )
 
     # }}}
 
@@ -166,11 +175,11 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
         energy = actx.np.where(yesno, energyout, energyin)
         mom = make_obj_array([zeros for i in range(dim)])
 
-        from grudge.models.euler import ArrayContainer
-
-        return ArrayContainer(mass=mass,
-                              energy=energy,
-                              momentum=mom).join()
+        result = np.empty((2+dim,), dtype=object)
+        result[0] = mass
+        result[1] = energy
+        result[2:dim+2] = mom
+        return result
 
     nodes = thaw(dcoll.nodes(), actx)
     q_init = sod_initial_condition(nodes)
@@ -201,6 +210,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
     plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[0.0, 1.2])
 
     step = 0
+    plot(q_init, "fld-sod-init")
     norm_q = 0.0
     for event in dt_stepper.run(t_end=final_time):
         if not isinstance(event, dt_stepper.StateComputed):
@@ -208,7 +218,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False):
 
         if step % 1 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event, "fld-sod-%04d" % step)
+            plot(event.state_component, "fld-sod-%04d" % step)
 
         step += 1
         logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
