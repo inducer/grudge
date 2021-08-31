@@ -27,15 +27,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import (
-    thaw,
-    with_container_arithmetic,
-    dataclass_array_container,
-)
-
-from collections import namedtuple
-
-from dataclasses import dataclass
+from arraycontext import thaw, make_loopy_program
 
 from meshmode.dof_array import DOFArray
 
@@ -45,7 +37,7 @@ from grudge.trace_pair import TracePair
 from pytools.obj_array import make_obj_array, obj_array_vectorize
 
 import grudge.op as op
-import grudge.dof_desc as dof_desc
+import loopy as lp
 
 
 def euler_flux(dcoll, cv_state, gamma=1.4):
@@ -207,6 +199,8 @@ class EulerOperator(HyperbolicOperator):
 # {{{ Entropy stable operator
 
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
+    """todo.
+    """
     dim = dcoll.dim
     rho = cv_state[0]
     rho_e = cv_state[1]
@@ -226,6 +220,8 @@ def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
 
 
 def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
+    """todo.
+    """
     # See Hughes, Franca, Mallet (1986) A new finite element
     # formulation for CFD: (DOI: 10.1016/0045-7825(86)90127-1)
     dim = dcoll.dim
@@ -337,7 +333,7 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
         0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
         + np.dot(fS_momentum, v_avg)
     )
-    return fS_mass, fS_energy, fS_momentum
+    return np.array([fS_mass, fS_energy, fS_momentum], dtype=object)
 
 
 def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
@@ -462,25 +458,23 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                         # zero by construction.
                         if j > i and not (i > Nq_vol and j > Nq_vol):
                             # Apply derivative to each component
-                            # (mass, energy, momentum);
-                            # flux_chandrashekar returns a tuple of the form
-                            # (fS_mass, fS_energy, fS_momentum)
-                            fS_mass, fS_energy, fS_momentum = \
-                                flux_chandrashekar(
+                            # (mass, energy, momentum)
+                            QF_rho_ij, QF_rhoe_ij, QF_rhou_ij = \
+                                Qskew_d[i, j] * flux_chandrashekar(
                                     q_i,
                                     (local_rho[j], local_rhoe[j], local_rhou[:, j]),
                                     d,
-                                    gamma=gamma)
+                                    gamma=gamma
+                                )
 
-                            # Compute upper triangular entry of 2Q .* F
-                            QF_rho_ij = Qskew_d[i, j] * fS_mass
-                            QF_rhoe_ij = Qskew_d[i, j] * fS_energy
-                            QF_rhou_ij = Qskew_d[i, j] * fS_momentum
+                            # print(f"QF_rho_ij = {QF_rho_ij}")
+                            # print(f"QF_rhoe_ij = {QF_rhoe_ij}")
+                            # print(f"QF_rhou_ij = {QF_rhou_ij}")
 
                             # Accumulate upper triangular part
-                            dq_rho_i += QF_rho_ij
-                            dq_rhoe_i += QF_rhoe_ij
-                            dq_rhou_i += QF_rhou_ij
+                            dq_rho_i = dq_rho_i + QF_rho_ij
+                            dq_rhoe_i = dq_rhoe_i + QF_rhoe_ij
+                            dq_rhou_i = dq_rhou_i + QF_rhou_ij
 
                             # Accumulate lower triangular part
                             dq_rho[j] -= QF_rho_ij
@@ -613,23 +607,27 @@ def entropy_stable_numerical_flux_chandrashekar(
 
 
 def entropy_stable_boundary_numerical_flux_prescribed(
-        dcoll, ev_state, cv_prescribe, dd_bc,
+        dcoll, proj_ev_state, proj_ev_prescribe, dd_bc,
         qtag=None, gamma=1.4, lf_stabilization=False):
     """todo.
     """
     dim = dcoll.dim
     dd_bcq = dd_bc.with_qtag(qtag)
-    actx = ev_state[0].array_context
+    actx = proj_ev_state[0].array_context
 
-    ev_state = op.project(dcoll, "vol", dd_bc, ev_state)
-    ev_bcq = op.project(dcoll, dd_bc, dd_bcq, ev_state)
+    # proj_ev_state_btag = op.project(dcoll, "vol", dd_bc, proj_ev_state)
+    ev_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_state)
+    # proj_ev_prescribe_btag = op.project(dcoll, "vol", dd_bc, proj_ev_prescribe)
+    ev_prescr_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_prescribe)
 
     bdry_tpair = TracePair(
         dd_bcq,
         interior=entropy_to_conservative_vars(
             actx, dcoll, ev_bcq, gamma=gamma
         ),
-        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
+        exterior=entropy_to_conservative_vars(
+            actx, dcoll, ev_prescr_bcq, gamma=gamma
+        )
     )
     return entropy_stable_numerical_flux_chandrashekar(
         dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
@@ -648,8 +646,13 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q[0].array_context
 
+        # from grudge.sbp_op import quadrature_surface_interpolation, reshape_face_array
+        # qf = quadrature_surface_interpolation(dcoll, df, q)
+        # qf_ref = reshape_face_array(dcoll, df, op.project(dcoll, "vol", df, q))
+        # import ipdb; ipdb.set_trace()
+
         print("Computing auxiliary conservative variables...")
-        qtilde_allquad, entropy_vars = entropy_projection(
+        qtilde_allquad, proj_entropy_vars = entropy_projection(
             actx, dcoll, dq, df, q, gamma=gamma)
         print("Finished auxiliary conservative variables.")
 
@@ -670,8 +673,6 @@ class EntropyStableEulerOperator(EulerOperator):
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
             dd_intfaces_quad = dd_intfaces.with_discr_tag(DISCR_TAG_QUAD)
-            vint = tpair.int
-            vext = tpair.ext
             vtilde_tpair = op.project(
                 dcoll, dd_intfaces, dd_intfaces_quad, tpair)
             return TracePair(
@@ -684,22 +685,28 @@ class EntropyStableEulerOperator(EulerOperator):
                 )
             )
 
-        num_fluxes_int = sum(
-            entropy_stable_numerical_flux_chandrashekar(
-                dcoll,
-                entropy_tpair(tpair),
-                gamma=gamma,
-                lf_stabilization=self.lf_stabilization
-            ) for tpair in op.interior_trace_pairs(dcoll, entropy_vars)
-        )
-
-        # Boundary conditions (prescribed)
         num_fluxes_bdry = (
+            sum(
+                entropy_stable_numerical_flux_chandrashekar(
+                    dcoll,
+                    entropy_tpair(tpair),
+                    gamma=gamma,
+                    lf_stabilization=self.lf_stabilization
+                ) for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
+            )
             - sum(
+                # Boundary conditions (prescribed)
                 entropy_stable_boundary_numerical_flux_prescribed(
                     dcoll,
-                    entropy_vars,
-                    self.bdry_fcts[btag](thaw(dcoll.nodes(btag), actx), t),
+                    proj_entropy_vars,
+                    # Convert boundary condition to projected entropy variables
+                    entropy_projection(
+                        actx,
+                        dcoll,
+                        dq, df,
+                        self.bdry_fcts[btag](thaw(dcoll.nodes(), actx), t),
+                        gamma=gamma
+                    )[1],
                     dd_bc=as_dofdesc(btag),
                     qtag=DISCR_TAG_QUAD,
                     lf_stabilization=self.lf_stabilization
@@ -713,10 +720,13 @@ class EntropyStableEulerOperator(EulerOperator):
         # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        from grudge.sbp_op import inverse_sbp_mass
+        from grudge.sbp_op import \
+            inverse_sbp_mass, sbp_lift_operator, reshape_face_array
 
         # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
-        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes_int + num_fluxes_bdry)
+        lifted_fluxes = sbp_lift_operator(
+            dcoll, df, reshape_face_array(dcoll, df, num_fluxes_bdry)
+        )
         dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
         print("Finished applying mass and lifting operators.")
 
