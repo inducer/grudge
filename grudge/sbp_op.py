@@ -189,7 +189,7 @@ def volume_and_surface_interpolation_matrix(
         return actx.freeze(actx.from_numpy(np.block([[vq_mat], [vf_mat]])))
 
     return get_vol_surf_interpolation_matrix(
-        base_element_group, vol_quad_element_group, face_quad_element_group    
+        base_element_group, vol_quad_element_group, face_quad_element_group
     )
 
 
@@ -646,3 +646,61 @@ def local_interior_trace_pair(dcoll, vec, dd_f_interior):
     e = obj_array_vectorize(get_opposite_face, i)
 
     return TracePair(dd_f_interior, interior=i, exterior=e)
+
+
+def reshape_face_array(dcoll, df, vec):
+    """todo.
+    """
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: reshape_face_array(dcoll, df, vi), vec
+        )
+
+    actx = vec.array_context
+
+    @memoize_in(actx, (reshape_face_array, "reshape_face_dofs_prg"))
+    def prg():
+        import loopy as lp
+        t_unit = make_loopy_program(
+            [
+                "{[iel]: 0 <= iel < nelements}",
+                "{[idof]: 0 <= idof < ndofs_per_face}",
+                "{[fidx]: 0 <= fidx < nfaces}"
+            ],
+            """
+            result[iel, idof + fidx*ndofs_per_face] = vec[fidx, iel, idof]
+            """,
+            [
+                lp.GlobalArg(
+                    "result", None,
+                    shape="nelements, nfaces * ndofs_per_face",
+                    offset=lp.auto
+                ),
+                "...",
+            ],
+            name="reshape_face_dofs"
+        )
+        from meshmode.transform_metadata import (
+                ConcurrentElementInameTag, ConcurrentDOFInameTag)
+        return lp.tag_inames(t_unit, {
+            "iel": ConcurrentElementInameTag(),
+            "idof": ConcurrentDOFInameTag()})
+
+    volm_discr = dcoll.discr_from_dd("vol")
+    face_discr = dcoll.discr_from_dd(df)
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.call_loopy(
+                prg(),
+                vec=vec_i.reshape(
+                    vgrp.mesh_el_group.nfaces,
+                    vgrp.nelements,
+                    afgrp.nunit_dofs
+                )
+            )["result"]
+
+            for vgrp, afgrp, vec_i in zip(volm_discr.groups,
+                                          face_discr.groups, vec)
+        )
+    )
