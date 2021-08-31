@@ -48,208 +48,6 @@ import grudge.op as op
 import grudge.dof_desc as dof_desc
 
 
-# {{{ Array container utilities
-
-@with_container_arithmetic(bcast_obj_array=False,
-                           bcast_container_types=(DOFArray, np.ndarray),
-                           matmul=True,
-                           rel_comparison=True)
-@dataclass_array_container
-@dataclass(frozen=True)
-class ArrayContainer:
-    mass: DOFArray
-    energy: DOFArray
-    momentum: np.ndarray  # [object array of DOFArrays]
-
-    @property
-    def array_context(self):
-        return self.mass.array_context
-
-    @property
-    def dim(self):
-        return len(self.momentum)
-
-    @property
-    def velocity(self):
-        return self.momentum / self.mass
-
-    def join(self):
-        return _join_fields(
-            dim=self.dim,
-            mass=self.mass,
-            energy=self.energy,
-            momentum=self.momentum
-        )
-
-
-def _join_fields(dim, mass, energy, momentum):
-
-    def _aux_shape(ary, leading_shape):
-        from meshmode.dof_array import DOFArray
-        if (isinstance(ary, np.ndarray) and ary.dtype == object
-                and not isinstance(ary, DOFArray)):
-            naxes = len(leading_shape)
-            if ary.shape[:naxes] != leading_shape:
-                raise ValueError("array shape does not start with expected leading "
-                        "dimensions")
-            return ary.shape[naxes:]
-        else:
-            if leading_shape != ():
-                raise ValueError("array shape does not start with expected leading "
-                        "dimensions")
-            return ()
-
-    aux_shapes = [
-        _aux_shape(mass, ()),
-        _aux_shape(energy, ()),
-        _aux_shape(momentum, (dim,))]
-
-    from pytools import single_valued
-    aux_shape = single_valued(aux_shapes)
-
-    result = np.empty((2+dim,) + aux_shape, dtype=object)
-    result[0] = mass
-    result[1] = energy
-    result[2:dim+2] = momentum
-
-    return result
-
-# }}}
-
-
-class EulerOperator(HyperbolicOperator):
-
-    def __init__(self, dcoll, bdry_fcts=None,
-                 flux_type="lf", gamma=1.4, gas_const=287.1):
-
-        self.dcoll = dcoll
-        self.bdry_fcts = bdry_fcts
-        self.flux_type = flux_type
-        self.gamma = gamma
-        self.gas_const = gas_const
-        self.lf_stabilization = flux_type == "lf"
-
-        dd_modal = dof_desc.DD_VOLUME_MODAL
-        dd_volume = dof_desc.DD_VOLUME
-
-        self.map_to_modal = dcoll.connection_from_dds(dd_volume, dd_modal)
-        self.map_to_nodal = dcoll.connection_from_dds(dd_modal, dd_volume)
-
-    def operator(self, t, q):
-        dcoll = self.dcoll
-
-        # Convert to array container
-        q = ArrayContainer(mass=q[0],
-                           energy=q[1],
-                           momentum=q[2:2+dcoll.dim])
-
-        actx = q.array_context
-        nodes = thaw(self.dcoll.nodes(), actx)
-
-        euler_flux_vol = self.euler_flux(q)
-        euler_flux_bnd = (
-            sum(self.numerical_flux(tpair)
-                for tpair in op.interior_trace_pairs(dcoll, q))
-            + sum(
-                self.boundary_numerical_flux(q, self.bdry_fcts[btag](nodes, t), btag)
-                for btag in self.bdry_fcts
-            )
-        )
-        return op.inverse_mass(
-            dcoll,
-            op.weak_local_div(dcoll, euler_flux_vol.join())
-            - op.face_mass(dcoll, euler_flux_bnd.join())
-        )
-
-    def euler_flux(self, q):
-        p = self.pressure(q)
-        mom = q[2:self.dcoll.dim+2]
-
-        return ArrayContainer(
-            mass=mom,
-            energy=mom * (q[1] + p) / q[0],
-            momentum=np.outer(mom, mom) / q[0] + np.eye(self.dcoll.dim)*p
-        ).join()
-
-    def numerical_flux(self, q_tpair):
-        """Return the numerical flux across a face given the solution on
-        both sides *q_tpair*.
-        """
-        actx = q_tpair.int[0].array_context
-
-        lam = actx.np.maximum(
-            self.max_characteristic_velocity(actx, state=q_tpair.int),
-            self.max_characteristic_velocity(actx, state=q_tpair.ext)
-        )
-
-        normal = thaw(self.dcoll.normal(q_tpair.dd), actx)
-
-        flux_tpair = TracePair(
-            q_tpair.dd,
-            interior=self.euler_flux(q_tpair.int),
-            exterior=self.euler_flux(q_tpair.ext)
-        )
-
-        flux_weak = flux_tpair.avg @ normal - lam/2.0*(q_tpair.int - q_tpair.ext)
-
-        return op.project(self.dcoll, q_tpair.dd, "all_faces", flux_weak)
-
-    def boundary_numerical_flux(self, q, q_prescribe, btag, qtag=None):
-        """Return the numerical flux across a face given the solution on
-        both sides *q_tpair*, with an external state given by a prescribed
-        state *q_prescribe* at the boundaries denoted by *btag*.
-        """
-        actx = q[0].array_context
-
-        bdry_tpair = TracePair(
-            btag,
-            interior=op.project(self.dcoll, "vol", btag, q),
-            exterior=op.project(self.dcoll, "vol", btag, q_prescribe)
-        )
-
-        normal = thaw(self.dcoll.normal(bdry_tpair.dd), actx)
-
-        bdry_flux_tpair = TracePair(
-            bdry_tpair.dd,
-            interior=self.euler_flux(bdry_tpair.int),
-            exterior=self.euler_flux(bdry_tpair.ext)
-        )
-
-        # lam = actx.np.maximum(
-        #     self.max_characteristic_velocity(actx, state=bdry_tpair.int),
-        #     self.max_characteristic_velocity(actx, state=bdry_tpair.ext)
-        # )
-
-        # flux_weak = 0.5*(bdry_flux_tpair.int - bdry_flux_tpair.ext) @ normal \
-        #     - lam/2.0*(bdry_tpair.int - bdry_tpair.ext)
-        flux_weak = bdry_flux_tpair.ext @ normal
-
-        return op.project(self.dcoll, bdry_tpair.dd, "all_faces", flux_weak)
-
-    def kinetic_energy(self, q):
-        mom = q[2:self.dcoll.dim+2]
-        return (0.5 * np.dot(mom, mom) / q[0])
-
-    def internal_energy(self, q):
-        return (q[1] - self.kinetic_energy(q))
-
-    def pressure(self, q):
-        return self.internal_energy(q) * (self.gamma - 1.0)
-
-    def sound_speed(self, q):
-        actx = q[0].array_context
-        return actx.np.sqrt(self.gamma / q[0] * self.pressure(q))
-
-    def max_characteristic_velocity(self, actx, **kwargs):
-        q = kwargs["state"]
-        rho = q[0]
-        rhov = q[2:self.dcoll.dim+2]
-        v = rhov / rho
-        return actx.np.sqrt(np.dot(v, v)) + self.sound_speed(q)
-
-
-# {{{ Entropy stable operator
-
 def euler_flux(dcoll, cv_state, gamma=1.4):
     """todo.
     """
@@ -262,17 +60,151 @@ def euler_flux(dcoll, cv_state, gamma=1.4):
     u_square = sum(v ** 2 for v in u)
     p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
 
-    momentum_flux = np.outer(rho_u, rho_u) / rho + np.eye(dim) * p
+    flux = np.empty((2+dim, dim), dtype=object)
+    flux[0, :] = rho_u
+    flux[1, :] = u * (rho_e + p)
+    flux[2:dim+2, :] = np.outer(rho_u, rho_u) / rho + np.eye(dim) * p
 
-    def _euler_flux(idx):
-        flux = np.empty((2+dim,), dtype=object)
-        flux[0] = rho_u[idx]
-        flux[1] = u[idx] * (rho_e + p)
-        flux[2:dim+2] = momentum_flux[idx, :]
-        return flux
+    return flux
 
-    return [_euler_flux(idx) for idx in range(dim)]
 
+def euler_numerical_flux(
+        dcoll, tpair, gamma=1.4, lf_stabilization=False):
+    """todo.
+    """
+    dim = dcoll.dim
+    dd_intfaces = tpair.dd
+    dd_allfaces = dd_intfaces.with_dtag("all_faces")
+    q_int = tpair.int
+    q_ext = tpair.ext
+    actx = q_int[0].array_context
+
+    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    num_flux = 0.5 * (euler_flux(dcoll, q_int, gamma=gamma)
+                      + euler_flux(dcoll, q_ext, gamma=gamma)) @ normal
+
+    if lf_stabilization:
+        rho_int = q_int[0]
+        rhoe_int = q_int[1]
+        rhou_int = q_int[2:dim+2]
+
+        rho_ext = q_ext[0]
+        rhoe_ext = q_ext[1]
+        rhou_ext = q_ext[2:dim+2]
+
+        v_int = rhou_int / rho_int
+        v_ext = rhou_ext / rho_ext
+
+        p_int = (gamma - 1) * (rhoe_int - 0.5 * sum(rhou_int * v_int))
+        p_ext = (gamma - 1) * (rhoe_ext - 0.5 * sum(rhou_ext * v_ext))
+
+        # compute jump penalization parameter
+        lam = actx.np.maximum(
+            actx.np.sqrt(gamma * (p_int / rho_int))
+            + actx.np.sqrt(np.dot(v_int, v_int)),
+            actx.np.sqrt(gamma * (p_ext / rho_ext))
+            + actx.np.sqrt(np.dot(v_ext, v_ext))
+        )
+        num_flux -= 0.5 * lam * (q_ext - q_int)
+
+    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
+
+
+def euler_boundary_numerical_flux_prescribed(
+        dcoll, cv_state, cv_prescribe, dd_bc,
+        qtag=None, gamma=1.4, lf_stabilization=False):
+    """todo.
+    """
+    dim = dcoll.dim
+    dd_bcq = dd_bc.with_qtag(qtag)
+    actx = cv_state[0].array_context
+
+    cv_state_btag = op.project(dcoll, "vol", dd_bc, cv_state)
+    cv_bcq = op.project(dcoll, dd_bc, dd_bcq, cv_state_btag)
+
+    bdry_tpair = TracePair(
+        dd_bcq,
+        interior=cv_bcq,
+        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
+    )
+    return euler_numerical_flux(
+        dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
+
+
+class EulerOperator(HyperbolicOperator):
+
+    def __init__(self, dcoll, bdry_fcts=None,
+                 flux_type="lf", gamma=1.4, gas_const=287.1):
+        self.dcoll = dcoll
+        self.bdry_fcts = bdry_fcts
+        self.flux_type = flux_type
+        self.gamma = gamma
+        self.gas_const = gas_const
+        self.lf_stabilization = flux_type == "lf"
+
+    def operator(self, t, q):
+        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
+
+        dcoll = self.dcoll
+        actx = q[0].array_context
+        gamma = self.gamma
+
+        dq = DOFDesc("vol", DISCR_TAG_QUAD)
+        df = DOFDesc("all_faces", DISCR_TAG_QUAD)
+        df_int = DOFDesc("int_faces", DISCR_TAG_QUAD)
+
+        def to_quad_vol(u):
+            return op.project(dcoll, "vol", dq, u)
+
+        def to_quad_tpair(u):
+            return TracePair(
+                df_int,
+                interior=op.project(dcoll, "int_faces", df_int, u.int),
+                exterior=op.project(dcoll, "int_faces", df_int, u.ext)
+            )
+
+        euler_flux_faces = (
+            sum(
+                euler_numerical_flux(
+                dcoll,
+                to_quad_tpair(tpair),
+                gamma=gamma,
+                lf_stabilization=self.lf_stabilization
+                ) for tpair in op.interior_trace_pairs(dcoll, q)
+            )
+            + sum(
+                euler_boundary_numerical_flux_prescribed(
+                    dcoll,
+                    q,
+                    self.bdry_fcts[btag](thaw(self.dcoll.nodes(btag), actx), t),
+                    dd_bc=as_dofdesc(btag),
+                    qtag=DISCR_TAG_QUAD,
+                    gamma=gamma,
+                    lf_stabilization=self.lf_stabilization,
+                ) for btag in self.bdry_fcts
+            )
+        )
+        return op.inverse_mass(
+            dcoll,
+            op.weak_local_div(
+                dcoll, dq, to_quad_vol(euler_flux(dcoll, q, gamma=gamma))
+            )
+            - op.face_mass(dcoll, df, euler_flux_faces)
+        )
+
+    def max_characteristic_velocity(self, actx, **kwargs):
+        q = kwargs["state"]
+        rho = q[0]
+        rhoe = q[1]
+        rhov = q[2:self.dcoll.dim+2]
+        v = rhov / rho
+        gamma = self.gamma
+        p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
+
+        return actx.np.sqrt(np.dot(v, v)) + actx.np.sqrt(gamma * (p / rho))
+
+
+# {{{ Entropy stable operator
 
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     dim = dcoll.dim
