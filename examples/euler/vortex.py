@@ -114,7 +114,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
     nel_1d = 16
 
     # final time
-    final_time = 0.2
+    final_time = 1
 
     # flux
     flux_type = "lf"
@@ -205,7 +205,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
         return euler_operator.operator(t, q)
 
     q_init = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 1/10 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/2 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
@@ -220,9 +220,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
         vis.write_vtk_file(
             f"fld-vortex-{step:04d}.vtu",
             [
-                ("rho", q_init.mass),
-                ("energy", q_init.energy),
-                ("momentum", q_init.momentum),
+                ("rho", q_init[0]),
+                ("energy", q_init[1]),
+                ("momentum", q_init[2:]),
             ]
         )
 
