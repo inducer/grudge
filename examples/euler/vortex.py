@@ -99,7 +99,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -185,9 +185,15 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         return result
 
-    from grudge.models.euler import EntropyStableEulerOperator
+    from grudge.models.euler import \
+        EntropyStableEulerOperator, EulerOperator
 
-    euler_operator = EntropyStableEulerOperator(
+    if esdg:
+        operator_cls = EntropyStableEulerOperator
+    else:
+        operator_cls = EulerOperator
+
+    euler_operator = operator_cls(
         dcoll,
         bdry_fcts={BTAG_ALL: vortex_initial_condition},
         flux_type=flux_type,
@@ -258,9 +264,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--esdg", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         esdg=args.esdg)
