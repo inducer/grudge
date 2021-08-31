@@ -379,7 +379,8 @@ def boundary_integration_matrices(
         faces = faces_for_shape(base_grp.shape)
         nfaces = len(faces)
         # NOTE: assumes same quadrature rule on all faces
-        face_quad_weights = np.tile(face_quad_grp.weights, nfaces)
+        face_quad_rule = face_quad_grp.quadrature_rule()
+        face_quad_weights = np.tile(face_quad_rule.weights, nfaces)
         nq_per_face = face_quad_grp.nunit_dofs
 
         from modepy import face_normal
@@ -523,14 +524,9 @@ def sbp_lifting_matrix(
                                          face_quad_grp.discretization_key()))
     def get_ref_sbp_lifting_mat(base_grp, face_quad_grp):
         dim = base_grp.dim
-        b_mats = actx.to_numpy(
-            thaw(
-                boundary_integration_matrices(
-                    actx, base_grp, face_quad_grp
-                ),
-                actx
-            )
-        )
+        nfaces = base_grp.mesh_el_group.nfaces
+        face_quad_rule = face_quad_grp.quadrature_rule()
+        face_quad_weights = np.tile(face_quad_rule.weights, nfaces)
         vf_mat = actx.to_numpy(
             surface_quadrature_interpolation_matrix(
                 actx,
@@ -540,18 +536,15 @@ def sbp_lifting_matrix(
             )
         )
 
-        return actx.freeze(actx.from_numpy(np.asarray([vf_mat.T @ b_mats[d]
-                                                       for d in range(dim)])))
+        return actx.freeze(actx.from_numpy(vf_mat.T @ np.diag(face_quad_weights)))
 
     return get_ref_sbp_lifting_mat(vol_element_group, face_element_group)
 
 
-def _apply_sbp_lift_operator(
-        dcoll: DiscretizationCollection, dd_f, vec, orientation):
+def _apply_sbp_lift_operator(dcoll: DiscretizationCollection, dd_f, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-            lambda vi: _apply_sbp_lift_operator(
-                dcoll, dd_f, vi, orientation), vec
+            lambda vi: _apply_sbp_lift_operator(dcoll, dd_f, vi), vec
         )
 
     from grudge.geometry import area_element
@@ -562,60 +555,36 @@ def _apply_sbp_lift_operator(
     actx = vec.array_context
 
     assert len(face_quad_discr.groups) == len(volm_discr.groups)
-    surf_area_elements = area_element(actx, dcoll, dd=dd_f)
-
-    @memoize_in(actx, (_apply_sbp_lift_operator, "face_lift_knl"))
-    def prg():
-        t_unit = make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof]: 0 <= idof < nvol_nodes}",
-                "{[jdof]: 0 <= jdof < nface_nodes}"
-            ],
-            """
-            result[iel, idof] = sum(jdof, mat[idof, jdof]
-                                          * jac_surf[iel, jdof]
-                                          * vec[iel, jdof])
-            """,
-            name="face_lift"
-        )
-        import loopy as lp
-        from meshmode.transform_metadata import (
-                ConcurrentElementInameTag, ConcurrentDOFInameTag)
-        return lp.tag_inames(t_unit, {
-            "iel": ConcurrentElementInameTag(),
-            "idof": ConcurrentDOFInameTag()})
+    surf_area_elements = reshape_face_array(
+        dcoll, dd_f, area_element(actx, dcoll, dd=dd_f)
+    )
+    vec_face = reshape_face_array(dcoll, dd_f, vec)
 
     return DOFArray(
         actx,
         data=tuple(
-            actx.call_loopy(
-                prg(),
-                mat=sbp_lifting_matrix(
+            actx.einsum(
+                "ij,ej,ej->ei",
+                sbp_lifting_matrix(
                     actx,
                     face_element_group=qfgrp,
                     vol_element_group=vgrp,
                     dtype=dtype
-                )[orientation],
-                jac_surf=surf_ae_i.reshape(
-                    vgrp.nelements,
-                    vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
                 ),
-                vec=vec_i.reshape(
-                    vgrp.nelements,
-                    vgrp.mesh_el_group.nfaces * qfgrp.nunit_dofs
-                )
-            )["result"]
+                surf_ae_i,
+                vec_i,
+                tagged=(FirstAxisIsElementsTag(),)
+            )
 
             for vgrp, qfgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_quad_discr.groups,
-                                                     vec,
+                                                     vec_face,
                                                      surf_area_elements)
         )
     )
 
 
-def sbp_lift_operator(dcoll: DiscretizationCollection, orientation, *args):
+def sbp_lift_operator(dcoll: DiscretizationCollection, *args):
     """todo.
     """
     if len(args) == 1:
@@ -626,26 +595,7 @@ def sbp_lift_operator(dcoll: DiscretizationCollection, orientation, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_sbp_lift_operator(dcoll, dd, vec, orientation)
-
-
-def local_interior_trace_pair(dcoll, vec, dd_f_interior):
-    """todo.
-    """
-    from grudge.op import project
-
-    # Restrict to interior faces *dd_f_interior*
-    i = project(dcoll, "vol", dd_f_interior, vec)
-
-    def get_opposite_face(el):
-        # Make sure we stay on the quadrature grid.
-        # Use Vq instead?
-        return project(dcoll, "int_faces", dd_f_interior,
-                        dcoll.opposite_face_connection()(el))
-
-    e = obj_array_vectorize(get_opposite_face, i)
-
-    return TracePair(dd_f_interior, interior=i, exterior=e)
+    return _apply_sbp_lift_operator(dcoll, dd, vec)
 
 
 def reshape_face_array(dcoll, df, vec):
