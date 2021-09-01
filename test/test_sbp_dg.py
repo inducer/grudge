@@ -50,8 +50,6 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
     # DG Half.
     dim = 2
 
-    from grudge import sym
-
     nelem_x = 20
     nelem_y = 20
     mesh = mgen.generate_regular_rect_mesh(a=(0, -1), b=(1, 1),
@@ -100,7 +98,6 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
     from grudge.models.advection import WeakAdvectionSBPOperator
 
     std_tag = dof_desc.DTAG_BOUNDARY("btag_std")
-    from meshmode.mesh import BTAG_ALL
 
     adv_operator = WeakAdvectionSBPOperator(dcoll, c,
                                             inflow_u=lambda t: u_analytic(
@@ -203,7 +200,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
     dudy_mat = -np.kron(d_y, np.eye(n_sbp_x))
 
     # Number of nodes in our SBP-DG boundary discretization
-    from meshmode.dof_array import flatten
+    from meshmode.dof_array import flatten, unflatten
     sbp_nodes_y = flatten(thaw(sbp_bdry_discr.nodes(), actx)[1])
     # When projecting, we use nodes sorted in y, but we will have to unsort
     # afterwards to make sure projected solution is injected into DG BC
@@ -283,11 +280,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
         # Add these at each point on the SBP half to get the SBP RHS.
         rhs_sbp = c[0]*dudx + c[1]*dudy - dl_x - dr_x - dl_y - dr_y
 
-        # Now pop this back into the device RHS vector.
-        # rhs_sbp_dev = actx.np.zeros((n_sbp_x*n_sbp_y,))
-        rhs_sbp_dev = rhs_sbp
-
-        rhs_out[0:int(n_sbp_x*n_sbp_y)] = rhs_sbp_dev
+        rhs_out[0:int(n_sbp_x*n_sbp_y)] = rhs_sbp
 
         sbp_east = np.zeros(n_sbp_y)
         # Pull SBP domain values off of east face.
@@ -305,15 +298,22 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
         sbp_proj = sbp2dg.dot(sbp_east)
         # Second: Fix the ordering.
         sbp_proj = sbp_proj[unsort_args]
+        sbp_tag = dof_desc.DTAG_BOUNDARY("btag_sbp")
 
+        u_dg_in = unflatten(actx, dcoll.discr_from_dd("vol"),
+                            actx.from_numpy(u[int(n_sbp_x*n_sbp_y):]))
+        u_sbp_in = unflatten(actx, dcoll.discr_from_dd(sbp_tag),
+                             actx.from_numpy(sbp_proj))
         # Grudge DG RHS.
         # Critical step - now need to apply projected SBP state to the
         # proper nodal locations in u_dg.
-        rhs_out[int(n_sbp_x*n_sbp_y):] = adv_operator.operator(
+        dg_rhs = adv_operator.operator(
                 t=t,
-                u=u[int(n_sbp_x*n_sbp_y):],
-                state_from_sbp=sbp_proj,
-                sbp_tag=dof_desc.DTAG_BOUNDARY("btag_sbp"), std_tag=std_tag)
+                u=u_dg_in,
+                state_from_sbp=u_sbp_in,
+                sbp_tag=sbp_tag, std_tag=std_tag)
+        dg_rhs = flatten(dg_rhs)
+        rhs_out[int(n_sbp_x*n_sbp_y):] = dg_rhs.get()
 
         return rhs_out
 
@@ -359,7 +359,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
             error_l2_sbp = 0
             for j in range(0, n_sbp_y):
                 for i in range(0, n_sbp_x):
-                    sbp_error[i + j*n_sbp_x] = u_sbp[i + j*n_sbp_x].get() - \
+                    sbp_error[i + j*n_sbp_x] = u_sbp[i + j*n_sbp_x] - \
                         np.sin(10*(-c.dot([x_sbp[i], y_sbp[j]])/norm_c +
                                    - last_t*norm_c))
                     error_l2_sbp = error_l2_sbp + \
@@ -369,8 +369,10 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
             print('SBP L2 Error after Step ', step, error_l2_sbp)
 
             # Write out the DG data only
+            u_dg_plot = unflatten(actx, dcoll.discr_from_dd("vol"),
+                                  actx.from_numpy(u_dg))
             vis.write_vtk_file("dg-%04d.vtu" % step,
-                               [("u", u_dg)], overwrite=True)
+                               [("u", u_dg_plot)], overwrite=True)
 
             # Try writing out a VTK file with the SBP data.
             from pyvisfile.vtk import write_structured_grid
@@ -382,7 +384,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
                 os.remove(filename)
 
             write_structured_grid(filename, sbp_mesh,
-                                  point_data=[("u", u_sbp.get())])
+                                  point_data=[("u", u_sbp)])
 
 
 if __name__ == "__main__":
