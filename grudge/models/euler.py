@@ -55,7 +55,7 @@ def euler_flux(dcoll, cv_state, gamma=1.4):
     flux = np.empty((2+dim, dim), dtype=object)
     flux[0, :] = rho_u
     flux[1, :] = u * (rho_e + p)
-    flux[2:dim+2, :] = np.outer(rho_u, rho_u) / rho + np.eye(dim) * p
+    flux[2:dim+2, :] = np.outer(rho_u, u) + np.eye(dim) * p
 
     return flux
 
@@ -198,6 +198,97 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
+# def _flux_diff_loopy_prg():
+#     return make_loopy_program(
+#         [
+#             "{[iel]: 0 <= iel < nelements}",
+#             "{[i]: 0 <= i < nq_total}",
+#             "{[j]: 0 <= j < nq_total}"
+#         ],
+#         """
+#         for iel
+#             for i
+#                 <> rho_i = rho[iel, i]
+#                 <> rhoe_i = rhoe[iel, i]
+#                 <> rhov1_i = rhou[iel, i]
+
+#                 <> v1_i = vel[iel, i]
+#                 <> p_i = pressure[iel, i]
+#                 <> beta_i = inverse_temp[iel, i]
+
+#                 <> specific_kin_i = 0.5 * (v1_i*v1_i)
+
+#                 for j
+#                     if j > i
+#                         <> rho_j = rho[iel, j]
+#                         <> rhoe_j = rhoe[iel, j]
+#                         <> rhov1_j = rhou[iel, j]
+
+#                         <> v1_j = vel[iel, j]
+#                         <> p_j = pressure[iel, j]
+#                         <> beta_j = inverse_temp[iel, j]
+
+#                         <> specific_kin_j = 0.5 * (v1_j*v1_j)
+
+#                         <> rho_mean = 0.0
+#                         <> rho_f2 = (rho_i*(rho_i - 2*rho_j) + rho_j*rho_j)/(rho_i*(rho_i + 2*rho_j) + rho_j*rho_j)
+#                         if rho_f2 < 1.0e-4
+#                             rho_mean = (rho_i + rho_j)/(2*(1 + 1/3*rho_f2 + 1/5*(rho_f2*rho_f2) + 1/7*(rho_f2*rho_f2*rho_f2)))
+#                         else
+#                             rho_mean = (rho_j - rho_i)/log(rho_j/rho_i)
+#                         end
+
+#                         <> beta_mean = 0.0
+#                         <> beta_f2 = (beta_i*(beta_i - 2*beta_j) + beta_j*beta_j)/(beta_i*(beta_i + 2*beta_j) + beta_j*beta_j)
+#                         if beta_f2 < 1.0e-4
+#                             beta_mean = (beta_i + beta_j)/(2*(1 + 1/3*beta_f2 + 1/5*(beta_f2*beta_f2) + 1/7*(beta_f2*beta_f2*beta_f2)))
+#                         else
+#                             beta_mean = (beta_j - beta_i)/log(beta_j/beta_i)
+#                         end
+
+#                         <> rho_avg = 0.5*(rho_i + rho_j)
+#                         <> beta_avg = 0.5*(beta_i + beta_j)
+#                         <> v1_avg = 0.5*(v1_i + v1_j)
+#                         <> p_mean = 0.5*rho_avg/beta_avg
+#                         <> vel_square_avg = specific_kin_i + specific_kin_j
+
+#                         <> fS1 = rho_mean * v1_avg
+#                         <> fS2 = fS1*v1_avg + p_mean
+#                         <> fS3 = fS1*0.5*(1/(gamma - 1)/beta_mean - vel_square_avg) + fS2*v1_avg
+
+#                         <> QF_ij_1 = vgeo[0, iel, j]*Q[0, i, j]*fS1
+#                         <> QF_ij_2 = vgeo[0, iel, j]*Q[0, i, j]*fS2
+#                         <> QF_ij_3 = vgeo[0, iel, j]*Q[0, i, j]*fS3
+                        
+#                     end
+#                 end
+            
+#             end
+#             <> element_dot = sum(idof_quad,
+#                         ary[from_element_indices[iel], idof_quad]
+#                         * basis[idof_quad] * weights[idof_quad])
+#             result[to_element_indices[iel], ibasis] = \
+#                     result[to_element_indices[iel], ibasis] + element_dot
+#         end
+#         """,
+#         [
+#             lp.GlobalArg("ary", None,
+#                 shape=("n_from_elements", "n_from_nodes")),
+#             lp.GlobalArg("result", None,
+#                 shape=("n_to_elements", "n_to_nodes")),
+#             lp.GlobalArg("basis", None,
+#                 shape="n_from_nodes"),
+#             lp.GlobalArg("weights", None,
+#                 shape="n_from_nodes"),
+#             lp.ValueArg("n_from_elements", np.int32),
+#             lp.ValueArg("n_to_elements", np.int32),
+#             lp.ValueArg("n_to_nodes", np.int32),
+#             lp.ValueArg("ibasis", np.int32),
+#             "..."
+#         ],
+#         name="flux_differencing_chandrashekar")
+
+
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     """todo.
     """
@@ -292,6 +383,8 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
     v_ll = rhou_ll / rho_ll
     v_rr = rhou_rr / rho_rr
 
+    dim = len(v_ll)
+
     p_ll = (gamma - 1) * (rhoe_ll - 0.5 * sum(rhou_ll * v_ll))
     p_rr = (gamma - 1) * (rhoe_rr - 0.5 * sum(rhou_rr * v_rr))
 
@@ -300,6 +393,11 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
 
     specific_kin_ll = 0.5 * sum(v**2 for v in v_ll)
     specific_kin_rr = 0.5 * sum(v**2 for v in v_rr)
+    v_avg = 0.5 * (v_ll + v_rr)
+    velocity_square_avg = (
+        2 * sum(vi_avg**2 for vi_avg in v_avg)
+        - (specific_kin_ll + specific_kin_rr)
+    )
 
     def log_mean(x, y, epsilon=1e-4):
         """Computes the logarithmic mean using a numerically stable
@@ -321,19 +419,24 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
 
     beta_mean = log_mean(beta_ll, beta_rr)
     beta_avg = 0.5 * (beta_ll + beta_rr)
-
-    v_avg = 0.5 * (v_ll + v_rr)
-    p_mean = 0.5 * rho_avg / beta_avg
-    velocity_square_avg = specific_kin_ll + specific_kin_rr
-
-    fS_mass = rho_mean * v_avg[orientation]
-    fS_momentum = fS_mass * v_avg
-    fS_momentum[orientation] += p_mean
-    fS_energy = fS_mass * (
-        0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
-        + np.dot(fS_momentum, v_avg)
+    p_avg = 0.5 * rho_avg / beta_avg
+    e_avg = (
+        (rho_mean / (2 * beta_mean * (gamma - 1)))
+        + 0.5 * velocity_square_avg
     )
-    return np.array([fS_mass, fS_energy, fS_momentum], dtype=object)
+    rho_mean_v_avg = rho_mean * v_avg
+    fxyz_momentum = np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
+
+    f_mass = rho_mean_v_avg[orientation]
+    f_momentum = fxyz_momentum[:, orientation]
+    f_energy = v_avg[orientation] * (e_avg + p_avg)
+    result =  np.array([f_mass, f_energy, f_momentum], dtype=object)
+    # NOTE: NaN appears to be coming *in* to the function as q_ll, q_rr...
+    # if np.isnan(sum(result)):
+    #     # raise ValueError("NaN occurred in two-point flux calculation.")
+    #     # print("NaN occurred in two-point flux calculation.")
+    #     import ipdb; ipdb.set_trace()
+    return result
 
 
 def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
@@ -407,9 +510,9 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
         )
 
         # Group arrays for the Hadamard row-sum
-        dQF_rho = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
-        dQF_rhoe = np.empty(shape=(Nelements, Nq_total), dtype=dtype)
-        dQF_rhou = np.empty(shape=(dim, Nelements, Nq_total), dtype=dtype)
+        dQF_rho = np.zeros(shape=(Nelements, Nq_total), dtype=dtype)
+        dQF_rhoe = np.zeros(shape=(Nelements, Nq_total), dtype=dtype)
+        dQF_rhou = np.zeros(shape=(dim, Nelements, Nq_total), dtype=dtype)
 
         # Element loop
         for eidx in range(Nelements):
@@ -466,10 +569,6 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                                     d,
                                     gamma=gamma
                                 )
-
-                            # print(f"QF_rho_ij = {QF_rho_ij}")
-                            # print(f"QF_rhoe_ij = {QF_rhoe_ij}")
-                            # print(f"QF_rhou_ij = {QF_rhou_ij}")
 
                             # Accumulate upper triangular part
                             dq_rho_i = dq_rho_i + QF_rho_ij
@@ -567,28 +666,27 @@ def entropy_stable_numerical_flux_chandrashekar(
     beta_ext = 0.5 * rho_ext / p_ext
     specific_kin_int = 0.5 * sum(v**2 for v in v_int)
     specific_kin_ext = 0.5 * sum(v**2 for v in v_ext)
+    v_avg = 0.5 * (v_int + v_ext)
+    velocity_square_avg = (
+        2 * sum(vi_avg**2 for vi_avg in v_avg)
+        - (specific_kin_int + specific_kin_ext)
+    )
 
     rho_avg = 0.5 * (rho_int + rho_ext)
     beta_avg = 0.5 * (beta_int + beta_ext)
-    v_avg = 0.5 * (v_int + v_ext)
-    p_mean = 0.5 * rho_avg / beta_avg
-    velocity_square_avg = specific_kin_int + specific_kin_ext
-
+    p_avg = 0.5 * rho_avg / beta_avg
     rho_mean = log_mean(rho_int, rho_ext)
     beta_mean = log_mean(beta_int, beta_ext)
+    e_avg = (
+        (rho_mean / (2 * beta_mean * (gamma - 1)))
+        + 0.5 * velocity_square_avg
+    )
+    rho_mean_v_avg = rho_mean * v_avg
 
     flux = np.empty((2+dim, dim), dtype=object)
-    for idx in range(dim):
-        flux_i = np.empty((2+dim,), dtype=object)
-        flux_i[0] = rho_mean * v_avg[idx]
-        flux_i[2:dim+2] = flux_i[0] * v_avg
-        flux_i[2:dim+2][idx] += p_mean
-        flux_i[1] = flux_i[0] * (
-            0.5 * (1/(gamma - 1 ) / beta_mean - velocity_square_avg)
-            + sum(flux_i[2:dim+2] * v_avg)
-        )
-
-        flux[:, idx] = flux_i
+    flux[0, :] = rho_mean_v_avg
+    flux[1, :] = v_avg * (e_avg + p_avg)
+    flux[2:dim+2, :] = np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
 
     normal = thaw(dcoll.normal(dd_intfaces), actx)
     num_flux = flux @ normal
