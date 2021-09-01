@@ -205,7 +205,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False):
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = 1/100 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/4 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
