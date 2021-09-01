@@ -399,19 +399,21 @@ def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
         - (specific_kin_ll + specific_kin_rr)
     )
 
-    def log_mean(x, y, epsilon=1e-4):
+    def log_mean(x, y, epsilon=1e-2):
         """Computes the logarithmic mean using a numerically stable
         stable approach outlined in Appendix B of Ismail, Roe (2009).
         Affordable, entropy-consistent Euler flux functions II: Entropy
         production at shocks.
         [DOI: 10.1016/j.jcp.2009.04.021](https://doi.org/10.1016/j.jcp.2009.04.021)
         """
-        f_squared =  (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y)
-        if f_squared < epsilon:
-            f = 1 + 1/3 * f_squared + 1/5 * (f_squared**2) + 1/7 * (f_squared**3)
-            return (x + y) / (2*f)
+        zeta = x / y
+        f = (zeta - 1) / (zeta + 1)
+        u = f*f
+        if u < epsilon:
+            ff = 1 + u / 3 + u*u / 5 + u*u*u / 7
         else:
-            return (x - y) / np.log(x/y)
+            ff = np.log(zeta)/2/f
+        return (x + y) / (2*ff)
 
     # Compute the necessary mean values
     rho_avg = 0.5 * (rho_ll + rho_rr)
@@ -501,13 +503,14 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
         rhoe_gidx = rhoe[gidx]
         rhou_gidx = [ru[gidx] for ru in rhou]
 
-        # Get SBP hybridized derivative operators on the ref element
+        # Form skew-symmetric SBP hybridized derivative operators
         qmats = actx.to_numpy(
             thaw(hybridized_sbp_operators(actx,
                                           vgrp,
                                           vqgrp, fqgrp,
                                           dtype), actx)
         )
+        Qrst_skew = [0.5 * (qmats[d] - qmats[d].T) for d in range(dim)]
 
         # Group arrays for the Hadamard row-sum
         dQF_rho = np.zeros(shape=(Nelements, Nq_total), dtype=dtype)
@@ -520,9 +523,9 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                      for ridx in range(dim)]
                     for cidx in range(dim)]
 
-            # Build physical SBP operators
-            Qxyz = [vgeo[j][d]*qmats[j, :, :]
-                    for j in range(dim) for d in range(dim)]
+            # Build physical SBP operators on the element
+            Qxyz_skew = [2*vgeo[j][d] * Qrst_skew[j]
+                         for j in range(dim) for d in range(dim)]
 
             # Element-local state data
             local_rho = actx.to_numpy(rho_gidx[eidx])
@@ -539,7 +542,7 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
             # Compute flux differencing in each cell and apply the
             # hybridized SBP operator
             for d in range(dim):
-                Qskew_d = Qxyz[d] - Qxyz[d].T
+                Qskew_d = Qxyz_skew[d]
                 # Loop over all (vol + surface) quadrature nodes and compute
                 # the Hadamard row-sum
                 for i in range(Nq_total):
@@ -576,17 +579,16 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                             dq_rhou_i = dq_rhou_i + QF_rhou_ij
 
                             # Accumulate lower triangular part
-                            dq_rho[j] -= QF_rho_ij
-                            dq_rhoe[j] -= QF_rhoe_ij
-                            dq_rhou[:, j] -= QF_rhou_ij
+                            dq_rho[j] = dq_rho[j] - QF_rho_ij
+                            dq_rhoe[j] = dq_rhoe[j] - QF_rhoe_ij
+                            dq_rhou[:, j] = dq_rhou[:, j] - QF_rhou_ij
                         # end if
                     # end j
-                    dq_rho[i] += dq_rho_i
-                    dq_rhoe[i] += dq_rhoe_i
-                    dq_rhou[:, i] += dq_rhou_i
+                    dq_rho[i] = dq_rho_i
+                    dq_rhoe[i] = dq_rhoe_i
+                    dq_rhou[:, i] = dq_rhou_i
                 # end i
             # end d
-
             dQF_rho[eidx, :] = dq_rho
             dQF_rhoe[eidx, :] = dq_rhoe
             dQF_rhou[:, eidx, :] = dq_rhou
@@ -636,16 +638,16 @@ def entropy_stable_numerical_flux_chandrashekar(
     q_ext = tpair.ext
     actx = q_int[0].array_context
 
-    def log_mean(x, y, epsilon=1e-4):
-        f_squared =  (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y)
+    def log_mean(x, y, epsilon=1e-2):
+        zeta = x / y
+        f = (zeta - 1) / (zeta + 1)
+        u = f*f
         return actx.np.where(
             # if f_squared < epsilon
-            f_squared < epsilon,
-            (x + y) / (2*(1 + 1/3 * f_squared
-                          + 1/5 * (f_squared**2)
-                          + 1/7 * (f_squared**3))),
+            u < epsilon,
+            (x + y) / (2*(1 + u / 3 + u*u / 5 + u*u*u / 7)),
             # else
-            (x - y) / actx.np.log(x/y)
+            (x + y) / (2*actx.np.log(zeta)/2/f)
         )
 
     rho_int = q_int[0]
@@ -705,7 +707,7 @@ def entropy_stable_numerical_flux_chandrashekar(
 
 
 def entropy_stable_boundary_numerical_flux_prescribed(
-        dcoll, proj_ev_state, proj_ev_prescribe, dd_bc,
+        dcoll, proj_ev_state, cv_prescribe, dd_bc,
         qtag=None, gamma=1.4, lf_stabilization=False):
     """todo.
     """
@@ -716,16 +718,13 @@ def entropy_stable_boundary_numerical_flux_prescribed(
     # proj_ev_state_btag = op.project(dcoll, "vol", dd_bc, proj_ev_state)
     ev_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_state)
     # proj_ev_prescribe_btag = op.project(dcoll, "vol", dd_bc, proj_ev_prescribe)
-    ev_prescr_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_prescribe)
-
+    # ev_prescr_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_prescribe)
     bdry_tpair = TracePair(
         dd_bcq,
         interior=entropy_to_conservative_vars(
             actx, dcoll, ev_bcq, gamma=gamma
         ),
-        exterior=entropy_to_conservative_vars(
-            actx, dcoll, ev_prescr_bcq, gamma=gamma
-        )
+        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
     )
     return entropy_stable_numerical_flux_chandrashekar(
         dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
@@ -792,19 +791,12 @@ class EntropyStableEulerOperator(EulerOperator):
                     lf_stabilization=self.lf_stabilization
                 ) for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
             )
-            - sum(
+            + sum(
                 # Boundary conditions (prescribed)
                 entropy_stable_boundary_numerical_flux_prescribed(
                     dcoll,
                     proj_entropy_vars,
-                    # Convert boundary condition to projected entropy variables
-                    entropy_projection(
-                        actx,
-                        dcoll,
-                        dq, df,
-                        self.bdry_fcts[btag](thaw(dcoll.nodes(), actx), t),
-                        gamma=gamma
-                    )[1],
+                    self.bdry_fcts[btag](thaw(dcoll.nodes(btag), actx), t),
                     dd_bc=as_dofdesc(btag),
                     qtag=DISCR_TAG_QUAD,
                     lf_stabilization=self.lf_stabilization
@@ -818,13 +810,16 @@ class EntropyStableEulerOperator(EulerOperator):
         # and the inverse mass matrix
         # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
         #               -V_f.T B_d (f*_d - f(q_f)))
-        from grudge.sbp_op import \
-            inverse_sbp_mass, sbp_lift_operator, reshape_face_array
+        from grudge.sbp_op import inverse_sbp_mass
 
         # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
-        lifted_fluxes = sbp_lift_operator(
-            dcoll, df, reshape_face_array(dcoll, df, num_fluxes_bdry)
-        )
+        # NOTE: This does not work as expected (regular op.face_mass does)
+        # from grudge.sbp_op import \
+        #     sbp_lift_operator, reshape_face_array
+        # lifted_fluxes = sbp_lift_operator(
+        #     dcoll, df, reshape_face_array(dcoll, df, num_fluxes_bdry)
+        # )
+        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes_bdry)
         dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
         print("Finished applying mass and lifting operators.")
 
