@@ -98,7 +98,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=1, order=4, visualize=False, esdg=False):
+def main(ctx_factory, order=4, visualize=False, esdg=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -109,10 +109,12 @@ def main(ctx_factory, dim=1, order=4, visualize=False, esdg=False):
 
     # {{{ parameters
 
+    dim = 1
+
     # domain [0, 1]
     d = 1.0
     # number of points in each dimension
-    npoints = 100
+    npoints = 25
 
     # final time
     final_time = 0.2
@@ -143,7 +145,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False, esdg=False):
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+            DISCR_TAG_QUAD: default_simplex_group_factory(dim, order)
         }
     )
 
@@ -203,7 +205,7 @@ def main(ctx_factory, dim=1, order=4, visualize=False, esdg=False):
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = 1/10 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/100 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
