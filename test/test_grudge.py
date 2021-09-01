@@ -838,7 +838,6 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
-    from grudge import sym
     from sbp_operators import (sbp21, sbp42, sbp63)
     from projection import sbp_dg_projection
 
@@ -917,7 +916,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
 
         # Set up solution vector:
         # For now, timestep is the same as DG.
-        u_sbp = actx.np.zeros(int(n_sbp_x*n_sbp_y))
+        u_sbp = np.zeros(int(n_sbp_x*n_sbp_y))
 
         # Initial condition
         for j in range(0, n_sbp_y):
@@ -1023,7 +1022,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
 
         def rhs(t, u):
             # Initialize the entire RHS to 0.
-            rhs_out = actx.np.zeros(int(n_sbp_x*n_sbp_y) + int(nnodes))
+            rhs_out = np.zeros(int(n_sbp_x*n_sbp_y) + int(nnodes))
 
             # Fill the first part with the SBP half of the domain.
 
@@ -1127,7 +1126,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
         from grudge.shortcuts import set_up_rk4
 
         # Make a combined u with the SBP and the DG parts.
-        u_comb = actx.np.zeros(int(n_sbp_x*n_sbp_y) + nnodes)
+        u_comb = np.zeros(int(n_sbp_x*n_sbp_y) + nnodes)
         u_comb[0:int(n_sbp_x*n_sbp_y)] = u_sbp
         u_flat = flatten(u)
         for i in range(int(n_sbp_x*n_sbp_y), int(n_sbp_x*n_sbp_y) + nnodes):
