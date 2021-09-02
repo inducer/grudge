@@ -355,7 +355,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
                 u_dg - u_analytic(nodes, t=last_t),
                 2
             )
-            print('DG L2 Error after Step ', step, error_l2_dg)
+            print("DG L2 Error after Step ", step, error_l2_dg)
             sbp_error = np.zeros((n_sbp_x*n_sbp_y))
             error_l2_sbp = 0
             for j in range(0, n_sbp_y):
@@ -367,7 +367,7 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
                         dx*dy*(sbp_error[i + j*n_sbp_x]) ** 2
 
             error_l2_sbp = np.sqrt(error_l2_sbp)
-            print('SBP L2 Error after Step ', step, error_l2_sbp)
+            print("SBP L2 Error after Step ", step, error_l2_sbp)
 
             # Write out the DG data only
             vis.write_vtk_file("dg-%04d.vtu" % step,

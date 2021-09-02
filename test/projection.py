@@ -105,7 +105,7 @@ def make_projection(n, order):
         m = 2
         # pb = 1
         # from opt files
-        q = np.loadtxt('q_2.txt')
+        q = np.loadtxt("q_2.txt")
         r = 1
     elif order == 4:
         # In K+W code, FD op size is n+1
@@ -113,7 +113,7 @@ def make_projection(n, order):
         m = 4
         # pb = 2
         # from opt files
-        q = np.loadtxt('q_4.txt')
+        q = np.loadtxt("q_4.txt")
         r = 5
     elif order == 6:
         # In K+W code, FD op size is n+1
@@ -121,7 +121,7 @@ def make_projection(n, order):
         m = 6
         # pb = 2
         # from opt files
-        q = np.loadtxt('q_6.txt')
+        q = np.loadtxt("q_6.txt")
         r = 8
 
     h = p_sbp
@@ -147,7 +147,7 @@ def make_projection(n, order):
         pg2f[int(i[k])-1, int(j[k])-1] = qi[k]
 
     # Boundary solution.
-    qb = np.reshape(q[m*(p+1):], (r*(p+1), s,), order='F')
+    qb = np.reshape(q[m*(p+1):], (r*(p+1), s,), order="F")
     qb = np.transpose(qb)
 
     # Left block.
@@ -155,8 +155,8 @@ def make_projection(n, order):
 
     qb = np.reshape((np.diag(2*np.mod(np.linspace(1, p+1, p+1, endpoint=True),
                      2) - 1)).dot(np.flipud(np.reshape(np.rot90(qb,
-                                  2).transpose(), (p+1, r*s,), order='F'))),
-                    (r*(p+1), s,), order='F').transpose()
+                                  2).transpose(), (p+1, r*s,), order="F"))),
+                    (r*(p+1), s,), order="F").transpose()
 
     # pg2f[np.arange(pg2f.shape[0]-s, pg2f.shape[0], 1),
     #     np.arange(pg2f.shape[1]+1-r*(p+1)-1, pg2f.shape[1], 1)] = qb
@@ -349,20 +349,20 @@ def sbp_sbp_test():
     # we don't have those diagonal SBP operators coded yet.
     for qa in range(2, 6, 2):
         for qb in range(2, 6, 2):
-            print('Creating projection for (qa, qb) ', qa, qb)
+            print("Creating projection for (qa, qb) ", qa, qb)
             [pa2b, pb2a] = sbp_sbp_projection(na, qa, nb, qb)
 
             # np.savetxt('pa2b_test.txt', pa2b)
             # np.savetxt('pb2a_test.txt', pb2a)
 
-            print('Testing projection for (qa, qb) ', qa, qb)
+            print("Testing projection for (qa, qb) ", qa, qb)
             # Check the full operator
             for n in range(0, int(min(qa, qb)/2)-1):
                 np.testing.assert_array_less(np.abs(pa2b.dot((xa ** n))
                                              - xb ** n), 1000*eps)
                 np.testing.assert_array_less(np.abs(pb2a.dot((xb ** n))
                                              - xa ** n), 1000*eps)
-            print('Test passed for (qa, qb) ', qa, qb)
+            print("Test passed for (qa, qb) ", qa, qb)
 
             # Check the interior operator
             n_int = int(min(qa, qb))-1
