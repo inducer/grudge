@@ -347,7 +347,8 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
 
             last_t = event.t
             u_sbp = event.state_component[0:int(n_sbp_x*n_sbp_y)]
-            u_dg = event.state_component[int(n_sbp_x*n_sbp_y):]
+            u_dg = unflatten(actx, dcoll.discr_from_dd("vol"),
+                    actx.from_numpy(event.state_component[int(n_sbp_x*n_sbp_y):]))
 
             error_l2_dg = op.norm(
                 dcoll,
@@ -369,10 +370,8 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
             print('SBP L2 Error after Step ', step, error_l2_sbp)
 
             # Write out the DG data only
-            u_dg_plot = unflatten(actx, dcoll.discr_from_dd("vol"),
-                                  actx.from_numpy(u_dg))
             vis.write_vtk_file("dg-%04d.vtu" % step,
-                               [("u", u_dg_plot)], overwrite=True)
+                               [("u", u_dg)], overwrite=True)
 
             # Try writing out a VTK file with the SBP data.
             from pyvisfile.vtk import write_structured_grid

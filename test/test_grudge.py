@@ -1007,14 +1007,14 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
                                            west_nodes)
 
         # Get mapping for western face
-        base_nodes = thaw(dcoll._volume_discr.nodes(), actx)
+        base_nodes = flatten(thaw(dcoll._volume_discr.nodes(), actx)[0])
         nsbp_nodes = sbp_bdry_discr.ndofs
         nodes_per_element = mesh.groups[0].nodes.shape[2]
         west_indices = np.zeros(nsbp_nodes)
         count = 0
         # Sweep through first block of indices in the box.
         for i in range(0, (nelem-1)*2*nodes_per_element):
-            if base_nodes[0][0][i][0] < 1e-10:
+            if base_nodes[i] < 1e-10:
                 # Make sure we're actually at the edge faces.
                 if i % (2*nodes_per_element) < nodes_per_element:
                     west_indices[count] = i
@@ -1152,7 +1152,9 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
 
                 last_t = event.t
                 u_sbp = event.state_component[0:int(n_sbp_x*n_sbp_y)]
-                u_dg = event.state_component[int(n_sbp_x*n_sbp_y):]
+                u_dg = unflatten(actx, dcoll.discr_from_dd("vol"),
+                        actx.from_numpy(
+                            event.state_component[int(n_sbp_x*n_sbp_y):]))
 
                 error_l2_dg = op.norm(
                     dcoll,
@@ -1175,11 +1177,9 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
 
                 # Write out the DG data
                 if visualize:
-                    u_dg_plot = unflatten(actx, dcoll.discr_from_dd("vol"),
-                                          actx.from_numpy(u_dg))
                     vis.write_vtk_file("eoc_dg-%s-%04d.vtu" %
                                        (nelem, step),
-                                       [("u", u_dg_plot)], overwrite=True)
+                                       [("u", u_dg)], overwrite=True)
 
                 # Write out the SBP data.
                 from pyvisfile.vtk import write_structured_grid
@@ -1189,7 +1189,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
                                           point_data=[("u", u_sbp)])
 
         if c[0] > 0:
-            eoc_rec.add_data_point(h, error_l2_dg)
+            eoc_rec.add_data_point(h, error_l2_dg.get())
         else:
             eoc_rec.add_data_point(h, error_l2_sbp)
 
