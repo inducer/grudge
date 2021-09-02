@@ -984,12 +984,12 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
         # When projecting, we use nodes sorted in y, but we will have to unsort
         # afterwards to make sure projected solution is injected into DG BC
         # in the correct way.
-        nodesort = np.argsort(sbp_nodes_y.get())
+        nodesort = np.argsort(sbp_nodes_y)
         nodesortlist = nodesort.tolist()
-        rangex = np.array(range(sbp_nodes_y.get().shape[0]))
+        rangex = np.array(range(sbp_nodes_y.shape[0]))
         unsort_args = [nodesortlist.index(x) for x in rangex]
 
-        west_nodes = np.sort(np.array(sbp_nodes_y.get()))
+        west_nodes = np.sort(np.array(sbp_nodes_y))
 
         # Make element-aligned glue grid.
         dg_side_gg = np.zeros(int(west_nodes.shape[0]/(order+1))+1)
@@ -1007,14 +1007,14 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
                                            west_nodes)
 
         # Get mapping for western face
-        base_nodes = thaw(dcoll._volume_discr.nodes())
-        nsbp_nodes = sbp_bdry_discr.nnodes
+        base_nodes = thaw(dcoll._volume_discr.nodes(), actx)
+        nsbp_nodes = sbp_bdry_discr.ndofs
         nodes_per_element = mesh.groups[0].nodes.shape[2]
         west_indices = np.zeros(nsbp_nodes)
         count = 0
         # Sweep through first block of indices in the box.
         for i in range(0, (nelem-1)*2*nodes_per_element):
-            if base_nodes[0][i] < 1e-10:
+            if base_nodes[0][0][i][0] < 1e-10:
                 # Make sure we're actually at the edge faces.
                 if i % (2*nodes_per_element) < nodes_per_element:
                     west_indices[count] = i
@@ -1027,7 +1027,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
             # Fill the first part with the SBP half of the domain.
 
             # Pull the SBP vector out of device array for now.
-            u_sbp_ts = u[0:int(n_sbp_x*n_sbp_y)].get()
+            u_sbp_ts = u[0:int(n_sbp_x*n_sbp_y)]
 
             dudx = np.zeros((n_sbp_x*n_sbp_y))
             dudy = np.zeros((n_sbp_x*n_sbp_y))
@@ -1165,7 +1165,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
                 for j in range(0, n_sbp_y):
                     for i in range(0, n_sbp_x):
                         sbp_error[i + j*n_sbp_x] = \
-                                u_sbp[i + j*n_sbp_x].get() - \
+                                u_sbp[i + j*n_sbp_x] - \
                                 np.sin(10*(-c.dot([x_sbp[i], y_sbp[j]])
                                        / norm_c + last_t*norm_c))
                         error_l2_sbp = error_l2_sbp + \
@@ -1186,7 +1186,7 @@ def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c
                 if visualize:
                     filename = "eoc_sbp_%s-%04d.vts" % (nelem, step)
                     write_structured_grid(filename, sbp_mesh,
-                                          point_data=[("u", u_sbp.get())])
+                                          point_data=[("u", u_sbp)])
 
         if c[0] > 0:
             eoc_rec.add_data_point(h, error_l2_dg)
