@@ -360,8 +360,8 @@ def test_sbp_dg(actx_factory, write_output=True, order=4):
             for j in range(0, n_sbp_y):
                 for i in range(0, n_sbp_x):
                     sbp_error[i + j*n_sbp_x] = u_sbp[i + j*n_sbp_x] - \
-                        np.sin(10*(-c.dot([x_sbp[i], y_sbp[j]])/norm_c +
-                                   last_t*norm_c))
+                        np.sin(10*(-c.dot([x_sbp[i], y_sbp[j]])/norm_c
+                                   + last_t*norm_c))
                     error_l2_sbp = error_l2_sbp + \
                         dx*dy*(sbp_error[i + j*n_sbp_x]) ** 2
 
