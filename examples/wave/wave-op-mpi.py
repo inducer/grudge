@@ -98,8 +98,9 @@ def wave_operator(dcoll, c, w):
     u = w.u
     v = w.v
 
-    dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
-    dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
+    dir_w = op.project(dcoll, "vol", BTAG_ALL, w)
+    dir_u = dir_w.u
+    dir_v = dir_w.v
     dir_bval = WaveState(u=dir_u, v=dir_v)
     dir_bc = WaveState(u=-dir_u, v=dir_v)
 
