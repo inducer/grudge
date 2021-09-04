@@ -88,9 +88,9 @@ def transform_face_mass(t_unit):
     knl = lp.split_iname(knl, "idof_face_mass",
                          n_work_items_per_element)
 
-    # Preftch rstrct vals into private address space
-    for dof_var_name in ["rstrct_vals", "rstrct_vals_0",
-                         "rstrct_vals_1", "rstrct_vals_2"]:
+    # Preftch flux vals into private address space
+    for dof_var_name in ["flux", "flux_0",
+                         "flux_1", "flux_2"]:
         new_insn_id = f"{dof_var_name}_prftch"
         knl = add_prefetch_for_single_kernel(
                     knl, t_unit.callables_table,
@@ -252,6 +252,30 @@ class HopefullySmartPytatoArrayContext(
 
         # }}}
 
+        # {{{ face_mass: materialize einsum args
+
+        def materialize_face_mass_input_and_output(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "ifj,fej,fej->ei":
+                    mat, jac, vec = expr.args
+                    return (pt.einsum("ifj,fej,fej->ei",
+                                      mat,
+                                      jac,
+                                      vec.tagged(pt.tags
+                                                 .ImplementAs(pt.tags
+                                                              .ImplStored("flux"))))
+                            .tagged(pt.tags.ImplementAs(pt.tags
+                                                        .ImplStored("face_mass"))))
+                else:
+                    return expr
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, materialize_face_mass_input_and_output)
+
+        # }}}
+
         # {{{ materialize inverse mass inputs
 
         def materialize_inverse_mass_inputs(expr):
@@ -301,15 +325,36 @@ class HopefullySmartPytatoArrayContext(
             from loopy.transform.precompute import precompute_for_single_kernel
             from loopy.transform.instruction import simplify_indices
 
-            t_unit = lp.inline_callable_kernel(t_unit, "face_mass")
             t_unit = simplify_indices(t_unit)
 
             knl = t_unit.default_entrypoint
 
-            # get rid of noops
-            noops = {insn.id for insn in knl.instructions
-                     if isinstance(insn, lp.NoOpInstruction)}
-            knl = lp.remove_instructions(knl, noops)
+            # {{{ Plot the digraph of the CSEs
+
+            if 0 and self.DO_CSE:
+                rmap = knl.reader_map()
+                print("digraph {")
+                for arg in knl.args:
+                    print(f"  {arg.name} [shape=record]")
+
+                for tv in (knl.args
+                           + list(knl.temporary_variables.values())):
+                    indirect_access_checker = IndirectAccessChecker(tv.name,
+                                                                    knl.all_inames())
+                    for insn_id in rmap.get(tv.name, ()):
+                        insn = knl.id_to_insn[insn_id]
+                        if indirect_access_checker(insn.expression):
+                            color = "red"
+                        else:
+                            color = "blue"
+
+                        print(f"  {tv.name} -> {insn.assignee_name}"
+                              f"[color={color}]")
+
+                print("}")
+                1/0
+
+            # }}}
 
             # {{{ CSE kernels
 
@@ -420,45 +465,18 @@ class HopefullySmartPytatoArrayContext(
                                  insn_after="tag:cse_knl3")
             knl = lp.add_barrier(knl,
                                  insn_before="tag:cse_knl3",
-                                 insn_after="writes:rstrct_vals*")
+                                 insn_after="writes:flux*")
             knl = lp.add_barrier(knl,
-                                 insn_before="writes:rstrct_vals*",
-                                 insn_after="iname:face_iel*")
+                                 insn_before="writes:flux*",
+                                 insn_after="writes:face_mass*")
             knl = lp.add_barrier(knl,
-                                 insn_before="iname:face_iel*",
+                                 insn_before="writes:face_mass*",
                                  insn_after="writes:mass_inv_inp*")
             knl = lp.add_barrier(knl,
                                  insn_before="writes:mass_inv_inp*",
                                  insn_after="writes:_pt_out*")
 
-            # {{{ Plot the digraph of the CSEs
-
-            if 0 and self.DO_CSE:
-                rmap = knl.reader_map()
-                print("digraph {")
-                for arg in knl.args:
-                    print(f"  {arg.name} [shape=record]")
-
-                for tv in (knl.args
-                           + list(knl.temporary_variables.values())):
-                    indirect_access_checker = IndirectAccessChecker(tv.name,
-                                                                    knl.all_inames())
-                    for insn_id in rmap.get(tv.name, ()):
-                        insn = knl.id_to_insn[insn_id]
-                        if indirect_access_checker(insn.expression):
-                            color = "red"
-                        else:
-                            color = "blue"
-
-                        print(f"  {tv.name} -> {insn.assignee_name}"
-                              f"[color={color}]")
-
-                print("}")
-                1/0
-
-            # }}}
-
-            # {{{ loop fusion
+            # {{{ fuse elementwise loops
 
             # Since u, v_0, v_1, v_2 all correspond to the same function space
             # we fuse the loop nests corresponding to v_0, v_1, v_2 into the
@@ -472,41 +490,41 @@ class HopefullySmartPytatoArrayContext(
             for idof in range(3):
                 # face loop
                 knl = lp.rename_iname(knl,
-                                      f"rstrct_vals_{idof}_dim0",
-                                      "rstrct_vals_dim0",
+                                      f"flux_{idof}_dim0",
+                                      "flux_dim0",
                                       existing_ok=True)
 
                 # element loop
                 knl = lp.rename_iname(knl,
-                                      f"rstrct_vals_{idof}_dim1",
-                                      "rstrct_vals_dim1",
+                                      f"flux_{idof}_dim1",
+                                      "flux_dim1",
                                       existing_ok=True)
 
                 # face loop
                 knl = lp.rename_iname(knl,
-                                      f"rstrct_vals_{idof}_dim2",
-                                      "rstrct_vals_dim2",
+                                      f"flux_{idof}_dim2",
+                                      "flux_dim2",
                                       existing_ok=True)
-            knl = lp.rename_iname(knl, "rstrct_vals_dim0", "iface_rstrct")
-            knl = lp.rename_iname(knl, "rstrct_vals_dim1", "iel_rstrct")
-            knl = lp.rename_iname(knl, "rstrct_vals_dim2", "iface_dof_rstrct")
+            knl = lp.rename_iname(knl, "flux_dim0", "iface_flux")
+            knl = lp.rename_iname(knl, "flux_dim1", "iel_flux")
+            knl = lp.rename_iname(knl, "flux_dim2", "iface_dof_flux")
 
             # fuse all face-mass loops
+            knl = lp.rename_iname(knl, "face_mass_dim0", "iel_face_mass")
+            knl = lp.rename_iname(knl, "face_mass_dim1", "idof_face_mass")
+
             for idof in range(3):
                 # element loop
                 knl = lp.rename_iname(knl,
-                                      f"face_iel_{idof}",
-                                      "face_iel",
+                                      f"face_mass_{idof}_dim0",
+                                      "iel_face_mass",
                                       existing_ok=True)
 
                 # vol. dof
                 knl = lp.rename_iname(knl,
-                                      f"face_idof_{idof}",
-                                      "face_idof",
+                                      f"face_mass_{idof}_dim1",
+                                      "idof_face_mass",
                                       existing_ok=True)
-
-            knl = lp.rename_iname(knl, "face_iel", "iel_face_mass")
-            knl = lp.rename_iname(knl, "face_idof", "idof_face_mass")
 
             # fuse all div/grad + lift terms
             knl = lp.rename_iname(knl,
@@ -546,17 +564,26 @@ class HopefullySmartPytatoArrayContext(
                                       "idof_out",
                                       existing_ok=True)
 
-            # we aren't going to parallelize the reductions, realize them so
-            # that we can do apply other loop transformations to them.
             t_unit = t_unit.with_kernel(knl)
-            t_unit = lp.realize_reduction(t_unit)
-            knl = t_unit.default_entrypoint
 
-            for i in range(3):
-                knl = lp.rename_iname(knl, f"face_f_{i}", "face_f",
-                                      existing_ok=True)
-                knl = lp.rename_iname(knl, f"face_jdof_{i}", "face_jdof",
-                                      existing_ok=True)
+            # }}}
+
+            # {{{ fuse reduction loops
+
+            # FIXME: We should at the very least have a single loop over the
+            # faces during face_mass.
+
+            if 0:
+                # we aren't going to parallelize the reductions, realize them so
+                # that we can do apply other loop transformations to them.
+                t_unit = lp.realize_reduction(t_unit)
+                knl = t_unit.default_entrypoint
+
+                for i in range(3):
+                    knl = lp.rename_iname(knl, f"face_f_{i}", "face_f",
+                                          existing_ok=True)
+                    knl = lp.rename_iname(knl, f"face_jdof_{i}", "face_jdof",
+                                          existing_ok=True)
 
             # }}}
 
@@ -575,16 +602,16 @@ class HopefullySmartPytatoArrayContext(
 
             # {{{ elementwise compute at face: elementwise parallelization
 
-            knl = lp.split_iname(knl, "iel_rstrct", l_one_size,
+            knl = lp.split_iname(knl, "iel_flux", l_one_size,
                                  inner_tag="l.1", outer_tag="g.0")
-            knl = lp.split_iname(knl, "iface_dof_rstrct", l_zero_size,
+            knl = lp.split_iname(knl, "iface_dof_flux", l_zero_size,
                                  inner_tag="l.0")
 
             # }}}
 
             # {{{ face mass transformations
 
-            if 1:
+            if 0:
                 t_unit = t_unit.with_kernel(knl)
                 t_unit = transform_face_mass(t_unit)
                 knl = t_unit.default_entrypoint
