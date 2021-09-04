@@ -399,7 +399,7 @@ def inverse_surface_metric_derivative(
     dd = dof_desc.as_dofdesc(dd)
 
     @memoize_in(dcoll, (inverse_surface_metric_derivative, dd,
-                        rst_axis, xyz_axis))
+                        rst_axis, xyz_axis, actx.supports_nonscalar_broadcasting))
     def _inv_surf_metric_deriv():
         if ambient_dim == dim:
             imd = inverse_metric_derivative(
@@ -412,6 +412,10 @@ def inverse_surface_metric_derivative(
                     actx, dcoll, xyz_axis, d, dd=dd
                 ) for d in range(dim)
             )
+
+        if actx.supports_nonscalar_broadcasting:
+            imd = dcoll._base_to_geoderiv_connection(dd)(imd)
+
         return freeze(imd, actx)
 
     return thaw(_inv_surf_metric_deriv(), actx)
@@ -504,8 +508,13 @@ def area_element(
 
     @memoize_in(dcoll, (area_element, dd, actx.supports_nonscalar_broadcasting))
     def _area_elements():
-        return freeze(actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dd=dd).norm_squared()), actx)
+        result = actx.np.sqrt(
+            pseudoscalar(actx, dcoll, dd=dd).norm_squared())
+
+        if actx.supports_nonscalar_broadcasting:
+            result = dcoll._base_to_geoderiv_connection(dd)(result)
+
+        return freeze(result, actx)
 
     return thaw(_area_elements(), actx)
 
@@ -550,7 +559,7 @@ def mv_normal(
     """
     dd = dof_desc.as_dofdesc(dd)
 
-    @memoize_in(dcoll, (mv_normal, dd))
+    @memoize_in(dcoll, (mv_normal, dd, actx.supports_nonscalar_broadcasting))
     def _normal():
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
@@ -587,6 +596,9 @@ def mv_normal(
             mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
             result = mv / actx.np.sqrt(mv.norm_squared())
+
+        if actx.supports_nonscalar_broadcasting:
+            result = dcoll._base_to_geoderiv_connection(dd)(result)
 
         return freeze(result, actx)
 

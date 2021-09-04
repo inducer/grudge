@@ -309,6 +309,61 @@ class DiscretizationCollection:
 
     # }}}
 
+    # {{{ _geometry_discr_from_dd
+
+    @memoize_method
+    def _has_affine_groups(self):
+        from modepy.shapes import Simplex
+        return any(
+                megrp.is_affine
+                and issubclass(megrp._modepy_shape_cls, Simplex)
+                for megrp in self._volume_discr.mesh.groups)
+
+    @memoize_method
+    def _base_to_geoderiv_connection(self, dd: DOFDesc):
+        r"""The "geometry derivatives" discretization for a given *dd* is
+        typically identical to the one returned by :meth:`discr_from_dd`,
+        however for affinely-mapped simplicial elements, it will use a
+        :math:`P^0` discretization having a single DOF per element.
+        As a result, :class:`~meshmode.dof_array.DOFArray`\ s on this
+        are broadcast-compatible with the discretizations returned by
+        :meth:`discr_from_dd`.
+        """
+        base_discr = self.discr_from_dd(dd)
+        if not self._has_affine_groups():
+            # no benefit to having another discretization that takes
+            # advantage of affine-ness
+            from meshmode.discretization.connection import \
+                    IdentityDiscretizationConnection
+            return IdentityDiscretizationConnection(base_discr)
+
+        base_group_factory = self.group_factory_for_discretization_tag(
+                dd.discretization_tag)
+
+        def geo_group_factory(megrp, index):
+            from modepy.shapes import Simplex
+            from meshmode.discretization.poly_element import \
+                    PolynomialEquidistantSimplexElementGroup
+            if megrp.is_affine and issubclass(megrp._modepy_shape_cls, Simplex):
+                return PolynomialEquidistantSimplexElementGroup(
+                        megrp, order=0, index=index)
+            else:
+                return base_group_factory(megrp, index)
+
+        from meshmode.discretization import Discretization
+        geo_deriv_discr = Discretization(
+            self._setup_actx, base_discr.mesh,
+            geo_group_factory)
+
+        from meshmode.discretization.connection.same_mesh import \
+                make_same_mesh_connection
+        return make_same_mesh_connection(
+                self._setup_actx,
+                to_discr=geo_deriv_discr,
+                from_discr=base_discr)
+
+    # }}}
+
     # {{{ connection_from_dds
 
     @memoize_method
