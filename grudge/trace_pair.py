@@ -49,9 +49,12 @@ from arraycontext import (
     ArrayContainer,
     with_container_arithmetic,
     dataclass_array_container,
-    map_array_container,
-    get_container_context_recursively
+    get_container_context_recursively,
+    serialize_container,
+    deserialize_container
 )
+
+from collections import OrderedDict
 
 from dataclasses import dataclass
 
@@ -64,7 +67,8 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 
 from grudge.discretization import DiscretizationCollection
 
-from meshmode.dof_array import flatten_to_numpy, unflatten_from_numpy, DOFArray
+from meshmode.dof_array import \
+    flatten_to_numpy, unflatten_from_numpy, rec_map_dof_array_container
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
@@ -276,67 +280,113 @@ def connected_ranks(dcoll: DiscretizationCollection):
     return get_connected_partitions(dcoll._volume_discr.mesh)
 
 
-def _convert_to_numpy_obj_ary(ary):
-    # FIXME? Need to convert numpy data to something that can be understood
-    # by unflatten_from_numpy ...
-    from pytools.obj_array import make_obj_array
-
-    if len(ary.shape) == 1:
-        return ary
-
-    return make_obj_array([subary for subary in ary])
-
-
 class _RankBoundaryCommunication:
     base_tag = 1273
 
     def __init__(self, dcoll: DiscretizationCollection,
-                 remote_rank, vol_field, tag=None):
+                 remote_rank, array_container, tag=None):
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
 
         self.dcoll = dcoll
-        # NOTE: get_container_context is unreliable, need to use recursive version
-        # to ensure we extract the nested array context
-        self.array_context = get_container_context_recursively(vol_field)
+        self.array_context = get_container_context_recursively(array_container)
         self.remote_btag = BTAG_PARTITION(remote_rank)
         self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
 
         from grudge.op import project
 
-        self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
+        self.local_array_ctr = \
+            project(dcoll, "vol", self.remote_btag, array_container)
 
-        local_data = np.stack(
-            flatten_to_numpy(self.array_context, self.local_dof_array)
-        )
+        # NOTE: Want to remember ordering of entries so the ordering of the keys
+        # corresponds to offset calculations for unflattening the exchanged array
+        container_data = OrderedDict()
+        flattened_data = []
+        for key, value in serialize_container(self.local_array_ctr):
+            flattened_values = rec_map_dof_array_container(
+                partial(flatten_to_numpy, self.array_context), value
+            )
+            container_data[key] = flattened_values
+            # NOTE: Addresses object arrays inside array containers. Need to special
+            # case them here to make sure we can convert it into a flat numpy array
+            # that mpi4py can actually send/recieve
+            if (isinstance(flattened_values, np.ndarray)
+                    and flattened_values.dtype == "O"):
+                flattened_values = np.concatenate(flattened_values)
+            flattened_data.append(flattened_values)
+
+        # NOTE: Storing container data so we can use this information to
+        # re-containerize the exchanged result
+        self.container_data = container_data
+        _local_data_numpy = np.concatenate(flattened_data)
 
         comm = self.dcoll.mpi_communicator
 
-        self.send_req = comm.Isend(local_data, remote_rank, tag=self.tag)
-        self.remote_data_host = np.empty_like(local_data)
-        self.recv_req = comm.Irecv(self.remote_data_host, remote_rank, self.tag)
+        self.send_req = comm.Isend(_local_data_numpy, remote_rank, tag=self.tag)
+        self.remote_data_host_numpy = np.empty_like(_local_data_numpy)
+        self.recv_req = comm.Irecv(
+            self.remote_data_host_numpy, remote_rank, self.tag
+        )
 
     def finish(self):
         self.recv_req.Wait()
 
-        # FIXME: Need to check this...
-        remote_dof_array = unflatten_from_numpy(
-            self.array_context,
-            self.bdry_discr,
-            _convert_to_numpy_obj_ary(self.remote_data_host)
+        # Re-containerize the recieved data
+        actx = self.array_context
+        discr = self.bdry_discr
+        remote_data_numpy = self.remote_data_host_numpy
+        original_container_data = self.container_data
+        # Convert flattend (concatenated) array data into a list of arrays/obj arrays
+        # denoting the components of the array container
+        remote_container_data = {}
+
+        # This is why we want the original container dict to be ordered
+        # (looping over standard dicts is not parallel safe since keys/items are
+        # not ordered).
+        # NOTE: This assumes all sub arrays are of the same shape!
+        offset = 0
+        for key in original_container_data:
+            _value = original_container_data[key]
+            # Special case when container component is expected to be an object array
+            if isinstance(_value, np.ndarray) and _value.dtype == "O":
+                remote_comps = []
+                for _subary_idx in range(len(_value)):
+                    _subary = _value[_subary_idx]
+                    _subary_ndofs, = _subary.shape
+                    remote_comps.append(
+                        unflatten_from_numpy(
+                            actx, discr,
+                            remote_data_numpy[offset:offset+_subary_ndofs]
+                        )
+                    )
+                    offset += _subary_ndofs
+                remote_data = make_obj_array(remote_comps)
+            else:
+                _ndofs, = _value.shape
+                remote_data = unflatten_from_numpy(
+                    actx, discr, remote_data_numpy[offset:offset+_ndofs]
+                )
+                offset += _ndofs
+            # Store the unflattened, de-numpy-fied remote data
+            remote_container_data[key] = remote_data
+
+        # Re-containerize the remote data
+        remote_array_ctr = deserialize_container(
+            self.local_array_ctr,
+            remote_container_data.items()
         )
 
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag))
         )
-        swapped_remote_dof_array = bdry_conn(remote_dof_array)
+        swapped_remote_array_ctr = bdry_conn(remote_array_ctr)
 
         self.send_req.Wait()
 
         return TracePair(self.remote_btag,
-                         interior=self.local_dof_array,
-                         exterior=swapped_remote_dof_array)
+                         interior=self.local_array_ctr,
+                         exterior=swapped_remote_array_ctr)
 
 
 def cross_rank_trace_pairs(
@@ -363,9 +413,8 @@ def cross_rank_trace_pairs(
         return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
                 for remote_rank in connected_ranks(dcoll)]
     else:
-        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, ary, tag=tag)
-                   for remote_rank in connected_ranks(dcoll)]
-        return [rbcomm.finish() for rbcomm in rbcomms]
+        return [_RankBoundaryCommunication(dcoll, remote_rank, ary, tag=tag).finish()
+                for remote_rank in connected_ranks(dcoll)]
 
 # }}}
 
