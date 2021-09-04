@@ -290,48 +290,28 @@ def _apply_stiffness_transpose_operator(
                                            rst_axis, xyz_axis, dd=dd_in)
          for rst_axis in range(dcoll.dim)]
     )
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("dij,ej,ej,dej->ei",
+                        reference_stiffness_transpose_matrix(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        ae_i,
+                        vec_i,
+                        inv_jac_t_i,
+                        arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
+                        tagged=(FirstAxisIsElementsTag(),))
 
-    data = []
-
-    for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
-                                                         in_discr.groups,
-                                                         vec,
-                                                         area_elements,
-                                                         inverse_jac_t):
-        if out_grp.is_affine and in_grp.is_affine:
-            # FIXME: Exists because of https://github.com/inducer/pytato/issues/151
-            assert ae_i.shape[-1] == 1
-            assert ae_i.ndim == 2
-            assert inv_jac_t_i.shape[-1] == 1
-            assert inv_jac_t_i.ndim == 2
-
-            data.append(
-                actx.einsum("dij,ej,ej,dej->ei",
-                            reference_stiffness_transpose_matrix(
-                                actx,
-                                out_element_group=out_grp,
-                                in_element_group=in_grp
-                            ),
-                            ae_i.reshape(ae_i.shape[0]),
-                            vec_i,
-                            inv_jac_t_i.reshape(inv_jac_t_i.shape[0]),
-                            arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
-                            tagged=(FirstAxisIsElementsTag(),)))
-        else:
-            data.append(
-                actx.einsum("dij,ej,ej,dej->ei",
-                            reference_stiffness_transpose_matrix(
-                                actx,
-                                out_element_group=out_grp,
-                                in_element_group=in_grp
-                            ),
-                            ae_i,
-                            vec_i,
-                            inv_jac_t_i,
-                            arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
-                            tagged=(FirstAxisIsElementsTag(),)))
-
-    return DOFArray(actx, data=tuple(data))
+            for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
+                                                                 in_discr.groups,
+                                                                 vec,
+                                                                 area_elements,
+                                                                 inverse_jac_t)
+        )
+    )
 
 
 def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
@@ -515,39 +495,24 @@ def _apply_mass_operator(
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej,ej->ei",
+                        reference_mass_matrix(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        ae_i,
+                        vec_i,
+                        arg_names=("mass_mat", "jac", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
 
-    data = []
-
-    for in_grp, out_grp, ae_i, vec_i in zip(
-            in_discr.groups, out_discr.groups, area_elements, vec):
-        if in_grp.is_affine and out_grp.is_affine:
-            # FIXME: Exists because of https://github.com/inducer/pytato/issues/151
-            assert ae_i.shape[-1] == 1
-            assert ae_i.ndim == 2
-            data.append(
-                actx.einsum("ij,e,ej->ei",
-                            reference_mass_matrix(
-                                actx,
-                                out_element_group=out_grp,
-                                in_element_group=in_grp
-                            ),
-                            ae_i.reshape(ae_i.shape[0]),
-                            vec_i,
-                            arg_names=("mass_mat", "jac", "vec"),
-                            tagged=(FirstAxisIsElementsTag(),)))
-        else:
-            data.append(
-                actx.einsum("ij,ej,ej->ei",
-                            reference_mass_matrix(
-                                actx,
-                                out_element_group=out_grp,
-                                in_element_group=in_grp
-                            ),
-                            ae_i,
-                            vec_i,
-                            arg_names=("mass_mat", "jac", "vec"),
-                            tagged=(FirstAxisIsElementsTag(),)))
-    return DOFArray(actx, data=tuple(data))
+            for in_grp, out_grp, ae_i, vec_i in zip(
+                    in_discr.groups, out_discr.groups, area_elements, vec)
+        )
+    )
 
 
 def mass(dcoll: DiscretizationCollection, *args):
