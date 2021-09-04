@@ -1,5 +1,6 @@
 """
 .. autoclass:: PyOpenCLArrayContext
+.. autoclass:: PytatoPyOpenCLArrayContext
 """
 
 __copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
@@ -25,7 +26,10 @@ THE SOFTWARE.
 """
 
 
-from meshmode.array_context import PyOpenCLArrayContext as _PyOpenCLArrayContextBase
+from meshmode.array_context import (
+        PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
+        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
+        )
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
         register_pytest_array_context_factory)
@@ -35,6 +39,13 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PyOpenCLArrayContext`. Extends it
     to understand :mod:`grudge`-specific transform metadata. (Of which there isn't
     any, for now.)
+    """
+
+
+class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
+    """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
+    Extends it to understand :mod:`grudge`-specific transform metadata. (Of
+    which there isn't any, for now.)
     """
 
 
