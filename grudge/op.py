@@ -54,7 +54,7 @@ from arraycontext import ArrayContext, map_array_container
 
 from functools import partial
 
-from meshmode.dof_array import DOFArray
+from meshmode.dof_array import DOFArray, rec_map_dof_array_container
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
@@ -520,7 +520,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
 def _apply_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):
     if not isinstance(vec, DOFArray):
-        return map_array_container(
+        return rec_map_dof_array_container(
             partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
@@ -617,7 +617,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
 def _apply_inverse_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):
     if not isinstance(vec, DOFArray):
-        return map_array_container(
+        return rec_map_dof_array_container(
             partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
@@ -788,7 +788,7 @@ def reference_face_mass_matrix(
 
 def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
     if not isinstance(vec, DOFArray):
-        return map_array_container(
+        return rec_map_dof_array_container(
             partial(_apply_face_mass_operator, dcoll, dd), vec
         )
 
