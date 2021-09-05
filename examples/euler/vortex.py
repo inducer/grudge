@@ -196,6 +196,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
     euler_operator = operator_cls(
         dcoll,
         bdry_fcts={BTAG_ALL: vortex_initial_condition},
+        initial_condition=vortex_initial_condition,
         flux_type=flux_type,
         gamma=gamma,
         gas_const=gas_const,
@@ -205,7 +206,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
         return euler_operator.operator(t, q)
 
     q_init = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 1/2 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
