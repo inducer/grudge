@@ -111,26 +111,23 @@ def reference_derivative_matrices(actx: ArrayContext, element_group):
 
 
 def _compute_local_gradient(dcoll: DiscretizationCollection, vec, xyz_axis):
-    from grudge.geometry import inverse_surface_metric_derivative
+    from grudge.geometry import inverse_surface_metric_derivative_mat
 
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
-    inverse_jac_t = actx.np.stack(
-        [inverse_surface_metric_derivative(actx, dcoll, rst_axis, xyz_axis)
-         for rst_axis in range(dcoll.dim)]
-    )
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll)
     return DOFArray(
         actx,
         data=tuple(
             actx.einsum("dei,dij,ej->ei",
-                        inv_jac_t_i,
+                        ijm_i[xyz_axis],
                         reference_derivative_matrices(actx, grp),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_diff_mat", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for grp, vec_i, inv_jac_t_i in zip(discr.groups, vec, inverse_jac_t)
+            for grp, vec_i, ijm_i in zip(discr.groups, vec, inverse_jac_mat)
         )
     )
 
@@ -275,18 +272,15 @@ def reference_stiffness_transpose_matrix(
 def _apply_stiffness_transpose_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec, xyz_axis):
     from grudge.geometry import \
-        inverse_surface_metric_derivative, area_element
+        inverse_surface_metric_derivative_mat, area_element
 
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
-    inverse_jac_t = actx.np.stack(
-        [inverse_surface_metric_derivative(actx, dcoll,
-                                           rst_axis, xyz_axis, dd=dd_in)
-         for rst_axis in range(dcoll.dim)]
-    )
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in)
+
     return DOFArray(
         actx,
         data=tuple(
@@ -298,17 +292,13 @@ def _apply_stiffness_transpose_operator(
                         ),
                         ae_i,
                         vec_i,
-                        inv_jac_t_i,
+                        ijm_i[xyz_axis],
                         arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for out_grp, in_grp, vec_i, ae_i, inv_jac_t_i in zip(out_discr.groups,
-                                                                 in_discr.groups,
-                                                                 vec,
-                                                                 area_elements,
-                                                                 inverse_jac_t)
-        )
-    )
+            for out_grp, in_grp, vec_i, ae_i, ijm_i in zip(
+                out_discr.groups, in_discr.groups, vec, area_elements,
+                inverse_jac_mat)))
 
 
 def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
