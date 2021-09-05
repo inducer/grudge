@@ -249,7 +249,8 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
     return conserved_vars
 
 
-def entropy_projection(actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
+def entropy_projection(
+        actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4, initial_condition=None):
     """todo.
     """
     from grudge.sbp_op import (volume_quadrature_project,
@@ -257,7 +258,10 @@ def entropy_projection(actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
                                volume_and_surface_quadrature_interpolation)
 
     # Interpolate cv_state to vol quad grid: u_q = V_q u
-    cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
+    if initial_condition:
+        cv_state_q = initial_condition(thaw(dcoll.nodes(dd_q), actx))
+    else:
+        cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
     # Convert to entropy variables: v_q = v(u_q)
     ev_state_q = conservative_to_entropy_vars(
         actx, dcoll, cv_state_q, gamma=gamma)
@@ -619,24 +623,20 @@ def entropy_stable_numerical_flux_chandrashekar(
 
 
 def entropy_stable_boundary_numerical_flux_prescribed(
-        dcoll, proj_ev_state, cv_prescribe, dd_bc,
-        qtag=None, gamma=1.4, lf_stabilization=False):
+        dcoll, proj_ev_state, cv_prescribe, dd_bcq,
+        gamma=1.4, t=0.0, lf_stabilization=False):
     """todo.
     """
-    dim = dcoll.dim
-    dd_bcq = dd_bc.with_qtag(qtag)
     actx = proj_ev_state[0].array_context
-
-    # proj_ev_state_btag = op.project(dcoll, "vol", dd_bc, proj_ev_state)
+    x_bcq = thaw(dcoll.nodes(dd_bcq), actx)
     ev_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_state)
-    # proj_ev_prescribe_btag = op.project(dcoll, "vol", dd_bc, proj_ev_prescribe)
-    # ev_prescr_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_prescribe)
     bdry_tpair = TracePair(
         dd_bcq,
+        # interior state in terms of the entropy-projected conservative vars
         interior=entropy_to_conservative_vars(
             actx, dcoll, ev_bcq, gamma=gamma
         ),
-        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
+        exterior=cv_prescribe(x_bcq, t=t)
     )
     return entropy_stable_numerical_flux_chandrashekar(
         dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
@@ -654,14 +654,15 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q[0].array_context
 
-        # from grudge.sbp_op import quadrature_surface_interpolation, reshape_face_array
-        # qf = quadrature_surface_interpolation(dcoll, df, q)
-        # qf_ref = reshape_face_array(dcoll, df, op.project(dcoll, "vol", df, q))
-        # import ipdb; ipdb.set_trace()
-
         print("Computing auxiliary conservative variables...")
-        qtilde_allquad, proj_entropy_vars = entropy_projection(
-            actx, dcoll, dq, df, q, gamma=gamma)
+        if t == 0:
+            qtilde_allquad, proj_entropy_vars = entropy_projection(
+                actx, dcoll, dq, df, q, gamma=gamma,
+                initial_condition=self.initial_condition
+            )
+        else:
+            qtilde_allquad, proj_entropy_vars = entropy_projection(
+                actx, dcoll, dq, df, q, gamma=gamma)
         print("Finished auxiliary conservative variables.")
 
         print("Performing volume flux differencing...")
@@ -685,6 +686,8 @@ class EntropyStableEulerOperator(EulerOperator):
                 dcoll, dd_intfaces, dd_intfaces_quad, tpair)
             return TracePair(
                 dd_intfaces_quad,
+                # int and ext states are terms of the entropy-projected
+                # conservative vars
                 interior=entropy_to_conservative_vars(
                     actx, dcoll, vtilde_tpair.int, gamma=gamma
                 ),
@@ -707,9 +710,9 @@ class EntropyStableEulerOperator(EulerOperator):
                 entropy_stable_boundary_numerical_flux_prescribed(
                     dcoll,
                     proj_entropy_vars,
-                    self.bdry_fcts[btag](thaw(dcoll.nodes(btag), actx), t),
-                    dd_bc=as_dofdesc(btag),
-                    qtag=DISCR_TAG_QUAD,
+                    cv_prescribe=self.bdry_fcts[btag],
+                    dd_bcq=as_dofdesc(btag).with_discr_tag(DISCR_TAG_QUAD),
+                    t=t,
                     lf_stabilization=self.lf_stabilization
                 ) for btag in self.bdry_fcts
             )
