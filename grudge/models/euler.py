@@ -125,10 +125,11 @@ def euler_boundary_numerical_flux_prescribed(
 
 class EulerOperator(HyperbolicOperator):
 
-    def __init__(self, dcoll, bdry_fcts=None,
+    def __init__(self, dcoll, bdry_fcts=None, initial_condition=None,
                  flux_type="lf", gamma=1.4, gas_const=287.1):
         self.dcoll = dcoll
         self.bdry_fcts = bdry_fcts
+        self.initial_condition = initial_condition
         self.flux_type = flux_type
         self.gamma = gamma
         self.gas_const = gas_const
@@ -198,96 +199,6 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
-# def _flux_diff_loopy_prg():
-#     return make_loopy_program(
-#         [
-#             "{[iel]: 0 <= iel < nelements}",
-#             "{[i]: 0 <= i < nq_total}",
-#             "{[j]: 0 <= j < nq_total}"
-#         ],
-#         """
-#         for iel
-#             for i
-#                 <> rho_i = rho[iel, i]
-#                 <> rhoe_i = rhoe[iel, i]
-#                 <> rhov1_i = rhou[iel, i]
-
-#                 <> v1_i = vel[iel, i]
-#                 <> p_i = pressure[iel, i]
-#                 <> beta_i = inverse_temp[iel, i]
-
-#                 <> specific_kin_i = 0.5 * (v1_i*v1_i)
-
-#                 for j
-#                     if j > i
-#                         <> rho_j = rho[iel, j]
-#                         <> rhoe_j = rhoe[iel, j]
-#                         <> rhov1_j = rhou[iel, j]
-
-#                         <> v1_j = vel[iel, j]
-#                         <> p_j = pressure[iel, j]
-#                         <> beta_j = inverse_temp[iel, j]
-
-#                         <> specific_kin_j = 0.5 * (v1_j*v1_j)
-
-#                         <> rho_mean = 0.0
-#                         <> rho_f2 = (rho_i*(rho_i - 2*rho_j) + rho_j*rho_j)/(rho_i*(rho_i + 2*rho_j) + rho_j*rho_j)
-#                         if rho_f2 < 1.0e-4
-#                             rho_mean = (rho_i + rho_j)/(2*(1 + 1/3*rho_f2 + 1/5*(rho_f2*rho_f2) + 1/7*(rho_f2*rho_f2*rho_f2)))
-#                         else
-#                             rho_mean = (rho_j - rho_i)/log(rho_j/rho_i)
-#                         end
-
-#                         <> beta_mean = 0.0
-#                         <> beta_f2 = (beta_i*(beta_i - 2*beta_j) + beta_j*beta_j)/(beta_i*(beta_i + 2*beta_j) + beta_j*beta_j)
-#                         if beta_f2 < 1.0e-4
-#                             beta_mean = (beta_i + beta_j)/(2*(1 + 1/3*beta_f2 + 1/5*(beta_f2*beta_f2) + 1/7*(beta_f2*beta_f2*beta_f2)))
-#                         else
-#                             beta_mean = (beta_j - beta_i)/log(beta_j/beta_i)
-#                         end
-
-#                         <> rho_avg = 0.5*(rho_i + rho_j)
-#                         <> beta_avg = 0.5*(beta_i + beta_j)
-#                         <> v1_avg = 0.5*(v1_i + v1_j)
-#                         <> p_mean = 0.5*rho_avg/beta_avg
-#                         <> vel_square_avg = specific_kin_i + specific_kin_j
-
-#                         <> fS1 = rho_mean * v1_avg
-#                         <> fS2 = fS1*v1_avg + p_mean
-#                         <> fS3 = fS1*0.5*(1/(gamma - 1)/beta_mean - vel_square_avg) + fS2*v1_avg
-
-#                         <> QF_ij_1 = vgeo[0, iel, j]*Q[0, i, j]*fS1
-#                         <> QF_ij_2 = vgeo[0, iel, j]*Q[0, i, j]*fS2
-#                         <> QF_ij_3 = vgeo[0, iel, j]*Q[0, i, j]*fS3
-                        
-#                     end
-#                 end
-            
-#             end
-#             <> element_dot = sum(idof_quad,
-#                         ary[from_element_indices[iel], idof_quad]
-#                         * basis[idof_quad] * weights[idof_quad])
-#             result[to_element_indices[iel], ibasis] = \
-#                     result[to_element_indices[iel], ibasis] + element_dot
-#         end
-#         """,
-#         [
-#             lp.GlobalArg("ary", None,
-#                 shape=("n_from_elements", "n_from_nodes")),
-#             lp.GlobalArg("result", None,
-#                 shape=("n_to_elements", "n_to_nodes")),
-#             lp.GlobalArg("basis", None,
-#                 shape="n_from_nodes"),
-#             lp.GlobalArg("weights", None,
-#                 shape="n_from_nodes"),
-#             lp.ValueArg("n_from_elements", np.int32),
-#             lp.ValueArg("n_to_elements", np.int32),
-#             lp.ValueArg("n_to_nodes", np.int32),
-#             lp.ValueArg("ibasis", np.int32),
-#             "..."
-#         ],
-#         name="flux_differencing_chandrashekar")
-
 
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     """todo.
@@ -341,7 +252,7 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
 def entropy_projection(actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
     """todo.
     """
-    from grudge.sbp_op import (quadrature_project,
+    from grudge.sbp_op import (volume_quadrature_project,
                                volume_quadrature_interpolation,
                                volume_and_surface_quadrature_interpolation)
 
@@ -354,7 +265,7 @@ def entropy_projection(actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
     # volume and surface quadrature nodes:
     # vtilde = [vtilde_q; vtilde_f] = [V_q; V_f] .* P_q * v_q
     # NOTE: Potential optimization: fuse [V_q; V_f] .* P_q
-    ev_state = quadrature_project(dcoll, dd_q, ev_state_q)
+    ev_state = volume_quadrature_project(dcoll, dd_q, ev_state_q)
     aux_ev_state_q = volume_and_surface_quadrature_interpolation(
         dcoll, dd_q, dd_f, ev_state
     )
@@ -616,10 +527,10 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     result[1] = QF_energy_dof_ary
     result[2:dim+2] = QF_momentum_dof_ary
 
-    from grudge.sbp_op import volume_and_surface_quadrature_adjoint
+    from grudge.sbp_op import volume_and_surface_quadrature_projection
 
-    # Apply Vh.T = [Vq; Vf].T to the result
-    return volume_and_surface_quadrature_adjoint(dcoll, dq, df, result)
+    # Apply Ph = Minv * [Vq @ Wq; Vf @ Wf].T to the result
+    return volume_and_surface_quadrature_projection(dcoll, dq, df, result)
 
 
 def entropy_stable_numerical_flux_chandrashekar(
@@ -738,7 +649,6 @@ class EntropyStableEulerOperator(EulerOperator):
         gamma = self.gamma
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
         df = DOFDesc("all_faces", DISCR_TAG_QUAD)
-        df_int = DOFDesc("int_faces", DISCR_TAG_QUAD)
 
         dcoll = self.dcoll
         actx = q[0].array_context
@@ -805,24 +715,19 @@ class EntropyStableEulerOperator(EulerOperator):
         )
         print("Finished computing interface numerical fluxes.")
 
-        print("Applying inverse mass and lifting operators...")
-        # NOTE: Put everything together by applying lifting on surface terms
-        # and the inverse mass matrix
-        # du = M.inv * (-∑_d [V_q; V_f].T (2Q_d * F_d)1
-        #               -V_f.T B_d (f*_d - f(q_f)))
+        print("Applying lifting operators...")
         from grudge.sbp_op import inverse_sbp_mass
 
-        # Compute: sum_i={x,y,z} (V_f.T @ B_i @ J_i) * f_iS(q+, q)
-        # NOTE: This does not work as expected (regular op.face_mass does)
-        # from grudge.sbp_op import \
-        #     sbp_lift_operator, reshape_face_array
-        # lifted_fluxes = sbp_lift_operator(
-        #     dcoll, df, reshape_face_array(dcoll, df, num_fluxes_bdry)
-        # )
-        lifted_fluxes = op.face_mass(dcoll, df, num_fluxes_bdry)
-        dqhat = inverse_sbp_mass(dcoll, dq, -dQF1 - lifted_fluxes)
-        print("Finished applying mass and lifting operators.")
+        # Compute: sum_i={x,y,z} (Minv @ V_f.T @ Wf @ Jf_i) * f_i
+        # Lift operator: Minv @ V_f.T @ Wf
+        lifted_fluxes = inverse_sbp_mass(
+            dcoll, dq, op.face_mass(dcoll, df, num_fluxes_bdry))
+        print("Finished applying lifting operators.")
 
-        return dqhat
+        from grudge.geometry import area_element
+        # Apply inverse cell jacobians
+        inv_jacobians = 1./area_element(actx, dcoll)
+
+        return -inv_jacobians*(dQF1 + lifted_fluxes)
 
 # }}}
