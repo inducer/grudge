@@ -395,7 +395,6 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
     # Group loop
     for gidx, mgrp in enumerate(mesh.groups):
         vgrp = volm_discr.groups[gidx]
-        fgrp = face_discr.groups[gidx]
         vqgrp = volm_quad_discr.groups[gidx]
         fqgrp = face_quad_discr.groups[gidx]
 
@@ -435,8 +434,10 @@ def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
                     for cidx in range(dim)]
 
             # Build physical SBP operators on the element
-            Qxyz_skew = [2*vgeo[j][d] * Qrst_skew[j]
-                         for j in range(dim) for d in range(dim)]
+            Qxyz_skew = [
+                2*sum(vgeo[j][d] * Qrst_skew[j] for j in range(dim))
+                for d in range(dim)
+            ]
 
             # Element-local state data
             local_rho = actx.to_numpy(rho_gidx[eidx])

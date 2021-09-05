@@ -99,7 +99,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
+def main(ctx_factory, dim=2, order=3, visualize=False, esdg=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -111,13 +111,13 @@ def main(ctx_factory, dim=2, order=4, visualize=False, esdg=False):
     # {{{ parameters
 
     # number of points in each dimension
-    nel_1d = 16
+    nel_1d = 8
 
     # final time
     final_time = 1
 
     # flux
-    flux_type = "lf"
+    flux_type = "central"
 
     # eos-related parameters
     gamma = 1.4
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--esdg", action="store_true")
     args = parser.parse_args()
