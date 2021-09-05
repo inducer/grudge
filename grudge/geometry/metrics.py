@@ -385,6 +385,8 @@ def inverse_surface_metric_derivative(
     reference axis *rst_axis*. These geometric terms are used in the
     transformation of physical gradients.
 
+    This function does not cache its results.
+
     :arg rst_axis: an integer denoting the reference coordinate axis.
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -517,6 +519,8 @@ def area_element(
     r"""Computes the scale factor used to transform integrals from reference
     to global space.
 
+    This function caches its results.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
@@ -566,6 +570,8 @@ def mv_normal(
     (where ambient == topological dimension + 1). In the latter case, extra
     processing ensures that the returned normal is in the local tangent space
     of the element at the point where the normal is being evaluated.
+
+    This function caches its results.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
@@ -624,6 +630,8 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
     (where ambient == topological dimension + 1). In the latter case, extra
     processing ensures that the returned normal is in the local tangent space
     of the element at the point where the normal is being evaluated.
+
+    This function may be treated as if it caches its results.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
