@@ -414,7 +414,8 @@ def inverse_surface_metric_derivative(
 
 
 def inverse_surface_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None):
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, times_area_element=False):
     r"""Computes the matrix of inverse surface metric derivatives, indexed by
     ``(xyz_axis, rst_axis)``. It returns all values of
     :func:`inverse_surface_metric_derivative_mat` in cached matrix form.
@@ -423,16 +424,25 @@ def inverse_surface_metric_derivative_mat(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg times_area_element: If *True*, each entry of the matrix is premultiplied
+        with the value of :func:`area_element`, reflecting the typical use
+        of the matrix in integrals evaluating weak derivatives.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivatives in per-group arrays of shape
         ``(xyz_dimension, rst_dimension, nelements, ndof)``.
     """
 
-    @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd))
+    @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
+        times_area_element))
     def _inv_surf_metric_deriv():
+        if times_area_element:
+            multiplier = area_element(actx, dcoll, dd=dd)
+        else:
+            multiplier = 1
+
         mat = actx.np.stack([
                 actx.np.stack(
-                    [inverse_surface_metric_derivative(actx, dcoll,
+                    [multiplier * inverse_surface_metric_derivative(actx, dcoll,
                         rst_axis, xyz_axis, dd=dd)
                         for rst_axis in range(dcoll.dim)])
                 for xyz_axis in range(dcoll.ambient_dim)])
