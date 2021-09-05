@@ -48,6 +48,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+REWRITE_DIFF_EINSUM = False
+
+
 class IndirectAccessChecker(CombineMapper):
     """
     On calling returns *True* iff the *array_name* was accessed indirectly.
@@ -89,10 +92,28 @@ def transform_face_mass(t_unit):
     knl = lp.split_iname(knl, "idof_face_mass",
                          n_work_items_per_element)
 
-    iface_dof = {"flux": "_pt_sum_r1",
-                 "flux_0": "_pt_sum_r1_0",
-                 "flux_1": "_pt_sum_r1_1",
-                 "flux_2": "_pt_sum_r1_2"}
+    # {{{ metadata
+
+    if REWRITE_DIFF_EINSUM:
+        iface_dof = {"flux": "_pt_sum_r1",
+                     "flux_0": "_pt_sum_r1_0",
+                     "flux_1": "_pt_sum_r1_1",
+                     "flux_2": "_pt_sum_r1_2"}
+    else:
+        iface_dof = {"flux": "_pt_sum_r1_0",
+                     "flux_0": "_pt_sum_r1_2",
+                     "flux_1": "_pt_sum_r1_6",
+                     "flux_2": "_pt_sum_r1_8"}
+
+    accumulators = sorted({tv.name for tv in knl.temporary_variables.values()
+                           if (tv.name.startswith("acc__")
+                               and (list(knl
+                                         .writer_map()[tv.name])[0]
+                                    .startswith("face_mass")))})
+    # one accumulator for each diff
+    assert len(accumulators) == 4
+
+    # }}}
 
     # Preftch flux values into private address space
     for dof_var_name in ["flux", "flux_0",
@@ -138,15 +159,15 @@ def transform_face_mass(t_unit):
                 fetch_outer_inames=frozenset({"iel_face_mass_outer",
                                               "iface_face_mass"}),
                 temporary_address_space=lp.AddressSpace.LOCAL,
-                dim_arg_names=["iprftch_ref_mat_0",
-                               "iprftch_ref_mat_1"],
+                dim_arg_names=["iprftch_ref_lift_0",
+                               "iprftch_ref_lift_1"],
                 default_tag=None)
-    knl = lp.join_inames(knl, ("iprftch_ref_mat_0", "_pt_in_12_dim_2"),
-                        "iprftch_ref_mat")
+    knl = lp.join_inames(knl, ("iprftch_ref_lift_0", "_pt_in_12_dim_2"),
+                        "iprftch_ref_lift")
     knl = lp.split_iname(
-        lp.split_iname(knl, "iprftch_ref_mat",
+        lp.split_iname(knl, "iprftch_ref_lift",
                        n_work_items_per_element * n_elements_per_wg),
-        "iprftch_ref_mat_inner",
+        "iprftch_ref_lift_inner",
         n_work_items_per_element,
         inner_tag="l.0", outer_tag="l.1")
 
@@ -171,25 +192,20 @@ def transform_face_mass(t_unit):
 
     knl = lp.privatize_temporaries_with_inames(
             knl, "idof_face_mass_outer",
-            only_var_names={"acc__pt_sum_r0_2__pt_sum_r1",
-                            "acc__pt_sum_r0_6__pt_sum_r1_0",
-                            "acc__pt_sum_r0_12__pt_sum_r1_1",
-                            "acc__pt_sum_r0_15__pt_sum_r1_2"})
+            only_var_names=accumulators)
     knl = lp.duplicate_inames(
         knl,
         inames=("idof_face_mass_outer",),
         new_inames=["idof_face_mass_outer_init"],
-        within=("id:face_mass_store__pt_sum_r0_2__pt_sum_r1_init"
-                " or id:face_mass_0_store__pt_sum_r0_6__pt_sum_r1_0_init"
-                " or id:face_mass_1_store__pt_sum_r0_12__pt_sum_r1_1_init"
-                " or id:face_mass_2_store__pt_sum_r0_15__pt_sum_r1_2_init"))
+        within=("("
+                + " or ".join(f"writes:{acc}"
+                              for acc in accumulators)
+               + ")"
+               + " and not iname:iface_face_mass"))
     knl = lp.duplicate_inames(knl,
                               inames=("idof_face_mass_outer",),
                               new_inames=["idof_face_mass_outer_update"],
-                              within=("id:face_mass_store"
-                                      " or id:face_mass_0_store"
-                                      " or id:face_mass_1_store"
-                                      " or id:face_mass_2_store"))
+                              within="writes:face_mass*")
 
     # }}}
 
@@ -202,6 +218,148 @@ def transform_face_mass(t_unit):
     t_unit = t_unit.with_kernel(knl)
     # print(lp.generate_code_v2(t_unit).device_code())
 
+    return t_unit
+
+
+def transform_diff(t_unit):
+    import loopy as lp
+    from loopy.transform.data import add_prefetch_for_single_kernel
+
+    knl = t_unit.default_entrypoint
+
+    # {{{ metadata
+
+    ref_diff_mat = "_pt_in_2"
+
+    jac_det = "_pt_in"
+    jacobians = ["_pt_in_3", "_pt_in_4", "_pt_in_5",
+                 "_pt_in_6", "_pt_in_7", "_pt_in_8",
+                 "_pt_in_9", "_pt_in_10", "_pt_in_11"]
+
+    accumulators = sorted({tv.name for tv in knl.temporary_variables.values()
+                           if (tv.name.startswith("acc__")
+                               and (list(knl
+                                         .writer_map()[tv.name])[0]
+                                    .startswith("mass_inv")))})
+    # one accumulator for each diff
+    assert len(accumulators) == 6
+
+    # }}}
+
+    n_elements_per_wg = 8
+    n_work_items_per_element = 16
+
+    # {{{ have a single ref coord axis-loop that goes over all the divs
+
+    # grad
+    knl = lp.rename_iname(knl, "_pt_sum_r0_0", "irefcord", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r0_3", "irefcord", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r0_11", "irefcord", existing_ok=True)
+
+    # div
+    knl = lp.rename_iname(knl, "_pt_sum_r0_6", "irefcord", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r0_7", "irefcord", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r0_8", "irefcord", existing_ok=True)
+
+    # }}}
+
+    # {{{ fuse the grad inner dof reduction loop
+
+    knl = lp.rename_iname(knl, "_pt_sum_r1",  "igrad_dof_redn", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r1_1",  "igrad_dof_redn", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r1_7",  "igrad_dof_redn", existing_ok=True)
+
+    knl = lp.rename_iname(knl, "_pt_sum_r1_3", "idiv_dof_redn0", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r1_4", "idiv_dof_redn1", existing_ok=True)
+    knl = lp.rename_iname(knl, "_pt_sum_r1_5", "idiv_dof_redn2", existing_ok=True)
+
+    # }}}
+
+    knl = lp.split_iname(knl, "iel_diff", n_elements_per_wg,
+                         outer_tag="g.0")
+    knl = lp.split_iname(knl, "idof_diff",
+                         n_work_items_per_element)
+
+    # {{{ prefetch the jacobians into private memory
+
+    # each work-items needs only one (double prec.) register for storing each of
+    # these jacobians
+
+    for jac_var_name in [jac_det] + jacobians:
+        new_insn_id = f"{jac_var_name}_prftch_insn"
+        knl = add_prefetch_for_single_kernel(
+                    knl, t_unit.callables_table,
+                    var_name=jac_var_name,
+                    sweep_inames=[],
+                    fetch_outer_inames=frozenset({"iel_diff_outer",
+                                                  "iel_diff_inner",
+                                                  "idof_diff_inner"}),
+                    prefetch_insn_id=new_insn_id,
+                    temporary_address_space=lp.AddressSpace.PRIVATE,
+                    within="iname:iel_diff_outer",
+                    default_tag=None)
+        knl = lp.add_dependency(knl, f"id:{new_insn_id}", "g_barrier_3")
+
+    # }}}
+
+    # {{{ prefetch ref_diff_mat within ref coord
+
+    knl = add_prefetch_for_single_kernel(
+                knl, t_unit.callables_table,
+                var_name=ref_diff_mat,
+                sweep_inames=(["idof_diff_inner",
+                               "idof_diff_outer",
+                               "igrad_dof_redn",
+                               "idiv_dof_redn0",
+                               "idiv_dof_redn1",
+                               "idiv_dof_redn2"]),
+                fetch_outer_inames=frozenset({"iel_diff_outer",
+                                              "irefcord"}),
+                temporary_address_space=lp.AddressSpace.LOCAL,
+                dim_arg_names=["iprftch_ref_diff_0",
+                               "iprftch_ref_diff_1"],
+                default_tag=None)
+    knl = lp.join_inames(knl, ("iprftch_ref_diff_1", f"{ref_diff_mat}_dim_2"),
+                        "iprftch_ref_diff")
+    knl = lp.split_iname(
+        lp.split_iname(knl, "iprftch_ref_diff",
+                       n_work_items_per_element * n_elements_per_wg),
+        "iprftch_ref_diff_inner",
+        n_work_items_per_element,
+        inner_tag="l.0", outer_tag="l.1")
+
+    # }}}
+
+    #  {{{ prefetch the inputs
+
+    # Not sure if we want to do this yet.
+
+    # }}}
+
+    # {{{ privatize temporaries to pull "iref_cord" as the outer loop
+
+    knl = lp.privatize_temporaries_with_inames(knl, "idof_diff_outer",
+                                               only_var_names=accumulators)
+
+    knl = lp.duplicate_inames(knl,
+                              inames=["idof_diff_outer"],
+                              new_inames=["idof_diff_outer_init"],
+                              within=("("
+                                      + " or ".join(f"writes:{acc}"
+                                                    for acc in accumulators)
+                                     + ")"
+                                     + " and not iname:irefcord"))
+    knl = lp.duplicate_inames(knl,
+                              inames=["idof_diff_outer"],
+                              new_inames=["idof_diff_outer_store"],
+                              within="writes:mass_inv*")
+
+    # }}}
+
+    knl = lp.tag_inames(knl, {"iel_diff_inner": "l.1",
+                              "idof_diff_inner": "l.0"})
+
+    t_unit = t_unit.with_kernel(knl)
     return t_unit
 
 
@@ -327,7 +485,9 @@ class HopefullySmartPytatoArrayContext(
             else:
                 return expr
 
-        dag = pt.transform.map_and_copy(dag, rewrite_einsum_exprs)
+        if REWRITE_DIFF_EINSUM:
+            # early scheduling of loops is bad
+            dag = pt.transform.map_and_copy(dag, rewrite_einsum_exprs)
 
         # }}}
 
@@ -442,7 +602,7 @@ class HopefullySmartPytatoArrayContext(
 
             # {{{ Stats
 
-            if 1:
+            if 0:
                 from loopy.kernel.array import ArrayBase
                 from pytools import product
                 t_unit = t_unit.with_kernel(knl)
@@ -595,15 +755,6 @@ class HopefullySmartPytatoArrayContext(
             t_unit = lp.realize_reduction(t_unit)
             knl = t_unit.default_entrypoint
 
-            # Have a single loop over the faces during face_mass.
-            knl = lp.rename_iname(knl, "_pt_sum_r0_2", "iface_face_mass")
-            knl = lp.rename_iname(knl, "_pt_sum_r0_6", "iface_face_mass",
-                                  existing_ok=True)
-            knl = lp.rename_iname(knl, "_pt_sum_r0_12", "iface_face_mass",
-                                  existing_ok=True)
-            knl = lp.rename_iname(knl, "_pt_sum_r0_15", "iface_face_mass",
-                                  existing_ok=True)
-
             # }}}
 
             l_one_size = 4
@@ -630,6 +781,24 @@ class HopefullySmartPytatoArrayContext(
 
             # {{{ face mass transformations
 
+            # Have a single loop over the faces during face_mass.
+            if REWRITE_DIFF_EINSUM:
+                knl = lp.rename_iname(knl, "_pt_sum_r0_2", "iface_face_mass")
+                knl = lp.rename_iname(knl, "_pt_sum_r0_6", "iface_face_mass",
+                                      existing_ok=True)
+                knl = lp.rename_iname(knl, "_pt_sum_r0_12", "iface_face_mass",
+                                      existing_ok=True)
+                knl = lp.rename_iname(knl, "_pt_sum_r0_15", "iface_face_mass",
+                                      existing_ok=True)
+            else:
+                knl = lp.rename_iname(knl, "_pt_sum_r0_1", "iface_face_mass")
+                knl = lp.rename_iname(knl, "_pt_sum_r0_4", "iface_face_mass",
+                                      existing_ok=True)
+                knl = lp.rename_iname(knl, "_pt_sum_r0_9", "iface_face_mass",
+                                      existing_ok=True)
+                knl = lp.rename_iname(knl, "_pt_sum_r0_12", "iface_face_mass",
+                                      existing_ok=True)
+
             if 1:
                 t_unit = t_unit.with_kernel(knl)
                 t_unit = transform_face_mass(t_unit)
@@ -642,12 +811,21 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
-            # {{{ einsums
+            # {{{ diff transformation
 
-            knl = lp.split_iname(knl, "iel_diff", l_one_size,
-                                 inner_tag="l.1", outer_tag="g.0")
-            knl = lp.split_iname(knl, "idof_diff", l_zero_size,
-                                 inner_tag="l.0")
+            if not REWRITE_DIFF_EINSUM:
+                t_unit = t_unit.with_kernel(knl)
+                t_unit = transform_diff(t_unit)
+                knl = t_unit.default_entrypoint
+            else:
+                knl = lp.split_iname(knl, "iel_diff", l_one_size,
+                                     inner_tag="l.1", outer_tag="g.0")
+                knl = lp.split_iname(knl, "idof_diff", l_zero_size,
+                                     inner_tag="l.0")
+
+            # }}}
+
+            # {{{ einsums
 
             knl = lp.split_iname(knl, "iel_out", l_one_size,
                                  inner_tag="l.1", outer_tag="g.0")
