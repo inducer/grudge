@@ -15,6 +15,7 @@ Geometry terms
 --------------
 
 .. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: inverse_surface_metric_derivative_mat
 .. autofunction:: pseudoscalar
 .. autofunction:: area_element
 
@@ -398,21 +399,43 @@ def inverse_surface_metric_derivative(
         dd = DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
 
-    @memoize_in(dcoll, (inverse_surface_metric_derivative, dd,
-                        rst_axis, xyz_axis))
+    if ambient_dim == dim:
+        return inverse_metric_derivative(
+            actx, dcoll, rst_axis, xyz_axis, dd=dd
+        )
+    else:
+        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+        return sum(
+            inv_form1[rst_axis, d]*forward_metric_nth_derivative(
+                actx, dcoll, xyz_axis, d, dd=dd
+            ) for d in range(dim))
+
+
+def inverse_surface_metric_derivative_mat(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None):
+    r"""Computes the matrix of inverse surface metric derivatives, indexed by
+    ``(xyz_axis, rst_axis)``. It returns all values of
+    :func:`inverse_surface_metric_derivative_mat` in cached matrix form.
+
+    This function caches its results.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        inverse metric derivatives in per-group arrays of shape
+        ``(xyz_dimension, rst_dimension, nelements, ndof)``.
+    """
+
+    @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd))
     def _inv_surf_metric_deriv():
-        if ambient_dim == dim:
-            imd = inverse_metric_derivative(
-                actx, dcoll, rst_axis, xyz_axis, dd=dd
-            )
-        else:
-            inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
-            imd = sum(
-                inv_form1[rst_axis, d]*forward_metric_nth_derivative(
-                    actx, dcoll, xyz_axis, d, dd=dd
-                ) for d in range(dim)
-            )
-        return freeze(imd, actx)
+        mat = actx.np.stack([
+                actx.np.stack(
+                    [inverse_surface_metric_derivative(actx, dcoll,
+                        rst_axis, xyz_axis, dd=dd)
+                        for rst_axis in range(dcoll.dim)])
+                for xyz_axis in range(dcoll.ambient_dim)])
+
+        return freeze(mat, actx)
 
     return thaw(_inv_surf_metric_deriv(), actx)
 
