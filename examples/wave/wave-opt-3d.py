@@ -463,8 +463,8 @@ class HopefullySmartPytatoArrayContext(
                                              * ary.dtype.itemsize)
 
                 for ary in knl.temporary_variables.values():
-                    if (isinstance(ary, ArrayBase)
-                            and ary.address_space == lp.AddressSpace.GLOBAL):
+                    if ary.address_space == lp.AddressSpace.GLOBAL:
+                        # global temps would be written once and read once
                         nfootprint_bytes += (2 * product(ary.shape)
                                              * ary.dtype.itemsize)
 
