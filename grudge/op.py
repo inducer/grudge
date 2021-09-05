@@ -306,32 +306,30 @@ def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
         else:
             return np.stack(grad, axis=0)
 
-    from grudge.geometry import \
-        inverse_surface_metric_derivative_mat, area_element
+    from grudge.geometry import inverse_surface_metric_derivative_mat
 
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
-    area_elements = area_element(actx, dcoll, dd=dd_in)
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in)
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True)
 
     per_group_grads = [
         # r for rst axis
         # x for xyz axis
-        actx.einsum("rij,ej,ej,xrej->xei",
+        actx.einsum("rij,ej,xrej->xei",
                     reference_stiffness_transpose_matrix(
                         actx,
                         out_element_group=out_grp,
                         in_element_group=in_grp
                     ),
-                    ae_i,
                     vec_i,
                     ijm_i,
-                    arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
+                    arg_names=("ref_stiffT_mat", "vec", "inv_jac_t"),
                     tagged=(FirstAxisIsElementsTag(),))
-        for out_grp, in_grp, vec_i, ae_i, ijm_i in zip(
-            out_discr.groups, in_discr.groups, vec, area_elements,
+        for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec,
             inverse_jac_mat)]
 
     return make_obj_array([
@@ -374,33 +372,31 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    from grudge.geometry import \
-        inverse_surface_metric_derivative_mat, area_element
+    from grudge.geometry import inverse_surface_metric_derivative_mat
 
     in_discr = dcoll.discr_from_dd(dd_in)
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
-    area_elements = area_element(actx, dcoll, dd=dd_in)
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in)
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True)
 
     return DOFArray(
         actx,
         data=tuple(
-            actx.einsum("dij,ej,ej,dej->ei",
+            actx.einsum("dij,ej,dej->ei",
                         reference_stiffness_transpose_matrix(
                             actx,
                             out_element_group=out_grp,
                             in_element_group=in_grp
                         ),
-                        ae_i,
                         vec_i,
                         ijm_i[xyz_axis],
-                        arg_names=("ref_stiffT_mat", "jac", "vec", "inv_jac_t"),
+                        arg_names=("ref_stiffT_mat", "vec", "inv_jac_t"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for out_grp, in_grp, vec_i, ae_i, ijm_i in zip(
-                out_discr.groups, in_discr.groups, vec, area_elements,
+            for out_grp, in_grp, vec_i, ijm_i in zip(
+                out_discr.groups, in_discr.groups, vec,
                 inverse_jac_mat)))
 
 
