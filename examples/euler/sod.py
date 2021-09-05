@@ -98,7 +98,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, order=4, visualize=False, esdg=False):
+def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -114,7 +114,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False):
     # domain [0, 1]
     d = 1.0
     # number of points in each dimension
-    npoints = 25
+    npoints = 32
 
     # final time
     final_time = 0.2
@@ -141,12 +141,21 @@ def main(ctx_factory, order=4, visualize=False, esdg=False):
         (default_simplex_group_factory,
          QuadratureSimplexGroupFactory)
 
+    interpolation_grp_factory = default_simplex_group_factory(dim, order)
+    if overintegration:
+        discr_tag_to_group_factory = {
+            DISCR_TAG_BASE: interpolation_grp_factory,
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(order + 2)
+        }
+    else:
+        discr_tag_to_group_factory = {
+            DISCR_TAG_BASE: interpolation_grp_factory,
+            DISCR_TAG_QUAD: interpolation_grp_factory
+        }
+
     dcoll = DiscretizationCollection(
         actx, mesh,
-        discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
-            DISCR_TAG_QUAD: default_simplex_group_factory(dim, order)
-        }
+        discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
     # }}}
@@ -197,6 +206,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False):
     euler_operator = operator_cls(
         dcoll,
         bdry_fcts={BTAG_ALL: sod_initial_condition},
+        initial_condition=sod_initial_condition,
         flux_type=flux_type,
         gamma=gamma,
         gas_const=gas_const,
@@ -243,10 +253,12 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--esdg", action="store_true")
+    parser.add_argument("--overintegration", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          order=args.order,
          visualize=args.visualize,
-         esdg=args.esdg)
+         esdg=args.esdg,
+         overintegration=args.overintegration)
