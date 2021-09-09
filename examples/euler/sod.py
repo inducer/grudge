@@ -40,6 +40,10 @@ from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.set_theme()
 
 import logging
 logger = logging.getLogger(__name__)
@@ -48,17 +52,18 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
+    def __init__(self, actx, dcoll, order, npoints, visualize=True, ylim=None):
         self.actx = actx
         self.dim = dcoll.ambient_dim
+        self.order = order
+        self.npoints = npoints
 
         self.visualize = visualize
         if not self.visualize:
             return
 
         if self.dim == 1:
-            import matplotlib.pyplot as pt
-            self.fig = pt.figure(figsize=(8, 8), dpi=300)
+            self.fig = plt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
             volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
@@ -67,7 +72,7 @@ class Plotter:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
 
-    def __call__(self, state, basename, overwrite=True):
+    def __call__(self, state, basename, overwrite=True, t=0.0):
         if not self.visualize:
             return
 
@@ -76,23 +81,42 @@ class Plotter:
         density = self.actx.to_numpy(flatten(state[0]))
         energy = self.actx.to_numpy(flatten(state[1]))
         momentum = self.actx.to_numpy(flatten(state[2]))
+        # Hard-coded...
+        gamma = 1.4
+        u = momentum / density
+        pressure = (gamma - 1) * (energy - 0.5 * (momentum * u))
 
-        filename = "%s.png" % basename
+        filename = "%s.pdf" % basename
         if not overwrite and os.path.exists(filename):
             from meshmode import FileExistsError
             raise FileExistsError("output file '%s' already exists" % filename)
 
         ax = self.fig.gca()
-        ax.plot(self.x, density, "-")
-        ax.plot(self.x, density, "k.")
+        ax.plot(self.x, density, ":",
+                marker='o',
+                label='density',
+                # color='mediumvioletred',
+                linewidth=3,
+                markersize=8)
+        ax.plot(self.x, pressure, ":",
+                marker='^',
+                label='pressure',
+                linewidth=3,
+                markersize=8)
         if self.ylim is not None:
             ax.set_ylim(self.ylim)
+        ax.legend(prop={'size': 20})
 
-        ax.set_xlabel("$x$")
-        ax.set_ylabel("$\\rho$")
-        # ax.set_title(f"t = {evt.t:.2f}")
+        # ax.set_xlabel("$x$")
+        # ax.set_ylabel("$\\rho$")
+        ax.set_title(
+            f"N = {self.order}, Npt = {self.npoints}, t = {t:.3f}",
+            fontsize=20
+        )
+        ax.tick_params(axis='x', labelsize=20)
+        ax.tick_params(axis='y', labelsize=20)
 
-        self.fig.savefig(filename)
+        self.fig.savefig(filename, bbox_inches='tight')
         self.fig.clf()
 
 # }}}
@@ -114,7 +138,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
     # domain [0, 1]
     d = 1.0
     # number of points in each dimension
-    npoints = 32
+    npoints = 20
 
     # final time
     final_time = 0.2
@@ -215,7 +239,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = 1/4 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/5 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
 
     logger.info("Timestep size: %g", dt)
 
@@ -225,7 +249,8 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("q", dt, q_init, rhs)
-    plot = Plotter(actx, dcoll, order, visualize=visualize, ylim=[0.0, 1.2])
+    plot = Plotter(actx, dcoll, order, npoints,
+                   visualize=visualize, ylim=[0.0, 1.2])
 
     step = 0
     plot(q_init, "fld-sod-init")
@@ -236,7 +261,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
 
         if step % 1 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event.state_component, "fld-sod-%04d" % step)
+            plot(event.state_component, "fld-sod-%04d" % step, t=event.t)
 
         step += 1
         logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
