@@ -36,6 +36,7 @@ from grudge.geometry.metrics import (
     pseudoscalar,
     area_element,
 
+    mv_normal,
     normal,
 
     second_fundamental_form,
@@ -56,6 +57,7 @@ __all__ = (
     "pseudoscalar",
     "area_element",
 
+    "mv_normal",
     "normal",
 
     "second_fundamental_form",

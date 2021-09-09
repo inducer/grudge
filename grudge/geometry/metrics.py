@@ -22,6 +22,7 @@ Geometry terms
 Normal vectors
 --------------
 
+.. autofunction:: mv_normal
 .. autofunction:: normal
 
 Curvature tensors
