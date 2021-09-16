@@ -51,7 +51,8 @@ from arraycontext import (
     dataclass_array_container,
     get_container_context_recursively,
     serialize_container,
-    deserialize_container
+    deserialize_container,
+    map_array_container
 )
 
 from collections import OrderedDict
@@ -66,9 +67,9 @@ from pytools import memoize_on_first_arg
 from pytools.obj_array import obj_array_vectorize, make_obj_array
 
 from grudge.discretization import DiscretizationCollection
+from grudge.projection import project
 
-from meshmode.dof_array import \
-    flatten_to_numpy, unflatten_from_numpy, rec_map_dof_array_container
+from meshmode.dof_array import flatten_to_numpy, unflatten_from_numpy
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
@@ -212,10 +213,9 @@ def bv_trace_pair(
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
     """
-    from grudge.op import project
-
-    interior = project(dcoll, "vol", dd, interior)
-    return bdry_trace_pair(dcoll, dd, interior, exterior)
+    return bdry_trace_pair(
+        dcoll, dd, project(dcoll, "vol", dd, interior), exterior
+    )
 
 # }}}
 
@@ -231,8 +231,6 @@ def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
         :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`TracePair` object.
     """
-    from grudge.op import project
-
     i = project(dcoll, "vol", "int_faces", vec)
 
     def get_opposite_face(el):
@@ -294,8 +292,6 @@ class _RankBoundaryCommunication:
         self.remote_btag = BTAG_PARTITION(remote_rank)
         self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
 
-        from grudge.op import project
-
         self.local_array_ctr = \
             project(dcoll, "vol", self.remote_btag, array_container)
 
@@ -304,9 +300,7 @@ class _RankBoundaryCommunication:
         container_data = OrderedDict()
         flattened_data = []
         for key, value in serialize_container(self.local_array_ctr):
-            flattened_values = rec_map_dof_array_container(
-                partial(flatten_to_numpy, self.array_context), value
-            )
+            flattened_values = flatten_to_numpy(self.array_context, value)
             container_data[key] = flattened_values
             # NOTE: Addresses object arrays inside array containers. Need to special
             # case them here to make sure we can convert it into a flat numpy array
