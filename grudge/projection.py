@@ -34,10 +34,12 @@ THE SOFTWARE.
 
 from functools import partial
 
+from arraycontext import map_array_container
+
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
-from meshmode.dof_array import DOFArray, rec_map_dof_array_container
+from meshmode.dof_array import DOFArray
 
 from numbers import Number
 
@@ -53,7 +55,7 @@ def project(dcoll: DiscretizationCollection, src, tgt, vec):
         :class:`~arraycontext.ArrayContainer`.
     """
     if not isinstance(vec, DOFArray):
-        return rec_map_dof_array_container(
+        return map_array_container(
             partial(project, dcoll, src, tgt), vec
         )
 
