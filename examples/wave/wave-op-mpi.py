@@ -67,6 +67,7 @@ class WaveState:
 
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
+        assert all(vi.array_context is self.u.array_context for vi in self.v)
 
     @property
     def array_context(self):
@@ -80,15 +81,15 @@ def wave_flux(dcoll, c, w_tpair):
     normal = thaw(dcoll.normal(w_tpair.dd), u.int.array_context)
 
     flux_weak = WaveState(
-        u=np.dot(v.avg, normal),
-        v=normal*u.avg
+        u=v.avg @ normal,
+        v=u.avg * normal
     )
 
     # upwind
-    v_jump = np.dot(normal, v.ext-v.int)
+    v_jump = v.diff @ normal
     flux_weak += WaveState(
-        u=0.5*(u.ext-u.int),
-        v=0.5*normal*v_jump,
+        u=0.5 * u.diff,
+        v=0.5 * v_jump * normal,
     )
 
     return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
