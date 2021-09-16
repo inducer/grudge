@@ -36,3 +36,7 @@ intersphinx_mapping = {
     "https://documen.tician.de/meshmode/": None,
     "https://documen.tician.de/loopy/": None,
     }
+
+# index-page demo uses pyopencl via plot_directive
+import os
+os.environ["PYOPENCL_TEST"] = "port:pthread"
