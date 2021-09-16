@@ -45,7 +45,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# {{{ plotting (keep in sync with `var-velocity.py`)
+# {{{ plotting
 
 class Plotter:
     def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
@@ -99,42 +99,25 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False, esdg=False):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
-
-    # {{{ parameters
-
-    # number of points in each dimension
-    nel_1d = 8
-
-    # final time
-    final_time = 1
-
-    # flux
-    flux_type = "central"
+def run_vortex(actx, order=3, resolution=8, final_time=1,
+               flux_type="central",
+               visualize=False, esdg=False):
 
     # eos-related parameters
     gamma = 1.4
     gas_const = 287.1
 
-    # }}}
-
     # {{{ discretization
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
+    dim = 2
     box_ll = -5.0
     box_ur = 5.0
     mesh = generate_regular_rect_mesh(
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
-        nelements_per_axis=(nel_1d,)*dim)
+        nelements_per_axis=(resolution,)*dim)
 
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
@@ -165,7 +148,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False, esdg=False):
         x_rel = x_vec[0] - vortex_loc[0]
         y_rel = x_vec[1] - vortex_loc[1]
         actx = x_vec[0].array_context
- 
+
         r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
         expterm = _beta * actx.np.exp(1 - r ** 2)
         u = _velocity[0] - expterm * y_rel / (2 * np.pi)
@@ -259,17 +242,191 @@ def main(ctx_factory, dim=2, order=3, visualize=False, esdg=False):
     # }}}
 
 
+def run_convergence_test_vortex(
+        actx, order=3, final_time=1,
+        flux_type="central", esdg=False):
+
+    # eos-related parameters
+    gamma = 1.4
+    gas_const = 287.1
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+
+    dim = 2
+    box_ll = -5.0
+    box_ur = 5.0
+
+    from grudge import DiscretizationCollection
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from meshmode.discretization.poly_element import \
+        (PolynomialWarpAndBlend2DRestrictingGroupFactory,
+         QuadratureSimplexGroupFactory)
+
+    def vortex_initial_condition(x_vec, t=0):
+        _beta = 5
+        _center = np.zeros(shape=(dim,))
+        _velocity = np.zeros(shape=(dim,))
+
+        vortex_loc = _center + t * _velocity
+
+        # Coordinates relative to vortex center
+        x_rel = x_vec[0] - vortex_loc[0]
+        y_rel = x_vec[1] - vortex_loc[1]
+        actx = x_vec[0].array_context
+
+        r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
+        expterm = _beta * actx.np.exp(1 - r ** 2)
+        u = _velocity[0] - expterm * y_rel / (2 * np.pi)
+        v = _velocity[1] + expterm * x_rel / (2 * np.pi)
+        velocity = make_obj_array([u, v])
+        mass = (1 - (gamma - 1) / (16 * gamma * np.pi ** 2)
+                * expterm ** 2) ** (1 / (gamma - 1))
+        momentum = mass * velocity
+        p = mass ** gamma
+
+        energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
+
+        result = np.empty((2+dim,), dtype=object)
+        result[0] = mass
+        result[1] = energy
+        result[2:dim+2] = momentum
+
+        return result
+
+    from grudge.models.euler import \
+        EntropyStableEulerOperator, EulerOperator
+
+    if esdg:
+        operator_cls = EntropyStableEulerOperator
+    else:
+        operator_cls = EulerOperator
+
+
+    from pytools.convergence import EOCRecorder
+    from grudge.dt_utils import h_max_from_volume
+
+    eoc_rec = EOCRecorder()
+
+    for resolution in [4, 8, 16, 32]:
+
+        # {{{ discretization
+
+        mesh = generate_regular_rect_mesh(
+            a=(box_ll,)*dim,
+            b=(box_ur,)*dim,
+            nelements_per_axis=(resolution,)*dim)
+
+        discr_tag_to_group_factory = {
+            DISCR_TAG_BASE: PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+        }
+
+        dcoll = DiscretizationCollection(
+            actx, mesh,
+            discr_tag_to_group_factory=discr_tag_to_group_factory
+        )
+        h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
+        nodes = thaw(dcoll.nodes(), actx)
+
+        # }}}
+
+        euler_operator = operator_cls(
+            dcoll,
+            bdry_fcts={BTAG_ALL: vortex_initial_condition},
+            initial_condition=vortex_initial_condition,
+            flux_type=flux_type,
+            gamma=gamma,
+            gas_const=gas_const,
+        )
+
+        def rhs(t, q):
+            return euler_operator.operator(t, q)
+
+        q_init = vortex_initial_condition(nodes)
+        dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+
+        logger.info("Timestep size: %g", dt)
+
+        # {{{ time stepping
+
+        from grudge.shortcuts import set_up_rk4
+        dt_stepper = set_up_rk4("q", dt, q_init, rhs)
+
+        norm_q = 0.0
+        step = 0
+        last_q = None
+        for event in dt_stepper.run(t_end=final_time):
+            if not isinstance(event, dt_stepper.StateComputed):
+                continue
+
+            step += 1
+            last_q = event.state_component
+            last_t = event.t
+            norm_q = actx.to_numpy(op.norm(dcoll, last_q, 2))
+            logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
+            assert norm_q < 100
+
+        # }}}
+
+        error_l2 = op.norm(
+            dcoll,
+            last_q - vortex_initial_condition(nodes, t=last_t),
+            2
+        )
+        error_l2 = actx.to_numpy(error_l2)
+        logger.info("h_max %.5e error %.5e", h_max, error_l2)
+        eoc_rec.add_data_point(h_max, error_l2)
+
+    logger.info("\n%s", eoc_rec.pretty_print(abscissa_label="h",
+                                             error_label="L2 Error"))
+
+
+def main(ctx_factory, order=3, resolution=8,
+         lf_stabilization=False, visualize=False, esdg=False,
+         test_convergence=False):
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
+    )
+
+    if lf_stabilization:
+        flux_type = "lf"
+    else:
+        flux_type = "central"
+
+    if test_convergence:
+        run_convergence_test_vortex(
+            actx, order=order,
+            final_time=1,
+            flux_type=flux_type, esdg=esdg)
+    else:
+        run_vortex(
+            actx, order=order, resolution=resolution,
+            final_time=1,
+            flux_type=flux_type,
+            visualize=visualize, esdg=esdg)
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--resolution", default=8, type=int)
+    parser.add_argument("--lfflux", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--esdg", action="store_true")
+    parser.add_argument("--convergence", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          order=args.order,
+         resolution=args.resolution,
+         lf_stabilization=args.lfflux,
          visualize=args.visualize,
-         esdg=args.esdg)
+         esdg=args.esdg,
+         test_convergence=args.convergence)
