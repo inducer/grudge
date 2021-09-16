@@ -62,15 +62,11 @@ class Plotter:
         if not self.visualize:
             return
 
-        if self.dim == 1:
-            self.fig = plt.figure(figsize=(8, 8), dpi=300)
-            self.ylim = ylim
+        self.mplcontext = plt.subplots(2, 2, sharex=True)
+        self.ylim = ylim
 
-            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
-        else:
-            from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(dcoll)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
 
     def __call__(self, state, basename, overwrite=True, t=0.0):
         if not self.visualize:
@@ -83,41 +79,70 @@ class Plotter:
         momentum = self.actx.to_numpy(flatten(state[2]))
         # Hard-coded...
         gamma = 1.4
-        u = momentum / density
-        pressure = (gamma - 1) * (energy - 0.5 * (momentum * u))
+        velocity = momentum / density
+        pressure = (gamma - 1) * (energy - 0.5 * (momentum * velocity))
 
         filename = "%s.pdf" % basename
         if not overwrite and os.path.exists(filename):
             from meshmode import FileExistsError
             raise FileExistsError("output file '%s' already exists" % filename)
 
-        ax = self.fig.gca()
-        ax.plot(self.x, density, ":",
-                marker='o',
-                label='density',
-                # color='mediumvioletred',
-                linewidth=3,
-                markersize=8)
-        ax.plot(self.x, pressure, ":",
-                marker='^',
-                label='pressure',
-                linewidth=3,
-                markersize=8)
-        if self.ylim is not None:
-            ax.set_ylim(self.ylim)
-        ax.legend(prop={'size': 20})
+        fontsize = 11
+        linewidth = 2
+        markersize = 2
+        # NOTE: For some reason, this does NOT work:
+        # fig, axs = self.mplcontext
+        # So using the wasteful approach....
+        fig, axs = plt.subplots(2, 2, sharex=True)
 
-        # ax.set_xlabel("$x$")
-        # ax.set_ylabel("$\\rho$")
-        ax.set_title(
+        axs[0, 0].plot(self.x, density, ":",
+                       marker='o',
+                       label='density',
+                       linewidth=linewidth,
+                       markersize=markersize)
+        axs[1, 0].plot(self.x, pressure, ":",
+                       marker='o',
+                       label='pressure',
+                       linewidth=linewidth,
+                       markersize=markersize)
+        axs[0, 1].plot(self.x, velocity, ":",
+                       marker='o',
+                       label='velocity',
+                       linewidth=linewidth,
+                       markersize=markersize)
+        axs[1, 1].plot(self.x, energy, ":",
+                       marker='o',
+                       label='energy',
+                       linewidth=linewidth,
+                       markersize=markersize)
+
+        # if self.ylim is not None:
+        #     ax.set_ylim(self.ylim)
+        # ax.legend(prop={'size': fontsize})
+
+        axs[0, 0].set_xlabel("$x$", fontsize=fontsize)
+        axs[0, 0].set_ylabel("$\\rho$", fontsize=fontsize)
+        # axs[0, 0].tick_params(axis='x', labelsize=fontsize)
+        # axs[0, 0].tick_params(axis='y', labelsize=fontsize)
+        axs[1, 0].set_xlabel("$x$", fontsize=fontsize)
+        axs[1, 0].set_ylabel("$p$", fontsize=fontsize)
+        # axs[1, 0].tick_params(axis='x', labelsize=fontsize)
+        # axs[1, 0].tick_params(axis='y', labelsize=fontsize)
+        axs[0, 1].set_xlabel("$x$", fontsize=fontsize)
+        axs[0, 1].set_ylabel("$u$", fontsize=fontsize)
+        # axs[0, 1].tick_params(axis='x', labelsize=fontsize)
+        # axs[0, 1].tick_params(axis='y', labelsize=fontsize)
+        axs[1, 1].set_xlabel("$x$", fontsize=fontsize)
+        axs[1, 1].set_ylabel("$\\rho e$", fontsize=fontsize)
+        # axs[1, 1].tick_params(axis='x', labelsize=fontsize)
+        # axs[1, 1].tick_params(axis='y', labelsize=fontsize)
+        fig.suptitle(
             f"N = {self.order}, Npt = {self.npoints}, t = {t:.3f}",
-            fontsize=20
+            fontsize=fontsize
         )
-        ax.tick_params(axis='x', labelsize=20)
-        ax.tick_params(axis='y', labelsize=20)
 
-        self.fig.savefig(filename, bbox_inches='tight')
-        self.fig.clf()
+        fig.savefig(filename, bbox_inches='tight')
+        fig.clf()
 
 # }}}
 
@@ -250,7 +275,7 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("q", dt, q_init, rhs)
     plot = Plotter(actx, dcoll, order, npoints,
-                   visualize=visualize, ylim=[0.0, 1.2])
+                   visualize=visualize, ylim=[-0.2, 1.2])
 
     step = 0
     plot(q_init, "fld-sod-init")
