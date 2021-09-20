@@ -47,6 +47,7 @@ THE SOFTWARE.
 
 from arraycontext import (
     ArrayContainer,
+    to_numpy,
     is_array_container,
     with_container_arithmetic,
     dataclass_array_container,
@@ -280,15 +281,13 @@ def flatten_to_numpy_from_container(actx, ary):
     if is_array_container(ary):
         containerized_data_template = {}
         flat_data = []
-        for key, value in serialize_container(ary):
+        for key, value in serialize_container(to_numpy(ary, actx)):
             # FIXME: Need to special case nested object arrays
             if isinstance(value, np.ndarray) and value.dtype == "O":
-                numpy_values = flatten_to_numpy(actx, value)
-                flat_data.append(np.concatenate(numpy_values))
+                flat_data.append(np.concatenate(value))
             else:
-                numpy_values = actx.to_numpy(value)
-                flat_data.append(numpy_values)
-            containerized_data_template[key] = numpy_values
+                flat_data.append(value)
+            containerized_data_template[key] = value
         return np.concatenate(flat_data), containerized_data_template
     else:
         # No data template for arys with only a single state
