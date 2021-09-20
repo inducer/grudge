@@ -380,7 +380,7 @@ def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
     #transformations.append(("tag_array_axes", ["result", "sep,f,f"]))
 
     # Split and tag inames
-    transformations.append(("tag_inames", [[("imatrix", "ilp")]]))
+    #transformations.append(("tag_inames", [[("imatrix", "ilp")]]))
     transformations.append(("split_iname", ["iel", k_inner_outer], {"outer_tag": "g.0",
                             "slabs": (0, 1)}))
     transformations.append(("split_iname", ["iel_inner", k_inner_inner],
@@ -415,6 +415,7 @@ def apply_transformation_list(knl, transformations):
     # bounds
     #print(knl)
     for t in transformations:
+        print(t)
         #print(t)
         func = function_mapping[t[0]]
         args = [knl]

@@ -33,7 +33,7 @@ import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
-    generate_transformation_list, apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
+    apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
 from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsOpArray, IsVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
 import  grudge.grudge_array_context as gac#import set_memory_layout
 
