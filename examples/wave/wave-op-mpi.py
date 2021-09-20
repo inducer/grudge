@@ -67,7 +67,6 @@ class WaveState:
 
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
-        assert all(vi.array_context is self.u.array_context for vi in self.v)
 
     @property
     def array_context(self):
