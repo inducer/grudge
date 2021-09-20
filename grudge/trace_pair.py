@@ -51,15 +51,12 @@ from arraycontext import (
     dataclass_array_container,
     get_container_context_recursively,
     serialize_container,
-    deserialize_container,
-    map_array_container
+    deserialize_container
 )
 
 from collections import OrderedDict
 
 from dataclasses import dataclass
-
-from functools import partial
 
 from numbers import Number
 
