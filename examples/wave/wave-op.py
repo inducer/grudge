@@ -253,7 +253,7 @@ def bump(actx, dcoll, t=0):
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, op.nodes(dcoll))
+    nodes = thaw(actx, dcoll.nodes())
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)
