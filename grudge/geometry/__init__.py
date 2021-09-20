@@ -32,6 +32,7 @@ from grudge.geometry.metrics import (
     inverse_first_fundamental_form,
 
     inverse_surface_metric_derivative,
+    inverse_surface_metric_derivative_mat,
     pseudoscalar,
     area_element,
 
@@ -51,6 +52,7 @@ __all__ = (
     "inverse_first_fundamental_form",
 
     "inverse_surface_metric_derivative",
+    "inverse_surface_metric_derivative_mat",
     "pseudoscalar",
     "area_element",
 
