@@ -54,6 +54,9 @@ def project(dcoll: DiscretizationCollection, src, tgt, vec):
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or a
         :class:`~arraycontext.ArrayContainer`.
     """
+    if isinstance(vec, Number) or src == tgt:
+        return vec
+
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(project, dcoll, src, tgt), vec
@@ -61,8 +64,5 @@ def project(dcoll: DiscretizationCollection, src, tgt, vec):
 
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
-
-    if isinstance(vec, Number) or src == tgt:
-        return vec
 
     return dcoll.connection_from_dds(src, tgt)(vec)
