@@ -15,12 +15,14 @@ Geometry terms
 --------------
 
 .. autofunction:: inverse_surface_metric_derivative
+.. autofunction:: inverse_surface_metric_derivative_mat
 .. autofunction:: pseudoscalar
 .. autofunction:: area_element
 
 Normal vectors
 --------------
 
+.. autofunction:: mv_normal
 .. autofunction:: normal
 
 Curvature tensors
@@ -58,9 +60,11 @@ THE SOFTWARE.
 
 import numpy as np
 
-from grudge import DiscretizationCollection
 from arraycontext import thaw, freeze, ArrayContext
 from meshmode.dof_array import DOFArray
+
+from grudge import DiscretizationCollection
+import grudge.dof_desc as dof_desc
 
 from grudge.dof_desc import (
     DD_VOLUME, DOFDesc, DISCR_TAG_BASE
@@ -70,6 +74,10 @@ from pymbolic.geometric_algebra import MultiVector
 
 from pytools.obj_array import make_obj_array
 from pytools import memoize_in
+
+
+from arraycontext import register_multivector_as_array_container
+register_multivector_as_array_container()
 
 
 # {{{ Metric computations
@@ -372,38 +380,97 @@ def inverse_metric_derivative(
 
 def inverse_surface_metric_derivative(
         actx: ArrayContext, dcoll: DiscretizationCollection,
-        rst_axis, xyz_axis, dd=None):
+        rst_axis, xyz_axis, dd=None,
+        *, _use_geoderiv_connection=False):
     r"""Computes the inverse surface metric derivative of the physical
     coordinate enumerated by *xyz_axis* with respect to the
     reference axis *rst_axis*. These geometric terms are used in the
     transformation of physical gradients.
 
+    This function does not cache its results.
+
     :arg rst_axis: an integer denoting the reference coordinate axis.
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays. (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivative at each nodal coordinate.
     """
     dim = dcoll.dim
     ambient_dim = dcoll.ambient_dim
 
-    @memoize_in(dcoll, (inverse_surface_metric_derivative, dd,
-                        "inv_metric_deriv_rst%s_xyz%s_adim%s_gdim%s"
-                        % (rst_axis, xyz_axis, ambient_dim, dim)))
+    if dd is None:
+        dd = DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
+
+    if ambient_dim == dim:
+        result = inverse_metric_derivative(
+            actx, dcoll, rst_axis, xyz_axis, dd=dd
+        )
+    else:
+        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+        result = sum(
+            inv_form1[rst_axis, d]*forward_metric_nth_derivative(
+                actx, dcoll, xyz_axis, d, dd=dd
+            ) for d in range(dim))
+
+    if _use_geoderiv_connection:
+        result = dcoll._base_to_geoderiv_connection(dd)(result)
+
+    return result
+
+
+def inverse_surface_metric_derivative_mat(
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, times_area_element=False, _use_geoderiv_connection=False):
+    r"""Computes the matrix of inverse surface metric derivatives, indexed by
+    ``(xyz_axis, rst_axis)``. It returns all values of
+    :func:`inverse_surface_metric_derivative_mat` in cached matrix form.
+
+    This function caches its results.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization.
+    :arg times_area_element: If *True*, each entry of the matrix is premultiplied
+        with the value of :func:`area_element`, reflecting the typical use
+        of the matrix in integrals evaluating weak derivatives.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays.  (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+        inverse metric derivatives in per-group arrays of shape
+        ``(xyz_dimension, rst_dimension, nelements, ndof)``.
+    """
+
+    @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
+        times_area_element, _use_geoderiv_connection))
     def _inv_surf_metric_deriv():
-        if ambient_dim == dim:
-            imd = inverse_metric_derivative(
-                actx, dcoll, rst_axis, xyz_axis, dd=dd
-            )
+        if times_area_element:
+            multiplier = area_element(actx, dcoll, dd=dd,
+                    _use_geoderiv_connection=_use_geoderiv_connection)
         else:
-            inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
-            imd = sum(
-                inv_form1[rst_axis, d]*forward_metric_nth_derivative(
-                    actx, dcoll, xyz_axis, d, dd=dd
-                ) for d in range(dim)
-            )
-        return freeze(imd, actx)
+            multiplier = 1
+
+        mat = actx.np.stack([
+                actx.np.stack([
+                    multiplier
+                    * inverse_surface_metric_derivative(actx, dcoll,
+                        rst_axis, xyz_axis, dd=dd,
+                        _use_geoderiv_connection=_use_geoderiv_connection)
+                    for rst_axis in range(dcoll.dim)])
+                for xyz_axis in range(dcoll.ambient_dim)])
+
+        return freeze(mat, actx)
+
     return thaw(_inv_surf_metric_deriv(), actx)
 
 
@@ -479,27 +546,37 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 
 def area_element(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, _use_geoderiv_connection=False
         ) -> DOFArray:
     r"""Computes the scale factor used to transform integrals from reference
     to global space.
 
+    This function caches its results.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays.  (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
         volumes for each element.
     """
     if dd is None:
         dd = DD_VOLUME
 
-    dim = dcoll.discr_from_dd(dd).dim
-
-    @memoize_in(dcoll, (area_element, dd,
-                        "area_elements_adim%s_gdim%s"
-                        % (dcoll.ambient_dim, dim)))
+    @memoize_in(dcoll, (area_element, dd, _use_geoderiv_connection))
     def _area_elements():
-        return freeze(actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dd=dd).norm_squared()), actx)
+        result = actx.np.sqrt(
+            pseudoscalar(actx, dcoll, dd=dd).norm_squared())
+
+        if _use_geoderiv_connection:
+            result = dcoll._base_to_geoderiv_connection(dd)(result)
+
+        return freeze(result, actx)
 
     return thaw(_area_elements(), actx)
 
@@ -516,7 +593,6 @@ def rel_mv_normal(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     """
-    import grudge.dof_desc as dof_desc
 
     dd = dof_desc.as_dofdesc(dd)
 
@@ -531,61 +607,82 @@ def rel_mv_normal(
 
 def mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd,
+        *, _use_geoderiv_connection=False
         ) -> MultiVector:
-    """Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
+    r"""Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
     This supports both volume discretizations
     (where ambient == topological dimension) and surface discretizations
     (where ambient == topological dimension + 1). In the latter case, extra
     processing ensures that the returned normal is in the local tangent space
     of the element at the point where the normal is being evaluated.
 
+    This function caches its results.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays.  The default value agrees
+        with ``actx.supports_nonscalar_broadcasting``.  (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
     :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
         containing the unit normals.
     """
-    import grudge.dof_desc as dof_desc
-
     dd = dof_desc.as_dofdesc(dd)
 
-    dim = dcoll.discr_from_dd(dd).dim
-    ambient_dim = dcoll.ambient_dim
+    if _use_geoderiv_connection is None:
+        _use_geoderiv_connection = actx.supports_nonscalar_broadcasting
 
-    if dim == ambient_dim:
-        raise ValueError("may only request normals on domains whose topological "
-                f"dimension ({dim}) differs from "
-                f"their ambient dimension ({ambient_dim})")
+    @memoize_in(dcoll, (mv_normal, dd, _use_geoderiv_connection))
+    def _normal():
+        dim = dcoll.discr_from_dd(dd).dim
+        ambient_dim = dcoll.ambient_dim
 
-    if dim == ambient_dim - 1:
-        return rel_mv_normal(actx, dcoll, dd=dd)
+        if dim == ambient_dim:
+            raise ValueError("may only request normals on domains whose topological "
+                    f"dimension ({dim}) differs from "
+                    f"their ambient dimension ({ambient_dim})")
 
-    # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
-    # enough information on the face to decide what an "exterior face normal"
-    # is (e.g the "normal" to a 1D curve in 3D space is actually a
-    # "normal plane")
-    #
-    # The trick done here is that we take the surface normal, move it to the
-    # face and then take a cross product with the face tangent to get the
-    # correct exterior face normal vector.
-    assert dim == ambient_dim - 2
+        if dim == ambient_dim - 1:
+            result = rel_mv_normal(actx, dcoll, dd=dd)
+        else:
+            # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
+            # enough information on the face to decide what an "exterior face normal"
+            # is (e.g the "normal" to a 1D curve in 3D space is actually a
+            # "normal plane")
+            #
+            # The trick done here is that we take the surface normal, move it to the
+            # face and then take a cross product with the face tangent to get the
+            # correct exterior face normal vector.
+            assert dim == ambient_dim - 2
 
-    from grudge.op import project
-    import grudge.dof_desc as dof_desc
+            from grudge.op import project
 
-    volm_normal = MultiVector(
-        project(dcoll, dof_desc.DD_VOLUME, dd,
-                rel_mv_normal(
-                    actx, dcoll,
-                    dd=dof_desc.DD_VOLUME
-                ).as_vector(dtype=object))
-    )
-    pder = pseudoscalar(actx, dcoll, dd=dd)
+            volm_normal = MultiVector(
+                project(dcoll, dof_desc.DD_VOLUME, dd,
+                        rel_mv_normal(
+                            actx, dcoll,
+                            dd=dof_desc.DD_VOLUME
+                        ).as_vector(dtype=object))
+            )
+            pder = pseudoscalar(actx, dcoll, dd=dd)
 
-    mv = -(volm_normal ^ pder) << volm_normal.I.inv()
+            mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
-    return mv / actx.np.sqrt(mv.norm_squared())
+            result = mv / actx.np.sqrt(mv.norm_squared())
+
+        if _use_geoderiv_connection:
+            result = dcoll._base_to_geoderiv_connection(dd)(result)
+
+        return freeze(result, actx)
+
+    n = _normal()
+    return thaw(n, actx)
 
 
-def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
+def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd,
+        *, _use_geoderiv_connection=None):
     """Get the unit normal to the specified surface discretization, *dd*.
     This supports both volume discretizations
     (where ambient == topological dimension) and surface discretizations
@@ -593,11 +690,20 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd):
     processing ensures that the returned normal is in the local tangent space
     of the element at the point where the normal is being evaluated.
 
+    This function may be treated as if it caches its results.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
+    :arg _use_geoderiv_connection: See :func:`mv_normal` for a full description.
+        (This is an internal argument and not intended for use outside
+        :mod:`grudge`.)
+
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`
         containing the unit normals at each nodal location.
     """
-    return mv_normal(actx, dcoll, dd).as_vector(dtype=object)
+    return mv_normal(
+            actx, dcoll, dd,
+            _use_geoderiv_connection=_use_geoderiv_connection
+            ).as_vector(dtype=object)
 
 # }}}
 

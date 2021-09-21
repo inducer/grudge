@@ -5,6 +5,9 @@ _conf_url = \
 with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
+extensions = globals()["extensions"] + [
+    "matplotlib.sphinxext.plot_directive"]
+
 copyright = "2015-21, grudge contributors"
 author = "grudge contributors"
 
@@ -33,3 +36,7 @@ intersphinx_mapping = {
     "https://documen.tician.de/meshmode/": None,
     "https://documen.tician.de/loopy/": None,
     }
+
+# index-page demo uses pyopencl via plot_directive
+import os
+os.environ["PYOPENCL_TEST"] = "port:pthread"

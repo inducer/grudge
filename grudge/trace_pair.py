@@ -86,6 +86,7 @@ class TracePair:
     .. autoattribute:: int
     .. autoattribute:: ext
     .. autoattribute:: avg
+    .. autoattribute:: diff
 
     .. automethod:: __getattr__
     .. automethod:: __getitem__
@@ -160,7 +161,7 @@ class TracePair:
         :class:`~arraycontext.ArrayContainer` of them representing the
         difference (exterior - interior) of the pair values.
         """
-        return self.ext - self.ext
+        return self.ext - self.int
 
 # }}}
 

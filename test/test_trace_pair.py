@@ -62,7 +62,8 @@ def test_trace_pair(actx_factory):
     exterior = rand()
     tpair = TracePair("vol", interior=interior, exterior=exterior)
 
-    assert tpair.avg == 0.5*(interior + exterior)
-    assert tpair.diff == (exterior - interior)
-    assert tpair.int == interior
-    assert tpair.ext == exterior
+    import grudge.op as op
+    assert op.norm(dcoll, tpair.avg - 0.5*(exterior + interior), np.inf) == 0
+    assert op.norm(dcoll, tpair.diff - (exterior - interior), np.inf) == 0
+    assert op.norm(dcoll, tpair.int - interior, np.inf) == 0
+    assert op.norm(dcoll, tpair.ext - exterior, np.inf) == 0
