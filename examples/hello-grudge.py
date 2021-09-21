@@ -10,7 +10,7 @@
 # BEGINEXAMPLE
 import numpy as np
 import pyopencl as cl
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 import grudge.op as op
 from meshmode.mesh.generation import generate_box_mesh
 from meshmode.array_context import PyOpenCLArrayContext
@@ -27,7 +27,7 @@ coords = np.linspace(0, 2*np.pi, nel)
 mesh = generate_box_mesh((coords,),
                          boundary_tag_to_face={"left": ["-x"],
                                                "right": ["+x"]})
-dcoll = DiscretizationCollection(actx, mesh, order=1)
+dcoll = make_discretization_collection(actx, mesh, order=1)
 
 
 def initial_condition(x):
