@@ -53,6 +53,9 @@ from meshmode.discretization.connection import (
     make_face_restriction
 )
 from meshmode.mesh import Mesh, BTAG_PARTITION
+from meshmode.discretization.connection import DiscretizationConnection
+
+from typing import Dict
 
 from warnings import warn
 
@@ -244,7 +247,7 @@ class DiscretizationCollection:
         return any(
                 megrp.is_affine
                 and issubclass(megrp._modepy_shape_cls, Simplex)
-                for megrp in self._volume_discr.mesh.groups)
+                for megrp in self._mesh.groups)
 
     @memoize_method
     def _base_to_geoderiv_connection(self, dd: DOFDesc):
@@ -443,7 +446,7 @@ class DiscretizationCollection:
 
         # Refuse to re-make the volume discretization
         if discretization_tag is DISCR_TAG_BASE:
-            return self._volume_discr
+            return self.discr_from_dd("vol")
 
         from meshmode.discretization import Discretization
         return Discretization(
@@ -715,7 +718,7 @@ def make_discretization_collection(
     # Define the base and modal discretization
     from meshmode.discretization import Discretization
 
-    volume_discr = Discretization(
+    base_discr = Discretization(
         array_context, mesh,
         discr_tag_to_group_factory[DISCR_TAG_BASE]
     )
@@ -725,13 +728,13 @@ def make_discretization_collection(
         discr_tag_to_group_factory[DISCR_TAG_MODAL]
     )
 
-    discr_from_dd = {DD_VOLUME: volume_discr,
+    discr_from_dd = {DD_VOLUME: base_discr,
                      DD_VOLUME_MODAL: modal_vol_discr}
 
     # Define boundary connections
     dist_boundary_connections = set_up_distributed_communication(
         array_context, mesh,
-        volume_discr,
+        base_discr,
         discr_tag_to_group_factory, comm=mpi_communicator
     )
 
@@ -747,12 +750,13 @@ def make_discretization_collection(
 
 def set_up_distributed_communication(
         array_context: ArrayContext, mesh: Mesh,
-        volume_discr,
-        discr_tag_to_group_factory, comm=None) -> dict:
+        base_discr,
+        discr_tag_to_group_factory,
+        comm=None) -> Dict[int, DiscretizationConnection]:
     """Constructs a mapping from parallel boundary partition and the relevant
     discretization connections to that boundary. Used for distributed runs.
 
-    :arg volume_discr: A :class:`meshmode.discretization.Discretization`
+    :arg base_discr: A :class:`meshmode.discretization.Discretization`
         object for the base (:class:`grudge.dof_desc.DISCR_TAG_BASE`)
         volume discretization.
     :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -784,7 +788,7 @@ def set_up_distributed_communication(
             to_dd = DOFDesc(BTAG_PARTITION(i_remote_part), DISCR_TAG_BASE)
             local_boundary_connections[i_remote_part] = \
                 make_face_restriction(array_context,
-                                      volume_discr,
+                                      base_discr,
                                       grp_factory,
                                       boundary_tag=to_dd.domain_tag.tag)
 
