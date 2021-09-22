@@ -67,7 +67,7 @@ class EagerDGDiscretization(DiscretizationCollection):
             discr_tag_to_group_factory = quad_tag_to_group_factory
 
         from meshmode.discretization.poly_element import \
-            PolynomialWarpAndBlendGroupFactory
+            default_simplex_group_factory
 
         from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_MODAL
 
@@ -77,9 +77,9 @@ class EagerDGDiscretization(DiscretizationCollection):
                     "one of 'order' and 'discr_tag_to_group_factory' must be given"
                 )
 
-            # Default choice: warp and blend simplex element group
             discr_tag_to_group_factory = {
-                DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order=order)
+                DISCR_TAG_BASE: default_simplex_group_factory(base_dim=mesh.dim,
+                                                              order=order)
             }
         else:
             if order is not None:
@@ -91,47 +91,39 @@ class EagerDGDiscretization(DiscretizationCollection):
                     )
 
                 discr_tag_to_group_factory[DISCR_TAG_BASE] = \
-                    PolynomialWarpAndBlendGroupFactory(order=order)
+                    default_simplex_group_factory(base_dim=mesh.dim, order=order)
 
-        # Modal discr should always comes from the base discretization
-        from grudge.discretization import _generate_modal_group_factory
+        # Supply modal group factory if not provided
+        if DISCR_TAG_MODAL not in discr_tag_to_group_factory:
+            from grudge.discretization import _generate_modal_group_factory
 
-        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
-            _generate_modal_group_factory(
-                discr_tag_to_group_factory[DISCR_TAG_BASE]
-            )
+            discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
+                _generate_modal_group_factory(
+                    discr_tag_to_group_factory[DISCR_TAG_BASE]
+                )
 
-        # Define the base and modal discretization
-        from grudge.dof_desc import DD_VOLUME, DD_VOLUME_MODAL
+        # Define the base discretization
         from meshmode.discretization import Discretization
 
-        volume_discr = Discretization(
+        base_discr = Discretization(
             array_context, mesh,
             discr_tag_to_group_factory[DISCR_TAG_BASE]
         )
-
-        modal_vol_discr = Discretization(
-            array_context, mesh,
-            discr_tag_to_group_factory[DISCR_TAG_MODAL]
-        )
-
-        discr_from_dd = {DD_VOLUME: volume_discr,
-                         DD_VOLUME_MODAL: modal_vol_discr}
 
         # Define boundary connections
         from grudge.discretization import set_up_distributed_communication
 
         dist_boundary_connections = set_up_distributed_communication(
             array_context, mesh,
-            volume_discr,
+            base_discr,
             discr_tag_to_group_factory, comm=mpi_communicator
         )
 
         super().__init__(
             array_context=array_context,
             mesh=mesh,
+            base_discr=base_discr,
             discr_tag_to_group_factory=discr_tag_to_group_factory,
-            discr_from_dd=discr_from_dd,
             dist_boundary_connections=dist_boundary_connections,
             mpi_communicator=mpi_communicator
         )
