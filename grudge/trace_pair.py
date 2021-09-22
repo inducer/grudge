@@ -46,6 +46,7 @@ THE SOFTWARE.
 
 
 from arraycontext import (
+    ArrayContext,
     ArrayContainer,
     to_numpy,
     is_array_container,
@@ -55,6 +56,7 @@ from arraycontext import (
     serialize_container,
     deserialize_container
 )
+from arraycontext.container import ArrayOrContainerT
 
 from dataclasses import dataclass
 
@@ -275,8 +277,11 @@ def connected_ranks(dcoll: DiscretizationCollection):
     return get_connected_partitions(dcoll._volume_discr.mesh)
 
 
-def flatten_to_numpy_from_container(actx, ary):
-    """
+def _flatten_to_numpy_from_container(
+        actx: ArrayContext,
+        ary: ArrayOrContainerT):
+    """Flattens an arbitrary array container *ary* into a one-dimensional
+    numpy array suitable for communication via mpi4py.
     """
     if is_array_container(ary):
         containerized_data_template = {}
@@ -295,9 +300,12 @@ def flatten_to_numpy_from_container(actx, ary):
         return flatten_to_numpy(actx, ary), None
 
 
-def unflatten_from_numpy_to_container(
-        actx, numpy_ary, ary_container_data, discr, template):
-    """
+def _unflatten_from_numpy_to_container(
+        actx: ArrayContext,
+        template: ArrayOrContainerT,
+        numpy_ary, ary_container_data, discr) -> ArrayOrContainerT:
+    """Unflattens *numpy_ary* into an array container matching
+    the provided container template *template*.
     """
     if not isinstance(template, DOFArray):
         remote_container_data = {}
@@ -352,8 +360,10 @@ class _RankBoundaryCommunication:
             project(dcoll, "vol", self.remote_btag, array_container)
 
         numpy_data, container_data = \
-            flatten_to_numpy_from_container(self.array_context,
-                                            self.local_array_ctr)
+            _flatten_to_numpy_from_container(
+                actx=self.array_context,
+                ary=self.local_array_ctr
+            )
 
         # NOTE: Storing container data so we can use this information to
         # re-containerize the exchanged result
@@ -371,12 +381,12 @@ class _RankBoundaryCommunication:
         self.recv_req.Wait()
 
         # Re-containerize the remote data
-        remote_array_ctr = unflatten_from_numpy_to_container(
-            self.array_context,
-            self.remote_data_host_numpy,
-            self.container_data,
-            self.bdry_discr,
-            self.local_array_ctr
+        remote_array_ctr = _unflatten_from_numpy_to_container(
+            actx=self.array_context,
+            template=self.local_array_ctr,
+            numpy_ary=self.remote_data_host_numpy,
+            ary_container_data=self.container_data,
+            discr=self.bdry_discr
         )
 
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
