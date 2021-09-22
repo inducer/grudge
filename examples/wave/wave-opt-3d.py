@@ -34,7 +34,6 @@ from arraycontext import thaw, freeze
 from grudge.array_context import PyOpenCLArrayContext
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext)
-from arraycontext.impl.pytato.compile import FromActxCompile
 
 from time import time
 from grudge import DiscretizationCollection
@@ -115,7 +114,7 @@ def transform_face_mass(t_unit):
 
     # }}}
 
-    # Preftch flux values into private address space
+    # Preftch flux values into local address space
     for dof_var_name in ["flux", "flux_0",
                          "flux_1", "flux_2"]:
         new_insn_id = f"{dof_var_name}_prftch"
@@ -494,6 +493,7 @@ class HopefullySmartPytatoArrayContext(
         return dag
 
     def transform_loopy_program(self, t_unit):
+        from arraycontext.impl.pytato.compile import FromActxCompile
         if t_unit.default_entrypoint.tags_of_type(FromActxCompile):
             import loopy as lp
             from loopy.transform.precompute import precompute_for_single_kernel
