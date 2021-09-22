@@ -35,7 +35,6 @@ from pytools import memoize_method
 
 from grudge.dof_desc import (
     DD_VOLUME,
-    DD_VOLUME_MODAL,
     DISCR_TAG_BASE,
     DISCR_TAG_MODAL,
     DTAG_BOUNDARY,
@@ -709,11 +708,12 @@ def make_discretization_collection(
             discr_tag_to_group_factory[DISCR_TAG_BASE] = \
                 default_simplex_group_factory(base_dim=mesh.dim, order=order)
 
-    # Modal discr should always comes from the base discretization
-    discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
-        _generate_modal_group_factory(
-            discr_tag_to_group_factory[DISCR_TAG_BASE]
-        )
+    # Supply modal group factory if not provided
+    if DISCR_TAG_MODAL not in discr_tag_to_group_factory:
+        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
+            _generate_modal_group_factory(
+                discr_tag_to_group_factory[DISCR_TAG_BASE]
+            )
 
     # Define the base and modal discretization
     from meshmode.discretization import Discretization
@@ -723,13 +723,7 @@ def make_discretization_collection(
         discr_tag_to_group_factory[DISCR_TAG_BASE]
     )
 
-    modal_vol_discr = Discretization(
-        array_context, mesh,
-        discr_tag_to_group_factory[DISCR_TAG_MODAL]
-    )
-
-    discr_from_dd = {DD_VOLUME: base_discr,
-                     DD_VOLUME_MODAL: modal_vol_discr}
+    discr_from_dd = {DD_VOLUME: base_discr}
 
     # Define boundary connections
     dist_boundary_connections = set_up_distributed_communication(
