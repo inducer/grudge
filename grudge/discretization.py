@@ -112,7 +112,8 @@ class DiscretizationCollection:
             discretization.
         :arg dist_boundary_connections: A dictionary whose keys denote the
             partition group index and map to the appropriate face connections
-            for distributed boundaries, if any.
+            for distributed boundaries, if any. See
+            :func:`set_up_distributed_communication` for more information.
         :arg mpi_communicator: An (optional) MPI communicator.
         """
         self._setup_actx = array_context
@@ -736,6 +737,8 @@ def set_up_distributed_communication(
         comm=None) -> Dict[int, DiscretizationConnection]:
     """Constructs a mapping from parallel boundary partition and the relevant
     discretization connections to that boundary. Used for distributed runs.
+    Connected partitions are determined by
+    :func:`meshmode.distributed.get_connected_partitions`.
 
     :arg base_discr: A :class:`meshmode.discretization.Discretization`
         object for the base (:class:`grudge.dof_desc.DISCR_TAG_BASE`)
