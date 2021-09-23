@@ -32,6 +32,7 @@ import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
+from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
@@ -74,9 +75,9 @@ class Plotter:
 
         assert self.dim == 1
 
-        density = self.actx.to_numpy(flatten(state[0]))
-        energy = self.actx.to_numpy(flatten(state[1]))
-        momentum = self.actx.to_numpy(flatten(state[2]))
+        density = self.actx.to_numpy(flatten(state.mass))
+        energy = self.actx.to_numpy(flatten(state.energy))
+        momentum = self.actx.to_numpy(flatten(state.momentum))
         # Hard-coded...
         gamma = 1.4
         velocity = momentum / density
@@ -147,7 +148,7 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=False):
+def main(ctx_factory, order=4, visualize=False, overintegration=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -233,26 +234,14 @@ def main(ctx_factory, order=4, visualize=False, esdg=False, overintegration=Fals
 
         mass = actx.np.where(yesno, rhoout, rhoin)
         energy = actx.np.where(yesno, energyout, energyin)
-        mom = make_obj_array([zeros for i in range(dim)])
+        momentum = make_obj_array([zeros for i in range(dim)])
 
-        result = np.empty((2+dim,), dtype=object)
-        result[0] = mass
-        result[1] = energy
-        result[2:dim+2] = mom
-        return result
+        return EulerState(mass=mass, energy=energy, momentum=momentum)
 
     nodes = thaw(dcoll.nodes(), actx)
     q_init = sod_initial_condition(nodes)
 
-    from grudge.models.euler import \
-        EntropyStableEulerOperator, EulerOperator
-
-    if esdg:
-        operator_cls = EntropyStableEulerOperator
-    else:
-        operator_cls = EulerOperator
-
-    euler_operator = operator_cls(
+    euler_operator = EntropyStableEulerOperator(
         dcoll,
         bdry_fcts={BTAG_ALL: sod_initial_condition},
         initial_condition=sod_initial_condition,
@@ -302,7 +291,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true")
-    parser.add_argument("--esdg", action="store_true")
     parser.add_argument("--overintegration", action="store_true")
     args = parser.parse_args()
 
@@ -310,5 +298,4 @@ if __name__ == "__main__":
     main(cl.create_some_context,
          order=args.order,
          visualize=args.visualize,
-         esdg=args.esdg,
          overintegration=args.overintegration)

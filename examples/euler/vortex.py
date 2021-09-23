@@ -32,6 +32,7 @@ import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
+from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
@@ -101,7 +102,7 @@ class Plotter:
 
 def run_vortex(actx, order=3, resolution=8, final_time=1,
                flux_type="central",
-               visualize=False, esdg=False):
+               visualize=False):
 
     # eos-related parameters
     gamma = 1.4
@@ -168,15 +169,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
 
         return result
 
-    from grudge.models.euler import \
-        EntropyStableEulerOperator, EulerOperator
-
-    if esdg:
-        operator_cls = EntropyStableEulerOperator
-    else:
-        operator_cls = EulerOperator
-
-    euler_operator = operator_cls(
+    euler_operator = EntropyStableEulerOperator(
         dcoll,
         bdry_fcts={BTAG_ALL: vortex_initial_condition},
         initial_condition=vortex_initial_condition,
@@ -244,7 +237,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
 
 def run_convergence_test_vortex(
         actx, order=3, final_time=1,
-        flux_type="central", esdg=False):
+        flux_type="central"):
 
     # eos-related parameters
     gamma = 1.4
@@ -286,21 +279,7 @@ def run_convergence_test_vortex(
 
         energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
 
-        result = np.empty((2+dim,), dtype=object)
-        result[0] = mass
-        result[1] = energy
-        result[2:dim+2] = momentum
-
-        return result
-
-    from grudge.models.euler import \
-        EntropyStableEulerOperator, EulerOperator
-
-    if esdg:
-        operator_cls = EntropyStableEulerOperator
-    else:
-        operator_cls = EulerOperator
-
+        return EulerState(mass=mass, energy=energy, momentum=momentum)
 
     from pytools.convergence import EOCRecorder
     from grudge.dt_utils import h_max_from_volume
@@ -330,7 +309,7 @@ def run_convergence_test_vortex(
 
         # }}}
 
-        euler_operator = operator_cls(
+        euler_operator = EntropyStableEulerOperator(
             dcoll,
             bdry_fcts={BTAG_ALL: vortex_initial_condition},
             initial_condition=vortex_initial_condition,
@@ -382,7 +361,7 @@ def run_convergence_test_vortex(
 
 
 def main(ctx_factory, order=3, resolution=8,
-         lf_stabilization=False, visualize=False, esdg=False,
+         lf_stabilization=False, visualize=False,
          test_convergence=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -401,13 +380,13 @@ def main(ctx_factory, order=3, resolution=8,
         run_convergence_test_vortex(
             actx, order=order,
             final_time=1,
-            flux_type=flux_type, esdg=esdg)
+            flux_type=flux_type)
     else:
         run_vortex(
             actx, order=order, resolution=resolution,
             final_time=1,
             flux_type=flux_type,
-            visualize=visualize, esdg=esdg)
+            visualize=visualize)
 
 
 if __name__ == "__main__":
@@ -418,7 +397,6 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", default=8, type=int)
     parser.add_argument("--lfflux", action="store_true")
     parser.add_argument("--visualize", action="store_true")
-    parser.add_argument("--esdg", action="store_true")
     parser.add_argument("--convergence", action="store_true")
     args = parser.parse_args()
 
@@ -428,5 +406,4 @@ if __name__ == "__main__":
          resolution=args.resolution,
          lf_stabilization=args.lfflux,
          visualize=args.visualize,
-         esdg=args.esdg,
          test_convergence=args.convergence)
