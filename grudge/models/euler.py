@@ -27,7 +27,12 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw, make_loopy_program
+from dataclasses import dataclass
+from arraycontext import (
+    thaw,
+    dataclass_array_container,
+    with_container_arithmetic,
+)
 
 from meshmode.dof_array import DOFArray
 
@@ -187,9 +192,9 @@ class EulerOperator(HyperbolicOperator):
 
     def max_characteristic_velocity(self, actx, **kwargs):
         q = kwargs["state"]
-        rho = q[0]
-        rhoe = q[1]
-        rhov = q[2:self.dcoll.dim+2]
+        rho = q.mass
+        rhoe = q.energy
+        rhov = q.momentum
         v = rhov / rho
         gamma = self.gamma
         p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
@@ -198,6 +203,29 @@ class EulerOperator(HyperbolicOperator):
 
 
 # {{{ Entropy stable operator
+
+@with_container_arithmetic(bcast_obj_array=False,
+                           bcast_container_types=(DOFArray, np.ndarray),
+                           matmul=True,
+                           rel_comparison=True)
+@dataclass_array_container
+@dataclass(frozen=True)
+class EulerState:
+    mass: DOFArray
+    energy: DOFArray
+    momentum: np.ndarray
+
+    @property
+    def array_context(self):
+        return self.mass.array_context
+
+    @property
+    def dim(self):
+        return len(self.momentum)
+
+    @property
+    def velocity(self):
+        return self.momentum / self.mass
 
 
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
@@ -280,80 +308,70 @@ def entropy_projection(
     return aux_cv_state_q, ev_state
 
 
-def flux_chandrashekar(q_ll, q_rr, orientation, gamma=1.4):
+def flux_chandrashekar(dcoll, qi, qj, gamma=1.4):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
 
-    :args q_ll: a tuple containing the "left" state
-    :args q_rr: a tuple containing the "right" state
-    :args orientation: an integer denoting the dimension axis;
-        e.g. 0 for x-direction, 1 for y-direction, 2 for z-direction.
+    :args qi: an array container for the "left" state
+    :args qj: an array container for the "right" state
     """
-
-    rho_ll, rhoe_ll, rhou_ll = q_ll
-    rho_rr, rhoe_rr, rhou_rr = q_rr
-
-    v_ll = rhou_ll / rho_ll
-    v_rr = rhou_rr / rho_rr
-
-    dim = len(v_ll)
-
-    p_ll = (gamma - 1) * (rhoe_ll - 0.5 * sum(rhou_ll * v_ll))
-    p_rr = (gamma - 1) * (rhoe_rr - 0.5 * sum(rhou_rr * v_rr))
-
-    beta_ll = 0.5 * rho_ll / p_ll
-    beta_rr = 0.5 * rho_rr / p_rr
-
-    specific_kin_ll = 0.5 * sum(v**2 for v in v_ll)
-    specific_kin_rr = 0.5 * sum(v**2 for v in v_rr)
-    v_avg = 0.5 * (v_ll + v_rr)
-    velocity_square_avg = (
-        2 * sum(vi_avg**2 for vi_avg in v_avg)
-        - (specific_kin_ll + specific_kin_rr)
-    )
+    dim = dcoll.dim
+    actx = qi.array_context
 
     def log_mean(x, y, epsilon=1e-2):
-        """Computes the logarithmic mean using a numerically stable
-        stable approach outlined in Appendix B of Ismail, Roe (2009).
-        Affordable, entropy-consistent Euler flux functions II: Entropy
-        production at shocks.
-        [DOI: 10.1016/j.jcp.2009.04.021](https://doi.org/10.1016/j.jcp.2009.04.021)
-        """
         zeta = x / y
         f = (zeta - 1) / (zeta + 1)
         u = f*f
-        if u < epsilon:
-            ff = 1 + u / 3 + u*u / 5 + u*u*u / 7
-        else:
-            ff = np.log(zeta)/2/f
-        return (x + y) / (2*ff)
+        return actx.np.where(
+            # if f_squared < epsilon
+            u < epsilon,
+            (x + y) / (2*(1 + u / 3 + u*u / 5 + u*u*u / 7)),
+            # else
+            (x + y) / (2*actx.np.log(zeta)/2/f)
+        )
 
-    # Compute the necessary mean values
-    rho_avg = 0.5 * (rho_ll + rho_rr)
-    rho_mean  = log_mean(rho_ll,  rho_rr)
+    rho_i = qi.mass
+    rhoe_i = qi.energy
+    rhou_i = qi.momentum
 
-    beta_mean = log_mean(beta_ll, beta_rr)
-    beta_avg = 0.5 * (beta_ll + beta_rr)
+    rho_j = qj.mass
+    rhoe_j = qj.energy
+    rhou_j = qj.momentum
+
+    v_i = rhou_i / rho_i
+    v_j = rhou_j / rho_j
+
+    p_i = (gamma - 1) * (rhoe_i - 0.5 * sum(rhou_i * v_i))
+    p_j = (gamma - 1) * (rhoe_j - 0.5 * sum(rhou_j * v_j))
+
+    beta_i = 0.5 * rho_i / p_i
+    beta_j = 0.5 * rho_j / p_j
+    specific_kin_i = 0.5 * sum(v**2 for v in v_i)
+    specific_kin_j = 0.5 * sum(v**2 for v in v_j)
+    v_avg = 0.5 * (v_i + v_j)
+    velocity_square_avg = (
+        2 * sum(vi_avg**2 for vi_avg in v_avg)
+        - (specific_kin_i + specific_kin_j)
+    )
+
+    rho_avg = 0.5 * (rho_i + rho_j)
+    beta_avg = 0.5 * (beta_i + beta_j)
     p_avg = 0.5 * rho_avg / beta_avg
+    rho_mean = log_mean(rho_i, rho_j)
+    beta_mean = log_mean(beta_i, beta_j)
     e_avg = (
         (rho_mean / (2 * beta_mean * (gamma - 1)))
         + 0.5 * velocity_square_avg
     )
     rho_mean_v_avg = rho_mean * v_avg
-    fxyz_momentum = np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
 
-    f_mass = rho_mean_v_avg[orientation]
-    f_momentum = fxyz_momentum[:, orientation]
-    f_energy = v_avg[orientation] * (e_avg + p_avg)
-    result =  np.array([f_mass, f_energy, f_momentum], dtype=object)
-    # NOTE: NaN appears to be coming *in* to the function as q_ll, q_rr...
-    # if np.isnan(sum(result)):
-    #     # raise ValueError("NaN occurred in two-point flux calculation.")
-    #     # print("NaN occurred in two-point flux calculation.")
-    #     import ipdb; ipdb.set_trace()
-    return result
+    return EulerState(
+        mass=rho_mean_v_avg,
+        energy=v_avg * (e_avg + p_avg),
+        momentum=np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
+    )
 
 
 def volume_flux_differencing(actx, dcoll, dq, df, state, gamma=1.4):
@@ -545,67 +563,13 @@ def entropy_stable_numerical_flux_chandrashekar(
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
-    # NOTE: this version of flux_chandrashekar is written to take full arrays
-    # of interior/exterior values (not point-wise like `flux_chandrashekar`).
     dim = dcoll.dim
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_int = tpair.int
     q_ext = tpair.ext
-    actx = q_int[0].array_context
 
-    def log_mean(x, y, epsilon=1e-2):
-        zeta = x / y
-        f = (zeta - 1) / (zeta + 1)
-        u = f*f
-        return actx.np.where(
-            # if f_squared < epsilon
-            u < epsilon,
-            (x + y) / (2*(1 + u / 3 + u*u / 5 + u*u*u / 7)),
-            # else
-            (x + y) / (2*actx.np.log(zeta)/2/f)
-        )
-
-    rho_int = q_int[0]
-    rhoe_int = q_int[1]
-    rhou_int = q_int[2:dim+2]
-
-    rho_ext = q_ext[0]
-    rhoe_ext = q_ext[1]
-    rhou_ext = q_ext[2:dim+2]
-
-    v_int = rhou_int / rho_int
-    v_ext = rhou_ext / rho_ext
-
-    p_int = (gamma - 1) * (rhoe_int - 0.5 * sum(rhou_int * v_int))
-    p_ext = (gamma - 1) * (rhoe_ext - 0.5 * sum(rhou_ext * v_ext))
-
-    beta_int = 0.5 * rho_int / p_int
-    beta_ext = 0.5 * rho_ext / p_ext
-    specific_kin_int = 0.5 * sum(v**2 for v in v_int)
-    specific_kin_ext = 0.5 * sum(v**2 for v in v_ext)
-    v_avg = 0.5 * (v_int + v_ext)
-    velocity_square_avg = (
-        2 * sum(vi_avg**2 for vi_avg in v_avg)
-        - (specific_kin_int + specific_kin_ext)
-    )
-
-    rho_avg = 0.5 * (rho_int + rho_ext)
-    beta_avg = 0.5 * (beta_int + beta_ext)
-    p_avg = 0.5 * rho_avg / beta_avg
-    rho_mean = log_mean(rho_int, rho_ext)
-    beta_mean = log_mean(beta_int, beta_ext)
-    e_avg = (
-        (rho_mean / (2 * beta_mean * (gamma - 1)))
-        + 0.5 * velocity_square_avg
-    )
-    rho_mean_v_avg = rho_mean * v_avg
-
-    flux = np.empty((2+dim, dim), dtype=object)
-    flux[0, :] = rho_mean_v_avg
-    flux[1, :] = v_avg * (e_avg + p_avg)
-    flux[2:dim+2, :] = np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
-
+    flux = flux_chandrashekar(dcoll, q_int, q_ext, gamma=gamma)
     normal = thaw(dcoll.normal(dd_intfaces), actx)
     num_flux = flux @ normal
 
