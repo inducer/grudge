@@ -641,24 +641,19 @@ def volume_flux_differencing(
         )
 
     actx = vec.array_context
-
-    # flux_matrices = from_numpy(flux(_reshape_to_numpy((1, -1), vec),
-    #                                 _reshape_to_numpy((-1, 1), vec)), actx)
-    # import ipdb; ipdb.set_trace()
-
+    # FIXME: better way to do the reshaping here?
+    flux_matrices = from_numpy(flux(_reshape_to_numpy((1, -1), vec),
+                                    _reshape_to_numpy((-1, 1), vec)), actx)
     return volume_and_surface_quadrature_projection(
         dcoll,
         dq, df,
         _apply_skew_symmetric_hybrid_diff_operator(
             dcoll,
             dq, df,
-            # FIXME: better way to do the reshaping here?
-            # FIXME: need array container support
-            from_numpy(flux(_reshape_to_numpy((1, -1), vec),
-                            _reshape_to_numpy((-1, 1), vec)),
-                       actx)
+            flux_matrices
         )
     )
+
 
 def _apply_inverse_sbp_mass_operator(
         dcoll: DiscretizationCollection, dd_quad, vec):
