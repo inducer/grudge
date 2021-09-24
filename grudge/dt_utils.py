@@ -179,12 +179,14 @@ def h_max_from_volume(
     if dim is None:
         dim = dcoll.dim
 
-    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_max(
+    actx = dcoll._setup_actx
+
+    ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
+    return actx.to_numpy(nodal_max(
         dcoll,
         dd,
         elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
-    ) ** (1.0 / dim)
+    ) ** (1.0 / dim))
 
 
 @memoize_on_first_arg
@@ -210,12 +212,14 @@ def h_min_from_volume(
     if dim is None:
         dim = dcoll.dim
 
-    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
-    return nodal_min(
+    actx = dcoll._setup_actx
+
+    ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
+    return actx.to_numpy(nodal_min(
         dcoll,
         dd,
         elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
-    ) ** (1.0 / dim)
+    ) ** (1.0 / dim))
 
 
 def dt_geometric_factors(

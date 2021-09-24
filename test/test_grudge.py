@@ -637,7 +637,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         h_max = h_max_from_volume(dcoll)
 
         eoc_global.add_data_point(h_max, actx.to_numpy(err_global))
-        eoc_local.add_data_point(h_max, err_local)
+        eoc_local.add_data_point(h_max, actx.to_numpy(err_local))
 
         if visualize:
             from grudge.shortcuts import make_visualizer

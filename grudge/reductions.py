@@ -144,7 +144,8 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
     from mpi4py import MPI
     actx = vec.array_context
 
-    return comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
 def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -159,7 +160,6 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
         return sum(nodal_sum_loc(dcoll, dd, vec[idx])
                    for idx in np.ndindex(vec.shape))
 
-    # FIXME: do not force result onto host
     actx = vec.array_context
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
@@ -178,8 +178,10 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN))
 
 
 def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -196,16 +198,10 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
                    for idx in np.ndindex(vec.shape))
 
     actx = vec.array_context
-
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
             lambda acc, grp_ary: actx.np.minimum(
-                acc,
-                actx.to_numpy(actx.np.min(grp_ary))[()]),
-            vec, np.inf)
+                acc, actx.np.min(grp_ary)),
+            vec, actx.from_numpy(np.array(np.inf)))
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -222,8 +218,10 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX))
 
 
 def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
@@ -241,15 +239,10 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     actx = vec.array_context
 
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
             lambda acc, grp_ary: actx.np.maximum(
-                acc,
-                actx.to_numpy(actx.np.max(grp_ary))[()]),
-            vec, -np.inf)
+                acc, actx.np.max(grp_ary)),
+            vec, actx.from_numpy(np.array(-np.inf)))
 
 
 def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
