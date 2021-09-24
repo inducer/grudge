@@ -512,7 +512,6 @@ class EntropyStableEulerOperator(EulerOperator):
         print("Finished auxiliary conservative variables.")
 
         print("Performing volume flux differencing...")
-
         from grudge.sbp_op import volume_flux_differencing
 
         dQF1 = volume_flux_differencing(
@@ -521,6 +520,7 @@ class EntropyStableEulerOperator(EulerOperator):
             dq, df,
             qtilde_allquad
         )
+        print("Finished volume flux differencing.")
 
         print("Computing interface numerical fluxes...")
         def entropy_tpair(tpair):
@@ -566,15 +566,13 @@ class EntropyStableEulerOperator(EulerOperator):
         print("Applying lifting operators...")
         from grudge.sbp_op import inverse_sbp_mass
 
-        # Compute: sum_i={x,y,z} (Minv @ V_f.T @ Wf @ Jf_i) * f_i
-        # Lift operator: Minv @ V_f.T @ Wf
+
         lifted_fluxes = inverse_sbp_mass(
-            dcoll, dq, op.face_mass(dcoll, df, num_fluxes_bdry.join()))
+            dcoll, dq, op.face_mass(dcoll, df, num_fluxes_bdry))
         print("Finished applying lifting operators.")
-        import ipdb; ipdb.set_trace()
 
         from grudge.geometry import area_element
-        # Apply inverse cell jacobians
+
         inv_jacobians = 1./area_element(actx, dcoll)
 
         return -inv_jacobians*(dQF1 + lifted_fluxes)
