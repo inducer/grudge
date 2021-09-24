@@ -23,25 +23,22 @@ THE SOFTWARE.
 """
 
 
-from grudge.geometry.metrics import area_element
 from arraycontext import (
     ArrayContext,
     map_array_container,
     thaw
 )
+from arraycontext.container import ArrayOrContainerT
+from typing import Callable
 from functools import partial
-from grudge import discretization
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
-from grudge.trace_pair import TracePair
 
 from meshmode.dof_array import DOFArray
 
 from pytools import memoize_in, keyed_memoize_in
-from pytools.obj_array import obj_array_vectorize
 
-import grudge.dof_desc as dof_desc
 import numpy as np
 
 
@@ -461,7 +458,7 @@ def boundary_integration_matrices(
     return get_ref_boundary_mats(base_element_group, face_quad_element_group)
 
 
-def hybridized_sbp_operators(
+def skew_symmetric_hybridized_sbp_operators(
         actx: ArrayContext,
         base_element_group,
         vol_quad_element_group,
@@ -469,14 +466,15 @@ def hybridized_sbp_operators(
     """todo.
     """
     @keyed_memoize_in(
-        actx, hybridized_sbp_operators,
+        actx, skew_symmetric_hybridized_sbp_operators,
         lambda base_grp, quad_vol_grp, face_quad_grp: (
             base_grp.discretization_key(),
             quad_vol_grp.discretization_key(),
             face_quad_grp.discretization_key()
         )
     )
-    def get_hybridized_sbp_mats(base_grp, quad_vol_grp, face_quad_grp):
+    def get_skew_symetric_hybridized_diff_mats(
+            base_grp, quad_vol_grp, face_quad_grp):
         from meshmode.discretization.poly_element import diff_matrices
 
         mass_mat = actx.to_numpy(
@@ -506,24 +504,135 @@ def hybridized_sbp_operators(
                 actx
             )
         )
+        zero_mat = np.zeros(b_mats[-1].shape, dtype=dtype)
         q_mats = np.asarray(
             [p_mat.T @ mass_mat @ diff_mat @ p_mat
-                for diff_mat in diff_matrices(base_grp)]
+             for diff_mat in diff_matrices(base_grp)]
         )
         e_mat = vf_mat @ p_mat
-        q_skew_hybridized = 0.5 * np.asarray(
+        q_skew_hybridized = np.asarray(
             [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
-                       [-b_mats[d] @ e_mat, b_mats[d]]])
+                       [-b_mats[d] @ e_mat, zero_mat]])
              for d in range(base_grp.dim)]
         )
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
-    return get_hybridized_sbp_mats(
+    return get_skew_symetric_hybridized_diff_mats(
         base_element_group,
         vol_quad_element_group,
         face_quad_element_group
     )
 
+
+def _apply_skew_symmetric_hybrid_diff_operator(
+        dcoll: DiscretizationCollection, vgeo, dq, df, vec):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_skew_symmetric_hybrid_diff_operator,
+                    dcoll, vgeo, dq, df), vec
+        )
+
+    actx = vec.array_context
+    dtype = vec.entry_dtype
+    discr = dcoll.discr_from_dd("vol")
+    quad_volm_discr = dcoll.discr_from_dd(dq)
+    quad_face_discr = dcoll.discr_from_dd(df)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("xrej,rij,eij->ei",
+                        geo_i,
+                        skew_symmetric_hybridized_sbp_operators(
+                            actx,
+                            bgrp,
+                            qvgrp,
+                            qafgrp,
+                            dtype
+                        ),
+                        vec_i,
+                        arg_names=("Gmat", "Qskew", "Feval"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qvgrp, qafgrp, vec_i, geo_i in zip(
+                discr.groups,
+                quad_volm_discr.groups,
+                quad_face_discr.groups,
+                vec,
+                vgeo
+            )
+        )
+    )
+
+
+def volume_flux_differencing(
+        dcoll: DiscretizationCollection,
+        flux: Callable[[ArrayOrContainerT, ArrayOrContainerT], ArrayOrContainerT],
+        dq, df, vec) -> ArrayOrContainerT:
+    """todo.
+    """
+    from arraycontext import to_numpy, from_numpy, freeze
+    from grudge.geometry import area_element, inverse_surface_metric_derivative
+
+    def _reshape(shape, ary):
+        if not isinstance(ary, DOFArray):
+            return map_array_container(partial(_reshape, shape), ary)
+
+        actx = ary.array_context
+        return DOFArray(
+            actx,
+            data=tuple(
+                # FIXME: relying on numpy broadcasting for now
+                to_numpy(subary.reshape(grp.nelements, *shape), actx)
+                for grp, subary in zip(
+                    dcoll.discr_from_dd("vol").groups,
+                    ary
+                )
+            )
+        )
+
+    # FIXME: assumes we can ask for array container
+    # (can go away once we dont need from_numpy)
+    actx = vec.array_context
+
+    # FIXME: Hack here to get geometry terms onto the quadrature grid
+    # NOTE: Exploit affine-ness
+    def inverse_jac_matrix():
+        @memoize_in(dcoll, (volume_flux_differencing, dq, df))
+        def _inv_surf_metric_deriv():
+            mat = actx.np.stack(
+                [
+                    actx.np.stack(
+                        [
+                            volume_and_surface_quadrature_interpolation(
+                                dcoll, dq, df,
+                                area_element(actx, dcoll)
+                                * inverse_surface_metric_derivative(
+                                    actx, dcoll,
+                                    rst_axis, xyz_axis
+                                )
+                            ) for rst_axis in range(dcoll.dim)
+                        ]
+                    ) for xyz_axis in range(dcoll.ambient_dim)
+                ]
+            )
+            return freeze(mat, actx)
+        return _inv_surf_metric_deriv()
+
+    return volume_and_surface_quadrature_projection(
+        dcoll,
+        dq, df,
+        _apply_skew_symmetric_hybrid_diff_operator(
+            dcoll,
+            inverse_jac_matrix(),
+            dq, df,
+            from_numpy(
+                # FIXME: better way to do the reshaping here?
+                flux(_reshape((1, -1), vec), _reshape((-1, 1), vec)),
+                actx
+            )
+        )
+    )
 
 def _apply_inverse_sbp_mass_operator(
         dcoll: DiscretizationCollection, dd_quad, vec):
