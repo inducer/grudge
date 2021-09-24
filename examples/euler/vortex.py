@@ -24,7 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import os
+
 import numpy as np
 
 import pyopencl as cl
@@ -34,12 +34,10 @@ from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
-from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
 
 from pytools.obj_array import make_obj_array
 
-import grudge.dof_desc as dof_desc
 import grudge.op as op
 
 import logging
@@ -54,7 +52,35 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def run_vortex(actx, order=3, resolution=8, final_time=1,
+def vortex_initial_condition(x_vec, t=0):
+    _beta = 5
+    _center = np.zeros(shape=(2,))
+    _velocity = np.zeros(shape=(2,))
+    gamma = 1.4
+
+    vortex_loc = _center + t * _velocity
+
+    # Coordinates relative to vortex center
+    x_rel = x_vec[0] - vortex_loc[0]
+    y_rel = x_vec[1] - vortex_loc[1]
+    actx = x_vec[0].array_context
+
+    r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
+    expterm = _beta * actx.np.exp(1 - r ** 2)
+    u = _velocity[0] - expterm * y_rel / (2 * np.pi)
+    v = _velocity[1] + expterm * x_rel / (2 * np.pi)
+    velocity = make_obj_array([u, v])
+    mass = (1 - (gamma - 1) / (16 * gamma * np.pi ** 2)
+            * expterm ** 2) ** (1 / (gamma - 1))
+    momentum = mass * velocity
+    p = mass ** gamma
+
+    energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
+
+    return EulerState(mass=mass, energy=energy, momentum=momentum)
+
+
+def run_vortex(actx, order=3, resolution=8, final_time=50,
                flux_type="central",
                visualize=False):
 
@@ -92,32 +118,6 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
 
     # {{{ Euler operator
 
-    def vortex_initial_condition(x_vec, t=0):
-        _beta = 5
-        _center = np.zeros(shape=(dim,))
-        _velocity = np.zeros(shape=(dim,))
-
-        vortex_loc = _center + t * _velocity
-
-        # Coordinates relative to vortex center
-        x_rel = x_vec[0] - vortex_loc[0]
-        y_rel = x_vec[1] - vortex_loc[1]
-        actx = x_vec[0].array_context
-
-        r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
-        expterm = _beta * actx.np.exp(1 - r ** 2)
-        u = _velocity[0] - expterm * y_rel / (2 * np.pi)
-        v = _velocity[1] + expterm * x_rel / (2 * np.pi)
-        velocity = make_obj_array([u, v])
-        mass = (1 - (gamma - 1) / (16 * gamma * np.pi ** 2)
-                * expterm ** 2) ** (1 / (gamma - 1))
-        momentum = mass * velocity
-        p = mass ** gamma
-
-        energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
-
-        return EulerState(mass=mass, energy=energy, momentum=momentum)
-
     euler_operator = EntropyStableEulerOperator(
         dcoll,
         bdry_fcts={BTAG_ALL: vortex_initial_condition},
@@ -131,7 +131,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
         return euler_operator.operator(t, q)
 
     fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 1/5 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+    dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
@@ -148,17 +148,16 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
     while t < final_time:
         fields = rk4_step(fields, t, dt, rhs)
 
-        if step % 1 == 0:
+        if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
-                state = event.state_component
                 vis.write_vtk_file(
                     f"fld-vortex-{step:04d}.vtu",
                     [
-                        ("rho", state.mass),
-                        ("energy", state.energy),
-                        ("momentum", state.momentum)
+                        ("rho", fields.mass),
+                        ("energy", fields.energy),
+                        ("momentum", fields.momentum)
                     ]
                 )
             assert norm_q < 100
@@ -188,33 +187,6 @@ def run_convergence_test_vortex(
     from meshmode.discretization.poly_element import \
         (PolynomialWarpAndBlend2DRestrictingGroupFactory,
          QuadratureSimplexGroupFactory)
-
-    def vortex_initial_condition(x_vec, t=0):
-        _beta = 5
-        _center = np.zeros(shape=(dim,))
-        _velocity = np.zeros(shape=(dim,))
-
-        vortex_loc = _center + t * _velocity
-
-        # Coordinates relative to vortex center
-        x_rel = x_vec[0] - vortex_loc[0]
-        y_rel = x_vec[1] - vortex_loc[1]
-        actx = x_vec[0].array_context
-
-        r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
-        expterm = _beta * actx.np.exp(1 - r ** 2)
-        u = _velocity[0] - expterm * y_rel / (2 * np.pi)
-        v = _velocity[1] + expterm * x_rel / (2 * np.pi)
-        velocity = make_obj_array([u, v])
-        mass = (1 - (gamma - 1) / (16 * gamma * np.pi ** 2)
-                * expterm ** 2) ** (1 / (gamma - 1))
-        momentum = mass * velocity
-        p = mass ** gamma
-
-        energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
-
-        return EulerState(mass=mass, energy=energy, momentum=momentum)
-
     from pytools.convergence import EOCRecorder
     from grudge.dt_utils import h_max_from_volume
 
@@ -255,35 +227,28 @@ def run_convergence_test_vortex(
         def rhs(t, q):
             return euler_operator.operator(t, q)
 
-        q_init = vortex_initial_condition(nodes)
-        dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+        fields = vortex_initial_condition(nodes)
+        dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
         logger.info("Timestep size: %g", dt)
 
         # {{{ time stepping
 
-        from grudge.shortcuts import set_up_rk4
-        dt_stepper = set_up_rk4("q", dt, q_init, rhs)
-
-        norm_q = 0.0
         step = 0
+        t = 0.0
         last_q = None
-        for event in dt_stepper.run(t_end=final_time):
-            if not isinstance(event, dt_stepper.StateComputed):
-                continue
-
+        while t < final_time:
+            fields = rk4_step(fields, t, dt, rhs)
+            t += dt
+            last_q = fields
+            last_t = t
             step += 1
-            last_q = event.state_component
-            last_t = event.t
-            norm_q = actx.to_numpy(op.norm(dcoll, last_q, 2))
-            logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
-            assert norm_q < 100
 
         # }}}
 
         error_l2 = op.norm(
             dcoll,
-            last_q - vortex_initial_condition(nodes, t=last_t),
+            (last_q - vortex_initial_condition(nodes, t=last_t)).join(),
             2
         )
         error_l2 = actx.to_numpy(error_l2)
@@ -294,7 +259,7 @@ def run_convergence_test_vortex(
                                              error_label="L2 Error"))
 
 
-def main(ctx_factory, order=3, resolution=8,
+def main(ctx_factory, order=3, final_time=10, resolution=8,
          lf_stabilization=False, visualize=False,
          test_convergence=False):
     cl_ctx = ctx_factory()
@@ -313,12 +278,12 @@ def main(ctx_factory, order=3, resolution=8,
     if test_convergence:
         run_convergence_test_vortex(
             actx, order=order,
-            final_time=1,
+            final_time=final_time,
             flux_type=flux_type)
     else:
         run_vortex(
             actx, order=order, resolution=resolution,
-            final_time=1,
+            final_time=final_time,
             flux_type=flux_type,
             visualize=visualize)
 
@@ -328,6 +293,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--tfinal", default=10.0, type=float)
     parser.add_argument("--resolution", default=8, type=int)
     parser.add_argument("--lfflux", action="store_true")
     parser.add_argument("--visualize", action="store_true")
@@ -337,6 +303,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          order=args.order,
+         final_time=args.tfinal,
          resolution=args.resolution,
          lf_stabilization=args.lfflux,
          visualize=args.visualize,

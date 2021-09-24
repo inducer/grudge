@@ -97,52 +97,52 @@ class Plotter:
         fig, axs = plt.subplots(2, 2, sharex=True)
 
         axs[0, 0].plot(self.x, density, ":",
-                       marker='o',
-                       label='density',
+                       marker="o",
+                       label="density",
                        linewidth=linewidth,
                        markersize=markersize)
         axs[1, 0].plot(self.x, pressure, ":",
-                       marker='o',
-                       label='pressure',
+                       marker="o",
+                       label="pressure",
                        linewidth=linewidth,
                        markersize=markersize)
         axs[0, 1].plot(self.x, velocity, ":",
-                       marker='o',
-                       label='velocity',
+                       marker="o",
+                       label="velocity",
                        linewidth=linewidth,
                        markersize=markersize)
         axs[1, 1].plot(self.x, energy, ":",
-                       marker='o',
-                       label='energy',
+                       marker="o",
+                       label="energy",
                        linewidth=linewidth,
                        markersize=markersize)
 
         # if self.ylim is not None:
         #     ax.set_ylim(self.ylim)
-        # ax.legend(prop={'size': fontsize})
+        # ax.legend(prop={"size": fontsize})
 
         axs[0, 0].set_xlabel("$x$", fontsize=fontsize)
         axs[0, 0].set_ylabel("$\\rho$", fontsize=fontsize)
-        # axs[0, 0].tick_params(axis='x', labelsize=fontsize)
-        # axs[0, 0].tick_params(axis='y', labelsize=fontsize)
+        # axs[0, 0].tick_params(axis="x", labelsize=fontsize)
+        # axs[0, 0].tick_params(axis="y", labelsize=fontsize)
         axs[1, 0].set_xlabel("$x$", fontsize=fontsize)
         axs[1, 0].set_ylabel("$p$", fontsize=fontsize)
-        # axs[1, 0].tick_params(axis='x', labelsize=fontsize)
-        # axs[1, 0].tick_params(axis='y', labelsize=fontsize)
+        # axs[1, 0].tick_params(axis="x", labelsize=fontsize)
+        # axs[1, 0].tick_params(axis="y", labelsize=fontsize)
         axs[0, 1].set_xlabel("$x$", fontsize=fontsize)
         axs[0, 1].set_ylabel("$u$", fontsize=fontsize)
-        # axs[0, 1].tick_params(axis='x', labelsize=fontsize)
-        # axs[0, 1].tick_params(axis='y', labelsize=fontsize)
+        # axs[0, 1].tick_params(axis="x", labelsize=fontsize)
+        # axs[0, 1].tick_params(axis="y", labelsize=fontsize)
         axs[1, 1].set_xlabel("$x$", fontsize=fontsize)
         axs[1, 1].set_ylabel("$\\rho e$", fontsize=fontsize)
-        # axs[1, 1].tick_params(axis='x', labelsize=fontsize)
-        # axs[1, 1].tick_params(axis='y', labelsize=fontsize)
+        # axs[1, 1].tick_params(axis="x", labelsize=fontsize)
+        # axs[1, 1].tick_params(axis="y", labelsize=fontsize)
         fig.suptitle(
             f"N = {self.order}, Npt = {self.npoints}, t = {t:.3f}",
             fontsize=fontsize
         )
 
-        fig.savefig(filename, bbox_inches='tight')
+        fig.savefig(filename, bbox_inches="tight")
         fig.clf()
 
 # }}}
@@ -273,12 +273,11 @@ def main(ctx_factory, order=4, visualize=False, overintegration=False):
     # {{{ time stepping
 
     step = 0
-    norm_q = 0.0
     t = 0.0
     while t < final_time:
         fields = rk4_step(fields, t, dt, rhs)
 
-        if step % 10 == 0:
+        if step % 1 == 0:
             l2norm = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
             logger.info(f"step: {step} t: {t} norm(q) = {l2norm}")
             plot(fields, "fld-sod-%04d" % step, t=t)
