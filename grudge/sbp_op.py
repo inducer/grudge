@@ -125,37 +125,6 @@ def surface_quadrature_interpolation_matrix(
     return get_surface_vand(base_element_group, face_quad_element_group)
 
 
-def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(quadrature_surface_interpolation, dcoll, df), vec
-        )
-
-    actx = vec.array_context
-    dtype = vec.entry_dtype
-    discr = dcoll.discr_from_dd("vol")
-    quad_face_discr = dcoll.discr_from_dd(df)
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej->ei",
-                        surface_quadrature_interpolation_matrix(
-                            actx,
-                            base_element_group=bgrp,
-                            face_quad_element_group=qfgrp,
-                            dtype=dtype
-                        ),
-                        vec_i,
-                        arg_names=("Vf_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
-
-            for bgrp, qfgrp, vec_i in zip(discr.groups,
-                                          quad_face_discr.groups, vec)
-        )
-    )
-
-
 def volume_and_surface_interpolation_matrix(
         actx: ArrayContext,
         base_element_group,
@@ -228,90 +197,6 @@ def volume_and_surface_quadrature_interpolation(
                 discr.groups,
                 quad_volm_discr.groups,
                 quad_face_discr.groups, vec)
-        )
-    )
-
-
-def volume_and_surface_projection_matrix(
-        actx: ArrayContext,
-        base_element_group,
-        vol_quad_element_group,
-        face_quad_element_group, dtype):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, volume_and_surface_projection_matrix,
-        lambda base_grp, vol_quad_grp, face_quad_grp: (
-            base_grp.discretization_key(),
-            vol_quad_grp.discretization_key(),
-            face_quad_grp.discretization_key()))
-    def get_vol_surf_l2_projection_matrix(base_grp, vol_quad_grp, face_quad_grp):
-        vq_mat = actx.to_numpy(
-            thaw(
-                volume_quadrature_interpolation_matrix(
-                    actx, base_grp, vol_quad_grp
-                ),
-                actx
-            )
-        )
-        vf_mat = actx.to_numpy(
-            thaw(
-                surface_quadrature_interpolation_matrix(
-                    actx, base_grp, face_quad_grp, dtype
-                ),
-                actx
-            )
-        )
-        minv = actx.to_numpy(
-            thaw(
-                quadrature_based_inverse_mass_matrix(actx, base_grp, vol_quad_grp),
-                actx
-            )
-        )
-        return actx.freeze(actx.from_numpy(minv @ np.block([[vq_mat], [vf_mat]]).T))
-
-    return get_vol_surf_l2_projection_matrix(
-        base_element_group, vol_quad_element_group, face_quad_element_group
-    )
-
-
-def volume_and_surface_quadrature_projection(
-        dcoll: DiscretizationCollection, dq, df, vec):
-    """todo.
-    """
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(volume_and_surface_quadrature_projection,
-                    dcoll, dq, df), vec
-        )
-
-    actx = vec.array_context
-    dtype = vec.entry_dtype
-    discr = dcoll.discr_from_dd("vol")
-    quad_volm_discr = dcoll.discr_from_dd(dq)
-    quad_face_discr = dcoll.discr_from_dd(df)
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej->ei",
-                        volume_and_surface_projection_matrix(
-                            actx,
-                            base_element_group=bgrp,
-                            vol_quad_element_group=qvgrp,
-                            face_quad_element_group=qfgrp,
-                            dtype=dtype
-                        ),
-                        vec_i,
-                        arg_names=("Ph_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
-
-            for bgrp, qvgrp, qfgrp, vec_i in zip(
-                discr.groups,
-                quad_volm_discr.groups,
-                quad_face_discr.groups,
-                vec
-            )
         )
     )
 
@@ -564,12 +449,18 @@ def _single_axis_hybridized_sbp_derivative_kernel(
     discr = dcoll.discr_from_dd("vol")
     quad_volm_discr = dcoll.discr_from_dd(dq)
     quad_face_discr = dcoll.discr_from_dd(df)
-
     return DOFArray(
         actx,
         data=tuple(
             # r for rst axis
-            actx.einsum("rej,rij,eij->ei",
+            actx.einsum("ik,rej,rij,eij->ek",
+                        volume_and_surface_interpolation_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            vol_quad_element_group=qvgrp,
+                            face_quad_element_group=qafgrp,
+                            dtype=fmat_i.dtype
+                        ),
                         ijm_i[xyz_axis],
                         skew_symmetric_hybridized_sbp_operators(
                             actx,
@@ -579,7 +470,7 @@ def _single_axis_hybridized_sbp_derivative_kernel(
                             fmat_i.dtype
                         ),
                         fmat_i,
-                        arg_names=("inv_jac_t", "ref_Q_mat", "F_mat", ),
+                        arg_names=("Vh_mat_t", "inv_jac_t", "ref_Q_mat", "F_mat"),
                         tagged=(FirstAxisIsElementsTag(),))
 
             for bgrp, qvgrp, qafgrp, fmat_i, ijm_i in zip(
@@ -644,14 +535,10 @@ def volume_flux_differencing(
     # FIXME: better way to do the reshaping here?
     flux_matrices = from_numpy(flux(_reshape_to_numpy((1, -1), vec),
                                     _reshape_to_numpy((-1, 1), vec)), actx)
-    return volume_and_surface_quadrature_projection(
+    return _apply_skew_symmetric_hybrid_diff_operator(
         dcoll,
         dq, df,
-        _apply_skew_symmetric_hybrid_diff_operator(
-            dcoll,
-            dq, df,
-            flux_matrices
-        )
+        flux_matrices
     )
 
 
@@ -662,25 +549,35 @@ def _apply_inverse_sbp_mass_operator(
             partial(_apply_inverse_sbp_mass_operator, dcoll, dd_quad), vec
         )
 
+    from grudge.geometry import area_element
+
     actx = vec.array_context
     discr = dcoll.discr_from_dd("vol")
     quad_discr = dcoll.discr_from_dd(dd_quad)
-
+    jacobian_dets_inv = 1./area_element(
+        actx, dcoll,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting
+    )
     return DOFArray(
         actx,
         data=tuple(
-            actx.einsum("ij,ej->ei",
+            actx.einsum("ei,ij,ej->ei",
+                        jac_inv_i,
                         quadrature_based_inverse_mass_matrix(
                             actx,
                             base_grp,
                             quad_grp
                         ),
                         vec_i,
-                        arg_names=("mass_inv", "vec"),
+                        arg_names=("jac_inv", "mass_inv", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for base_grp, quad_grp, vec_i in zip(
-                discr.groups, quad_discr.groups, vec)
+            for base_grp, quad_grp, vec_i, jac_inv_i in zip(
+                discr.groups,
+                quad_discr.groups,
+                vec,
+                jacobian_dets_inv
+            )
         )
     )
 
