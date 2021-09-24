@@ -46,58 +46,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# {{{ plotting
-
-class Plotter:
-    def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
-        self.actx = actx
-        self.dim = dcoll.ambient_dim
-
-        self.visualize = visualize
-        if not self.visualize:
-            return
-
-        if self.dim == 1:
-            import matplotlib.pyplot as pt
-            self.fig = pt.figure(figsize=(8, 8), dpi=300)
-            self.ylim = ylim
-
-            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
-        else:
-            from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(dcoll)
-
-    def __call__(self, evt, basename, overwrite=True):
-        if not self.visualize:
-            return
-
-        assert self.dim == 1
-
-        state = evt.state_component
-        density = self.actx.to_numpy(flatten(state[0]))
-        energy = self.actx.to_numpy(flatten(state[1]))
-        momentum = self.actx.to_numpy(flatten(state[2]))
-
-        filename = "%s.png" % basename
-        if not overwrite and os.path.exists(filename):
-            from meshmode import FileExistsError
-            raise FileExistsError("output file '%s' already exists" % filename)
-
-        ax = self.fig.gca()
-        ax.plot(self.x, density, "-")
-        ax.plot(self.x, density, "k.")
-        if self.ylim is not None:
-            ax.set_ylim(self.ylim)
-
-        ax.set_xlabel("$x$")
-        ax.set_ylabel("$\\rho$")
-        ax.set_title(f"t = {evt.t:.2f}")
-
-        self.fig.savefig(filename)
-        self.fig.clf()
-
-# }}}
+def rk4_step(y, t, h, f):
+    k1 = f(t, y)
+    k2 = f(t+h/2, y + h/2*k1)
+    k3 = f(t+h/2, y + h/2*k2)
+    k4 = f(t+h, y + h*k3)
+    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def run_vortex(actx, order=3, resolution=8, final_time=1,
@@ -162,12 +116,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
 
         energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
 
-        result = np.empty((2+dim,), dtype=object)
-        result[0] = mass
-        result[1] = energy
-        result[2:dim+2] = momentum
-
-        return result
+        return EulerState(mass=mass, energy=energy, momentum=momentum)
 
     euler_operator = EntropyStableEulerOperator(
         dcoll,
@@ -181,8 +130,8 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    q_init = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
+    dt = 1/5 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
@@ -190,47 +139,32 @@ def run_vortex(actx, order=3, resolution=8, final_time=1,
 
     from grudge.shortcuts import make_visualizer
 
-    step = 0
     vis = make_visualizer(dcoll)
-
-    if visualize:
-        vis.write_vtk_file(
-            f"fld-vortex-{step:04d}.vtu",
-            [
-                ("rho", q_init[0]),
-                ("energy", q_init[1]),
-                ("momentum", q_init[2:]),
-            ]
-        )
 
     # {{{ time stepping
 
-    from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("q", dt, q_init, rhs)
-
-    norm_q = 0.0
-    for event in dt_stepper.run(t_end=final_time):
-        if not isinstance(event, dt_stepper.StateComputed):
-            continue
-
-        step += 1
+    step = 0
+    t = 0.0
+    while t < final_time:
+        fields = rk4_step(fields, t, dt, rhs)
 
         if step % 1 == 0:
+            norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
+            logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
                 state = event.state_component
                 vis.write_vtk_file(
                     f"fld-vortex-{step:04d}.vtu",
                     [
-                        ("rho", state[0]),
-                        ("energy", state[1]),
-                        ("momentum", state[2:]),
+                        ("rho", state.mass),
+                        ("energy", state.energy),
+                        ("momentum", state.momentum)
                     ]
                 )
+            assert norm_q < 100
 
-        norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-        logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
-
-        assert norm_q < 100
+        t += dt
+        step += 1
 
     # }}}
 
