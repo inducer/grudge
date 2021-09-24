@@ -192,7 +192,7 @@ def run_convergence_test_vortex(
 
     eoc_rec = EOCRecorder()
 
-    for resolution in [4, 8, 16, 32]:
+    for resolution in [8, 16, 32, 64]:
 
         # {{{ discretization
 
@@ -240,6 +240,7 @@ def run_convergence_test_vortex(
         while t < final_time:
             fields = rk4_step(fields, t, dt, rhs)
             t += dt
+            logger.info("[%04d] t = %.5f", step, t)
             last_q = fields
             last_t = t
             step += 1
@@ -278,7 +279,7 @@ def main(ctx_factory, order=3, final_time=10, resolution=8,
     if test_convergence:
         run_convergence_test_vortex(
             actx, order=order,
-            final_time=final_time,
+            final_time=0.5,
             flux_type=flux_type)
     else:
         run_vortex(
