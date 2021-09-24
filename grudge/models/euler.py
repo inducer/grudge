@@ -30,10 +30,8 @@ import numpy as np
 from dataclasses import dataclass
 from arraycontext import (
     thaw,
-    to_numpy,
     dataclass_array_container,
-    with_container_arithmetic,
-    map_array_container
+    with_container_arithmetic
 )
 from functools import partial
 
@@ -42,10 +40,7 @@ from meshmode.dof_array import DOFArray
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
 
-from pytools.obj_array import make_obj_array, obj_array_vectorize
-
 import grudge.op as op
-import loopy as lp
 
 
 def euler_flux(dcoll, cv_state, gamma=1.4):
@@ -115,10 +110,7 @@ def euler_boundary_numerical_flux_prescribed(
         qtag=None, gamma=1.4, lf_stabilization=False):
     """todo.
     """
-    dim = dcoll.dim
     dd_bcq = dd_bc.with_qtag(qtag)
-    actx = cv_state[0].array_context
-
     cv_state_btag = op.project(dcoll, "vol", dd_bc, cv_state)
     cv_bcq = op.project(dcoll, dd_bc, dd_bcq, cv_state_btag)
 
@@ -167,10 +159,10 @@ class EulerOperator(HyperbolicOperator):
         euler_flux_faces = (
             sum(
                 euler_numerical_flux(
-                dcoll,
-                to_quad_tpair(tpair),
-                gamma=gamma,
-                lf_stabilization=self.lf_stabilization
+                    dcoll,
+                    to_quad_tpair(tpair),
+                    gamma=gamma,
+                    lf_stabilization=self.lf_stabilization
                 ) for tpair in op.interior_trace_pairs(dcoll, q)
             )
             + sum(
@@ -270,7 +262,6 @@ def _join_fields(dim, mass, energy, momentum):
 def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     """todo.
     """
-    dim = dcoll.dim
     rho = cv_state.mass
     rho_e = cv_state.energy
     rho_u = cv_state.momentum
@@ -290,7 +281,6 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
     """
     # See Hughes, Franca, Mallet (1986) A new finite element
     # formulation for CFD: (DOI: 10.1016/0045-7825(86)90127-1)
-    dim = dcoll.dim
     inv_gamma_minus_one = 1/(gamma - 1)
 
     # Convert to entropy `-rho * s` used by Hughes, France, Mallet (1986)
@@ -311,7 +301,7 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
 
 
 def entropy_projection(
-        actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4, initial_condition=None):
+        actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
     """todo.
     """
     from grudge.sbp_op import (volume_quadrature_project,
@@ -319,10 +309,7 @@ def entropy_projection(
                                volume_and_surface_quadrature_interpolation)
 
     # Interpolate cv_state to vol quad grid: u_q = V_q u
-    if initial_condition:
-        cv_state_q = initial_condition(thaw(dcoll.nodes(dd_q), actx))
-    else:
-        cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
+    cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
     # Convert to entropy variables: v_q = v(u_q)
     ev_state_q = conservative_to_entropy_vars(
         actx, dcoll, cv_state_q, gamma=gamma)
@@ -358,9 +345,7 @@ def flux_chandrashekar(dcoll, gamma, use_numpy, qi, qj):
         # when DOFArray contains numpy arrays
         if use_numpy:
             grp_data = []
-            for idx, grp in enumerate(dcoll.discr_from_dd("vol").groups):
-                xi = x[idx]
-                yi = y[idx]
+            for xi, yi in zip(x, y):
                 zeta = xi / yi
                 f = (zeta - 1) / (zeta + 1)
                 u = f*f
@@ -432,7 +417,6 @@ def entropy_stable_numerical_flux_chandrashekar(
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
-    dim = dcoll.dim
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_int = tpair.int
@@ -492,6 +476,7 @@ class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
         from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
+        from grudge.sbp_op import volume_flux_differencing, inverse_sbp_mass
 
         gamma = self.gamma
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
@@ -500,29 +485,18 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q.array_context
 
-        print("Computing auxiliary conservative variables...")
-        if t == 0:
-            qtilde_allquad, proj_entropy_vars = entropy_projection(
-                actx, dcoll, dq, df, q, gamma=gamma,
-                initial_condition=self.initial_condition
-            )
-        else:
-            qtilde_allquad, proj_entropy_vars = entropy_projection(
-                actx, dcoll, dq, df, q, gamma=gamma)
-        print("Finished auxiliary conservative variables.")
+        # Get the projected entropy variables and state
+        qtilde_allquad, proj_entropy_vars = entropy_projection(
+            actx, dcoll, dq, df, q, gamma=gamma)
 
-        print("Performing volume flux differencing...")
-        from grudge.sbp_op import volume_flux_differencing
-
-        dQF1 = volume_flux_differencing(
+        # Compute volume derivatives using flux differencing
+        flux_diff = volume_flux_differencing(
             dcoll,
             partial(flux_chandrashekar, dcoll, gamma, True),
             dq, df,
             qtilde_allquad
         )
-        print("Finished volume flux differencing.")
 
-        print("Computing interface numerical fluxes...")
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
             dd_intfaces_quad = dd_intfaces.with_discr_tag(DISCR_TAG_QUAD)
@@ -540,6 +514,7 @@ class EntropyStableEulerOperator(EulerOperator):
                 )
             )
 
+        # Computing interface and boundary numerical fluxes
         num_fluxes_bdry = (
             sum(
                 entropy_stable_numerical_flux_chandrashekar(
@@ -561,20 +536,10 @@ class EntropyStableEulerOperator(EulerOperator):
                 ) for btag in self.bdry_fcts
             )
         )
-        print("Finished computing interface numerical fluxes.")
 
-        print("Applying lifting operators...")
-        from grudge.sbp_op import inverse_sbp_mass
-
-
-        lifted_fluxes = inverse_sbp_mass(
-            dcoll, dq, op.face_mass(dcoll, df, num_fluxes_bdry))
-        print("Finished applying lifting operators.")
-
-        from grudge.geometry import area_element
-
-        inv_jacobians = 1./area_element(actx, dcoll)
-
-        return -inv_jacobians*(dQF1 + lifted_fluxes)
+        return inverse_sbp_mass(
+            dcoll, dq,
+            -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry)
+        )
 
 # }}}
