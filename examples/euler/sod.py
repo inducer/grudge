@@ -77,7 +77,7 @@ class Plotter:
 
         density = self.actx.to_numpy(flatten(state.mass))
         energy = self.actx.to_numpy(flatten(state.energy))
-        momentum = self.actx.to_numpy(flatten(state.momentum))
+        momentum = self.actx.to_numpy(flatten(state.momentum[0]))
         # Hard-coded...
         gamma = 1.4
         velocity = momentum / density
@@ -146,6 +146,14 @@ class Plotter:
         fig.clf()
 
 # }}}
+
+
+def rk4_step(y, t, h, f):
+    k1 = f(t, y)
+    k2 = f(t+h/2, y + h/2*k1)
+    k3 = f(t+h/2, y + h/2*k2)
+    k4 = f(t+h, y + h*k3)
+    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def main(ctx_factory, order=4, visualize=False, overintegration=False):
@@ -239,7 +247,7 @@ def main(ctx_factory, order=4, visualize=False, overintegration=False):
         return EulerState(mass=mass, energy=energy, momentum=momentum)
 
     nodes = thaw(dcoll.nodes(), actx)
-    q_init = sod_initial_condition(nodes)
+    fields = sod_initial_condition(nodes)
 
     euler_operator = EntropyStableEulerOperator(
         dcoll,
@@ -253,34 +261,31 @@ def main(ctx_factory, order=4, visualize=False, overintegration=False):
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
-    dt = 1/5 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=q_init)
+    dt = 1/5 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
     # }}}
 
-    # {{{ time stepping
-
-    from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("q", dt, q_init, rhs)
     plot = Plotter(actx, dcoll, order, npoints,
                    visualize=visualize, ylim=[-0.2, 1.2])
 
+    # {{{ time stepping
+
     step = 0
-    plot(q_init, "fld-sod-init")
     norm_q = 0.0
-    for event in dt_stepper.run(t_end=final_time):
-        if not isinstance(event, dt_stepper.StateComputed):
-            continue
+    t = 0.0
+    while t < final_time:
+        fields = rk4_step(fields, t, dt, rhs)
 
-        if step % 1 == 0:
-            norm_q = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event.state_component, "fld-sod-%04d" % step, t=event.t)
+        if step % 10 == 0:
+            l2norm = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
+            logger.info(f"step: {step} t: {t} norm(q) = {l2norm}")
+            plot(fields, "fld-sod-%04d" % step, t=t)
+            assert l2norm < 10
 
+        t += dt
         step += 1
-        logger.info("[%04d] t = %.5f |q| = %.5e", step, event.t, norm_q)
-
-        assert norm_q < 100
 
     # }}}
 
