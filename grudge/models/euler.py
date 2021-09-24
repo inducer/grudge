@@ -30,9 +30,12 @@ import numpy as np
 from dataclasses import dataclass
 from arraycontext import (
     thaw,
+    to_numpy,
     dataclass_array_container,
     with_container_arithmetic,
+    map_array_container
 )
+from functools import partial
 
 from meshmode.dof_array import DOFArray
 
@@ -232,21 +235,18 @@ def conservative_to_entropy_vars(actx, dcoll, cv_state, gamma=1.4):
     """todo.
     """
     dim = dcoll.dim
-    rho = cv_state[0]
-    rho_e = cv_state[1]
-    rho_u = cv_state[2:dim+2]
+    rho = cv_state.mass
+    rho_e = cv_state.energy
+    rho_u = cv_state.momentum
     u = rho_u / rho
     u_square = sum(v ** 2 for v in u)
     p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
     s = actx.np.log(p) - gamma*actx.np.log(rho)
     rho_p = rho / p
 
-    entropy_vars = np.empty((2+dim,), dtype=object)
-    entropy_vars[0] = ((gamma - s)/(gamma - 1)) - 0.5 * rho_p * u_square
-    entropy_vars[1] = -rho_p
-    entropy_vars[2:dim+2] = rho_p * u
-
-    return entropy_vars
+    return EulerState(mass=((gamma - s)/(gamma - 1)) - 0.5 * rho_p * u_square,
+                      energy=-rho_p,
+                      momentum=rho_p * u)
 
 
 def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
@@ -259,9 +259,9 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
 
     # Convert to entropy `-rho * s` used by Hughes, France, Mallet (1986)
     ev_state = ev_state * (gamma - 1)
-    v1 = ev_state[0]
-    v2t4 = ev_state[2:dim+2]
-    v5 = ev_state[1]
+    v1 = ev_state.mass
+    v2t4 = ev_state.momentum
+    v5 = ev_state.energy
 
     v_square = sum(v**2 for v in v2t4)
     s = gamma - v1 + v_square/(2*v5)
@@ -269,12 +269,9 @@ def entropy_to_conservative_vars(actx, dcoll, ev_state, gamma=1.4):
         ((gamma - 1) / (-v5)**gamma)**(inv_gamma_minus_one)
     ) * actx.np.exp(-s * inv_gamma_minus_one)
 
-    conserved_vars = np.empty((2+dim,), dtype=object)
-    conserved_vars[0] = -rho_iota * v5
-    conserved_vars[1] = rho_iota * (1 - v_square/(2*v5))
-    conserved_vars[2:dim+2] = rho_iota * v2t4
-
-    return conserved_vars
+    return EulerState(mass=-rho_iota * v5,
+                      energy=rho_iota * (1 - v_square/(2*v5)),
+                      momentum=rho_iota * v2t4)
 
 
 def entropy_projection(
@@ -308,7 +305,20 @@ def entropy_projection(
     return aux_cv_state_q, ev_state
 
 
-def flux_chandrashekar(dcoll, qi, qj, gamma=1.4):
+def _reshape(dcoll, shape, vec):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(partial(_reshape, dcoll, shape), vec)
+
+    return DOFArray(
+        vec.array_context,
+        data=tuple(
+            vec_i.reshape(grp.nelements, *shape)
+            for grp, vec_i in zip(dcoll.discr_from_dd("vol").groups, vec)
+        )
+    )
+
+
+def flux_chandrashekar(dcoll, qi, qj, gamma=1.4, use_numpy=False):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -320,17 +330,35 @@ def flux_chandrashekar(dcoll, qi, qj, gamma=1.4):
     dim = dcoll.dim
     actx = qi.array_context
 
-    def log_mean(x, y, epsilon=1e-2):
-        zeta = x / y
-        f = (zeta - 1) / (zeta + 1)
-        u = f*f
-        return actx.np.where(
-            # if f_squared < epsilon
-            u < epsilon,
-            (x + y) / (2*(1 + u / 3 + u*u / 5 + u*u*u / 7)),
-            # else
-            (x + y) / (2*actx.np.log(zeta)/2/f)
-        )
+    def log_mean(x: DOFArray, y: DOFArray, epsilon=1e-4):
+        # FIXME: else branch doesn't work right
+        # when DOFArray contains numpy arrays
+        if use_numpy:
+            grp_data = []
+            for idx, grp in enumerate(dcoll.discr_from_dd("vol").groups):
+                xi = x[idx]
+                yi = y[idx]
+                zeta = xi / yi
+                f = (zeta - 1) / (zeta + 1)
+                u = f*f
+                # NOTE: RuntimeWarning: invalid value encountered in true_divide
+                # will occur when using numpy due to eager evaluation of
+                # np.log(zeta)/2/f (including at points where np.log is ill-defined).
+                # However, the resulting nans are tossed out because of the
+                # np.where conditional
+                ff = np.where(u < epsilon,
+                              1 + u/3 + u*u/5 + u*u*u/7,
+                              np.log(zeta)/2/f)
+                grp_data.append((xi + yi) / (2*ff))
+            return DOFArray(actx, data=tuple(grp_data))
+        else:
+            zeta = x / y
+            f = (zeta - 1) / (zeta + 1)
+            u = f*f
+            ff = actx.np.where(u < epsilon,
+                               1 + u/3 + u*u/5 + u*u*u/7,
+                               actx.np.log(zeta)/2/f)
+            return (x + y) / (2*ff)
 
     rho_i = qi.mass
     rhoe_i = qi.energy
@@ -616,7 +644,7 @@ class EntropyStableEulerOperator(EulerOperator):
         df = DOFDesc("all_faces", DISCR_TAG_QUAD)
 
         dcoll = self.dcoll
-        actx = q[0].array_context
+        actx = q.array_context
 
         print("Computing auxiliary conservative variables...")
         if t == 0:
@@ -630,17 +658,16 @@ class EntropyStableEulerOperator(EulerOperator):
         print("Finished auxiliary conservative variables.")
 
         print("Performing volume flux differencing...")
-        # NOTE: Performs flux differencing in the volume of cells, requires
-        # accessing nodes in both the volume and faces. The operation has the
-        # form:
-        # ∑_d ∑_j Vh.T @ 2Q_d[i, j] * F_d(q_i, q_j)
-        # where Q_d is the skew-hybridized SBP operator for the d-th dimension
-        # axis, and F_d is an entropy conservative two-point flux. The routine
-        # computes the Hadamard (element-wise) multiplication + row sum:
-        # dQF1 = Vh.T @ (∑_d (2Q_d * F_d)1)
-        dQF1 = volume_flux_differencing(
-            actx, dcoll, dq, df, qtilde_allquad, gamma)
-        print("Finished volume flux differencing.")
+
+        flux_evals = flux_chandrashekar(
+            dcoll,
+            # Using numpy broadcasting
+            to_numpy(_reshape(dcoll, (1, -1), qtilde_allquad), actx),
+            to_numpy(_reshape(dcoll, (-1, 1), qtilde_allquad), actx),
+            gamma=gamma,
+            # Using numpy broadcasting
+            use_numpy=True
+        )
 
         print("Computing interface numerical fluxes...")
         def entropy_tpair(tpair):
