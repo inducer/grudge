@@ -26,9 +26,10 @@ THE SOFTWARE.
 from grudge.geometry.metrics import area_element
 from arraycontext import (
     ArrayContext,
-    make_loopy_program,
+    map_array_container,
     thaw
 )
+from functools import partial
 from grudge import discretization
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
@@ -65,9 +66,10 @@ def volume_quadrature_interpolation_matrix(
 
 
 def volume_quadrature_interpolation(dcoll: DiscretizationCollection, dq, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: volume_quadrature_interpolation(dcoll, dq, el), vec)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(volume_quadrature_interpolation, dcoll, dq), vec
+        )
 
     actx = vec.array_context
     discr = dcoll.discr_from_dd("vol")
@@ -126,9 +128,10 @@ def surface_quadrature_interpolation_matrix(
 
 
 def quadrature_surface_interpolation(dcoll: DiscretizationCollection, df, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: quadrature_surface_interpolation(dcoll, df, el), vec)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(quadrature_surface_interpolation, dcoll, df), vec
+        )
 
     actx = vec.array_context
     dtype = vec.entry_dtype
@@ -196,10 +199,11 @@ def volume_and_surface_quadrature_interpolation(
         dcoll: DiscretizationCollection, dq, df, vec):
     """todo.
     """
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: volume_and_surface_quadrature_interpolation(
-                dcoll, dq, df, el), vec)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(volume_and_surface_quadrature_interpolation,
+                    dcoll, dq, df), vec
+        )
 
     actx = vec.array_context
     dtype = vec.entry_dtype
@@ -277,10 +281,11 @@ def volume_and_surface_quadrature_projection(
         dcoll: DiscretizationCollection, dq, df, vec):
     """todo.
     """
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda el: volume_and_surface_quadrature_projection(
-                dcoll, dq, df, el), vec)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(volume_and_surface_quadrature_projection,
+                    dcoll, dq, df), vec
+        )
 
     actx = vec.array_context
     dtype = vec.entry_dtype
@@ -382,9 +387,10 @@ def volume_quadrature_l2_projection_matrix(
 
 
 def volume_quadrature_project(dcoll: DiscretizationCollection, dd_q, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: volume_quadrature_project(dcoll, dd_q, el), vec)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(volume_quadrature_project, dcoll, dd_q), vec
+        )
 
     actx = vec.array_context
     discr = dcoll.discr_from_dd("vol")
@@ -521,10 +527,9 @@ def hybridized_sbp_operators(
 
 def _apply_inverse_sbp_mass_operator(
         dcoll: DiscretizationCollection, dd_quad, vec):
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: _apply_inverse_sbp_mass_operator(dcoll, dd_quad, vi),
-            vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_inverse_sbp_mass_operator, dcoll, dd_quad), vec
         )
 
     actx = vec.array_context
