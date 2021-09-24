@@ -41,10 +41,7 @@ from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-sns.set_theme()
 
 import logging
 logger = logging.getLogger(__name__)
@@ -63,7 +60,6 @@ class Plotter:
         if not self.visualize:
             return
 
-        self.mplcontext = plt.subplots(2, 2, sharex=True)
         self.ylim = ylim
 
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
@@ -74,6 +70,8 @@ class Plotter:
             return
 
         assert self.dim == 1
+
+        import matplotlib.pyplot as plt
 
         density = self.actx.to_numpy(flatten(state.mass))
         energy = self.actx.to_numpy(flatten(state.energy))
@@ -91,9 +89,6 @@ class Plotter:
         fontsize = 11
         linewidth = 2
         markersize = 2
-        # NOTE: For some reason, this does NOT work:
-        # fig, axs = self.mplcontext
-        # So using the wasteful approach....
         fig, axs = plt.subplots(2, 2, sharex=True)
 
         axs[0, 0].plot(self.x, density, ":",
