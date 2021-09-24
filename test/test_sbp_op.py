@@ -96,7 +96,7 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
         )
         p_mat = actx.to_numpy(
             thaw(
-                sbp_op.quadrature_based_l2_projection_matrix(
+                sbp_op.volume_quadrature_l2_projection_matrix(
                     actx,
                     base_element_group=vgrp,
                     vol_quad_element_group=qgrp
@@ -139,15 +139,10 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
                 for diff_mat in diff_matrices(vgrp)]
         )
         e_mat = vf_mat @ p_mat
-
-        qrst_skew_hybrid = actx.to_numpy(
-            thaw(
-                sbp_op.hybridized_sbp_operators(
-                    actx, vgrp,
-                    qgrp, qfgrp, dtype
-                ),
-                actx
-            )
+        qrst_mats = 0.5 * np.asarray(
+            [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
+                       [-b_mats[d] @ e_mat, b_mats[d]]])
+             for d in range(dcoll.dim)]
         )
         ones = np.ones(shape=(nq_total,))
         zeros = np.zeros(shape=(nq_total,))
@@ -161,14 +156,14 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
             # Checks the SBP-like property for the skew hybridized operator
             # Qiskew + Qiskew.T = [0 0; 0 Bi]
             # c.f. Theorem 1 and Lemma 1. https://arxiv.org/pdf/1902.01828.pdf
-            residual = qrst_skew_hybrid[idx] + qrst_skew_hybrid[idx].T
+            residual = qrst_mats[idx] + qrst_mats[idx].T
             residual[nq_vol:nq_vol+nq_faces, nq_vol:nq_vol+nq_faces] -= b_mats[idx]
             assert np.allclose(residual, np.zeros(residual.shape), rtol=1e-14)
 
             # Checks quadrature condition for: Qiskew @ ones = zeros
             # Qiskew + Qiskew.T = [0 0; 0 Bi]
             # c.f. Lemma 2. https://arxiv.org/pdf/1902.01828.pdf
-            assert np.allclose(np.dot(qrst_skew_hybrid[idx], ones),
+            assert np.allclose(np.dot(qrst_mats[idx], ones),
                                zeros, rtol=1e-14)
 
 

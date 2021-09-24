@@ -23,9 +23,8 @@ THE SOFTWARE.
 
 import numpy as np
 
-from grudge import op, DiscretizationCollection
-from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-import grudge.sbp_op as sbp_op
+from grudge import DiscretizationCollection
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
 
 import pytest
 
@@ -44,6 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 def test_entropy_and_conservative_variables(actx_factory):
+    actx = actx_factory()
+
+    from meshmode.mesh.generation import generate_regular_rect_mesh
+    from meshmode.discretization.poly_element import \
+        default_simplex_group_factory, QuadratureSimplexGroupFactory
+    from meshmode.dof_array import flat_norm
+
+    from grudge.models.euler import \
+        EulerState, conservative_to_entropy_vars, entropy_to_conservative_vars
 
     def simple_smooth_function(actx, dcoll, t=0, gamma=1.4, dd=None):
         _beta = 5
@@ -56,7 +64,7 @@ def test_entropy_and_conservative_variables(actx_factory):
         nodes = thaw(dcoll.nodes(dd), actx)
         x_rel = nodes[0] - vortex_loc[0]
         y_rel = nodes[1] - vortex_loc[1]
- 
+
         r = actx.np.sqrt(x_rel ** 2 + y_rel ** 2)
         expterm = _beta * actx.np.exp(1 - r ** 2)
         u = _velocity[0] - expterm * y_rel / (2 * np.pi)
@@ -68,32 +76,14 @@ def test_entropy_and_conservative_variables(actx_factory):
         p = mass ** gamma
 
         energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
-
-        result = np.empty((2+dim,), dtype=object)
-        result[0] = mass
-        result[1] = energy
-        result[2:dim+2] = momentum
-
-        return result
-
-    actx = actx_factory()
-
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    from meshmode.discretization.poly_element import \
-        default_simplex_group_factory, QuadratureSimplexGroupFactory
-    from meshmode.dof_array import flat_norm
-
-    from grudge.models.euler import \
-        conservative_to_entropy_vars, entropy_to_conservative_vars
+        return EulerState(mass=mass, energy=energy, momentum=momentum)
 
     dim = 2
     order = 3
     resolution = 5
     box_ll = -5.0
     box_ur = 5.0
-    ddq = DOFDesc("vol", DISCR_TAG_QUAD)
-    ddf = DOFDesc("all_faces", DISCR_TAG_QUAD)
-    discr_tag_to_group_factory={
+    discr_tag_to_group_factory = {
         DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
         DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
     }
@@ -101,7 +91,6 @@ def test_entropy_and_conservative_variables(actx_factory):
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim)
-
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory=discr_tag_to_group_factory
