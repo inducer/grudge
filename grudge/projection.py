@@ -32,8 +32,6 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-
 from arraycontext import ArrayContext, map_array_container
 from functools import partial
 from meshmode.transform_metadata import FirstAxisIsElementsTag
