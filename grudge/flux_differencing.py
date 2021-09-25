@@ -42,70 +42,6 @@ from pytools import memoize_in, keyed_memoize_in
 import numpy as np
 
 
-def reference_mass_matrix_quadrature(
-        actx: ArrayContext, base_element_group, vol_quad_element_group):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, reference_mass_matrix_quadrature,
-        lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
-                                        vol_quad_grp.discretization_key()))
-    def get_ref_quad_mass_mat(base_grp, vol_quad_grp):
-        from grudge.interpolation import volume_quadrature_interpolation_matrix
-
-        vdm_q = actx.to_numpy(
-            volume_quadrature_interpolation_matrix(actx, base_grp, vol_quad_grp)
-        )
-        weights = np.diag(vol_quad_grp.quadrature_rule().weights)
-
-        return actx.freeze(actx.from_numpy(vdm_q.T @ weights @ vdm_q))
-
-    return get_ref_quad_mass_mat(base_element_group, vol_quad_element_group)
-
-
-def boundary_integration_matrices(
-        actx: ArrayContext, base_element_group, face_quad_element_group):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, boundary_integration_matrices,
-        lambda base_grp, face_quad_grp: (base_grp.discretization_key(),
-                                         face_quad_grp.discretization_key()))
-    def get_ref_boundary_mats(base_grp, face_quad_grp):
-        from modepy import faces_for_shape
-
-        dim = base_grp.dim
-        faces = faces_for_shape(base_grp.shape)
-        nfaces = len(faces)
-        # NOTE: assumes same quadrature rule on all faces
-        face_quad_rule = face_quad_grp.quadrature_rule()
-        face_quad_weights = np.tile(face_quad_rule.weights, nfaces)
-        nq_per_face = face_quad_grp.nunit_dofs
-
-        from modepy import face_normal
-
-        face_normals = [face_normal(face) for face in faces]
-
-        e = np.ones(shape=(nq_per_face,))
-        nrstj = np.array(
-            # nsrtJ = nhat * Jhatf, where nhat is the reference normal
-            # and Jhatf is the Jacobian det. of the transformation from
-            # the face of the reference element to the reference face.
-            [np.concatenate([np.sign(nhat[idx])*e for nhat in face_normals])
-             for idx in range(dim)]
-        )
-        return actx.freeze(
-            actx.from_numpy(
-                np.asarray(
-                    [np.diag(face_quad_weights*nrstj[d])
-                     for d in range(base_grp.dim)]
-                )
-            )
-        )
-
-    return get_ref_boundary_mats(base_element_group, face_quad_element_group)
-
-
 def skew_symmetric_hybridized_sbp_operators(
         actx: ArrayContext,
         base_element_group,
@@ -124,15 +60,43 @@ def skew_symmetric_hybridized_sbp_operators(
     def get_skew_symetric_hybridized_diff_mats(
             base_grp, quad_vol_grp, face_quad_grp):
         from meshmode.discretization.poly_element import diff_matrices
+        from modepy import faces_for_shape, face_normal
         from grudge.projection import volume_quadrature_l2_projection_matrix
-        from grudge.interpolation import surface_quadrature_interpolation_matrix
-
-        mass_mat = actx.to_numpy(
-            reference_mass_matrix_quadrature(actx, base_grp, quad_vol_grp)
+        from grudge.interpolation import (
+            volume_quadrature_interpolation_matrix,
+            surface_quadrature_interpolation_matrix
         )
+
+        # {{{ Volume operators
+
+        weights = quad_vol_grp.quadrature_rule().weights
+        vdm_q = actx.to_numpy(
+            volume_quadrature_interpolation_matrix(actx, base_grp, quad_vol_grp)
+        )
+        mass_mat = weights * vdm_q.T @ vdm_q
         p_mat = actx.to_numpy(
             volume_quadrature_l2_projection_matrix(actx, base_grp, quad_vol_grp)
         )
+
+        # }}}
+
+        # {{{ Surface operators
+
+        faces = faces_for_shape(base_grp.shape)
+        nfaces = len(faces)
+        # NOTE: assumes same quadrature rule on all faces
+        face_weights = np.tile(face_quad_grp.quadrature_rule().weights, nfaces)
+        face_normals = [face_normal(face) for face in faces]
+        nnods_per_face = face_quad_grp.nunit_dofs
+        e = np.ones(shape=(nnods_per_face,))
+        nrstj = [
+            # nsrtJ = nhat * Jhatf, where nhat is the reference normal
+            # and Jhatf is the Jacobian det. of the transformation from
+            # the face of the reference element to the reference face.
+            np.concatenate([np.sign(nhat[idx])*e for nhat in face_normals])
+            for idx in range(base_grp.dim)
+        ]
+        b_mats = [np.diag(face_weights*nrstj[d]) for d in range(base_grp.dim)]
         vf_mat = actx.to_numpy(
             surface_quadrature_interpolation_matrix(
                 actx,
@@ -141,21 +105,28 @@ def skew_symmetric_hybridized_sbp_operators(
                 dtype=dtype
             )
         )
-        b_mats = actx.to_numpy(
-            boundary_integration_matrices(actx, base_grp, face_quad_grp)
-        )
-        zero_mat = np.zeros(b_mats[-1].shape, dtype=dtype)
-        q_mats = np.asarray(
-            [p_mat.T @ mass_mat @ diff_mat @ p_mat
-             for diff_mat in diff_matrices(base_grp)]
-        )
+        zero_mat = np.zeros((nfaces*nnods_per_face, nfaces*nnods_per_face),
+                            dtype=dtype)
+
+        # }}}
+
+        # {{{ Hybridized (volume + surface) operators
+
+        q_mats = [p_mat.T @ mass_mat @ diff_mat @ p_mat
+                  for diff_mat in diff_matrices(base_grp)]
         e_mat = vf_mat @ p_mat
         q_skew_hybridized = np.asarray(
-            [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
-                       [-b_mats[d] @ e_mat, zero_mat]])
-             for d in range(base_grp.dim)],
+            [
+                np.block(
+                    [[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
+                    [-b_mats[d] @ e_mat, zero_mat]]
+                ) for d in range(base_grp.dim)
+            ],
             order="C"
         )
+
+        # }}}
+
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
     return get_skew_symetric_hybridized_diff_mats(
@@ -299,3 +270,6 @@ def volume_flux_differencing(
         dq, df,
         flux_matrices
     )
+
+
+# vim: foldmethod=marker
