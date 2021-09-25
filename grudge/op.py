@@ -582,7 +582,7 @@ def mass(dcoll: DiscretizationCollection, *args):
 
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -595,66 +595,79 @@ def mass(dcoll: DiscretizationCollection, *args):
 
 # {{{ Mass inverse operator
 
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+def reference_inverse_mass_matrix(
+        actx: ArrayContext, base_element_group, quad_element_group):
     @keyed_memoize_in(
         actx, reference_inverse_mass_matrix,
-        lambda grp: grp.discretization_key())
-    def get_ref_inv_mass_mat(grp):
-        from modepy import inverse_mass_matrix
-        basis = grp.basis_obj()
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_inv_mass_mat(base_grp, quad_grp):
+        if base_grp == quad_grp:
+            from modepy import inverse_mass_matrix
+            basis = base_grp.basis_obj()
 
+            return actx.freeze(
+                actx.from_numpy(
+                    np.asarray(
+                        inverse_mass_matrix(basis.functions, base_grp.unit_nodes),
+                        order="C"
+                    )
+                )
+            )
+
+        from grudge.interpolation import volume_quadrature_interpolation_matrix
+
+        vdm_q = actx.to_numpy(volume_quadrature_interpolation_matrix(
+            actx, base_grp, quad_grp))
+        weights = quad_grp.quadrature_rule().weights
         return actx.freeze(
             actx.from_numpy(
+                # directly inverting the mass matrix: M = Vq.T @ diag(W) @ Vq
                 np.asarray(
-                    inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                    np.linalg.inv(weights * vdm_q.T @ vdm_q),
                     order="C"
                 )
             )
         )
 
-    return get_ref_inv_mass_mat(element_group)
+    return get_ref_inv_mass_mat(base_element_group, quad_element_group)
 
 
 def _apply_inverse_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd, dd_quad, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
+            partial(_apply_inverse_mass_operator, dcoll, dd, dd_quad), vec
         )
 
     from grudge.geometry import area_element
 
-    if dd_out != dd_in:
-        raise ValueError(
-            "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups; inverse is not "
-            "guaranteed to be well-defined"
-        )
-
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_in)
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+    base_discr = dcoll.discr_from_dd(dd)
+    quad_discr = dcoll.discr_from_dd(dd_quad)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    group_data = []
-    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
-
-        ref_mass_inverse = reference_inverse_mass_matrix(actx,
-                                                         element_group=grp)
-
-        group_data.append(
+    return DOFArray(
+        actx,
+        data=tuple(
             # Based on https://arxiv.org/pdf/1608.03836.pdf
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
             actx.einsum("ei,ij,ej->ei",
                         jac_inv,
-                        ref_mass_inverse,
+                        reference_inverse_mass_matrix(actx, base_grp, quad_grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),))
+            for base_grp, quad_grp, jac_inv, vec_i in zip(
+                base_discr.groups,
+                quad_discr.groups,
+                inv_area_elements,
+                vec
+            )
         )
+    )
 
-    return DOFArray(actx, data=tuple(group_data))
 
-
-def inverse_mass(dcoll: DiscretizationCollection, vec):
+def inverse_mass(dcoll: DiscretizationCollection, *args):
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an object array of
@@ -691,9 +704,16 @@ def inverse_mass(dcoll: DiscretizationCollection, vec):
         application of the inverse mass matrix, or an object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
     """
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DD_VOLUME
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
 
     return _apply_inverse_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+        dcoll, dof_desc.DD_VOLUME, dd, vec
     )
 
 # }}}

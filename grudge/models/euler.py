@@ -540,9 +540,7 @@ class EntropyStableEulerOperator(EulerOperator):
             )
         )
 
-        from grudge.sbp_op import inverse_sbp_mass
-
-        return inverse_sbp_mass(
+        return op.inverse_mass(
             dcoll, dq,
             -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry)
         )

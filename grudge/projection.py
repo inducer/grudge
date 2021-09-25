@@ -34,11 +34,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import (
-    ArrayContext,
-    map_array_container,
-    thaw
-)
+from arraycontext import ArrayContext, map_array_container
 from functools import partial
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
@@ -88,22 +84,18 @@ def volume_quadrature_l2_projection_matrix(
                                         vol_quad_grp.discretization_key()))
     def get_ref_l2_proj_mat(base_grp, vol_quad_grp):
         from grudge.interpolation import volume_quadrature_interpolation_matrix
-        from grudge.sbp_op import quadrature_based_inverse_mass_matrix
+        from grudge.op import reference_inverse_mass_matrix
 
         vdm_q = actx.to_numpy(
-            thaw(
-                volume_quadrature_interpolation_matrix(
-                    actx, base_grp, vol_quad_grp
-                ),
-                actx
+            volume_quadrature_interpolation_matrix(
+                actx, base_grp, vol_quad_grp
             )
         )
-        weights = np.diag(vol_quad_grp.quadrature_rule().weights)
+        weights = vol_quad_grp.quadrature_rule().weights
         inv_mass_mat = actx.to_numpy(
-            thaw(quadrature_based_inverse_mass_matrix(
-                actx, base_grp, vol_quad_grp), actx)
+            reference_inverse_mass_matrix(actx, base_grp, vol_quad_grp)
         )
-        return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T @ weights)))
+        return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T * weights)))
 
     return get_ref_l2_proj_mat(base_element_group, vol_quad_element_group)
 

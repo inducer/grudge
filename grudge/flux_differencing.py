@@ -26,7 +26,6 @@ THE SOFTWARE.
 from arraycontext import (
     ArrayContext,
     map_array_container,
-    thaw,
     freeze
 )
 from arraycontext.container import ArrayOrContainerT
@@ -41,6 +40,27 @@ from meshmode.dof_array import DOFArray
 from pytools import memoize_in, keyed_memoize_in
 
 import numpy as np
+
+
+def reference_mass_matrix_quadrature(
+        actx: ArrayContext, base_element_group, vol_quad_element_group):
+    """todo.
+    """
+    @keyed_memoize_in(
+        actx, reference_mass_matrix_quadrature,
+        lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
+                                        vol_quad_grp.discretization_key()))
+    def get_ref_quad_mass_mat(base_grp, vol_quad_grp):
+        from grudge.interpolation import volume_quadrature_interpolation_matrix
+
+        vdm_q = actx.to_numpy(
+            volume_quadrature_interpolation_matrix(actx, base_grp, vol_quad_grp)
+        )
+        weights = np.diag(vol_quad_grp.quadrature_rule().weights)
+
+        return actx.freeze(actx.from_numpy(vdm_q.T @ weights @ vdm_q))
+
+    return get_ref_quad_mass_mat(base_element_group, vol_quad_element_group)
 
 
 def boundary_integration_matrices(
@@ -106,34 +126,23 @@ def skew_symmetric_hybridized_sbp_operators(
         from meshmode.discretization.poly_element import diff_matrices
         from grudge.projection import volume_quadrature_l2_projection_matrix
         from grudge.interpolation import surface_quadrature_interpolation_matrix
-        from grudge.sbp_op import quadrature_based_mass_matrix
 
         mass_mat = actx.to_numpy(
-            thaw(quadrature_based_mass_matrix(actx, base_grp, quad_vol_grp), actx)
+            reference_mass_matrix_quadrature(actx, base_grp, quad_vol_grp)
         )
         p_mat = actx.to_numpy(
-            thaw(
-                volume_quadrature_l2_projection_matrix(actx, base_grp, quad_vol_grp),
-                actx
-            )
+            volume_quadrature_l2_projection_matrix(actx, base_grp, quad_vol_grp)
         )
         vf_mat = actx.to_numpy(
-            thaw(
-                surface_quadrature_interpolation_matrix(
-                    actx,
-                    base_element_group=base_grp,
-                    face_quad_element_group=face_quad_grp,
-                    dtype=dtype
-                ), actx
+            surface_quadrature_interpolation_matrix(
+                actx,
+                base_element_group=base_grp,
+                face_quad_element_group=face_quad_grp,
+                dtype=dtype
             )
         )
         b_mats = actx.to_numpy(
-            thaw(
-                boundary_integration_matrices(
-                    actx, base_grp, face_quad_grp
-                ),
-                actx
-            )
+            boundary_integration_matrices(actx, base_grp, face_quad_grp)
         )
         zero_mat = np.zeros(b_mats[-1].shape, dtype=dtype)
         q_mats = np.asarray(
@@ -144,7 +153,8 @@ def skew_symmetric_hybridized_sbp_operators(
         q_skew_hybridized = np.asarray(
             [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
                        [-b_mats[d] @ e_mat, zero_mat]])
-             for d in range(base_grp.dim)]
+             for d in range(base_grp.dim)],
+            order="C"
         )
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
