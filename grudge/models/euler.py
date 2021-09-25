@@ -304,9 +304,11 @@ def entropy_projection(
         actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
     """todo.
     """
-    from grudge.sbp_op import (volume_quadrature_project,
-                               volume_quadrature_interpolation,
-                               volume_and_surface_quadrature_interpolation)
+    from grudge.projection import volume_quadrature_project
+    from grudge.interpolation import (
+        volume_quadrature_interpolation,
+        volume_and_surface_quadrature_interpolation
+    )
 
     # Interpolate cv_state to vol quad grid: u_q = V_q u
     cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
@@ -476,7 +478,6 @@ class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
         from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
-        from grudge.sbp_op import volume_flux_differencing, inverse_sbp_mass
 
         gamma = self.gamma
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
@@ -490,6 +491,8 @@ class EntropyStableEulerOperator(EulerOperator):
             actx, dcoll, dq, df, q, gamma=gamma)
 
         # Compute volume derivatives using flux differencing
+        from grudge.flux_differencing import volume_flux_differencing
+
         flux_diff = volume_flux_differencing(
             dcoll,
             partial(flux_chandrashekar, dcoll, gamma, True),
@@ -536,6 +539,8 @@ class EntropyStableEulerOperator(EulerOperator):
                 ) for btag in self.bdry_fcts
             )
         )
+
+        from grudge.sbp_op import inverse_sbp_mass
 
         return inverse_sbp_mass(
             dcoll, dq,
