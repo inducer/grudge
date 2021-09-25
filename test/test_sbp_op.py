@@ -25,7 +25,6 @@ import numpy as np
 
 from grudge import DiscretizationCollection
 from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-import grudge.sbp_op as sbp_op
 
 import pytest
 
@@ -33,8 +32,6 @@ from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-from arraycontext.container.traversal import thaw
 
 import logging
 
@@ -76,74 +73,74 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
     dtype = volm_discr.zeros(actx).entry_dtype
 
     from meshmode.discretization.poly_element import diff_matrices
+    from modepy import faces_for_shape, face_normal
+    from grudge.projection import volume_quadrature_l2_projection_matrix
+    from grudge.interpolation import (
+        volume_quadrature_interpolation_matrix,
+        surface_quadrature_interpolation_matrix
+    )
 
     for vgrp, qgrp, qfgrp in zip(volm_discr.groups,
                                  quad_discr.groups,
                                  quad_face_discr.groups):
         nq_vol = qgrp.nunit_dofs
-        nq_faces = vgrp.shape.nfaces * qfgrp.nunit_dofs
+        nq_per_face = qfgrp.nunit_dofs
+        nfaces = vgrp.shape.nfaces
+        nq_faces = nfaces * nq_per_face
         nq_total = nq_vol + nq_faces
 
-        mass_mat = actx.to_numpy(
-            thaw(
-                sbp_op.quadrature_based_mass_matrix(
-                    actx,
-                    base_element_group=vgrp,
-                    vol_quad_element_group=qgrp
-                ),
-                actx
-            )
-        )
-        p_mat = actx.to_numpy(
-            thaw(
-                sbp_op.volume_quadrature_l2_projection_matrix(
-                    actx,
-                    base_element_group=vgrp,
-                    vol_quad_element_group=qgrp
-                ),
-                actx
-            )
-        )
+        # {{{ Volume operators
+
+        weights = qgrp.quadrature_rule().weights
         vdm_q = actx.to_numpy(
-            thaw(
-                sbp_op.volume_quadrature_interpolation_matrix(
-                    actx,
-                    base_element_group=vgrp,
-                    vol_quad_element_group=qgrp
-                ),
-                actx
-            )
+            volume_quadrature_interpolation_matrix(actx, vgrp, qgrp)
         )
+        mass_mat = weights * vdm_q.T @ vdm_q
+        p_mat = actx.to_numpy(
+            volume_quadrature_l2_projection_matrix(actx, vgrp, qgrp)
+        )
+
+        # }}}
 
         # Checks Pq @ Vq = Minv @ Vq.T @ W @ Vq = I
         assert np.allclose(p_mat @ vdm_q,
                            np.identity(len(mass_mat)), rtol=1e-15)
 
+        # {{{ Surface operators
+
+        faces = faces_for_shape(vgrp.shape)
+        # NOTE: assumes same quadrature rule on all faces
+        face_weights = np.tile(qfgrp.quadrature_rule().weights, nfaces)
+        face_normals = [face_normal(face) for face in faces]
+        e = np.ones(shape=(nq_per_face,))
+        nrstj = [np.concatenate([np.sign(nhat[idx])*e
+                                 for nhat in face_normals])
+                 for idx in range(vgrp.dim)]
+        b_mats = [np.diag(face_weights*nrstj[d]) for d in range(vgrp.dim)]
         vf_mat = actx.to_numpy(
-            thaw(
-                sbp_op.surface_quadrature_interpolation_matrix(
-                    actx,
-                    base_element_group=vgrp,
-                    face_quad_element_group=qfgrp,
-                    dtype=dtype
-                ),
-                actx
+            surface_quadrature_interpolation_matrix(
+                actx,
+                base_element_group=vgrp,
+                face_quad_element_group=qfgrp,
+                dtype=dtype
             )
         )
-        b_mats = actx.to_numpy(
-            thaw(sbp_op.boundary_integration_matrices(
-                actx, vgrp, qfgrp), actx)
-        )
-        q_mats = np.asarray(
-            [p_mat.T @ mass_mat @ diff_mat @ p_mat
-                for diff_mat in diff_matrices(vgrp)]
-        )
+
+        # }}}
+
+        # {{{ Hybridized (volume + surface) operators
+
+        q_mats = [p_mat.T @ mass_mat @ diff_mat @ p_mat
+                  for diff_mat in diff_matrices(vgrp)]
         e_mat = vf_mat @ p_mat
-        qrst_mats = 0.5 * np.asarray(
+        qtilde_mats = 0.5 * np.asarray(
             [np.block([[q_mats[d] - q_mats[d].T, e_mat.T @ b_mats[d]],
                        [-b_mats[d] @ e_mat, b_mats[d]]])
              for d in range(dcoll.dim)]
         )
+
+        # }}}
+
         ones = np.ones(shape=(nq_total,))
         zeros = np.zeros(shape=(nq_total,))
         for idx in range(dim):
@@ -151,20 +148,20 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
             # Qi + Qi.T = E.T @ Bi @ E
             # c.f. Lemma 1. https://arxiv.org/pdf/1708.01243.pdf
             assert np.allclose(q_mats[idx] + q_mats[idx].T,
-                               e_mat.T @ b_mats[idx] @ e_mat, rtol=1e-14)
+                               e_mat.T @ b_mats[idx] @ e_mat, rtol=1e-15)
 
             # Checks the SBP-like property for the skew hybridized operator
-            # Qiskew + Qiskew.T = [0 0; 0 Bi]
+            # Qitilde + Qitilde.T = [0 0; 0 Bi]
             # c.f. Theorem 1 and Lemma 1. https://arxiv.org/pdf/1902.01828.pdf
-            residual = qrst_mats[idx] + qrst_mats[idx].T
+            residual = qtilde_mats[idx] + qtilde_mats[idx].T
             residual[nq_vol:nq_vol+nq_faces, nq_vol:nq_vol+nq_faces] -= b_mats[idx]
-            assert np.allclose(residual, np.zeros(residual.shape), rtol=1e-14)
+            assert np.allclose(residual, np.zeros(residual.shape), rtol=1e-15)
 
             # Checks quadrature condition for: Qiskew @ ones = zeros
             # Qiskew + Qiskew.T = [0 0; 0 Bi]
             # c.f. Lemma 2. https://arxiv.org/pdf/1902.01828.pdf
-            assert np.allclose(np.dot(qrst_mats[idx], ones),
-                               zeros, rtol=1e-14)
+            assert np.allclose(np.dot(qtilde_mats[idx], ones),
+                               zeros, rtol=1e-15)
 
 
 # You can test individual routines by typing
