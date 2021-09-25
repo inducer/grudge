@@ -131,7 +131,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
         return euler_operator.operator(t, q)
 
     fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+    dt = 1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
@@ -192,7 +192,7 @@ def run_convergence_test_vortex(
 
     eoc_rec = EOCRecorder()
 
-    for resolution in [8, 16, 32, 64]:
+    for resolution in [8, 16, 32, 64, 128]:
 
         # {{{ discretization
 
@@ -228,7 +228,7 @@ def run_convergence_test_vortex(
             return euler_operator.operator(t, q)
 
         fields = vortex_initial_condition(nodes)
-        dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+        dt = 1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
         logger.info("Timestep size: %g", dt)
 
@@ -279,7 +279,7 @@ def main(ctx_factory, order=3, final_time=10, resolution=8,
     if test_convergence:
         run_convergence_test_vortex(
             actx, order=order,
-            final_time=0.5,
+            final_time=0.25,
             flux_type=flux_type)
     else:
         run_vortex(
