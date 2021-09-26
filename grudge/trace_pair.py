@@ -46,33 +46,25 @@ THE SOFTWARE.
 
 
 from arraycontext import (
-    ArrayContext,
     ArrayContainer,
-    to_numpy,
-    is_array_container,
     with_container_arithmetic,
     dataclass_array_container,
     get_container_context_recursively,
-    serialize_container,
-    deserialize_container
+    flatten, to_numpy,
+    unflatten, from_numpy
 )
-from arraycontext.container import ArrayOrContainerT, ArrayT
-
-from collections import OrderedDict
-
-from typing import Tuple, Dict, Any, Optional
+from arraycontext.container import ArrayOrContainerT
 
 from dataclasses import dataclass
 
 from numbers import Number
 
 from pytools import memoize_on_first_arg
-from pytools.obj_array import obj_array_vectorize, make_obj_array
+from pytools.obj_array import obj_array_vectorize
 
 from grudge.discretization import DiscretizationCollection
 from grudge.projection import project
 
-from meshmode.dof_array import flatten_to_numpy, unflatten_from_numpy, DOFArray
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
@@ -281,93 +273,6 @@ def connected_ranks(dcoll: DiscretizationCollection):
     return get_connected_partitions(dcoll._volume_discr.mesh)
 
 
-def _flatten_to_numpy_from_container(
-        actx: ArrayContext,
-        ary: ArrayOrContainerT) -> Tuple[ArrayT, Optional[Dict[Any, Any]]]:
-    """Flattens an arbitrary array container *ary* into a one-dimensional
-    numpy array suitable for communication via mpi4py.
-
-    :returns: A tuple containing the flattened result and an OrderedDict
-        providing a template for reconstructing data from the flattened result.
-        If *ary* is not a container, then *None* is returned for the template.
-    """
-    if is_array_container(ary):
-        # Create a dictionary template (order is important) of keys/values
-        # to remember how data is organized in the flattened numpy array
-        data_template = OrderedDict()
-        flat_data = []
-        # NOTE: The ordering of data in the flattened array will be determined
-        # by the ordering of key/value pairs returned by *serialize_container*
-        # and "remembered" by *data_template*
-        for key, value in serialize_container(ary):
-            # NOTE: serialize_container does not serialize a
-            # nested object array inside an array container.
-            if isinstance(value, np.ndarray) and value.dtype == "O":
-                flat_data.extend(to_numpy(value, actx))
-            else:
-                flat_data.append(to_numpy(value, actx))
-            # NOTE: if the value associated with *key* was originally an
-            # object array, we want to remember this during reconstruction
-            data_template[key] = value
-        return np.concatenate(flat_data), data_template
-    else:
-        # If *ary* is not a container-type, then *data_template* is left empty
-        # since there is only one 'component'
-        return flatten_to_numpy(actx, ary), None
-
-
-def _unflatten_from_numpy_to_container(
-        actx: ArrayContext,
-        container_template: ArrayOrContainerT,
-        data_template: Optional[Dict[Any, Any]],
-        numpy_ary, discr) -> ArrayOrContainerT:
-    """Unflattens *numpy_ary* into an array container matching
-    the provided container template *container_template*.
-    """
-    if not isinstance(container_template, DOFArray):
-        assert data_template is not None
-        container_data = []
-        offset = 0
-        # NOTE: *data_template* is an OrderedDict to ensure proper
-        # key/value ordering in the reconstructed container
-        for key in data_template:
-            # NOTE: The values of *data_template* determine how the values of
-            # the re-containerized data should look. For example, if we need
-            # to create an object array as one of the components.
-            # To construct the object array from a slice of flattened data,
-            # we need to inspect *_value* from *data_template* to determine
-            # the right offset parameter for accessing *numpy_ary*. The actual
-            # data in *_value* is not needed.
-            _value = data_template[key]
-            if isinstance(_value, np.ndarray) and _value.dtype == "O":
-                obj_ary_components = []
-                # Make the components of the reconstructed object array
-                for _subary in _value:
-                    ndofs, = _subary.shape
-                    obj_ary_components.append(
-                        unflatten_from_numpy(
-                            actx, discr,
-                            # Slice of the flattened array corresponding
-                            # to the target sub-array
-                            numpy_ary[offset:offset+ndofs]
-                        )
-                    )
-                    offset += ndofs
-                ctr_data = make_obj_array(obj_ary_components)
-            else:
-                ndofs, = _value.shape
-                ctr_data = unflatten_from_numpy(
-                    actx, discr, numpy_ary[offset:offset+ndofs]
-                )
-                offset += ndofs
-            container_data.append((key, ctr_data))
-
-        # Return the recontainerized data based on *container_template*
-        return deserialize_container(container_template, container_data)
-    else:
-        return unflatten_from_numpy(actx, discr, numpy_ary)
-
-
 class _RankBoundaryCommunication:
     base_tag = 1273
 
@@ -375,22 +280,22 @@ class _RankBoundaryCommunication:
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
                  remote_rank, tag=None):
+        actx = get_container_context_recursively(array_container)
+        btag = BTAG_PARTITION(remote_rank)
+
+        local_array_ctr = project(dcoll, "vol", btag, array_container)
+        numpy_data = to_numpy(flatten(local_array_ctr, actx), actx)
+        comm = dcoll.mpi_communicator
+
+        self.dcoll = dcoll
+        self.array_context = actx
+        self.remote_btag = btag
+        self.bdry_discr = dcoll.discr_from_dd(btag)
+        self.local_array_ctr = local_array_ctr
+
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
-
-        self.dcoll = dcoll
-        self.array_context = get_container_context_recursively(array_container)
-        self.remote_btag = BTAG_PARTITION(remote_rank)
-        self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
-        self.local_array_ctr = \
-            project(dcoll, "vol", self.remote_btag, array_container)
-
-        numpy_data, data_template = \
-            _flatten_to_numpy_from_container(actx=self.array_context,
-                                             ary=self.local_array_ctr)
-        self._data_template = data_template
-        comm = self.dcoll.mpi_communicator
 
         self.send_req = comm.Isend(numpy_data, remote_rank, tag=self.tag)
         self.remote_data_host_numpy = np.empty_like(numpy_data)
@@ -401,17 +306,12 @@ class _RankBoundaryCommunication:
         self.recv_req.Wait()
 
         # Re-containerize the remote data
-        remote_array_ctr = _unflatten_from_numpy_to_container(
-            actx=self.array_context,
-            container_template=self.local_array_ctr,
-            data_template=self._data_template,
-            numpy_ary=self.remote_data_host_numpy,
-            discr=self.bdry_discr
-        )
-
+        actx = self.array_context
+        exchanged_data = from_numpy(self.remote_data_host_numpy, actx)
+        remote_array_ctr = unflatten(self.local_array_ctr,
+                                     exchanged_data, actx)
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag))
-        )
+            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
         swapped_remote_array_ctr = bdry_conn(remote_array_ctr)
 
         self.send_req.Wait()
