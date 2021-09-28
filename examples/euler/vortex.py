@@ -31,7 +31,7 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
 from meshmode.mesh import BTAG_ALL
@@ -265,10 +265,10 @@ def main(ctx_factory, order=3, final_time=10, resolution=8,
          test_convergence=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
+    actx = PytatoPyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
+        # force_device_scalars=True,
     )
 
     if lf_stabilization:
