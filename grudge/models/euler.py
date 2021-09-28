@@ -365,7 +365,7 @@ def flux_chandrashekar(dcoll, gamma, use_numpy, qi, qj):
             zeta = x / y
             f = (zeta - 1) / (zeta + 1)
             u = f*f
-            ff = actx.np.where(u < epsilon,
+            ff = actx.np.where(actx.np.less(u, epsilon),
                                1 + u/3 + u*u/5 + u*u*u/7,
                                actx.np.log(zeta)/2/f)
             return (x + y) / (2*ff)
@@ -495,7 +495,7 @@ class EntropyStableEulerOperator(EulerOperator):
 
         flux_diff = volume_flux_differencing(
             dcoll,
-            partial(flux_chandrashekar, dcoll, gamma, True),
+            partial(flux_chandrashekar, dcoll, gamma, False),
             dq, df,
             qtilde_allquad
         )

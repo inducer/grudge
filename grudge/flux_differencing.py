@@ -253,7 +253,8 @@ def volume_flux_differencing(
         return DOFArray(
             actx,
             data=tuple(
-                to_numpy(subary.reshape(grp.nelements, *shape), actx)
+                #to_numpy(subary.reshape(grp.nelements, *shape), actx)
+                subary.reshape(grp.nelements, *shape)
                 for grp, subary in zip(
                     dcoll.discr_from_dd("vol").groups,
                     ary
@@ -263,12 +264,13 @@ def volume_flux_differencing(
 
     actx = vec.array_context
     # FIXME: better way to do the reshaping here?
-    flux_matrices = from_numpy(flux(_reshape_to_numpy((1, -1), vec),
-                                    _reshape_to_numpy((-1, 1), vec)), actx)
+    # flux_matrices = from_numpy(flux(_reshape_to_numpy((1, -1), vec),
+    #                                 _reshape_to_numpy((-1, 1), vec)), actx)
     return _apply_skew_symmetric_hybrid_diff_operator(
         dcoll,
         dq, df,
-        flux_matrices
+        # flux_matrices
+        flux(_reshape_to_numpy((1, -1), vec), _reshape_to_numpy((-1, 1), vec))
     )
 
 
