@@ -130,6 +130,8 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
     def rhs(t, q):
         return euler_operator.operator(t, q)
 
+    compiled_rhs = actx.compile(rhs)
+
     fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
     dt = 1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
@@ -146,7 +148,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
     step = 0
     t = 0.0
     while t < final_time:
-        fields = rk4_step(fields, t, dt, rhs)
+        fields = rk4_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))

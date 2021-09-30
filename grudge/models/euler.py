@@ -343,32 +343,13 @@ def flux_chandrashekar(dcoll, gamma, use_numpy, qi, qj):
     actx = qi.array_context
 
     def log_mean(x: DOFArray, y: DOFArray, epsilon=1e-4):
-        # FIXME: else branch doesn't work right
-        # when DOFArray contains numpy arrays
-        if use_numpy:
-            grp_data = []
-            for xi, yi in zip(x, y):
-                zeta = xi / yi
-                f = (zeta - 1) / (zeta + 1)
-                u = f*f
-                # NOTE: RuntimeWarning: invalid value encountered in true_divide
-                # will occur when using numpy due to eager evaluation of
-                # np.log(zeta)/2/f (including at points where np.log is ill-defined).
-                # However, the resulting nans are tossed out because of the
-                # np.where conditional
-                ff = np.where(u < epsilon,
-                              1 + u/3 + u*u/5 + u*u*u/7,
-                              np.log(zeta)/2/f)
-                grp_data.append((xi + yi) / (2*ff))
-            return DOFArray(actx, data=tuple(grp_data))
-        else:
-            zeta = x / y
-            f = (zeta - 1) / (zeta + 1)
-            u = f*f
-            ff = actx.np.where(actx.np.less(u, epsilon),
-                               1 + u/3 + u*u/5 + u*u*u/7,
-                               actx.np.log(zeta)/2/f)
-            return (x + y) / (2*ff)
+        zeta = x / y
+        f = (zeta - 1) / (zeta + 1)
+        u = f*f
+        ff = actx.np.where(actx.np.less(u, epsilon),
+                           1 + u/3 + u*u/5 + u*u*u/7,
+                           actx.np.log(zeta)/2/f)
+        return (x + y) / (2*ff)
 
     rho_i = qi.mass
     rhoe_i = qi.energy
