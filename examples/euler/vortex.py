@@ -235,6 +235,8 @@ def run_convergence_test_vortex(
         def rhs(t, q):
             return euler_operator.operator(t, q)
 
+        compiled_rhs = actx.compile(rhs)
+
         fields = vortex_initial_condition(nodes)
         dt = 1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
@@ -246,7 +248,8 @@ def run_convergence_test_vortex(
         t = 0.0
         last_q = None
         while t < final_time:
-            fields = rk4_step(fields, t, dt, rhs)
+            fields = thaw(freeze(fields, actx), actx)
+            fields = rk4_step(fields, t, dt, compiled_rhs)
             t += dt
             logger.info("[%04d] t = %.5f", step, t)
             last_q = fields
