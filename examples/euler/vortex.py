@@ -30,7 +30,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
+from arraycontext import thaw, freeze
 from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
@@ -148,6 +148,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
     step = 0
     t = 0.0
     while t < final_time:
+        fields = thaw(freeze(fields, actx), actx)
         fields = rk4_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
