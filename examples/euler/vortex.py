@@ -31,7 +31,12 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw, freeze
-from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
+from grudge.array_context import (  # noqa: F401
+    PyOpenCLArrayContext
+)
+from meshmode.array_context import (
+    SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
+)
 from grudge.models.euler import EulerState, EntropyStableEulerOperator
 
 from meshmode.mesh import BTAG_ALL
