@@ -1,10 +1,15 @@
 from meshmode.array_context import PyOpenCLArrayContext
-from pytools import memoize_method
+from pytools import memoize_method, memoize_in
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_tags import (IsDOFArray, IsVecDOFArray, IsFaceDOFArray, 
-    IsOpArray, IsVecOpArray, ParameterValue, IsFaceMassOpArray)
+    IsOpArray, IsVecOpArray, ParameterValue, IsFaceMassOpArray, KernelDataTag)
+
+from arraycontext.impl.pyopencl.fake_numpy import (PyOpenCLFakeNumpyNamespace)
+from arraycontext.container.traversal import (rec_map_array_container,
+    multimapped_over_array_containers)
+
 from numpy import prod
 import hjson
 import numpy as np
@@ -56,7 +61,146 @@ def set_memory_layout(program):
     return program
 
 
+# {{{ _get_scalar_func_loopy_program
+
+def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
+    @memoize_in(actx, _get_scalar_func_loopy_program)
+    def get(c_name, nargs, naxes):
+        from pymbolic import var
+
+        var_names = ["i%d" % i for i in range(naxes)]
+        size_names = ["n%d" % i for i in range(naxes)]
+        subscript = tuple(var(vname) for vname in var_names)
+        from islpy import make_zero_and_vars
+        v = make_zero_and_vars(var_names, params=size_names)
+        domain = v[0].domain()
+        for vname, sname in zip(var_names, size_names):
+            domain = domain & v[0].le_set(v[vname]) & v[vname].lt_set(v[sname])
+
+        domain_bset, = domain.get_basic_sets()
+
+        #import loopy as lp
+        #from .loopy import make_loopy_program
+        from arraycontext.loopy import make_loopy_program
+        from arraycontext.transform_metadata import ElementwiseMapKernelTag
+        prg = make_loopy_program(
+                [domain_bset],
+                [
+                    lp.Assignment(
+                        var("out")[subscript],
+                        var(c_name)(*[
+                            var("inp%d" % i)[subscript] for i in range(nargs)]))
+                    ],
+                name="actx_special_%s" % c_name,
+                tags=(ElementwiseMapKernelTag(),))
+        for arg in prg.default_entrypoint.args:
+            if isinstance(arg, lp.ArrayArg):
+                arg.tags = [IsDOFArray()]
+
+        return prg
+
+    return get(c_name, nargs, naxes)
+
+# }}}
+
+
+class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
+
+
+    def stack(self, arrays, axis=0):
+        from arraycontext.container.traversal import rec_multimap_array_container
+        from pytools.obj_array import make_obj_array
+
+        if not axis == 0:
+            raise NotImplementedError("Axes other than 0 are not currently supported")
+
+        def _stack(arrays, queue):
+
+            print(len(arrays))
+            print(arrays[0].shape)
+            print(arrays[0].strides)
+
+            # This sorts the strides from lowest to highest and then
+            # uses their original indices to create a list of "N{i}"
+            # strings.
+
+            ndims = len(arrays[0].shape)
+            lp_strides_ordered = np.array([f"N{i}" for i in range(ndims)])
+            lp_strides = np.empty_like(lp_strides_ordered)
+            sorted_estrides = np.array(sorted(list(enumerate(arrays[0].strides)), key=lambda tup : tup[1]))
+            for i, j in enumerate(sorted_estrides[:,0]):
+                lp_strides[j] = lp_strides_ordered[i]
+
+            lp_strides_out = [f"N{ndims}"] + list(lp_strides)
+            lp_strides_in = ["sep"] + list(lp_strides)
+
+            # Loopy errors with this, constructing string instead
+            #prg = lp.make_copy_kernel(lp_strides_out, old_dim_tags=lp_strides_in)
+
+            # Loopy errors when try to use the lp_strides lists directly
+            str_strides_in = ""
+            str_strides_out = ""
+
+            for s0, s1 in zip(lp_strides_out, lp_strides_in):
+                str_strides_out += s0 + ","
+                str_strides_in += s1 + ","
+            str_strides_out = str_strides_out[:len(str_strides_out) - 1]
+            str_strides_in = str_strides_in[:len(str_strides_in) - 1]
+           
+            print(arrays[0].strides) 
+            print(str_strides_in)
+            print(str_strides_out)
+
+            prg = lp.make_copy_kernel(str_strides_out, old_dim_tags=str_strides_in)
+
+            # Fix the kernel parameters
+            d = {"n{}".format(i+1): n for i,n in enumerate(arrays[0].shape)}
+            d["n0"] = len(arrays)
+            prg = lp.fix_parameters(prg,  **d)
+
+            # Should call_loopy be used instead?
+            result = prg(queue, input=make_obj_array(arrays))[1][0]
+            print(result.shape)
+            return result
+
+        return rec_multimap_array_container(
+                 lambda *args: _stack(args, self._array_context.queue),
+                 *arrays)
+
+        #return rec_multimap_array_container(
+        #         lambda *args: cla.stack(arrays=args, axis=axis,
+        #             queue=self._array_context.queue),
+        #         *arrays)
+
+    def __getattr__(self, name):
+        def loopy_implemented_elwise_func(*args):
+            actx = self._array_context
+            prg = _get_scalar_func_loopy_program(actx,
+                    c_name, nargs=len(args), naxes=len(args[0].shape))
+            outputs = actx.call_loopy(prg,
+                    **{"inp%d" % i: arg for i, arg in enumerate(args)})
+            return outputs[1]["out"]
+
+        if name in self._c_to_numpy_arc_functions:
+            from warnings import warn
+            warn(f"'{name}' in ArrayContext.np is deprecated. "
+                    "Use '{c_to_numpy_arc_functions[name]}' as in numpy. "
+                    "The old name will stop working in 2021.",
+                    DeprecationWarning, stacklevel=3)
+
+        # normalize to C names anyway
+        c_name = self._numpy_to_c_arc_functions.get(name, name)
+
+        # limit which functions we try to hand off to loopy
+        if name in self._numpy_math_functions:
+            return multimapped_over_array_containers(loopy_implemented_elwise_func)
+        else:
+            raise AttributeError(name)
+
 class GrudgeArrayContext(PyOpenCLArrayContext):
+
+    def _get_fake_numpy_namespace(self):
+        return GrudgeFakeNumpyNamespace(self)
 
     def empty(self, shape, dtype):
         return cla.empty(self.queue, shape=shape, dtype=dtype,
@@ -76,6 +220,41 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             thawed = out
         return thawed
 
+    def einsum(self, spec, *args, arg_names=None, tagged=()):
+        """Computes the result of Einstein summation following the
+        convention in :func:`numpy.einsum`.
+
+        :arg spec: a string denoting the subscripts for
+            summation as a comma-separated list of subscript labels.
+            This follows the usual :func:`numpy.einsum` convention.
+            Note that the explicit indicator `->` for the precise output
+            form is required.
+        :arg args: a sequence of array-like operands, whose order matches
+            the subscript labels provided by *spec*.
+        :arg arg_names: an optional iterable of string types denoting
+            the names of the *args*. If *None*, default names will be
+            generated.
+        :arg tagged: an optional sequence of :class:`pytools.tag.Tag`
+            objects specifying the tags to be applied to the operation.
+
+        :return: the output of the einsum :mod:`loopy` program
+        """
+        if arg_names is None:
+            arg_names = tuple("arg%d" % i for i in range(len(args)))
+
+        prg = self._get_einsum_prg(spec, arg_names, tagged)
+        for tag in tagged:
+            if isinstance(tag, KernelDataTag):
+                ep = prg.default_entrypoint
+                # Is there a better way to apply the kernel data besides making a new tunit object?
+                prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
+
+        print(prg)
+
+        return self.call_loopy(
+            prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
+        )[1]["out"]
+
 
     def from_numpy(self, np_array: np.ndarray):
         cl_a = super().from_numpy(np_array)
@@ -90,6 +269,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
     def transform_loopy_program(self, program):
         print(program.default_entrypoint.name)
 
+
         # Set no_numpy and return_dict options here?
         program = set_memory_layout(program)
         
@@ -97,13 +277,17 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         # This read could be slow
         transform_id = get_transformation_id(device_id)
 
-        if "diff" in program.default_entrypoint.name: #and "diff_2" not in program.default_entrypoint.name:
+        # Should just have another array context that only changes the data layout. The transform code can
+        # go in an array context that inherits from it
+        #return super().transform_loopy_program(program)
+
+        if "diff_" in program.default_entrypoint.name: #and "diff_2" not in program.default_entrypoint.name:
             #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,
             # Rename this file
             fp_format = None
             print(program)
-            for arg in program.args:
+            for arg in program.default_entrypoint.args:
                 if IsOpArray() in arg.tags:
                     dim = 1
                     ndofs = arg.shape[1]
@@ -156,8 +340,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file = pkg_resources.open_text(dgk, "elwise_linear_transform.hjson")
             pn = -1
             fp_format = None
-            print(program.args)
-            for arg in program.args:
+            print(program.default_entrypoint.args)
+            for arg in program.default_entrypoint.args:
                 if arg.name == "mat":
                     dofs = arg.shape[0]
                     pn = get_order_from_dofs(arg.shape[0])                    
@@ -176,7 +360,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             hjson_file = pkg_resources.open_text(dgk, "face_mass_transform.hjson")
             pn = -1
             fp_format = None
-            for arg in program.args:
+            for arg in program.default_entrypoint.args:
                 if arg.name == "mat":
                     pn = get_order_from_dofs(arg.shape[0])                    
                     fp_format = arg.dtype.numpy_dtype
@@ -190,7 +374,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
             program = dgk.apply_transformation_list(program, transformations)
 
         # These still depend on the polynomial order = 3
-        elif "resample_by_mat" in program.default_entrypoint.name:
+        elif False:#"resample_by_mat" in program.default_entrypoint.name:
             print(program)
             program = lp.set_options(program, "write_cl")
 
@@ -256,6 +440,9 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                                         inner_tag="l.0")
             program = lp.split_iname(program, "idof", 32, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 1))
+        # No transformations for now
+        elif "einsum" in program.default_entrypoint.name:
+            pass
         else:
             print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
             program = super().transform_loopy_program(program)
@@ -264,13 +451,14 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
-        evt, result = super().call_loopy(program, **kwargs)
+        result = super().call_loopy(program, **kwargs)
+        evt = result["evt"]
         evt.wait()
         dt = evt.profile.end - evt.profile.start
         dt = dt / 1e9
 
         nbytes = 0
-        # Could probably just use program.args but maybe all
+        # Could probably just use program.default_entrypoint.args but maybe all
         # parameters are not set
 
         #print("Input")
@@ -347,8 +535,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # Rename this file
             fp_format = None
             #print(program)
-            for arg in program.args:
-                if IsOpArray() in arg.tags():
+            for arg in program.default_entrypoint.args:
+                if IsOpArray() in arg.tags:
                     dim = 1
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
@@ -357,7 +545,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                     ndofs = arg.shape[1]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif IsFaceMassOpArray() in arg.tags():
+                elif IsFaceMassOpArray() in arg.tags:
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
                     break
@@ -393,7 +581,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                 # out a set of transformations and then write it back to the hjson file
                 print("ARRAY SIZE NOT IN TRANSFORMATION FILE")
 
-                transformations = search_fn(self.queue, program, generic_test, time_limit=60*60)
+                transformations = search_fn(self.queue, program, generic_test, time_limit=60)
+                transformations = dgk.generate_transformation_list(*transformations) 
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations back to local file
@@ -413,7 +602,8 @@ class AutoTuningArrayContext(GrudgeArrayContext):
             # No transformation files exist
             except FileNotFoundError:
 
-                transformations = search_fn(self.queue, program, generic_test, time_limit=60*60)
+                transformations = search_fn(self.queue, program, generic_test, time_limit=60)
+                transformations = dgk.generate_transformation_list(*transformations) 
                 program = dgk.apply_transformation_list(program, transformations)
                 
                 # Write the new transformations to a file
@@ -426,9 +616,10 @@ class AutoTuningArrayContext(GrudgeArrayContext):
         # Maybe this should have an autotuner
 	# There isn't much room for optimization due to the indirection
         elif "resample_by_picking" in program.default_entrypoint.name:
-            for arg in program.args:
+            for arg in program.default_entrypoint.args:
                 if arg.name == "n_to_nodes":
-                    n_to_nodes = arg.tags.value
+                    # Assumes this has has a single ParameterValue tag
+                    n_to_nodes = arg.tags[0].value
 
             l0 = ((1024 // n_to_nodes) // 32) * 32
             if l0 == 0:
