@@ -821,7 +821,9 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
     actx = vec.array_context
 
     assert len(face_discr.groups) == len(volm_discr.groups)
-    surf_area_elements = area_element(actx, dcoll, dd=dd,
+    # FIXME:
+    dd_f = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
+    surf_area_elements = area_element(actx, dcoll, dd=dd_f,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return DOFArray(

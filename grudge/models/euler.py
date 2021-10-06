@@ -400,6 +400,9 @@ def entropy_stable_numerical_flux_chandrashekar(
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
+    from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, DISCR_TAG_BASE
+
+    dd_intfaces_base = DOFDesc("int_faces", DISCR_TAG_BASE)
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_int = tpair.int
@@ -407,7 +410,9 @@ def entropy_stable_numerical_flux_chandrashekar(
     actx = q_int.array_context
 
     flux = flux_chandrashekar(dcoll, gamma, False, q_int, q_ext)
-    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    # FIXME: Because of the affineness of the geometry, this normal technically
+    # does not need to be interpolated to the quadrature grid.
+    normal = thaw(dcoll.normal(dd_intfaces_base), actx)
     num_flux = flux @ normal
 
     if lf_stabilization:
@@ -508,7 +513,10 @@ class EntropyStableEulerOperator(EulerOperator):
                     lf_stabilization=self.lf_stabilization
                 ) for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
             )
-            + sum(
+        )
+
+        if self.bdry_fcts is not None:
+            bc_fluxes = sum(
                 # Boundary conditions (prescribed)
                 entropy_stable_boundary_numerical_flux_prescribed(
                     dcoll,
@@ -519,7 +527,7 @@ class EntropyStableEulerOperator(EulerOperator):
                     lf_stabilization=self.lf_stabilization
                 ) for btag in self.bdry_fcts
             )
-        )
+            num_fluxes_bdry = num_fluxes_bdry + bc_fluxes
 
         return op.inverse_mass(
             dcoll, dq,
