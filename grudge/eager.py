@@ -68,8 +68,8 @@ class EagerDGDiscretization(DiscretizationCollection):
     def mass(self, *args):
         return op.mass(self, *args)
 
-    def inverse_mass(self, vec):
-        return op.inverse_mass(self, vec)
+    def inverse_mass(self, *args):
+        return op.inverse_mass(self, *args)
 
     def face_mass(self, *args):
         return op.face_mass(self, *args)

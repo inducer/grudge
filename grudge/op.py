@@ -495,57 +495,58 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass operator
 
-def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
+def reference_mass_matrix(
+        actx: ArrayContext, base_element_group, quad_element_group):
     @keyed_memoize_in(
         actx, reference_mass_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
-    def get_ref_mass_mat(out_grp, in_grp):
-        if out_grp == in_grp:
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_mass_mat(base_grp, quad_grp):
+        if base_grp == quad_grp:
             from meshmode.discretization.poly_element import mass_matrix
 
             return actx.freeze(
                 actx.from_numpy(
                     np.asarray(
-                        mass_matrix(out_grp),
+                        mass_matrix(base_grp),
                         order="C"
                     )
                 )
             )
 
         from modepy import vandermonde
-        basis = out_grp.basis_obj()
-        vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
-        vand_inv_t = np.linalg.inv(vand).T
 
-        weights = in_grp.quadrature_rule().weights
+        basis = base_grp.basis_obj()
+        vand_inv = np.linalg.inv(vandermonde(basis.functions, base_grp.unit_nodes))
+        vdm_q = vandermonde(basis.functions, quad_grp.unit_nodes) @ vand_inv
+        weights = quad_grp.quadrature_rule().weights
+
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
-                    np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                    weights * vdm_q.T @ vdm_q,
                     order="C"
                 )
             )
         )
 
-    return get_ref_mass_mat(out_element_group, in_element_group)
+    return get_ref_mass_mat(base_element_group, quad_element_group)
 
 
 def _apply_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd_base, dd_quad, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
+            partial(_apply_mass_operator, dcoll, dd_base, dd_quad), vec
         )
 
     from grudge.geometry import area_element
 
-    in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dd_out)
+    discr = dcoll.discr_from_dd(dd_base)
+    vol_quad_discr = dcoll.discr_from_dd(dd_quad)
 
     actx = vec.array_context
-    area_elements = area_element(actx, dcoll, dd=dd_in,
+    area_elements = area_element(actx, dcoll, dd=dd_quad,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     return DOFArray(
         actx,
@@ -553,16 +554,17 @@ def _apply_mass_operator(
             actx.einsum("ij,ej,ej->ei",
                         reference_mass_matrix(
                             actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp
+                            base_element_group=base_grp,
+                            quad_element_group=vquad_grp
                         ),
                         ae_i,
                         vec_i,
                         arg_names=("mass_mat", "jac", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for in_grp, out_grp, ae_i, vec_i in zip(
-                    in_discr.groups, out_discr.groups, area_elements, vec)
+            for base_grp, vquad_grp, ae_i, vec_i in zip(
+                discr.groups, vol_quad_discr.groups, area_elements, vec
+            )
         )
     )
 
@@ -608,66 +610,61 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass inverse operator
 
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+def reference_inverse_mass_matrix(
+        actx: ArrayContext, base_element_group, quad_element_group):
     @keyed_memoize_in(
         actx, reference_inverse_mass_matrix,
-        lambda grp: grp.discretization_key())
-    def get_ref_inv_mass_mat(grp):
-        from modepy import inverse_mass_matrix
-        basis = grp.basis_obj()
-
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_inv_mass_mat(base_grp, quad_grp):
         return actx.freeze(
             actx.from_numpy(
-                np.asarray(
-                    inverse_mass_matrix(basis.functions, grp.unit_nodes),
-                    order="C"
+                np.linalg.inv(
+                    actx.to_numpy(
+                        reference_mass_matrix(actx, base_grp, quad_grp)
+                    )
                 )
             )
         )
 
-    return get_ref_inv_mass_mat(element_group)
+    return get_ref_inv_mass_mat(base_element_group, quad_element_group)
 
 
 def _apply_inverse_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd_base, dd_quad, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
+            partial(_apply_inverse_mass_operator, dcoll, dd_base, dd_quad), vec
         )
 
     from grudge.geometry import area_element
 
-    if dd_out != dd_in:
-        raise ValueError(
-            "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups; inverse is not "
-            "guaranteed to be well-defined"
-        )
-
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_in)
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+    discr = dcoll.discr_from_dd(dd_base)
+    vol_quad_discr = dcoll.discr_from_dd(dd_quad)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_base,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    group_data = []
-    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
-
-        ref_mass_inverse = reference_inverse_mass_matrix(actx,
-                                                         element_group=grp)
-
-        group_data.append(
+    return DOFArray(
+        actx,
+        data=tuple(
             # Based on https://arxiv.org/pdf/1608.03836.pdf
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
             actx.einsum("ei,ij,ej->ei",
                         jac_inv,
-                        ref_mass_inverse,
+                        reference_inverse_mass_matrix(actx, base_grp, quad_grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),))
+            for base_grp, quad_grp, jac_inv, vec_i in zip(
+                discr.groups,
+                vol_quad_discr.groups,
+                inv_area_elements,
+                vec
+            )
         )
+    )
 
-    return DOFArray(actx, data=tuple(group_data))
 
-
-def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
+def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.container.ArrayContainer`,
@@ -703,8 +700,16 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
 
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DD_VOLUME
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
     return _apply_inverse_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+        dcoll, dof_desc.DD_VOLUME, dd, vec
     )
 
 # }}}
@@ -713,17 +718,17 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
 # {{{ Face mass operator
 
 def reference_face_mass_matrix(
-        actx: ArrayContext, face_element_group, vol_element_group, dtype):
+        actx: ArrayContext, base_element_group, face_quad_element_group, dtype):
     @keyed_memoize_in(
         actx, reference_mass_matrix,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
-    def get_ref_face_mass_mat(face_grp, vol_grp):
-        nfaces = vol_grp.mesh_el_group.nfaces
-        assert face_grp.nelements == nfaces * vol_grp.nelements
+        lambda base_grp, face_grp: (base_grp.discretization_key(),
+                                    face_grp.discretization_key()))
+    def get_ref_face_mass_mat(base_grp, face_grp):
+        nfaces = base_grp.mesh_el_group.nfaces
+        assert face_grp.nelements == nfaces * base_grp.nelements
 
         matrix = np.empty(
-            (vol_grp.nunit_dofs,
+            (base_grp.nunit_dofs,
             nfaces,
             face_grp.nunit_dofs),
             dtype=dtype
@@ -734,10 +739,10 @@ def reference_face_mass_matrix(
         from meshmode.discretization.poly_element import \
             QuadratureSimplexElementGroup
 
-        n = vol_grp.order
+        n = base_grp.order
         m = face_grp.order
-        vol_basis = vol_grp.basis_obj()
-        faces = mp.faces_for_shape(vol_grp.shape)
+        basis = base_grp.basis_obj()
+        faces = mp.faces_for_shape(base_grp.shape)
 
         for iface, face in enumerate(faces):
             # If the face group is defined on a higher-order
@@ -779,8 +784,8 @@ def reference_face_mass_matrix(
 
                 matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
                     face, face_quadrature,
-                    face_basis.functions, vol_basis.functions,
-                    vol_grp.unit_nodes,
+                    face_basis.functions, basis.functions,
+                    base_grp.unit_nodes,
                     face_grp.unit_nodes,
                 )
             else:
@@ -789,30 +794,30 @@ def reference_face_mass_matrix(
                 matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
                     face,
                     face_quadrature,
-                    vol_basis.functions,
-                    vol_grp.unit_nodes,
+                    basis.functions,
+                    base_grp.unit_nodes,
                 )
 
         return actx.freeze(actx.from_numpy(matrix))
 
-    return get_ref_face_mass_mat(face_element_group, vol_element_group)
+    return get_ref_face_mass_mat(base_element_group, face_quad_element_group)
 
 
-def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
+def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_base, dd_face, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_face_mass_operator, dcoll, dd), vec
+            partial(_apply_face_mass_operator, dcoll, dd_base, dd_face), vec
         )
 
     from grudge.geometry import area_element
 
-    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    face_discr = dcoll.discr_from_dd(dd)
+    discr = dcoll.discr_from_dd(dd_base)
+    face_discr = dcoll.discr_from_dd(dd_face)
     dtype = vec.entry_dtype
     actx = vec.array_context
 
-    assert len(face_discr.groups) == len(volm_discr.groups)
-    surf_area_elements = area_element(actx, dcoll, dd=dd,
+    assert len(face_discr.groups) == len(discr.groups)
+    surf_area_elements = area_element(actx, dcoll, dd=dd_face,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return DOFArray(
@@ -821,8 +826,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
             actx.einsum("ifj,fej,fej->ei",
                         reference_face_mass_matrix(
                                 actx,
-                                face_element_group=afgrp,
-                                vol_element_group=vgrp,
+                                base_element_group=vgrp,
+                                face_quad_element_group=afgrp,
                                 dtype=dtype),
                         surf_ae_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
@@ -835,10 +840,12 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                         arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
-                                                     face_discr.groups,
-                                                     vec,
-                                                     surf_area_elements)
+            for vgrp, afgrp, vec_i, surf_ae_i in zip(
+                discr.groups,
+                face_discr.groups,
+                vec,
+                surf_area_elements
+            )
         )
     )
 
@@ -886,7 +893,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_face_mass_operator(dcoll, dd, vec)
+    return _apply_face_mass_operator(dcoll, dof_desc.DD_VOLUME, dd, vec)
 
 # }}}
 
