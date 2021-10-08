@@ -33,15 +33,10 @@ import pyopencl.tools as cl_tools
 from dataclasses import dataclass
 
 from arraycontext import thaw, freeze
-from grudge.array_context import (  # noqa: F401
-    PyOpenCLArrayContext
-)
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
 )
 from grudge.models.euler import EulerState, EntropyStableEulerOperator
-
-from meshmode.mesh import BTAG_ALL
 
 from pytools.obj_array import make_obj_array
 
@@ -106,13 +101,42 @@ LSRK144NiegemannDiehlBuschCoefs = LSRKCoefficients(
         0.8734213127600976]))
 
 
+LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
+    A=np.array([
+        0.,
+        -567301805773/1357537059087,
+        -2404267990393/2016746695238,
+        -3550918686646/2091501179385,
+        -1275806237668/842570457699]),
+    B=np.array([
+        1432997174477/9575080441755,
+        5161836677717/13612068292357,
+        1720146321549/2090206949498,
+        3134564353537/4481467310338,
+        2277821191437/14882151754819]),
+    C=np.array([
+        0.,
+        1432997174477/9575080441755,
+        2526269341429/6820363962896,
+        2006345519317/3224310063776,
+        2802321613138/2924317926251]))
+
+
 def lsrk144_step(state, t, dt, rhs):
     k = 0.0 * state
     coefs = LSRK144NiegemannDiehlBuschCoefs
     for i in range(len(coefs.A)):
         k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
         state = state + coefs.B[i]*k
+    return state
 
+
+def lsrk54_step(state, t, dt, rhs):
+    k = 0.0 * state
+    coefs = LSRK54CarpenterKennedyCoefs
+    for i in range(len(coefs.A)):
+        k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
+        state = state + coefs.B[i]*k
     return state
 
 
@@ -141,7 +165,14 @@ def tg_vortex_initial_condition(dcoll, x_vec, t=0):
                       momentum=momentum)
 
 
-def run_tg_vortex(actx, order=4, resolution=16, final_time=20, visualize=False):
+def run_tg_vortex(actx, order=3, resolution=16, final_time=20, visualize=False):
+    logger.info(
+        """
+        Taylor-Green vortex parameters:\n
+        order: %s, resolution: %s, final time: %s, visualize: %s
+        """,
+        order, resolution, final_time, visualize
+    )
 
     # eos-related parameters
     gamma = 1.4
@@ -192,6 +223,7 @@ def run_tg_vortex(actx, order=4, resolution=16, final_time=20, visualize=False):
 
     fields = tg_vortex_initial_condition(dcoll, thaw(dcoll.nodes(), actx))
     dt = 2*euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+    # dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
@@ -208,8 +240,9 @@ def run_tg_vortex(actx, order=4, resolution=16, final_time=20, visualize=False):
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
         fields = lsrk144_step(fields, t, dt, compiled_rhs)
+        # fields = lsrk54_step(fields, t, dt, compiled_rhs)
 
-        if step % 10 == 0:
+        if step % 50 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
@@ -228,7 +261,7 @@ def run_tg_vortex(actx, order=4, resolution=16, final_time=20, visualize=False):
     # }}}
 
 
-def main(ctx_factory, order=4, final_time=20, resolution=16, visualize=False):
+def main(ctx_factory, order=3, final_time=20, resolution=16, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -248,9 +281,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=20., type=float)
-    parser.add_argument("--resolution", default=16, type=int)
+    parser.add_argument("--resolution", default=8, type=int)
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
