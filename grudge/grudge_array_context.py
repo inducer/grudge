@@ -186,7 +186,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
                     c_name, nargs=len(args), naxes=len(args[0].shape))
             outputs = actx.call_loopy(prg,
                     **{"inp%d" % i: arg for i, arg in enumerate(args)})
-            return outputs[1]["out"]
+            return outputs["out"]
 
         if name in self._c_to_numpy_arc_functions:
             from warnings import warn
@@ -203,6 +203,21 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             return multimapped_over_array_containers(loopy_implemented_elwise_func)
         else:
             raise AttributeError(name)
+
+# The PyOpenCLArrayContext needs this since the array dimensions are
+class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
+
+    @memoize_method
+    def transform_loopy_program(self, program):
+
+        # Set no_numpy and return_dict options here?
+        for arg in program.default_entrypoint.args:
+            for tag in arg.tags:
+                if isinstance(tag, ParameterValue):
+                    program = lp.fix_parameters(program, **{arg.name: tag.value})
+
+        program = super().transform_loopy_program(program)
+        return program
 
 class GrudgeArrayContext(PyOpenCLArrayContext):
 
@@ -260,7 +275,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
 
         return self.call_loopy(
             prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
-        )[1]["out"]
+        )["out"]
 
 
     def from_numpy(self, np_array: np.ndarray):
@@ -509,8 +524,8 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
         bw = nbytes / dt / 1e9
 
         print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
-       
-        return evt, result
+
+        return result
 
 def convert(o):
     if isinstance(o, np.generic): return o.item()

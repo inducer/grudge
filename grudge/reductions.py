@@ -333,7 +333,7 @@ def _apply_elementwise_reduction(
     for vec_i in vec:
         iel, jdof = vec_i.shape
         fp_format = vec_i.dtype
-        data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)[1]["result"])
+        data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)["result"])
         
     return DOFArray(actx, data=tuple(data))
 
