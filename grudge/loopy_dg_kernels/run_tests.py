@@ -420,13 +420,19 @@ def j_inner_options(n_in, start_val=None):
     factors = factors[start_ind:]
     return factors
 
+# Creates a list containing tuples of search space parameters
+def gen_autotune_list(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
+        device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
+    pass  
+
+
+
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
 
     # Should probably obtain device_memory_bandwidth from empirical tests
 
     # Imports
-    from random import choice
     from grudge.grudge_tags import ParameterValue
 
     local_mem_size = queue.device.local_mem_size
