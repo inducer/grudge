@@ -421,10 +421,57 @@ def j_inner_options(n_in, start_val=None):
     return factors
 
 # Creates a list containing tuples of search space parameters
-def gen_autotune_list(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
-        device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
-    pass  
+def gen_autotune_list(queue, knl, start_param=None):
 
+    from grudge.grudge_tags import ParameterValue
+
+    local_mem_size = queue.device.local_mem_size
+    max_work_group_size = queue.device.max_work_group_size    
+
+    for arg in knl.default_entrypoint.args:
+        if "resample_by_mat" not in knl.default_entrypoint.name:
+            if IsDOFArray() in arg.tags:
+                n_elem, n_out = arg.shape
+                fp_bytes = arg.dtype.dtype.itemsize
+                #n_in = n_out # Not true for non-square
+            elif IsSepVecOpArray() in arg.tags:
+                n_mat, n_out, n_in = arg.shape
+            elif IsOpArray() in arg.tags:
+                n_out, n_in = arg.shape
+            elif IsFaceDOFArray() in arg.tags:
+                nfaces, n_elem, n_in = arg.shape
+        else:
+            if IsOpArray() in arg.tags:
+                n_out, n_in = arg.shape
+                fp_bytes = arg.dtype.dtype.itemsize
+
+    if start_param is not None:
+        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+    else:
+        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+
+    # Iterate over five search dimensions
+    parameter_list = []
+    for kii in k_inner_inner_options(start_val=kii_s):
+        # This prevents shared memory from overflowing when running with the face mass kernel
+        if knl.default_entrypoint.name == "face_mass":
+            n_in_2 = n_in * nfaces
+        else:
+            n_in_2 = n_in
+        for kio in k_inner_outer_options(n_in_2, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
+            kio_s = None # Set to None so will form the full set the next time around
+            for iii in i_inner_inner_options(n_out, kii,
+                    max_work_group_size=max_work_group_size, start_val=iii_s):
+                iii_s = None
+                for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
+                    iio_s = None
+                    for ji in j_inner_options(n_in, start_val=ji_s):
+                        ji_s = None
+                        choices = (kio, kii, iio, iii, ji)
+                        parameter_list.append(choices)
+                        print(choices)
+
+    return parameter_list
 
 
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
@@ -992,6 +1039,8 @@ if __name__ == "__main__":
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
-    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
-    print(result)
+    result = gen_autotune_list(queue, knl)
+    print(len(result))
+    #result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+    #print(result)
     #"""
