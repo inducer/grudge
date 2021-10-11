@@ -777,7 +777,7 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 def reference_face_mass_matrix(
         actx: ArrayContext, base_element_group, face_quad_element_group, dtype):
     @keyed_memoize_in(
-        actx, reference_mass_matrix,
+        actx, reference_face_mass_matrix,
         lambda base_grp, face_grp: (base_grp.discretization_key(),
                                     face_grp.discretization_key()))
     def get_ref_face_mass_mat(base_grp, face_grp):
