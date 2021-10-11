@@ -93,7 +93,11 @@ jobs:
                 . ./ci-support-v0
 
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
-                    git clone "https://github.com/illinois-ceesd/$DOWNSTREAM_PROJECT.git"
+                    if [[ "$GITHUB_HEAD_REF" = "nodal-reduction-device-scalar" ]]; then
+                        git clone "https://github.com/majosm/$DOWNSTREAM_PROJECT.git" -b "nodal-reduction-device-scalar"
+                    else
+                        git clone "https://github.com/illinois-ceesd/$DOWNSTREAM_PROJECT.git"
+                    fi
                 else
                     git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
                 fi
