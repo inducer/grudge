@@ -44,8 +44,8 @@ from grudge.function_registry import base_function_registry
 
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_array_context import GrudgeArrayContext
-from grudge.grudge_tags import (IsVecDOFArray,
-    IsFaceDOFArray, IsVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
+from grudge.grudge_tags import (IsSepVecDOFArray,
+    IsFaceDOFArray, IsSepVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -77,9 +77,9 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
         """,
         kernel_data=[
             lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
-                offset=lp.auto, tags=[IsVecDOFArray()], is_output=True),
+                offset=lp.auto, tags=[IsSepVecDOFArray()], is_output=True),
             lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
-                offset=lp.auto, tags=[IsVecOpArray()]),
+                offset=lp.auto, tags=[IsSepVecOpArray()]),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
                 offset=lp.auto, tags=[IsDOFArray()]),
             lp.ValueArg("nelements", tags=[ParameterValue(n_elem)]),

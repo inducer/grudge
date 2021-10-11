@@ -3,8 +3,9 @@ from pytools import memoize_method, memoize_in
 import loopy as lp
 import pyopencl.array as cla
 import grudge.loopy_dg_kernels as dgk
-from grudge.grudge_tags import (IsDOFArray, IsVecDOFArray, IsFaceDOFArray, 
-    IsOpArray, IsVecOpArray, ParameterValue, IsFaceMassOpArray, KernelDataTag)
+from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray, IsFaceDOFArray, 
+    IsOpArray, IsSepVecOpArray, ParameterValue, IsFaceMassOpArray, KernelDataTag,
+    IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray)
 
 from arraycontext.impl.pyopencl.fake_numpy import (PyOpenCLFakeNumpyNamespace)
 from arraycontext.container.traversal import (rec_map_array_container,
@@ -46,12 +47,18 @@ def set_memory_layout(program):
     for arg in program.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "f,f")
-        elif IsVecDOFArray() in arg.tags:
+        elif IsSepVecDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-        elif IsVecOpArray() in arg.tags:
+        elif IsSepVecOpArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "sep,c,c")
         elif IsFaceDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
+        elif IsVecDOFArray() in arg.tags:
+            program = lp.tag_array_axes(program, arg.name, "N2,N0,N1")
+        elif IsVecOpArray() in arg.tags:
+            program = lp.tag_array_axes(program, arg.name, "c,c,c")
+        elif IsFourAxisDOFArray() in arg.tags:
+            program = lp.tag_array_axes(program, arg.name, "N3,N2,N0,N1")
         else:
             for tag in arg.tags:
                 if isinstance(tag, ParameterValue):
@@ -293,7 +300,7 @@ class GrudgeArrayContext(PyOpenCLArrayContext):
                     ndofs = arg.shape[1]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif IsVecOpArray() in arg.tags:
+                elif IsSepVecOpArray() in arg.tags or IsVecOpArray() in arg.tags:
                     dim = arg.shape[0]
                     ndofs = arg.shape[2]
                     fp_format = arg.dtype.numpy_dtype
@@ -541,7 +548,7 @@ class AutoTuningArrayContext(GrudgeArrayContext):
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
                     break
-                elif IsVecOpArray() in arg.tags:
+                elif IsSepVecOpArray() in arg.tags or IsVecOpArray() in arg.tags:
                     ndofs = arg.shape[1]
                     fp_format = arg.dtype.numpy_dtype
                     break

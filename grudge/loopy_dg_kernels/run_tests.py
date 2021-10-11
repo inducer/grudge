@@ -34,7 +34,7 @@ loopy.options.ALLOW_TERMINAL_COLORS = False
 
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
     apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
-from grudge.grudge_tags import IsDOFArray, IsVecDOFArray, IsOpArray, IsVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
+from grudge.grudge_tags import IsDOFArray, IsSepVecDOFArray, IsOpArray, IsSepVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
 import  grudge.grudge_array_context as gac#import set_memory_layout
 
 def testBandwidth(fp_format=np.float32, nruns=100):
@@ -234,14 +234,14 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
                 arg_dict[arg.name] = cl.array.Array(queue, arg.shape, arg.dtype, order="F", allocator=mem_pool)
                 if not arg.is_output:
                     cl.clrandom.fill_rand(arg_dict[arg.name], queue)
-            elif IsVecDOFArray() in arg.tags:
+            elif IsSepVecDOFArray() in arg.tags:
                 if arg.is_output:
                     obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=mem_pool, order="F") for i in range(arg.shape[0])]
                     arg_dict[arg.name] = make_obj_array(obj_array)
                 else:
                     print("Input VecDOFArrays are not currently supported")
                     exit()
-            elif IsVecOpArray() in arg.tags:
+            elif IsSepVecOpArray() in arg.tags:
                 obj_array = [cl.clrandom.rand(queue, arg.shape[1:], dtype=arg.dtype) for i in range(arg.shape[0])]
                 arg_dict[arg.name] = make_obj_array(obj_array)
             elif IsOpArray() in arg.tags:
@@ -310,7 +310,7 @@ def analyze_FLOPS(knl, peak_gflops, avg_time):
         if IsDOFArray() in arg.tags:
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
-        elif IsVecOpArray() in arg.tags:
+        elif IsSepVecOpArray() in arg.tags:
             n_mat, n_out, n_in = arg.shape
         elif IsOpArray() in arg.tags:
             n_out, n_in = arg.shape
@@ -443,7 +443,7 @@ def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=N
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
                 #n_in = n_out # Not true for non-square
-            elif IsVecOpArray() in arg.tags:
+            elif IsSepVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
             elif IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
@@ -666,7 +666,7 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
                 #n_in = n_out
-            elif IsVecOpArray() in arg.tags:
+            elif IsSepVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
             elif IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape

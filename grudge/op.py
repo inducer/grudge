@@ -61,8 +61,13 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 from meshmode.dof_array import DOFArray
 
 import numpy as np
+import loopy as lp
 
 import grudge.dof_desc as dof_desc
+
+from grudge.grudge_tags import (KernelDataTag, IsDOFArray, IsOpArray, 
+    ParameterValue, IsVecOpArray, IsVecDOFArray, IsFourAxisDOFArray,
+    IsFaceMassOpArray, IsFaceDOFArray)
 
 from grudge.interpolation import interp  # noqa: F401
 from grudge.projection import project  # noqa: F401
@@ -105,6 +110,43 @@ def _single_axis_derivative_kernel(
     # - whether the chain rule terms ("inv_jac_mat") sit outside (strong)
     #   or inside (weak) the matrix-vector product that carries out the
     #   derivative, cf. "metric_in_matvec".
+
+    data = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        ref_stiffT_mat = get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    )
+        
+        fp_format = vec_i.dtype
+        Nr, Ni, _ = ref_stiffT_mat.shape
+        Ne, Nj = vec_i.shape
+
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("ref_stiffT_mat", fp_format, shape=(Nr, Ni, Nj), offset=lp.auto, tags=[IsVecOpArray()]),
+            lp.GlobalArg("inv_jac_t", fp_format, shape=(Nr, Ne, Nj), offset=lp.auto, tags=[IsVecDOFArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nr", tags=[ParameterValue(Nr)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
+                    ijm_i[xyz_axis],
+                    ref_stiffT_mat,
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag)))
+
+    return DOFArray(actx, data = tuple(data))
+
+    """
     return DOFArray(
         actx,
         data=tuple(
@@ -123,12 +165,58 @@ def _single_axis_derivative_kernel(
             for out_grp, in_grp, vec_i, ijm_i in zip(
                 out_discr.groups, in_discr.groups, vec,
                 inv_jac_mat)))
+    """
 
 
 def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
+
+    per_group_grads = []
+    for out_grp, in_grp, vec_i, ijm_i, in zip(out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+
+        ref_stiffT_mat = get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    )
+
+        fp_format = vec_i.dtype
+        Nx, _, _, _ = inv_jac_mat._data[0].shape
+        Nr, Ni, _ = ref_stiffT_mat.shape
+        Ne, Nj = vec_i.shape
+
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("ref_stiffT_mat", fp_format, shape=(Nr, Ni, Nj), offset=lp.auto, tags=[IsVecOpArray()]),
+            lp.GlobalArg("inv_jac_t", fp_format, shape=(Nx, Nr, Ne, Nj), offset=lp.auto, tags=[IsFourAxisDOFArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Nx, Ne, Ni), offset=lp.auto, tags=[IsVecDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nr", tags=[ParameterValue(Nr)]),
+            lp.ValueArg("Nx", tags=[ParameterValue(Nx)]),
+            ...
+        ]
+        
+        kd_tag = KernelDataTag(kernel_data)
+
+        # r for rst axis
+        # x for xyz axis
+        per_group_grads.append(actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
+                    ijm_i,
+                    get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    ),
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag)))
+       
+
+    """
     per_group_grads = [
         # r for rst axis
         # x for xyz axis
@@ -145,6 +233,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
             inv_jac_mat)]
+    """
 
     return make_obj_array([
             DOFArray(
@@ -527,6 +616,44 @@ def _apply_mass_operator(
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in)
+
+    # out[e, i] = reduce(sum, [j], mass_mat[i, j]*jac[e, j]*vec[e, j])
+
+    esums = []
+    for in_grp, out_grp, ae_i, vec_i in zip(in_discr.groups, out_discr.groups, area_elements, vec):
+        mass_mat = reference_mass_matrix(
+            actx,
+            out_element_group=out_grp,
+            in_element_group=in_grp
+        )
+
+        fp_format = vec_i.dtype
+        Ni, Nj = mass_mat.shape
+        Ne, Nj = vec_i.shape
+        kernel_data = [
+            lp.GlobalArg("mass_mat", fp_format, shape=(Ni, Nj), offset=lp.auto, tags=[IsOpArray()]),
+            lp.GlobalArg("jac", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),  
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        esum = actx.einsum("ij,ej,ej->ei",
+                    mass_mat,
+                    ae_i,
+                    vec_i,
+                    arg_names=("mass_mat", "jac", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag))
+        esums.append(esum)
+
+    return DOFArray(actx, data=tuple(esums))
+
+    """    
     return DOFArray(
         actx,
         data=tuple(
@@ -545,7 +672,8 @@ def _apply_mass_operator(
                     in_discr.groups, out_discr.groups, area_elements, vec)
         )
     )
-
+    """
+    
 
 def mass(dcoll: DiscretizationCollection, *args):
     r"""Return the action of the DG mass matrix on a vector (or vectors)
@@ -636,6 +764,23 @@ def _apply_inverse_mass_operator(
         ref_mass_inverse = reference_inverse_mass_matrix(actx,
                                                          element_group=grp)
 
+        fp_format = vec_i.dtype
+        Ne, Nj = vec_i.shape
+        _, Ni = jac_inv.shape
+
+        kernel_data = [
+            lp.GlobalArg("arg2", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("arg1", fp_format, shape=(Ni, Nj), offset=lp.auto, tags=[IsOpArray()]),
+            lp.GlobalArg("arg0", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()]),  
+            lp.GlobalArg("out",  fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
         group_data.append(
             # Based on https://arxiv.org/pdf/1608.03836.pdf
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
@@ -643,7 +788,7 @@ def _apply_inverse_mass_operator(
                         jac_inv,
                         ref_mass_inverse,
                         vec_i,
-                        tagged=(FirstAxisIsElementsTag(),))
+                        tagged=(FirstAxisIsElementsTag(),kd_tag))
         )
 
     return DOFArray(actx, data=tuple(group_data))
@@ -797,6 +942,55 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
 
     assert len(face_discr.groups) == len(volm_discr.groups)
     surf_area_elements = area_element(actx, dcoll, dd=dd)
+
+    data = []
+    for vgrp, afgrp, vec_i, surf_ae_i, in zip(volm_discr.groups, face_discr.groups, vec, surf_area_elements):
+
+        
+        ref_fm_mat = reference_face_mass_matrix(
+                                actx,
+                                face_element_group=afgrp,
+                                vol_element_group=vgrp,
+                                dtype=dtype)
+
+        fp_format = dtype
+        Ni, Nf, Nj = ref_fm_mat.shape 
+        Ne = vgrp.nelements
+
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Nf, Ne, Nj), offset=lp.auto, tags=[IsFaceDOFArray()]),
+            lp.GlobalArg("jac_surf", fp_format, shape=(Nf, Ne, Nj), offset=lp.auto, tags=[IsFaceDOFArray()]),
+            lp.GlobalArg("ref_face_mass_mat", fp_format, shape=(Ni, Nf, Nj), 
+                offset=lp.auto, tags=[IsFaceMassOpArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("ifj,fej,fej->ei",
+                        ref_fm_mat,
+                        surf_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                -1),
+                        vec_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs),
+                        arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)))
+        
+        
+
+       
+
+    return DOFArray(actx, data=tuple(data))
+
 
     return DOFArray(
         actx,

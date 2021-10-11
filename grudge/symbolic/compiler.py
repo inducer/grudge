@@ -115,7 +115,7 @@ class LoopyKernelInstruction(Instruction):
     def __str__(self):
         knl_str = "\n".join(
                 f"{insn.assignee} = {insn.expression}"
-                for insn in self.kernel_descriptor.loopy_kernel.instructions)
+                for insn in self.kernel_descriptor.loopy_kernel.default_entrypoint.instructions)
 
         knl_str = knl_str.replace("grdg_", "")
 
@@ -1042,7 +1042,7 @@ class ToLoopyInstructionMapper:
                     no_numpy=True,
                     )
                 )
-        for arg in knl.args:
+        for arg in knl.default_entrypoint.args:
             if isinstance(arg, lp.ArrayArg):
                 arg.tags = IsDOFArray()
 

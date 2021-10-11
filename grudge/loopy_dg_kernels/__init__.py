@@ -416,19 +416,11 @@ def apply_transformation_list(knl, transformations):
     #print(knl)
     for t in transformations:
         print(t)
-        #print(t)
         func = function_mapping[t[0]]
         args = [knl]
         if len(t) > 1:
             args = args + t[1]
         kwargs = t[2] if len(t) > 2 else {}
-        #print(t)
         knl = func(*args, **kwargs)
 
     return knl
-
-#knl = gen_diff_knl_fortran2(3, 128, 10, 10)
-#trans = generate_transformation_list(64, 32, 10, 10, 10)
-#knl = apply_transformation_list(knl, trans)
-#code = lp.generate_code_v2(knl).device_code()
-#print(code)

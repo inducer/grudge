@@ -44,12 +44,14 @@ THE SOFTWARE.
 
 
 import numpy as np
+import loopy as lp
 
 from arraycontext import ArrayContext, thaw, freeze
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
+from grudge.grudge_tags import KernelDataTag, ParameterValue, IsFaceDOFArray, IsDOFArray
 
 import grudge.op as op
 
@@ -280,6 +282,32 @@ def dt_geometric_factors(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
         )
     )
+
+    data = []
+    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, surface_areas):
+
+        fp_format = face_ae_i.dtype
+        Ne = vgrp.nelements
+        Nf = vgrp.mesh_el_group.nfaces
+        Nj = afgrp.nunit_dofs
+        
+        kernel_data = [
+            lp.GlobalArg("arg0", fp_format, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+            lp.GlobalArg("out", fp_format, is_output=True),
+            lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("fej->e",
+                    face_ae_i.reshape(Nf, Ne, Nj),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag)) / afgrp.nunit_dofs)
+
+    surface_areas = DOFArray(actx, data=tuple(data))
+
+    """
     surface_areas = DOFArray(
         actx,
         data=tuple(
@@ -296,7 +324,34 @@ def dt_geometric_factors(
                                               surface_areas)
         )
     )
+    """
 
+    data = []
+    for cv_i, sae_i, in zip(cell_vols, surface_areas):
+
+        fp_format = cv_i.dtype
+        Ne, Ni = cv_i.shape
+ 
+        kernel_data = [
+            lp.GlobalArg("arg0", fp_format), 
+            lp.GlobalArg("arg1", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()]), 
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()], is_output=True),
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+        kd_tag = KernelDataTag(kernel_data)
+
+
+
+        data.append(actx.einsum("e,ei->ei",
+                        1/sae_i,
+                        cv_i,
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)) * dcoll.dim)
+
+    return freeze(DOFArray(actx, data=tuple(data)))
+
+    """
     return freeze(DOFArray(
         actx,
         data=tuple(
@@ -308,6 +363,7 @@ def dt_geometric_factors(
             for cv_i, sae_i in zip(cell_vols, surface_areas)
         )
     ))
+    """
 
 # }}}
 

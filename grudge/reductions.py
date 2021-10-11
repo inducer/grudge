@@ -300,11 +300,13 @@ def _apply_elementwise_reduction(
 
     actx = vec.array_context
 
+    import loopy as lp
     @memoize_in(actx, (_apply_elementwise_reduction,
                        "elementwise_%s_prg" % op_name))
-    def elementwise_prg():
+    def elementwise_prg(nelements, ndofs, fp_format):
         # FIXME: This computes the reduction value redundantly for each
         # output DOF.
+        from meshmode.array_context import IsDOFArray, ParameterValue
         t_unit = make_loopy_program(
             [
                 "{[iel]: 0 <= iel < nelements}",
@@ -313,22 +315,27 @@ def _apply_elementwise_reduction(
             """
                 result[iel, idof] = %s(jdof, operand[iel, jdof])
             """ % op_name,
+            kernel_data = [
+                lp.GlobalArg("result", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),
+                lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),       
+                lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)])
+            ],
             name="grudge_elementwise_%s_knl" % op_name
         )
-        import loopy as lp
         from meshmode.transform_metadata import (
                 ConcurrentElementInameTag, ConcurrentDOFInameTag)
         return lp.tag_inames(t_unit, {
             "iel": ConcurrentElementInameTag(),
             "idof": ConcurrentDOFInameTag()})
 
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
-            for vec_i in vec
-        )
-    )
+    data = []
+    for vec_i in vec:
+        iel, jdof = vec_i.shape
+        fp_format = vec_i.dtype
+        data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)[1]["result"])
+        
+    return DOFArray(actx, data=tuple(data))
 
 
 def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:

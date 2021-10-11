@@ -1,0 +1,164 @@
+{
+  72a3ce98-5d21-48bf-b402-6ee96bafd1b6:
+  {
+    FP64:
+    {
+      10:
+      [
+        [
+          split_iname
+          [
+            iel
+            96
+          ]
+          {
+            outer_tag: g.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            iel_inner
+            32
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.0
+          }
+        ]
+        [
+          split_iname
+          [
+            idof
+            10
+          ]
+          {
+            outer_tag: g.1
+          }
+        ]
+        [
+          split_iname
+          [
+            idof_inner
+            10
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.1
+          }
+        ]
+        [
+          split_iname
+          [
+            j
+            5
+          ]
+        ]
+        [
+          add_prefetch
+          [
+            vec
+            j_outer,j_inner,iel_inner_outer,iel_inner_inner
+          ]
+          {
+            temporary_name: vecf
+            default_tag: l.auto
+          }
+        ]
+        [
+          tag_array_axes
+          [
+            vecf
+            f,f
+          ]
+        ]
+        [
+          add_inames_for_unused_hw_axes
+        ]
+      ]
+      4:
+      [
+        [
+          split_iname
+          [
+            iel
+            64
+          ]
+          {
+            outer_tag: g.0
+            slabs:
+            [
+              0
+              1
+            ]
+          }
+        ]
+        [
+          split_iname
+          [
+            iel_inner
+            32
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.0
+          }
+        ]
+        [
+          split_iname
+          [
+            idof
+            4
+          ]
+          {
+            outer_tag: g.1
+          }
+        ]
+        [
+          split_iname
+          [
+            idof_inner
+            4
+          ]
+          {
+            outer_tag: ilp
+            inner_tag: l.1
+          }
+        ]
+        [
+          split_iname
+          [
+            j
+            4
+          ]
+        ]
+        [
+          add_prefetch
+          [
+            vec
+            j_outer,j_inner,iel_inner_outer,iel_inner_inner
+          ]
+          {
+            temporary_name: vecf
+            default_tag: l.auto
+          }
+        ]
+        [
+          tag_array_axes
+          [
+            vecf
+            f,f
+          ]
+        ]
+        [
+          add_inames_for_unused_hw_axes
+        ]
+      ]
+    }
+  }
+}

@@ -26,7 +26,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
-from grudge.grudge_array_context import GrudgeArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DiscretizationCollection
 
@@ -57,8 +57,6 @@ def main(write_output=True, order=4):
     sym_op = sym.stiffness_t(d)*sym.var("u")
     bound_op = bind(discr, sym_op)
     print(bound_op.eval_code)
-    exit()
-
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05

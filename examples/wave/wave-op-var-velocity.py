@@ -34,8 +34,7 @@ import pyopencl.tools as cl_tools
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
-from grudge.grudge_array_context import GrudgeArrayContext
-from meshmode.dof_array import thaw
+from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
 from pytools.obj_array import flat_obj_array
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
@@ -162,9 +161,8 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
 
 def main(ctx_factory, dim=2, order=3, visualize=False):
     cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    #actx = GrudgeArrayContext(queue)
-    actx = PyOpenCLArrayContext(
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+    actx = GrudgeArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,

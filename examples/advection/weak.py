@@ -103,7 +103,7 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
+    actx = GrudgeArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,
