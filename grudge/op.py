@@ -296,7 +296,8 @@ def local_grad(
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll)
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     return _gradient_kernel(actx, discr, discr,
             _reference_derivative_matrices, inverse_jac_mat, vec,
             metric_in_matvec=False)
@@ -319,7 +320,8 @@ def local_d_dx(dcoll: DiscretizationCollection, xyz_axis, vec):
     actx = vec.array_context
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll)
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
         actx, discr, discr,
@@ -463,7 +465,8 @@ def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
 
     actx = vec.array_context
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
-            times_area_element=True)
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _gradient_kernel(actx, out_discr, in_discr,
             _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
@@ -511,7 +514,8 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args):
 
     actx = vec.array_context
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
-            times_area_element=True)
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
             actx, out_discr, in_discr, _reference_stiffness_transpose_matrix,
@@ -615,7 +619,8 @@ def _apply_mass_operator(
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
-    area_elements = area_element(actx, dcoll, dd=dd_in)
+    area_elements = area_element(actx, dcoll, dd=dd_in,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     # out[e, i] = reduce(sum, [j], mass_mat[i, j]*jac[e, j]*vec[e, j])
 
@@ -757,7 +762,8 @@ def _apply_inverse_mass_operator(
 
     actx = vec.array_context
     discr = dcoll.discr_from_dd(dd_in)
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     group_data = []
     for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
 
@@ -941,7 +947,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
     actx = vec.array_context
 
     assert len(face_discr.groups) == len(volm_discr.groups)
-    surf_area_elements = area_element(actx, dcoll, dd=dd)
+    surf_area_elements = area_element(actx, dcoll, dd=dd,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     data = []
     for vgrp, afgrp, vec_i, surf_ae_i, in zip(volm_discr.groups, face_discr.groups, vec, surf_area_elements):
@@ -991,7 +998,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
 
     return DOFArray(actx, data=tuple(data))
 
-
+    """
     return DOFArray(
         actx,
         data=tuple(
@@ -1018,6 +1025,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                                                      surf_area_elements)
         )
     )
+    """
 
 
 def face_mass(dcoll: DiscretizationCollection, *args):
