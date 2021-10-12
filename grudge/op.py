@@ -515,16 +515,16 @@ def reference_mass_matrix(
             )
 
         from modepy import vandermonde
-
         basis = base_grp.basis_obj()
-        vand_inv = np.linalg.inv(vandermonde(basis.functions, base_grp.unit_nodes))
-        vdm_q = vandermonde(basis.functions, quad_grp.unit_nodes) @ vand_inv
-        weights = quad_grp.quadrature_rule().weights
+        vand = vandermonde(basis.functions, base_grp.unit_nodes)
+        o_vand = vandermonde(basis.functions, quad_grp.unit_nodes)
+        vand_inv_t = np.linalg.inv(vand).T
 
+        weights = quad_grp.quadrature_rule().weights
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
-                    weights * vdm_q.T @ vdm_q,
+                    np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
                     order="C"
                 )
             )
@@ -617,12 +617,32 @@ def reference_inverse_mass_matrix(
         lambda base_grp, quad_grp: (base_grp.discretization_key(),
                                     quad_grp.discretization_key()))
     def get_ref_inv_mass_mat(base_grp, quad_grp):
+        if base_grp == quad_grp:
+            from modepy import inverse_mass_matrix
+            basis = base_grp.basis_obj()
+
+            return actx.freeze(
+                actx.from_numpy(
+                    np.asarray(
+                        inverse_mass_matrix(basis.functions, base_grp.unit_nodes),
+                        order="C"
+                    )
+                )
+            )
+
+        from modepy import vandermonde
+
+        basis = base_grp.basis_obj()
+        vdm_inv = np.linalg.inv(vandermonde(basis.functions,
+                                            base_grp.unit_nodes))
+        vdm_q = vandermonde(basis.functions, quad_grp.unit_nodes) @ vdm_inv
+        weights = quad_grp.quadrature_rule().weights
         return actx.freeze(
             actx.from_numpy(
-                np.linalg.inv(
-                    actx.to_numpy(
-                        reference_mass_matrix(actx, base_grp, quad_grp)
-                    )
+                # directly inverting the mass matrix: M = Vq.T @ diag(W) @ Vq
+                np.asarray(
+                    np.linalg.inv(weights * vdm_q.T @ vdm_q),
+                    order="C"
                 )
             )
         )
@@ -644,24 +664,24 @@ def _apply_inverse_mass_operator(
     vol_quad_discr = dcoll.discr_from_dd(dd_quad)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_base,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    return DOFArray(
-        actx,
-        data=tuple(
+    group_data = []
+    for base_grp, quad_grp, jac_inv, vec_i in zip(discr.groups,
+                                                  vol_quad_discr.groups,
+                                                  inv_area_elements,
+                                                  vec):
+        ref_mass_inverse = reference_inverse_mass_matrix(actx, base_grp, quad_grp)
+
+        group_data.append(
             # Based on https://arxiv.org/pdf/1608.03836.pdf
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
             actx.einsum("ei,ij,ej->ei",
                         jac_inv,
-                        reference_inverse_mass_matrix(actx, base_grp, quad_grp),
+                        ref_mass_inverse,
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),))
-            for base_grp, quad_grp, jac_inv, vec_i in zip(
-                discr.groups,
-                vol_quad_discr.groups,
-                inv_area_elements,
-                vec
-            )
         )
-    )
+
+    return DOFArray(actx, data=tuple(group_data))
 
 
 def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
