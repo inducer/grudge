@@ -20,33 +20,150 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
+from arraycontext import ArrayContext, make_loopy_program, thaw
+
 from typing import Optional, Union, Dict
 from numbers import Number
 import numpy as np
 
 from pytools import memoize_in
+from pytools.obj_array import make_obj_array
 
 import loopy as lp
-import pyopencl as cl
 import pyopencl.array  # noqa
 
 from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
-from meshmode.array_context import ArrayContext, make_loopy_program
+from meshmode.array_context import ArrayContext, make_loopy_program, IsDOFArray
 
 import grudge.symbolic.mappers as mappers
+from grudge.symbolic.compiler import DiffBatchAssign
+from grudge.symbolic.operators import RefMassOperator, RefInverseMassOperator
 from grudge import sym
 from grudge.function_registry import base_function_registry
+
+import grudge.loopy_dg_kernels as dgk
+from grudge.grudge_array_context import GrudgeArrayContext
+from grudge.grudge_tags import (IsSepVecDOFArray,
+    IsFaceDOFArray, IsSepVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
 
 import logging
 logger = logging.getLogger(__name__)
 
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+MPI_TAG_SEND_TAGS = 1729
+#from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 ResultType = Union[DOFArray, Number]
 
 
 # {{{ exec mapper
+
+#@memoize_in(self.array_context,
+#        (ExecutionMapper, "reference_derivative_prg"))
+def diff_prg(n_mat, n_elem, n_nodes, fp_format,
+        options=None):
+    
+    @memoize_in(diff_prg, (ExecutionMapper, "_gen_diff_knl"))
+    def _gen_diff_knl(n_mat, n_elem, n_in, n_out, fp_format):
+        knl = lp.make_kernel(
+        """{[imatrix,iel,idof,j]:
+            0<=imatrix<nmatrices and
+            0<=iel<nelements and
+            0<=idof<ndiscr_nodes_out and
+            0<=j<ndiscr_nodes_in}""",
+        """
+        result[imatrix,iel,idof] = simul_reduce(sum, j, diff_mat[imatrix, idof, j] * vec[iel, j])
+        """,
+        kernel_data=[
+            lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
+                offset=lp.auto, tags=[IsSepVecDOFArray()], is_output=True),
+            lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
+                offset=lp.auto, tags=[IsSepVecOpArray()]),
+            lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
+                offset=lp.auto, tags=[IsDOFArray()]),
+            lp.ValueArg("nelements", tags=[ParameterValue(n_elem)]),
+            lp.ValueArg("nmatrices", tags=[ParameterValue(n_mat)]),
+            lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(n_out)]),
+            lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(n_in)])
+        ],
+        assumptions="nelements > 0 \
+                     and ndiscr_nodes_out > 0 \
+                     and ndiscr_nodes_in > 0 and nmatrices > 0",
+        options=options,
+        name="diff_{}_axis".format(n_mat)
+        )
+        return knl
+
+    knl = _gen_diff_knl(n_mat, n_elem, n_nodes, n_nodes, fp_format)
+
+    # This should be in array context probably but need to avoid circular dependency
+    # Probably should split kernels out of grudge_array_context
+    knl = lp.tag_inames(knl, "imatrix: ilp")
+    return knl
+
+def elwise_linear_prg(nelements, nnodes_out, fp_format, nnodes_in=None, options=None):
+
+    @memoize_in(elwise_linear_prg, (ExecutionMapper, "elwise_linear_knl"))
+    def _gen_elwise_linear_knl(nelements, nnodes_out, nnodes_in, fp_format):
+
+        result = lp.make_kernel(
+            """{[iel, idof, j]:
+                0<=iel<nelements and
+                0<=idof<ndiscr_nodes_out and
+                0<=j<ndiscr_nodes_in}""",
+            """
+            result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])
+            """,
+            kernel_data=[
+                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=[IsDOFArray()]),
+                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=[IsDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=[IsOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(nnodes_out)]),
+                lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(nnodes_in)]),
+            ],
+            assumptions="nelements > 0 \
+                        and ndiscr_nodes_out > 0 \
+                        and ndiscr_nodes_in > 0",
+            options=options,
+            name="elwise_linear")
+
+        #result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
+        return result
+  
+    if nnodes_in is None:
+        nnodes_in = nnodes_out 
+ 
+    return _gen_elwise_linear_knl(nelements, nnodes_out, nnodes_in, fp_format)
+
+def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+
+    @memoize_in(face_mass_prg, (ExecutionMapper, "face_mass_knl"))
+    def _gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
+        return make_loopy_program(
+            """{[iel,idof,f,j]:
+                0<=iel<nelements and
+                0<=f<nfaces and
+                0<=idof<nvol_nodes and
+                0<=j<nface_nodes}""",
+            """
+            result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
+            """,
+            kernel_data=[
+                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=[IsDOFArray()], is_output=True),
+                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=[IsFaceDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=[IsFaceMassOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("nfaces", tags=[ParameterValue(nfaces)]),
+                lp.ValueArg("nvol_nodes", tags=[ParameterValue(nvol_nodes)]),
+                lp.ValueArg("nface_nodes", tags=[ParameterValue(nface_nodes)]), 
+                "..."
+            ],
+            name="face_mass")
+
+    return _gen_face_mass_knl(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+
 
 class ExecutionMapper(mappers.Evaluator,
         mappers.BoundOpMapperMixin,
@@ -73,15 +190,18 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_node_coordinate_component(self, expr):
         discr = self.dcoll.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes(
-            # only save volume nodes or boundary nodes
-            # (but not nodes for interior face discretizations, which are likely only
-            # used once to compute the normals)
-            cached=(
-                discr.ambient_dim == discr.dim
-                or expr.dd.is_boundary_or_partition_interface()
+        return thaw(
+            discr.nodes(
+                # only save volume nodes or boundary nodes
+                # (but not nodes for interior face discretizations, which
+                # are likely only used once to compute the normals)
+                cached=(
+                    discr.ambient_dim == discr.dim
+                    or expr.dd.is_boundary_or_partition_interface()
                 )
-            )[expr.axis])
+            )[expr.axis],
+            self.array_context
+        )
 
     def map_grudge_variable(self, expr):
         from numbers import Number
@@ -128,6 +248,11 @@ class ExecutionMapper(mappers.Evaluator,
                 """
                 result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
+                kernel_data=[
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", None, shape=lp.auto, tags=[IsDOFArray()]),
+                    ...
+                ],
                 name="grudge_elementwise_%s" % op_name)
 
         field = self.rec(field_expr)
@@ -158,26 +283,23 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ nodal reductions
 
     def map_nodal_sum(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return sum([
-                cl.array.sum(grp_ary).get()[()]
-                for grp_ary in self.rec(field_expr)
-                ])
+        actx = self.array_context
+        return sum([actx.np.sum(grp_ary)
+                    for grp_ary in self.rec(field_expr)])
 
     def map_nodal_max(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return np.max([
-            cl.array.max(grp_ary).get()[()]
-            for grp_ary in self.rec(field_expr)])
+        from functools import reduce
+        actx = self.array_context
+        return reduce(lambda acc, grp_ary: actx.np.maximum(acc,
+                                                           actx.np.max(grp_ary)),
+                      self.rec(field_expr), -np.inf)
 
     def map_nodal_min(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return np.min([
-            cl.array.min(grp_ary).get()[()]
-            for grp_ary in self.rec(field_expr)])
+        from functools import reduce
+        actx = self.array_context
+        return reduce(lambda acc, grp_ary: actx.np.minimum(acc,
+                                                           actx.np.min(grp_ary)),
+                      self.rec(field_expr), np.inf)
 
     # }}}
 
@@ -252,7 +374,7 @@ class ExecutionMapper(mappers.Evaluator,
                 knl(sym_then, sym_else),
                 crit=bool_crit[igrp],
                 a=get_then(igrp),
-                b=get_else(igrp))
+                b=get_else(igrp))[1]
             for igrp in range(ngroups)))
 
     # {{{ elementwise linear operators
@@ -260,6 +382,12 @@ class ExecutionMapper(mappers.Evaluator,
     def map_ref_diff_base(self, op, field_expr):
         raise NotImplementedError(
                 "differentiation should be happening in batched form")
+
+    def map_elementwise_linear_new(self, op, field_expr):
+        insn = DiffBatchAssign(names=("elwise_linear",), operators=(op,),
+                                 field=field_expr)
+        out, _ = self.map_insn_diff_batch_assign(insn)
+        return out[0][1]
 
     def _elwise_linear_loopy_prg(self):
         @memoize_in(self.array_context, (ExecutionMapper, "elwise_linear_knl"))
@@ -274,7 +402,6 @@ class ExecutionMapper(mappers.Evaluator,
 
             result = lp.tag_array_axes(result, "mat", "stride:auto,stride:auto")
             return result
-
         return prg()
 
     def map_elementwise_linear(self, op, field_expr):
@@ -289,7 +416,7 @@ class ExecutionMapper(mappers.Evaluator,
 
         result = out_discr.empty(self.array_context, dtype=field.entry_dtype)
 
-        prg = self._elwise_linear_loopy_prg()
+        #prg = self._elwise_linear_loopy_prg()
         for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
             cache_key = "elwise_linear", in_grp, out_grp, op, field.entry_dtype
             try:
@@ -302,12 +429,17 @@ class ExecutionMapper(mappers.Evaluator,
                                 dtype=field.entry_dtype)))
 
                 self.bound_op.operator_data_cache[cache_key] = matrix
+            
+            nnodes, _ = matrix.shape
+            nelements, _ = field[in_grp.index].shape
+            fp_format = matrix.dtype
+            prg = elwise_linear_prg(nelements, nnodes, fp_format)            
 
             self.array_context.call_loopy(
                     prg,
                     mat=matrix,
                     result=result[out_grp.index],
-                    vec=field[in_grp.index])
+                    vec=field[in_grp.index])  # inArg
 
         return result
 
@@ -317,7 +449,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(op.dd_in)
+        bdry_conn = self.dcoll.distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
         return bdry_conn(remote_bdry_vec)
 
@@ -335,18 +467,6 @@ class ExecutionMapper(mappers.Evaluator,
         if is_zero(field):
             return 0
 
-        @memoize_in(self.array_context, (ExecutionMapper, "face_mass_knl"))
-        def prg():
-            return make_loopy_program(
-                """{[iel,idof,f,j]:
-                    0<=iel<nelements and
-                    0<=f<nfaces and
-                    0<=idof<nvol_nodes and
-                    0<=j<nface_nodes}""",
-                """
-                result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
-                """,
-                name="face_mass")
 
         all_faces_conn = self.dcoll.connection_from_dds("vol", op.dd_in)
         all_faces_discr = all_faces_conn.to_discr
@@ -372,8 +492,14 @@ class ExecutionMapper(mappers.Evaluator,
 
             input_view = field[afgrp.index].reshape(
                     nfaces, volgrp.nelements, afgrp.nunit_dofs)
+
+            nelements, _ = result[volgrp.index].shape
+            nvol_nodes, nfaces, nface_nodes = matrix.shape
+            fp_format = input_view.dtype
+            program = face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format)
+
             self.array_context.call_loopy(
-                    prg(),
+                    program,
                     mat=matrix,
                     result=result[volgrp.index],
                     vec=input_view)
@@ -465,7 +591,7 @@ class ExecutionMapper(mappers.Evaluator,
             for name, ary in dof_array_kwargs.items():
                 kwargs[name] = ary[grp.index]
 
-            knl_result = self.array_context.call_loopy(
+            _, knl_result = self.array_context.call_loopy(
                     kdescr.loopy_kernel, **kwargs)
 
             for name, val in knl_result.items():
@@ -495,17 +621,137 @@ class ExecutionMapper(mappers.Evaluator,
             self.dcoll._discr_scoped_subexpr_name_to_value[insn.name])], []
 
     def map_insn_diff_batch_assign(self, insn, profile_data=None):
-        field = self.rec(insn.field)
+        ifield = insn.field
+        field = self.rec(ifield)
         repr_op = insn.operators[0]
+
+        # FIXME: There's no real reason why differentiation is special,
+        # execution-wise.
+        # This should be unified with map_elementwise_linear, which should
+        # be extended to support batching.
+        # Note: This is now mostly done
+
+        assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
+
+        noperators = len(insn.operators)
+        in_discr = self.dcoll.discr_from_dd(repr_op.dd_in)
+        out_discr = self.dcoll.discr_from_dd(repr_op.dd_out)
+
+        result = make_obj_array([
+            out_discr.empty(self.array_context, dtype=field.entry_dtype)
+            for idim in range(noperators)])
+
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+            if in_grp.nelements == 0:
+                continue
+
+            # Cache operator
+            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                field.entry_dtype
+            try:
+                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrices = repr_op.matrices(out_grp, in_grp)
+                matrices_ary = np.empty(
+                    (noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),
+                    dtype=field.entry_dtype)
+
+                for i, op in enumerate(insn.operators):
+                    # Is there a more flexible way to do this?
+                    if isinstance(op, RefInverseMassOperator) or \
+                       isinstance(op, RefMassOperator):
+                        matrices_ary[i] = matrices[0]
+                    else:
+                        matrices_ary[i] = matrices[op.rst_axis]
+
+                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
+
+            n_out, n_in = matrices_ary_dev[0].shape
+            n_elem = field[in_grp.index].shape[0]
+            fp_format = field.entry_dtype
+            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype)
+
+            if noperators == 3 or noperators == 1:
+                import traceback
+                traceback.print_stack()
+                #exit()
+
+            self.array_context.call_loopy(
+                    program,
+                    diff_mat=matrices_ary_dev,
+                    result=make_obj_array([result[iop][out_grp.index]
+                        for iop in range(noperators)]),
+                    vec=field[in_grp.index])
+
+        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+
+    '''
+    def map_insn_diff_batch_assign(self, insn, profile_data=None):
+        ifield = insn.field
+        field = self.rec(ifield)
+        repr_op = insn.operators[0]
+        noperators = len(insn.operators)
 
         assert repr_op.dd_in.domain_tag == repr_op.dd_out.domain_tag
 
         in_discr = self.dcoll.discr_from_dd(repr_op.dd_in)
         out_discr = self.dcoll.discr_from_dd(repr_op.dd_out)
 
-        prg = self._elwise_linear_loopy_prg()
-
+        #"""
         result = []
+
+        for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
+            if in_grp.nelements == 0:
+                continue
+            # Begin old version
+            # Cache operator
+            cache_key = "diff_batch", in_grp, out_grp, tuple(insn.operators),\
+                field.entry_dtype
+            try:
+                matrices_ary_dev = self.bound_op.operator_data_cache[cache_key]
+            except KeyError:
+                matrices = repr_op.matrices(out_grp, in_grp)
+                matrices_ary = np.empty(
+                    (noperators, out_grp.nunit_dofs, in_grp.nunit_dofs),
+                    dtype=field.entry_dtype)
+
+                for i, op in enumerate(insn.operators):
+                    # Is there a more flexible way to do this?
+                    if isinstance(op, RefInverseMassOperator) or \
+                       isinstance(op, RefMassOperator):
+                        matrices_ary[i] = matrices[0]
+                    else:
+                        matrices_ary[i] = matrices[op.rst_axis]
+
+                matrices_ary_dev = self.array_context.from_numpy(matrices_ary)
+                self.bound_op.operator_data_cache[cache_key] = matrices_ary_dev
+
+            n_out, n_in = matrices_ary_dev[0].shape
+            n_elem = field[in_grp.index].shape[0]
+            fp_format = field.entry_dtype
+            program = diff_prg(noperators, n_elem, n_in, field.entry_dtype)
+
+            if noperators == 3 or noperators == 1:
+                import traceback
+                traceback.print_stack()
+                #exit()
+
+            self.array_context.call_loopy(
+                    program,
+                    diff_mat=matrices_ary_dev,
+                    result=make_obj_array([result[iop][out_grp.index]
+                        for iop in range(noperators)]),
+                    vec=field[in_grp.index])
+ 
+        return [(name, result[i]) for i, name in enumerate(insn.names)], []
+        # End old version
+        #"""
+
+        # New master version
+        """
+        #prg = self._elwise_linear_loopy_prg()
+        
         for name, op in zip(insn.names, insn.operators):
             group_results = []
             for in_grp, out_grp in zip(in_discr.groups, out_discr.groups):
@@ -521,16 +767,22 @@ class ExecutionMapper(mappers.Evaluator,
                             for mat in repr_op.matrices(out_grp, in_grp)]
                     self.bound_op.operator_data_cache[cache_key] = matrices_dev
 
+                matrix = matrices_dev[0]
+                nnodes, _ = matrix.shape
+                nelements, _ = field[in_grp.index].shape
+                fp_format = matrix.dtype
+                prg = elwise_linear_prg(nelements, nnodes, fp_format)            
+
                 group_results.append(self.array_context.call_loopy(
                         prg,
                         mat=matrices_dev[op.rst_axis],
                         vec=field[in_grp.index])["result"])
-
+   
             result.append(
                     (name, DOFArray(self.array_context, tuple(group_results))))
-
         return result, []
-
+        """
+    '''
     # }}}
 
 # }}}
@@ -628,7 +880,7 @@ class BoundOperator:
             else:
                 pass
 
-        for key, val in context.items():
+        for val in context.values():
             look_for_array_contexts(val)
 
         if array_contexts:

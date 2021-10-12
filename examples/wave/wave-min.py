@@ -26,7 +26,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
-from meshmode.array_context import PyOpenCLArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
 from grudge.shortcuts import set_up_rk4
 from grudge import sym, bind, DiscretizationCollection
 
@@ -34,9 +34,9 @@ from grudge import sym, bind, DiscretizationCollection
 def main(write_output=True, order=4):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(queue)
 
-    dims = 2
+    dims = 3
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dims,
@@ -51,6 +51,12 @@ def main(write_output=True, order=4):
     print("%d elements" % mesh.nelements)
 
     discr = DiscretizationCollection(actx, mesh, order=order)
+
+    d = 3
+    from grudge import sym, bind
+    sym_op = sym.stiffness_t(d)*sym.var("u")
+    bound_op = bind(discr, sym_op)
+    print(bound_op.eval_code)
 
     source_center = np.array([0.1, 0.22, 0.33])[:mesh.dim]
     source_width = 0.05
@@ -110,15 +116,16 @@ def main(write_output=True, order=4):
 
             step += 1
 
-            print(step, event.t, norm(u=event.state_component[0]),
-                    time()-t_last_step)
             if step % 10 == 0:
+                print(f"step: {step} t: {time()-t_last_step} "
+                      f"L2: {norm(u=event.state_component[0])}")
                 vis.write_vtk_file("fld-wave-min-%04d.vtu" % step,
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),
                             ])
             t_last_step = time()
+            assert norm(u=event.state_component[0]) < 1
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 """Base classes for operators."""
 
-__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2007 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,8 +25,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from abc import ABCMeta, abstractmethod
 
-class Operator:
+
+class Operator(metaclass=ABCMeta):
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present
@@ -31,33 +36,39 @@ class Operator:
     documentation, to group related classes together in an inheritance
     tree.
     """
-    pass
-
-
-class TimeDependentOperator(Operator):
-    """A base class for time-dependent Discontinuous Galerkin operators.
-
-    You may derive your own operators from this class, but, at present
-    this class provides no functionality. Its function is merely as
-    documentation, to group related classes together in an inheritance
-    tree.
-    """
-    pass
 
 
 class HyperbolicOperator(Operator):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
-    def max_eigenvalue(self, t, fields, discr):
-        raise NotImplementedError
+    @abstractmethod
+    def max_characteristic_velocity(self, actx, **kwargs):
+        r"""Return a maximum characteristic wavespeed for the operator.
 
-    def estimate_rk4_timestep(self, discr, t=None, fields=None):
-        """Estimate the largest stable timestep for an RK4 method.
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator.
+
+        Return a :class:`~meshmode.dof_array.DOFArray` or scalar
+        representing the (local or global) maximal characteristic velocity of
+        the operator.
         """
 
-        from grudge.dt_finding import (
-                dt_non_geometric_factor,
-                dt_geometric_factor)
-        return 1 / self.max_eigenvalue(t, fields, discr) \
-                * (dt_non_geometric_factor(discr)
-                * dt_geometric_factor(discr))
+    def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
+        r"""Estimate the largest stable timestep for an RK4 method.
+
+        :arg actx: a :class:`arraycontext.ArrayContext`.
+        :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
+        :arg \**kwargs: Optional keyword arguments for determining the
+            max characteristic velocity of the operator. These are passed
+            to :meth:`max_characteristic_velocity`.
+        """
+        from grudge.dt_utils import characteristic_lengthscales
+        import grudge.op as op
+
+        wavespeeds = self.max_characteristic_velocity(actx, **kwargs)
+        local_timesteps = (
+            characteristic_lengthscales(actx, dcoll) / wavespeeds
+        )
+
+        return op.nodal_min(dcoll, "vol", local_timesteps)

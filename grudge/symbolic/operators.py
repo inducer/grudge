@@ -525,6 +525,10 @@ class RefMassOperator(RefMassOperatorBase):
         weights = in_element_group.quadrature_rule().weights
         return np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand)
 
+    @staticmethod
+    def matrices(out_element_group, in_element_group):
+        return [RefMassOperator.matrix(out_element_group, in_element_group)]
+
     mapper_method = intern("map_ref_mass")
 
 
@@ -537,6 +541,10 @@ class RefInverseMassOperator(RefMassOperatorBase):
         return mp.inverse_mass_matrix(
                 basis.functions,
                 in_element_group.unit_nodes)
+
+    @staticmethod
+    def matrices(out_element_group, in_element_group):
+        return [RefInverseMassOperator.matrix(out_element_group, in_element_group)]
 
     mapper_method = intern("map_ref_inverse_mass")
 

@@ -1,0 +1,165 @@
+# transform ID -> fp format -> pn
+{
+	  72a3ce98-5d21-48bf-b402-6ee96bafd1b6: {
+      description: "Transformations for the NVIDIA Titan V"
+        # 64-bit or 32-bit kernel
+        FP32:{
+          # Polynomial order
+          2:[
+              # Format: [Transformation, args, kwargs]
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 10], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+          ],
+          3:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+          ],
+          4:[
+              # Move this to array context?
+              #["tag_array_axes", ["diff_mat", "sep,c,c"]],
+              #["tag_array_axes", ["result", "sep,f,f"]],
+              #["tag_array_axes", ["vec", "f,f"]],
+
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 35], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              #["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              #["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              #["split_iname", ["idof", 35], {outer_tag: "g.1", inner_tag: "l.1"}],
+              #["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              #["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+   
+          ],
+          5:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 192], {outer_tag: "g.0", slabs: [0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
+              ["split_iname", ["idof", 56], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["split_iname", ["j", 8], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "mat1fp", default_tag: "unr"}], 
+          6:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 128], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 42], {outer_tag: "g.1"}],
+              ["split_iname", ["idof_inner", 14], {outer_tag: "ilp", inner_tag: "l.1"}],
+              ["split_iname", ["j", 14], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              #["add_prefetch", ["mat2", "j_inner"], {temporary_name: "mat2fp", default_tag: "unr"}],
+              #["add_prefetch", ["mat3", "j_inner"], {temporary_name: "mat3fp", default_tag: "unr"}],
+              #["rename_iname", ["mat3_dim_1", "mat1_dim_1"], {existing_ok: true}],
+              #["rename_iname", ["mat2_dim_1", "mat1_dim_1"], {existing_ok: true}],
+          ], 
+          7:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 96], {outer_tag: "g.0", slabs: [0,1]}],
+              ["split_iname", ["iel_inner", 8], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
+              ["split_iname", ["idof", 120], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["split_iname", ["j", 8], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              #["add_prefetch", ["mat2", "j_inner"], {temporary_name: "mat2fp", default_tag: "unr"}],
+              #["add_prefetch", ["mat3", "j_inner"], {temporary_name: "mat3fp", default_tag: "unr"}],
+              #["rename_iname", ["mat3_dim_1", "mat1_dim_1"], {existing_ok: true}],
+              #["rename_iname", ["mat2_dim_1", "mat1_dim_1"], {existing_ok: true}],
+          ]
+        }
+        FP64: {
+          10:[
+              # Format: [Transformation, args, kwargs]
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 352], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 10], {outer_tag: "g.1"}], 
+              ["split_iname", ["idof_inner", 10], {outer_tag: "ilp", inner_tag: "l.1"}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["split_iname", ["j", 10], {outer_tag: "for", inner_tag: "for"}],
+              ["add_inames_for_unused_hw_axes"]
+          ],
+          20:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 288], {outer_tag: "g.0", slabs:[0,1]}],
+              # For tests uncomment this
+              ["split_iname", ["iel_inner", 32], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              #["split_iname", ["idof", 20], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["split_iname", ["idof", 20], {outer_tag: "g.1", slabs:[0,0]}], 
+              ["split_iname", ["idof_inner", 20], {outer_tag: "ilp", inner_tag: "l.1", slabs:[0,0]}],
+              # For tests comment this
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["split_iname", ["j", 5], {outer_tag: "for", inner_tag: "for"}],
+              #["add_prefetch", ["diff_mat", "j"], {temporary_name: "matfp", default_tag: "unr"}], 
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["add_inames_for_unused_hw_axes"]
+          ],
+          35:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 48], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}], 
+              ["split_iname", ["idof", 35], {outer_tag: "g.1", slabs:[0,0]}], 
+              ["split_iname", ["idof_inner", 35], {outer_tag: "ilp", inner_tag: "l.1", slabs:[0,0]}],
+              ["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              ["split_iname", ["j", 35], {outer_tag: "for", inner_tag: "for"}],
+              ["add_inames_for_unused_hw_axes"]
+          ],
+          56:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 48], {outer_tag: "g.0", slabs: [0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
+              #["split_iname", ["idof", 56], {outer_tag: "g.1", inner_tag:"l.1", slabs:[0,0]}],             
+              ["split_iname", ["idof", 56], {outer_tag: "g.1"}],             
+              ["split_iname", ["idof_inner", 14], {outer_tag: "ilp", inner_tag: "l.1", slabs:[0,0]}],
+              ["split_iname", ["j", 56], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["tag_array_axes", ["vecf", "f,f"]],
+              #["add_prefetch", ["diff_mat", "imatrix,idof_inner,j_outer,j_inner"], {temporary_name: "matf", default_tag: "l.auto"}], 
+              ["add_inames_for_unused_hw_axes"]
+              #["prioritize_loops", ["iel_outer,iel_inner_outer,iel_inner_inner,imatrix,j_outer,j_inner"]]
+            ]
+          84:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 64], {outer_tag: "g.0", slabs:[0,1]}],
+              ["split_iname", ["iel_inner", 16], {outer_tag: "ilp", inner_tag: "l.0", slabs:[0,1]}],
+              ["split_iname", ["idof", 42], {outer_tag: "g.1"}],
+              ["split_iname", ["idof_inner", 14], {outer_tag: "ilp", inner_tag: "l.1"}],
+              ["split_iname", ["j", 14], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "matfp", default_tag: "unr"}], 
+              ["rename_iname", ["mat3_dim_1", "mat1_dim_1"], {existing_ok: true}],
+              ["add_inames_for_unused_hw_axes"]
+          ], 
+          120:[
+              ["tag_inames", [[["imatrix", "ilp"]]]],
+              ["split_iname", ["iel", 48], {outer_tag: "g.0", slabs: [0,1]}],
+              ["split_iname", ["iel_inner", 8], {outer_tag: "ilp", inner_tag: "l.0", slabs: [0,1]}],
+              ["split_iname", ["idof", 120], {outer_tag: "g.1", inner_tag: "l.1"}],
+              ["split_iname", ["j", 8], {outer_tag: "for", inner_tag: "for"}],
+              ["add_prefetch", ["vec", "j_outer,j_inner,iel_inner_outer,iel_inner_inner"], {temporary_name: "vecf", default_tag: "l.auto"}],
+              ["add_prefetch", ["diff_mat", "j_inner"], {temporary_name: "matfp", default_tag: "unr"}], 
+
+              #["add_prefetch", ["mat2", "j_inner"], {temporary_name: "mat2fp", default_tag: "unr"}],
+              #["add_prefetch", ["mat3", "j_inner"], {temporary_name: "mat3fp", default_tag: "unr"}],
+              #["rename_iname", ["mat3_dim_1", "mat1_dim_1"], {existing_ok: true}],
+              #["rename_iname", ["mat2_dim_1", "mat1_dim_1"], {existing_ok: true}],
+          ]
+      }
+    }
+	  1d7cab16-19bd-4474-95f2-44ed1c0e60df: {}
+}

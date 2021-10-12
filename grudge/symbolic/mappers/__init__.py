@@ -591,9 +591,6 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
         self.ambient_dim = dcoll.ambient_dim
         self.dim = dcoll.dim
 
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-        self.use_wadg = not all(grp.is_affine for grp in volume_discr.groups)
-
     map_common_subexpression_uncached = \
             IdentityMapper.map_common_subexpression
 
@@ -627,7 +624,8 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                 rec_field = jac_tag * rec_field
 
                 return sum(
-                        ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
+                        imd(rst_axis) * ref_class(rst_axis, dd_in=dd_in)(rec_field)
+                        #ref_class(rst_axis, dd_in=dd_in)(rec_field * imd(rst_axis))
                         for rst_axis in range(self.dim))
             else:
                 return sum(
@@ -639,17 +637,10 @@ class GlobalToReferenceMapper(CSECachingMapperMixin, IdentityMapper):
                     jac_in * self.rec(expr.field))
 
         elif isinstance(expr.op, op.InverseMassOperator):
-            if self.use_wadg:
-                # based on https://arxiv.org/pdf/1608.03836.pdf
-                return op.RefInverseMassOperator(dd_in, dd_out)(
-                    op.RefMassOperator(dd_in, dd_out)(
-                        1.0/jac_in * op.RefInverseMassOperator(dd_in, dd_out)(
-                            self.rec(expr.field))
-                            )
-                    )
-            else:
-                return op.RefInverseMassOperator(dd_in, dd_out)(
-                        1/jac_in * self.rec(expr.field))
+            # based on https://arxiv.org/pdf/1608.03836.pdf
+            return (
+                    1.0/jac_in * op.RefInverseMassOperator(dd_in, dd_out)(
+                        self.rec(expr.field)))
 
         elif isinstance(expr.op, op.FaceMassOperator):
             jac_in_surf = sym.area_element(

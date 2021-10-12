@@ -1,4 +1,9 @@
-__copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
+"""Minimal example of a grudge driver."""
+
+__copyright__ = """
+Copyright (C) 2020 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,19 +29,24 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la  # noqa
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
+
+from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
 from pytools.obj_array import flat_obj_array
-
-from meshmode.array_context import PyOpenCLArrayContext
-from meshmode.dof_array import thaw
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
-import grudge.op as op
 from grudge.shortcuts import make_visualizer
-from grudge.symbolic.primitives import TracePair
+
+import grudge.op as op
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 # {{{ wave equation bits
@@ -48,7 +58,7 @@ def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(u.int.array_context, op.normal(dcoll, dd))
+    normal = thaw(dcoll.normal(dd), u.int.array_context)
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -87,19 +97,28 @@ def wave_operator(dcoll, c, w):
     dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
 
     return (
-            op.inverse_mass(dcoll,
-                flat_obj_array(
-                    -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
-                    -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
-                    )
-                +  # noqa: W504
-                op.face_mass(dcoll,
-                    dd_allfaces_quad,
-                    wave_flux(dcoll, c=c, w_tpair=op.interior_trace_pair(dcoll, w))
-                    + wave_flux(dcoll, c=c, w_tpair=TracePair(
-                        BTAG_ALL, interior=dir_bval, exterior=dir_bc))
-                    ))
+        op.inverse_mass(
+            dcoll,
+            flat_obj_array(
+                -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
+                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
+                # pylint: disable=invalid-unary-operand-type
+            ) + op.face_mass(
+                dcoll,
+                dd_allfaces_quad,
+                wave_flux(
+                    dcoll, c=c,
+                    w_tpair=op.bdry_trace_pair(dcoll,
+                                               BTAG_ALL,
+                                               interior=dir_bval,
+                                               exterior=dir_bc)
+                ) + sum(
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    for tpair in op.interior_trace_pairs(dcoll, w)
                 )
+            )
+        )
+    )
 
 # }}}
 
@@ -112,6 +131,14 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
+def estimate_rk4_timestep(actx, dcoll, c):
+    from grudge.dt_utils import characteristic_lengthscales
+
+    local_dts = characteristic_lengthscales(actx, dcoll) / c
+
+    return op.nodal_min(dcoll, "vol", local_dts)
+
+
 def bump(actx, dcoll, t=0, width=0.05, center=None):
     if center is None:
         center = np.array([0.2, 0.35, 0.1])
@@ -119,7 +146,7 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
     center = center[:dcoll.dim]
     source_omega = 3
 
-    nodes = thaw(actx, op.nodes(dcoll))
+    nodes = thaw(dcoll.nodes(), actx)
     center_dist = flat_obj_array([
         nodes[i] - center[i]
         for i in range(dcoll.dim)
@@ -132,12 +159,15 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
             / width**2))
 
 
-def main():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+def main(ctx_factory, dim=2, order=3, visualize=False):
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+    actx = GrudgeArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
+    )
 
-    dim = 2
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
@@ -145,32 +175,22 @@ def main():
             b=(0.5,)*dim,
             nelements_per_axis=(nel_1d,)*dim)
 
-    order = 3
-
-    if dim == 2:
-        # no deep meaning here, just a fudge factor
-        dt = 0.75/(nel_1d*order**2)
-    elif dim == 3:
-        # no deep meaning here, just a fudge factor
-        dt = 0.45/(nel_1d*order**2)
-    else:
-        raise ValueError("don't have a stable time step guesstimate")
-
-    print("%d elements" % mesh.nelements)
+    logger.info("%d elements", mesh.nelements)
 
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
-            PolynomialWarpAndBlendGroupFactory
+            default_simplex_group_factory
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
         }
     )
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
+    dt = 0.5 * estimate_rk4_timestep(actx, dcoll, c=1)
 
     fields = flat_obj_array(
             bump(actx, dcoll, ),
@@ -182,6 +202,8 @@ def main():
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
+    logger.info("dt = %g", dt)
+
     t = 0
     t_final = 3
     istep = 0
@@ -189,19 +211,42 @@ def main():
         fields = rk4_step(fields, t, dt, rhs)
 
         if istep % 10 == 0:
-            print(istep, t, op.norm(dcoll, fields[0], p=2))
-            vis.write_vtk_file("fld-wave-eager-var-velocity-%04d.vtu" % istep,
+            logger.info(f"step: {istep} t: {t} "
+                        f"L2: {op.norm(dcoll, fields[0], 2)} "
+                        f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
+                        f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
+                        f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+            if visualize:
+                vis.write_vtk_file(
+                    f"fld-wave-eager-var-velocity-{istep:04d}.vtu",
                     [
                         ("c", c),
                         ("u", fields[0]),
                         ("v", fields[1:]),
-                        ])
+                    ]
+                )
 
         t += dt
         istep += 1
 
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
+        assert op.norm(dcoll, fields[0], 2) < 1
+
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    main(cl.create_some_context,
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)
 
 # vim: foldmethod=marker
