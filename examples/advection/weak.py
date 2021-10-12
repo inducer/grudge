@@ -1,4 +1,9 @@
-__copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
+"""Minimal example of a grudge driver."""
+
+__copyright__ = """
+Copyright (C) 2007 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,15 +30,17 @@ import numpy as np
 import numpy.linalg as la
 
 import pyopencl as cl
+import pyopencl.tools as cl_tools
 
-#from meshmode.array_context import PyOpenCLArrayContext
 from grudge.grudge_array_context import GrudgeArrayContext
-from meshmode.dof_array import thaw, flatten
+from arraycontext import thaw
+from grudge.array_context import PyOpenCLArrayContext
+
+from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
 
-from grudge import bind, sym
-
 import grudge.dof_desc as dof_desc
+import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
@@ -42,9 +49,9 @@ logger = logging.getLogger(__name__)
 # {{{ plotting (keep in sync with `var-velocity.py`)
 
 class Plotter:
-    def __init__(self, actx, discr, order, visualize=True, ylim=None):
+    def __init__(self, actx, dcoll, order, visualize=True, ylim=None):
         self.actx = actx
-        self.dim = discr.ambient_dim
+        self.dim = dcoll.ambient_dim
 
         self.visualize = visualize
         if not self.visualize:
@@ -55,11 +62,11 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
-            volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(actx, volume_discr.nodes()[0])))
+            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
         else:
             from grudge.shortcuts import make_visualizer
-            self.vis = make_visualizer(discr)
+            self.vis = make_visualizer(dcoll)
 
     def __call__(self, evt, basename, overwrite=True):
         if not self.visualize:
@@ -96,7 +103,11 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    actx = GrudgeArrayContext(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        force_device_scalars=True,
+    )
 
     # {{{ parameters
 
@@ -104,21 +115,14 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     d = 1.0
     # number of points in each dimension
     npoints = 20
-    # grid spacing
-    h = d / npoints
 
-    # cfl
-    dt_factor = 2.0
     # final time
     final_time = 1.0
-    # compute number of steps
-    dt = dt_factor * h/order**2
-    nsteps = int(final_time // dt) + 1
-    dt = final_time/nsteps + 1.0e-15
 
     # velocity field
     c = np.array([0.5] * dim)
     norm_c = la.norm(c)
+
     # flux
     flux_type = "central"
 
@@ -132,29 +136,40 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             order=order)
 
     from grudge import DiscretizationCollection
-    discr = DiscretizationCollection(actx, mesh, order=order)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     # }}}
 
-    # {{{ symbolic operators
+    # {{{ weak advection operator
 
     def f(x):
-        return sym.sin(3 * x)
+        return actx.np.sin(3 * x)
 
-    def u_analytic(x):
-        t = sym.var("t", dof_desc.DD_SCALAR)
+    def u_analytic(x, t=0):
         return f(-np.dot(c, x) / norm_c + t * norm_c)
 
     from grudge.models.advection import WeakAdvectionOperator
-    op = WeakAdvectionOperator(c,
-        inflow_u=u_analytic(sym.nodes(dim, BTAG_ALL)),
-        flux_type=flux_type)
 
-    bound_op = bind(discr, op.sym_operator())
-    u = bind(discr, u_analytic(sym.nodes(dim)))(actx, t=0)
+    adv_operator = WeakAdvectionOperator(
+        dcoll,
+        c,
+        inflow_u=lambda t: u_analytic(
+            thaw(dcoll.nodes(dd=BTAG_ALL), actx),
+            t=t
+        ),
+        flux_type=flux_type
+    )
+
+    nodes = thaw(dcoll.nodes(), actx)
+    u = u_analytic(nodes, t=0)
 
     def rhs(t, u):
-        return bound_op(t=t, u=u)
+        return adv_operator.operator(t, u)
+
+    dt = adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u)
+
+    logger.info("Timestep size: %g", dt)
 
     # }}}
 
@@ -162,10 +177,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     from grudge.shortcuts import set_up_rk4
     dt_stepper = set_up_rk4("u", dt, u, rhs)
-    plot = Plotter(actx, discr, order, visualize=visualize,
+    plot = Plotter(actx, dcoll, order, visualize=visualize,
             ylim=[-1.1, 1.1])
-
-    norm = bind(discr, sym.norm(2, sym.var("u")))
 
     step = 0
     norm_u = 0.0
@@ -174,11 +187,15 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             continue
 
         if step % 10 == 0:
-            norm_u = norm(u=event.state_component)
+            norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
             plot(event, "fld-weak-%04d" % step)
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+
+        # NOTE: These are here to ensure the solution is bounded for the
+        # time interval specified
+        assert norm_u < 1
 
     # }}}
 
@@ -187,9 +204,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=3, type=int)
+    parser.add_argument("--dim", default=2, type=int)
+    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
-            dim=args.dim)
+         dim=args.dim,
+         order=args.order,
+         visualize=args.visualize)

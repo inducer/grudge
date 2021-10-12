@@ -21,21 +21,23 @@ THE SOFTWARE.
 """
 
 
-from meshmode.array_context import (  # noqa
-    pytest_generate_tests_for_pyopencl_array_context
-    as pytest_generate_tests
-)
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
+from arraycontext import thaw
+
 from meshmode.discretization.poly_element import (
     # Simplex group factories
     InterpolatoryQuadratureSimplexGroupFactory,
-    PolynomialWarpAndBlendGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     PolynomialEquidistantSimplexGroupFactory,
     # Tensor product group factories
     LegendreGaussLobattoTensorProductGroupFactory,
     # Quadrature-based (non-interpolatory) group factories
     QuadratureSimplexGroupFactory
-    )
-from meshmode.dof_array import thaw
+)
+from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
 from grudge import DiscretizationCollection
@@ -46,7 +48,7 @@ import pytest
 
 @pytest.mark.parametrize("nodal_group_factory", [
     InterpolatoryQuadratureSimplexGroupFactory,
-    PolynomialWarpAndBlendGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     PolynomialEquidistantSimplexGroupFactory,
     LegendreGaussLobattoTensorProductGroupFactory,
     ]
@@ -74,7 +76,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     dd_modal = dof_desc.DD_VOLUME_MODAL
     dd_volume = dof_desc.DD_VOLUME
 
-    x_nodal = thaw(actx, dcoll.discr_from_dd(dd_volume).nodes()[0])
+    x_nodal = thaw(dcoll.discr_from_dd(dd_volume).nodes()[0], actx)
     nodal_f = f(x_nodal)
 
     # Map nodal coefficients of f to modal coefficients
@@ -86,7 +88,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
 
     # This error should be small since we composed a map with
     # its inverse
-    err = actx.np.linalg.norm(nodal_f - nodal_f_2)
+    err = flat_norm(nodal_f - nodal_f_2)
 
     assert err <= 1e-13
 
@@ -107,7 +109,8 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            dof_desc.DISCR_TAG_BASE: PolynomialWarpAndBlendGroupFactory(order),
+            dof_desc.DISCR_TAG_BASE:
+            PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
             dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }
     )
@@ -117,7 +120,7 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL,
                                dof_desc.DISCR_TAG_QUAD)
 
-    x_quad = thaw(actx, dcoll.discr_from_dd(dd_quad).nodes()[0])
+    x_quad = thaw(dcoll.discr_from_dd(dd_quad).nodes()[0], actx)
     quad_f = f(x_quad)
 
     # Map nodal coefficients of f to modal coefficients
@@ -129,6 +132,6 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
 
     # This error should be small since we composed a map with
     # its inverse
-    err = actx.np.linalg.norm(quad_f - quad_f_2)
+    err = flat_norm(quad_f - quad_f_2)
 
     assert err <= 1e-11

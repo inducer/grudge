@@ -34,6 +34,7 @@ from pymbolic.primitives import (
         cse_scope as cse_scope_base,
         make_common_subexpression as cse)
 from pymbolic.geometric_algebra import MultiVector
+from grudge.trace_pair import TracePair
 
 
 class ExpressionBase(prim.Expression):
@@ -94,10 +95,9 @@ Geometry data
 .. autofunction:: summed_curvature
 .. autofunction:: mean_curvature
 
-Trace Pair
-^^^^^^^^^^
+Symbolic trace pair functions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: TracePair
 .. autofunction:: int_tpair
 .. autofunction:: bv_tpair
 .. autofunction:: bdry_tpair
@@ -668,64 +668,7 @@ def mean_curvature(ambient_dim, dim=None, dd=None):
 # }}}
 
 
-# {{{ trace pair
-
-class TracePair:
-    """
-    .. attribute:: dd
-
-        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
-        discretization on which :attr:`interior` and :attr:`exterior`
-        live.
-
-    .. attribute:: interior
-
-        a value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
-        or object array of either) representing the interior value to
-        be used for the flux.
-
-    .. attribute:: exterior
-
-        a value (symbolic expression or :class:`~meshmode.dof_array.DOFArray`
-        or object array of either) representing the exterior value to
-        be used for the flux.
-
-    .. note::
-
-        :class:`TracePair` is used both by the symbolic and the eager interface,
-        with symbolic information or concrete data.
-    """
-    def __init__(self, dd, *, interior, exterior):
-        """
-        """
-        import grudge.dof_desc as dof_desc
-
-        self.dd = dof_desc.as_dofdesc(dd)
-        self.interior = interior
-        self.exterior = exterior
-
-    def __getitem__(self, index):
-        return TracePair(
-                self.dd,
-                interior=self.interior[index],
-                exterior=self.exterior[index])
-
-    def __len__(self):
-        assert len(self.exterior) == len(self.interior)
-        return len(self.exterior)
-
-    @property
-    def int(self):
-        return self.interior
-
-    @property
-    def ext(self):
-        return self.exterior
-
-    @property
-    def avg(self):
-        return 0.5*(self.int + self.ext)
-
+# {{{ Symbolic trace pair functions
 
 def int_tpair(expression, qtag=None, from_dd=None):
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR

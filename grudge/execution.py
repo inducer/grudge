@@ -20,6 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
+from arraycontext import ArrayContext, make_loopy_program, thaw
+
 from typing import Optional, Union, Dict
 from numbers import Number
 import numpy as np
@@ -28,7 +31,6 @@ from pytools import memoize_in
 from pytools.obj_array import make_obj_array
 
 import loopy as lp
-import pyopencl as cl
 import pyopencl.array  # noqa
 
 from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
@@ -42,8 +44,8 @@ from grudge.function_registry import base_function_registry
 
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_array_context import GrudgeArrayContext
-from grudge.grudge_tags import (IsVecDOFArray,
-    IsFaceDOFArray, IsVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
+from grudge.grudge_tags import (IsSepVecDOFArray,
+    IsFaceDOFArray, IsSepVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -75,15 +77,15 @@ def diff_prg(n_mat, n_elem, n_nodes, fp_format,
         """,
         kernel_data=[
             lp.GlobalArg("result", fp_format, shape=(n_mat, n_elem, n_out),
-                offset=lp.auto, tags=IsVecDOFArray(), is_output_only=True),
+                offset=lp.auto, tags=[IsSepVecDOFArray()], is_output=True),
             lp.GlobalArg("diff_mat", fp_format, shape=(n_mat, n_out, n_in),
-                offset=lp.auto, tags=IsVecOpArray()),
+                offset=lp.auto, tags=[IsSepVecOpArray()]),
             lp.GlobalArg("vec", fp_format, shape=(n_elem, n_in),
-                offset=lp.auto, tags=IsDOFArray()),
-            lp.ValueArg("nelements", tags=ParameterValue(n_elem)),
-            lp.ValueArg("nmatrices", tags=ParameterValue(n_mat)),
-            lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(n_out)),
-            lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(n_in))
+                offset=lp.auto, tags=[IsDOFArray()]),
+            lp.ValueArg("nelements", tags=[ParameterValue(n_elem)]),
+            lp.ValueArg("nmatrices", tags=[ParameterValue(n_mat)]),
+            lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(n_out)]),
+            lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(n_in)])
         ],
         assumptions="nelements > 0 \
                      and ndiscr_nodes_out > 0 \
@@ -114,12 +116,12 @@ def elwise_linear_prg(nelements, nnodes_out, fp_format, nnodes_in=None, options=
             result[iel, idof] = sum(j, mat[idof, j] * vec[iel, j])
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=IsDOFArray()),
-                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=IsDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=IsOpArray()),
-                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                lp.ValueArg("ndiscr_nodes_out", tags=ParameterValue(nnodes_out)),
-                lp.ValueArg("ndiscr_nodes_in", tags=ParameterValue(nnodes_in)),
+                lp.GlobalArg("result", fp_format, shape=(nelements, nnodes_out), tags=[IsDOFArray()]),
+                lp.GlobalArg("vec", fp_format, shape=(nelements, nnodes_in), tags=[IsDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nnodes_out,nnodes_in), tags=[IsOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("ndiscr_nodes_out", tags=[ParameterValue(nnodes_out)]),
+                lp.ValueArg("ndiscr_nodes_in", tags=[ParameterValue(nnodes_in)]),
             ],
             assumptions="nelements > 0 \
                         and ndiscr_nodes_out > 0 \
@@ -149,13 +151,13 @@ def face_mass_prg(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
             result[iel,idof] = sum(f, sum(j, mat[idof, f, j] * vec[f, iel, j]))
             """,
             kernel_data=[
-                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=IsDOFArray(), is_output_only=True),
-                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=IsFaceDOFArray()),
-                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=IsFaceMassOpArray()),
-                lp.ValueArg("nelements", tags=ParameterValue(nelements)),
-                lp.ValueArg("nfaces", tags=ParameterValue(nfaces)),
-                lp.ValueArg("nvol_nodes", tags=ParameterValue(nvol_nodes)),
-                lp.ValueArg("nface_nodes", tags=ParameterValue(nface_nodes)), 
+                lp.GlobalArg("result", fp_format, shape=(nelements, nvol_nodes), tags=[IsDOFArray()], is_output=True),
+                lp.GlobalArg("vec", fp_format, shape=(nfaces, nelements, nface_nodes), tags=[IsFaceDOFArray()]),
+                lp.GlobalArg("mat", fp_format, shape=(nvol_nodes, nfaces, nface_nodes), tags=[IsFaceMassOpArray()]),
+                lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                lp.ValueArg("nfaces", tags=[ParameterValue(nfaces)]),
+                lp.ValueArg("nvol_nodes", tags=[ParameterValue(nvol_nodes)]),
+                lp.ValueArg("nface_nodes", tags=[ParameterValue(nface_nodes)]), 
                 "..."
             ],
             name="face_mass")
@@ -188,15 +190,18 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_node_coordinate_component(self, expr):
         discr = self.dcoll.discr_from_dd(expr.dd)
-        return thaw(self.array_context, discr.nodes(
-            # only save volume nodes or boundary nodes
-            # (but not nodes for interior face discretizations, which are likely only
-            # used once to compute the normals)
-            cached=(
-                discr.ambient_dim == discr.dim
-                or expr.dd.is_boundary_or_partition_interface()
+        return thaw(
+            discr.nodes(
+                # only save volume nodes or boundary nodes
+                # (but not nodes for interior face discretizations, which
+                # are likely only used once to compute the normals)
+                cached=(
+                    discr.ambient_dim == discr.dim
+                    or expr.dd.is_boundary_or_partition_interface()
                 )
-            )[expr.axis])
+            )[expr.axis],
+            self.array_context
+        )
 
     def map_grudge_variable(self, expr):
         from numbers import Number
@@ -244,8 +249,8 @@ class ExecutionMapper(mappers.Evaluator,
                 result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
                 kernel_data=[
-                    lp.GlobalArg("result", None, shape=lp.auto, tags=IsDOFArray()),
-                    lp.GlobalArg("operand", None, shape=lp.auto, tags=IsDOFArray()),
+                    lp.GlobalArg("result", None, shape=lp.auto, tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", None, shape=lp.auto, tags=[IsDOFArray()]),
                     ...
                 ],
                 name="grudge_elementwise_%s" % op_name)
@@ -278,26 +283,23 @@ class ExecutionMapper(mappers.Evaluator,
     # {{{ nodal reductions
 
     def map_nodal_sum(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return sum([
-                cl.array.sum(grp_ary).get()[()]
-                for grp_ary in self.rec(field_expr)
-                ])
+        actx = self.array_context
+        return sum([actx.np.sum(grp_ary)
+                    for grp_ary in self.rec(field_expr)])
 
     def map_nodal_max(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return np.max([
-            cl.array.max(grp_ary).get()[()]
-            for grp_ary in self.rec(field_expr)])
+        from functools import reduce
+        actx = self.array_context
+        return reduce(lambda acc, grp_ary: actx.np.maximum(acc,
+                                                           actx.np.max(grp_ary)),
+                      self.rec(field_expr), -np.inf)
 
     def map_nodal_min(self, op, field_expr):
-        # FIXME: Could allow array scalars
-        # FIXME: Fix CL-specific-ness
-        return np.min([
-            cl.array.min(grp_ary).get()[()]
-            for grp_ary in self.rec(field_expr)])
+        from functools import reduce
+        actx = self.array_context
+        return reduce(lambda acc, grp_ary: actx.np.minimum(acc,
+                                                           actx.np.min(grp_ary)),
+                      self.rec(field_expr), np.inf)
 
     # }}}
 
@@ -447,7 +449,7 @@ class ExecutionMapper(mappers.Evaluator,
 
     def map_opposite_partition_face_swap(self, op, field_expr):
         assert op.dd_in == op.dd_out
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(op.dd_in)
+        bdry_conn = self.dcoll.distributed_boundary_swap_connection(op.dd_in)
         remote_bdry_vec = self.rec(field_expr)  # swapped by RankDataSwapAssign
         return bdry_conn(remote_bdry_vec)
 

@@ -24,7 +24,6 @@ THE SOFTWARE.
 import numpy as np
 
 import meshmode.mesh.generation as mgen
-from meshmode.dof_array import thaw
 
 from pytools.obj_array import make_obj_array
 
@@ -32,9 +31,13 @@ from grudge import op, DiscretizationCollection
 from grudge.dof_desc import DOFDesc
 
 import pytest
-from meshmode.array_context import (  # noqa
-        pytest_generate_tests_for_pyopencl_array_context
-        as pytest_generate_tests)
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from arraycontext import pytest_generate_tests_for_array_contexts
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
+
+from arraycontext.container.traversal import thaw
 
 import logging
 
@@ -68,25 +71,25 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def f(x):
             result = dcoll.zeros(actx) + 1
             for i in range(dim-1):
-                result *= actx.np.sin(np.pi*x[i])
-            result *= actx.np.cos(np.pi/2*x[dim-1])
+                result = result * actx.np.sin(np.pi*x[i])
+            result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def grad_f(x):
             result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
-                    result[i] *= actx.np.sin(np.pi*x[j])
-                result[i] *= np.pi*actx.np.cos(np.pi*x[i])
+                    result[i] = result[i] * actx.np.sin(np.pi*x[j])
+                result[i] = result[i] * np.pi*actx.np.cos(np.pi*x[i])
                 for j in range(i+1, dim-1):
-                    result[i] *= actx.np.sin(np.pi*x[j])
-                result[i] *= actx.np.cos(np.pi/2*x[dim-1])
+                    result[i] = result[i] * actx.np.sin(np.pi*x[j])
+                result[i] = result[i] * actx.np.cos(np.pi/2*x[dim-1])
             for j in range(dim-1):
-                result[dim-1] *= actx.np.sin(np.pi*x[j])
-            result[dim-1] *= -np.pi/2*actx.np.sin(np.pi/2*x[dim-1])
+                result[dim-1] = result[dim-1] * actx.np.sin(np.pi*x[j])
+            result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
-        x = thaw(actx, op.nodes(dcoll))
+        x = thaw(dcoll.nodes(), actx)
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -96,7 +99,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(actx, op.normal(dcoll, dd))
+            normal = thaw(dcoll.normal(dd), actx)
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -121,8 +124,10 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                    sum(get_flux(utpair)
+                        for utpair in op.interior_trace_pairs(dcoll, u))
                 )
+            )
         else:
             raise ValueError("Invalid form argument.")
 
@@ -186,8 +191,8 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def f(x):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
-                result *= actx.np.sin(np.pi*x[i])
-            result *= actx.np.cos(np.pi/2*x[dim-1])
+                result = result * actx.np.sin(np.pi*x[i])
+            result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def div_f(x):
@@ -195,20 +200,20 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
                 for j in range(i):
-                    deriv *= actx.np.sin(np.pi*x[j])
-                deriv *= np.pi*actx.np.cos(np.pi*x[i])
+                    deriv = deriv * actx.np.sin(np.pi*x[j])
+                deriv = deriv * np.pi*actx.np.cos(np.pi*x[i])
                 for j in range(i+1, dim-1):
-                    deriv *= actx.np.sin(np.pi*x[j])
-                deriv *= actx.np.cos(np.pi/2*x[dim-1])
-                result += deriv
+                    deriv = deriv * actx.np.sin(np.pi*x[j])
+                deriv = deriv * actx.np.cos(np.pi/2*x[dim-1])
+                result = result + deriv
             deriv = dcoll.zeros(actx) + dim
             for j in range(dim-1):
-                deriv *= actx.np.sin(np.pi*x[j])
-            deriv *= -np.pi/2*actx.np.sin(np.pi/2*x[dim-1])
-            result += deriv
+                deriv = deriv * actx.np.sin(np.pi*x[j])
+            deriv = deriv * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
+            result = result + deriv
             return result
 
-        x = thaw(actx, op.nodes(dcoll))
+        x = thaw(dcoll.nodes(), actx)
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -220,7 +225,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(actx, op.normal(dcoll, dd))
+            normal = thaw(dcoll.normal(dd), actx)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
@@ -238,8 +243,10 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
-                    get_flux(op.interior_trace_pair(dcoll, u)))
+                    sum(get_flux(utpair)
+                        for utpair in op.interior_trace_pairs(dcoll, u))
                 )
+            )
         else:
             raise ValueError("Invalid form argument.")
 

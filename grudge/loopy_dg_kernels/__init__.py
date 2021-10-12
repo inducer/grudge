@@ -31,6 +31,8 @@ lp.set_caching_enabled(False)
 import loopy.options
 loopy.options.ALLOW_TERMINAL_COLORS = False
 
+# A lot of this could probably be deleted
+
 def gen_face_mass_knl_merged(nelements, nfaces, nvol_nodes, nface_nodes, fp_format):
     knl =  lp.make_kernel(
          """{[iel,idof,fj]:
@@ -378,7 +380,7 @@ def generate_transformation_list(k_inner_outer, k_inner_inner, i_inner_outer,
     #transformations.append(("tag_array_axes", ["result", "sep,f,f"]))
 
     # Split and tag inames
-    transformations.append(("tag_inames", [[("imatrix", "ilp")]]))
+    #transformations.append(("tag_inames", [[("imatrix", "ilp")]]))
     transformations.append(("split_iname", ["iel", k_inner_outer], {"outer_tag": "g.0",
                             "slabs": (0, 1)}))
     transformations.append(("split_iname", ["iel_inner", k_inner_inner],
@@ -413,19 +415,12 @@ def apply_transformation_list(knl, transformations):
     # bounds
     #print(knl)
     for t in transformations:
-        #print(t)
+        print(t)
         func = function_mapping[t[0]]
         args = [knl]
         if len(t) > 1:
             args = args + t[1]
         kwargs = t[2] if len(t) > 2 else {}
-        #print(t)
         knl = func(*args, **kwargs)
 
     return knl
-
-#knl = gen_diff_knl_fortran2(3, 128, 10, 10)
-#trans = generate_transformation_list(64, 32, 10, 10, 10)
-#knl = apply_transformation_list(knl, trans)
-#code = lp.generate_code_v2(knl).device_code()
-#print(code)

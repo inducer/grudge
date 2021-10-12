@@ -1,30 +1,33 @@
 """
-.. autofunction:: project
-.. autofunction:: nodes
+Core DG routines
+^^^^^^^^^^^^^^^^
+
+Elementwise differentiation
+---------------------------
 
 .. autofunction:: local_grad
 .. autofunction:: local_d_dx
 .. autofunction:: local_div
 
+Weak derivative operators
+-------------------------
+
 .. autofunction:: weak_local_grad
 .. autofunction:: weak_local_d_dx
 .. autofunction:: weak_local_div
 
-.. autofunction:: normal
+Mass, inverse mass, and face mass operators
+-------------------------------------------
+
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
-
-.. autofunction:: norm
-.. autofunction:: nodal_sum
-.. autofunction:: nodal_min
-.. autofunction:: nodal_max
-
-.. autofunction:: interior_trace_pair
-.. autofunction:: cross_rank_trace_pairs
 """
 
-__copyright__ = "Copyright (C) 2021 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2021 Andreas Kloeckner
+Copyright (C) 2021 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -47,104 +50,238 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
-from pytools import memoize_on_first_arg
+from arraycontext import ArrayContext
+from meshmode.transform_metadata import FirstAxisIsElementsTag
 
-import numpy as np  # noqa
+from grudge.discretization import DiscretizationCollection
+
+from pytools import keyed_memoize_in
 from pytools.obj_array import obj_array_vectorize, make_obj_array
-import pyopencl.array as cla  # noqa
-from grudge import sym, bind
+
+from meshmode.dof_array import DOFArray
+
+import numpy as np
+import loopy as lp
 
 import grudge.dof_desc as dof_desc
 
-from meshmode.mesh import BTAG_ALL, BTAG_NONE, BTAG_PARTITION  # noqa
-from meshmode.dof_array import freeze, flatten, unflatten
+from grudge.grudge_tags import (KernelDataTag, IsDOFArray, IsOpArray, 
+    ParameterValue, IsVecOpArray, IsVecDOFArray, IsFourAxisDOFArray,
+    IsFaceMassOpArray, IsFaceDOFArray)
 
-from grudge.symbolic.primitives import TracePair
+from grudge.interpolation import interp  # noqa: F401
+from grudge.projection import project  # noqa: F401
+
+from grudge.reductions import (  # noqa: F401
+    norm,
+    nodal_sum,
+    nodal_min,
+    nodal_max,
+    nodal_sum_loc,
+    nodal_min_loc,
+    nodal_max_loc,
+    integral,
+    elementwise_sum,
+    elementwise_max,
+    elementwise_min,
+    elementwise_integral,
+)
+
+from grudge.trace_pair import (  # noqa: F401
+    interior_trace_pair,
+    interior_trace_pairs,
+    connected_ranks,
+    cross_rank_trace_pairs,
+    bdry_trace_pair,
+    bv_trace_pair
+)
 
 
-# def interp(dcoll, src, tgt, vec):
-#     from warnings import warn
-#     warn("using 'interp' is deprecated, use 'project' instead.",
-#             DeprecationWarning, stacklevel=2)
-#
-#     return dcoll.project(src, tgt, vec)
+# {{{ common derivative "kernels"
 
+def _single_axis_derivative_kernel(
+        actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, xyz_axis, vec,
+        *, metric_in_matvec):
+    # This gets used from both the strong and the weak derivative. These differ
+    # in three ways:
+    # - which differentiation matrix gets used,
+    # - whether inv_jac_mat is pre-multiplied by a factor that includes the
+    #   area element, and
+    # - whether the chain rule terms ("inv_jac_mat") sit outside (strong)
+    #   or inside (weak) the matrix-vector product that carries out the
+    #   derivative, cf. "metric_in_matvec".
 
-def project(dcoll, src, tgt, vec):
-    """Project from one discretization to another, e.g. from the
-    volume to the boundary, or from the base to the an overintegrated
-    quadrature discretization.
+    data = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        ref_stiffT_mat = get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    )
+        
+        fp_format = vec_i.dtype
+        Nr, Ni, _ = ref_stiffT_mat.shape
+        Ne, Nj = vec_i.shape
 
-    :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
-    :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("ref_stiffT_mat", fp_format, shape=(Nr, Ni, Nj), offset=lp.auto, tags=[IsVecOpArray()]),
+            lp.GlobalArg("inv_jac_t", fp_format, shape=(Nr, Ne, Nj), offset=lp.auto, tags=[IsVecDOFArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nr", tags=[ParameterValue(Nr)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
+                    ijm_i[xyz_axis],
+                    ref_stiffT_mat,
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag)))
+
+    return DOFArray(actx, data = tuple(data))
+
     """
-    src = dof_desc.as_dofdesc(src)
-    tgt = dof_desc.as_dofdesc(tgt)
-    if src == tgt:
-        return vec
+    return DOFArray(
+        actx,
+        data=tuple(
+            # r for rst axis
+            actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
+                        ijm_i[xyz_axis],
+                        get_diff_mat(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        vec_i,
+                        arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
+                        tagged=(FirstAxisIsElementsTag(),))
 
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: project(dcoll, src, tgt, el), vec)
-
-    if isinstance(vec, Number):
-        return vec
-
-    return dcoll.connection_from_dds(src, tgt)(vec)
-
-
-# {{{ geometric properties
-
-def nodes(dcoll, dd=None):
-    r"""Return the nodes of a discretization.
-
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization.
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
+            for out_grp, in_grp, vec_i, ijm_i in zip(
+                out_discr.groups, in_discr.groups, vec,
+                inv_jac_mat)))
     """
-    if dd is None:
-        return dcoll._volume_discr.nodes()
-    else:
-        return dcoll.discr_from_dd(dd).nodes()
 
 
-@memoize_on_first_arg
-def normal(dcoll, dd):
-    """Get unit normal to specified surface discretization, *dd*.
+def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
+        *, metric_in_matvec):
+    # See _single_axis_derivative_kernel for comments on the usage scenarios
+    # (both strong and weak derivative) and their differences.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-    :returns: an object array of :class:`~meshmode.dof_array.DOFArray`.
+    per_group_grads = []
+    for out_grp, in_grp, vec_i, ijm_i, in zip(out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+
+        ref_stiffT_mat = get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    )
+
+        fp_format = vec_i.dtype
+        Nx, _, _, _ = inv_jac_mat._data[0].shape
+        Nr, Ni, _ = ref_stiffT_mat.shape
+        Ne, Nj = vec_i.shape
+
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("ref_stiffT_mat", fp_format, shape=(Nr, Ni, Nj), offset=lp.auto, tags=[IsVecOpArray()]),
+            lp.GlobalArg("inv_jac_t", fp_format, shape=(Nx, Nr, Ne, Nj), offset=lp.auto, tags=[IsFourAxisDOFArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Nx, Ne, Ni), offset=lp.auto, tags=[IsVecDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nr", tags=[ParameterValue(Nr)]),
+            lp.ValueArg("Nx", tags=[ParameterValue(Nx)]),
+            ...
+        ]
+        
+        kd_tag = KernelDataTag(kernel_data)
+
+        # r for rst axis
+        # x for xyz axis
+        per_group_grads.append(actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
+                    ijm_i,
+                    get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    ),
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag)))
+       
+
     """
-    surface_discr = dcoll.discr_from_dd(dd)
-    actx = surface_discr._setup_actx
-    return freeze(
-            bind(dcoll,
-                sym.normal(dd, surface_discr.ambient_dim, surface_discr.dim),
-                local_only=True)
-            (array_context=actx))
+    per_group_grads = [
+        # r for rst axis
+        # x for xyz axis
+        actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
+                    ijm_i,
+                    get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    ),
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),))
+        for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec,
+            inv_jac_mat)]
+    """
+
+    return make_obj_array([
+            DOFArray(
+                actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_grads]))
+            for xyz_axis in range(out_discr.ambient_dim)])
 
 # }}}
 
 
-# {{{ derivatives
+# {{{ Derivative operators
 
-@memoize_on_first_arg
-def _bound_grad(dcoll):
-    return bind(dcoll, sym.nabla(dcoll.dim) * sym.Variable("u"), local_only=True)
+def _reference_derivative_matrices(actx: ArrayContext,
+        out_element_group, in_element_group):
+    # We're accepting in_element_group for interface consistency with
+    # _reference_stiffness_transpose_matrix.
+    assert out_element_group is in_element_group
+
+    @keyed_memoize_in(
+        actx, _reference_derivative_matrices,
+        lambda grp: grp.discretization_key())
+    def get_ref_derivative_mats(grp):
+        from meshmode.discretization.poly_element import diff_matrices
+        return actx.freeze(
+            actx.from_numpy(
+                np.asarray(
+                    [dfmat for dfmat in diff_matrices(grp)]
+                )
+            )
+        )
+    return get_ref_derivative_mats(out_element_group)
 
 
-def local_grad(dcoll, vec, *, nested=False):
-    r"""Return the element-local gradient of the volume function represented by
-    *vec*.
+def local_grad(
+        dcoll: DiscretizationCollection, vec, *, nested=False) -> np.ndarray:
+    r"""Return the element-local gradient of a function :math:`f` represented
+    by *vec*:
+
+    .. math::
+
+        \nabla|_E f = \left(
+            \partial_x|_E f, \partial_y|_E f, \partial_z|_E f \right)
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :arg nested: return nested object arrays instead of a single multidimensional
-        array if *vec* is non-scalar
+        array if *vec* is non-scalar.
     :returns: an object array (possibly nested) of
-        :class:`~meshmode.dof_array.DOFArray`\ s
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
@@ -154,28 +291,45 @@ def local_grad(dcoll, vec, *, nested=False):
         else:
             return np.stack(grad, axis=0)
 
-    return _bound_grad(dcoll)(u=vec)
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    actx = vec.array_context
+
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    return _gradient_kernel(actx, discr, discr,
+            _reference_derivative_matrices, inverse_jac_mat, vec,
+            metric_in_matvec=False)
 
 
-@memoize_on_first_arg
-def _bound_d_dx(dcoll, xyz_axis):
-    return bind(dcoll, sym.nabla(dcoll.dim)[xyz_axis] * sym.Variable("u"),
-            local_only=True)
+def local_d_dx(dcoll: DiscretizationCollection, xyz_axis, vec):
+    r"""Return the element-local derivative along axis *xyz_axis* of a
+    function :math:`f` represented by *vec*:
 
+    .. math::
 
-def local_d_dx(dcoll, xyz_axis, vec):
-    r"""Return the element-local derivative along axis *xyz_axis* of the volume
-    function represented by *vec*.
+        \frac{\partial f}{\partial \lbrace x,y,z\rbrace}\Big|_E
 
     :arg xyz_axis: an integer indicating the axis along which the derivative
-        is taken
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+        is taken.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s.
     """
-    return _bound_d_dx(dcoll, xyz_axis)(u=vec)
+    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    actx = vec.array_context
+
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _single_axis_derivative_kernel(
+        actx, discr, discr,
+        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec,
+        metric_in_matvec=False)
 
 
-def _div_helper(dcoll, diff_func, vecs):
+def _div_helper(dcoll: DiscretizationCollection, diff_func, vecs):
     if not isinstance(vecs, np.ndarray):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
@@ -198,98 +352,195 @@ def _div_helper(dcoll, diff_func, vecs):
         return result
 
 
-def local_div(dcoll, vecs):
-    r"""Return the element-local divergence of the vector volume function
-    represented by *vecs*.
+def local_div(dcoll: DiscretizationCollection, vecs):
+    r"""Return the element-local divergence of the vector function
+    :math:`\mathbf{f}` represented by *vecs*:
+
+    .. math::
+
+        \nabla|_E \cdot \mathbf{f} = \sum_{i=1}^d \partial_{x_i}|_E \mathbf{f}_i
 
     :arg vec: an object array of
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
-    :returns: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray`.
     """
 
     return _div_helper(dcoll,
             lambda i, subvec: local_d_dx(dcoll, i, subvec),
             vecs)
 
-
-@memoize_on_first_arg
-def _bound_weak_grad(dcoll, dd):
-    return bind(dcoll,
-            sym.stiffness_t(dcoll.dim, dd_in=dd) * sym.Variable("u", dd),
-            local_only=True)
+# }}}
 
 
-def weak_local_grad(dcoll, *args, nested=False):
+# {{{ Weak derivative operators
+
+def _reference_stiffness_transpose_matrix(
+        actx: ArrayContext, out_element_group, in_element_group):
+    @keyed_memoize_in(
+        actx, _reference_stiffness_transpose_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
+    def get_ref_stiffness_transpose_mat(out_grp, in_grp):
+        if in_grp == out_grp:
+            from meshmode.discretization.poly_element import \
+                mass_matrix, diff_matrices
+
+            mmat = mass_matrix(out_grp)
+            return actx.freeze(
+                actx.from_numpy(
+                    np.asarray(
+                        [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]
+                    )
+                )
+            )
+
+        from modepy import vandermonde
+        basis = out_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, in_grp.unit_nodes)
+        vand_inv_t = np.linalg.inv(vand).T
+
+        if not isinstance(grad_vand, tuple):
+            # NOTE: special case for 1d
+            grad_vand = (grad_vand,)
+
+        weights = in_grp.quadrature_rule().weights
+        return actx.freeze(
+            actx.from_numpy(
+                np.einsum(
+                    "c,bz,acz->abc",
+                    weights,
+                    vand_inv_t,
+                    grad_vand
+                ).copy()  # contigify the array
+            )
+        )
+    return get_ref_stiffness_transpose_mat(out_element_group,
+                                           in_element_group)
+
+
+def weak_local_grad(dcoll: DiscretizationCollection, *args, nested=False):
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
 
+    Specifically, the function returns an object array where the :math:`i`-th
+    component is the weak derivative with respect to the :math:`i`-th coordinate
+    of a scalar function :math:`f`. See :func:`weak_local_d_dx` for further
+    information. For non-scalar :math:`f`, the function will return a nested object
+    array containing the component-wise weak derivatives.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        `~meshmode.dof_array.DOFArray`
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     :arg nested: return nested object arrays instead of a single multidimensional
         array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
-        :class:`~meshmode.dof_array.DOFArray`\ s
+        :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
-        dd, vec = args
+        dd_in, vec = args
     else:
         raise TypeError("invalid number of arguments")
 
     if isinstance(vec, np.ndarray):
         grad = obj_array_vectorize(
-                lambda el: weak_local_grad(dcoll, dd, el, nested=nested), vec)
+                lambda el: weak_local_grad(dcoll, dd_in, el, nested=nested), vec)
         if nested:
             return grad
         else:
             return np.stack(grad, axis=0)
 
-    return _bound_weak_grad(dcoll, dd)(u=vec)
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+
+    actx = vec.array_context
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _gradient_kernel(actx, out_discr, in_discr,
+            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+            metric_in_matvec=True)
 
 
-@memoize_on_first_arg
-def _bound_weak_d_dx(dcoll, dd, xyz_axis):
-    return bind(dcoll,
-            sym.stiffness_t(dcoll.dim, dd_in=dd)[xyz_axis]
-            * sym.Variable("u", dd),
-            local_only=True)
-
-
-def weak_local_d_dx(dcoll, *args):
+def weak_local_d_dx(dcoll: DiscretizationCollection, *args):
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
     May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
 
+    Specifically, this function computes the volume contribution of the
+    weak derivative in the :math:`i`-th component (specified by *xyz_axis*)
+    of a function :math:`f`, in each element :math:`E`, with respect to polynomial
+    test functions :math:`\phi`:
+
+    .. math::
+
+        \int_E \partial_i\phi\,f\,\mathrm{d}x \sim
+        \mathbf{D}_{E,i}^T \mathbf{M}_{E}^T\mathbf{f}|_E,
+
+    where :math:`\mathbf{D}_{E,i}` is the polynomial differentiation matrix on
+    an :math:`E` for the :math:`i`-th spatial coordinate, :math:`\mathbf{M}_E`
+    is the elemental mass matrix (see :func:`mass` for more information), and
+    :math:`\mathbf{f}|_E` is a vector of coefficients for :math:`f` on :math:`E`.
+
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray`\ s.
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 3:
-        dd, xyz_axis, vec = args
+        dd_in, xyz_axis, vec = args
     else:
         raise TypeError("invalid number of arguments")
 
-    return _bound_weak_d_dx(dcoll, dd, xyz_axis)(u=vec)
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+
+    actx = vec.array_context
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _single_axis_derivative_kernel(
+            actx, out_discr, in_discr, _reference_stiffness_transpose_matrix,
+            inverse_jac_mat, xyz_axis, vec,
+            metric_in_matvec=True)
 
 
-def weak_local_div(dcoll, *args):
+def weak_local_div(dcoll: DiscretizationCollection, *args):
     r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
     May be called with ``(vecs)`` or ``(dd, vecs)``.
+
+    Specifically, this function computes the volume contribution of the
+    weak divergence of a vector function :math:`\mathbf{f}`, in each element
+    :math:`E`, with respect to polynomial test functions :math:`\phi`:
+
+    .. math::
+
+        \int_E \nabla \phi \cdot \mathbf{f}\,\mathrm{d}x \sim
+        \sum_{i=1}^d \mathbf{D}_{E,i}^T \mathbf{M}_{E}^T\mathbf{f}_i|_E,
+
+    where :math:`\mathbf{D}_{E,i}` is the polynomial differentiation matrix on
+    an :math:`E` for the :math:`i`-th spatial coordinate, and :math:`\mathbf{M}_E`
+    is the elemental mass matrix (see :func:`mass` for more information).
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -297,7 +548,7 @@ def weak_local_div(dcoll, *args):
         a :class:`~meshmode.dof_array.DOFArray`\ s,
         where the last axis of the array must have length
         matching the volume dimension.
-    :returns: a :class:`~meshmode.dof_array.DOFArray`
+    :returns: a :class:`~meshmode.dof_array.DOFArray`.
     """
     if len(args) == 1:
         vecs, = args
@@ -314,15 +565,148 @@ def weak_local_div(dcoll, *args):
 # }}}
 
 
-# {{{ mass-like
+# {{{ Mass operator
 
-@memoize_on_first_arg
-def _bound_mass(dcoll, dd):
-    return bind(dcoll, sym.MassOperator(dd_in=dd)(sym.Variable("u", dd)),
-            local_only=True)
+def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
+    def get_ref_mass_mat(out_grp, in_grp):
+        if out_grp == in_grp:
+            from meshmode.discretization.poly_element import mass_matrix
+
+            return actx.freeze(
+                actx.from_numpy(
+                    np.asarray(
+                        mass_matrix(out_grp),
+                        order="C"
+                    )
+                )
+            )
+
+        from modepy import vandermonde
+        basis = out_grp.basis_obj()
+        vand = vandermonde(basis.functions, out_grp.unit_nodes)
+        o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
+        vand_inv_t = np.linalg.inv(vand).T
+
+        weights = in_grp.quadrature_rule().weights
+        return actx.freeze(
+            actx.from_numpy(
+                np.asarray(
+                    np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                    order="C"
+                )
+            )
+        )
+
+    return get_ref_mass_mat(out_element_group, in_element_group)
 
 
-def mass(dcoll, *args):
+def _apply_mass_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+    if isinstance(vec, np.ndarray):
+        return obj_array_vectorize(
+            lambda vi: _apply_mass_operator(dcoll,
+                                            dd_out,
+                                            dd_in, vi), vec
+        )
+
+    from grudge.geometry import area_element
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_out)
+
+    actx = vec.array_context
+    area_elements = area_element(actx, dcoll, dd=dd_in,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    # out[e, i] = reduce(sum, [j], mass_mat[i, j]*jac[e, j]*vec[e, j])
+
+    esums = []
+    for in_grp, out_grp, ae_i, vec_i in zip(in_discr.groups, out_discr.groups, area_elements, vec):
+        mass_mat = reference_mass_matrix(
+            actx,
+            out_element_group=out_grp,
+            in_element_group=in_grp
+        )
+
+        fp_format = vec_i.dtype
+        Ni, Nj = mass_mat.shape
+        Ne, Nj = vec_i.shape
+        kernel_data = [
+            lp.GlobalArg("mass_mat", fp_format, shape=(Ni, Nj), offset=lp.auto, tags=[IsOpArray()]),
+            lp.GlobalArg("jac", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),  
+            lp.GlobalArg("vec", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        esum = actx.einsum("ij,ej,ej->ei",
+                    mass_mat,
+                    ae_i,
+                    vec_i,
+                    arg_names=("mass_mat", "jac", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),kd_tag))
+        esums.append(esum)
+
+    return DOFArray(actx, data=tuple(esums))
+
+    """    
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej,ej->ei",
+                        reference_mass_matrix(
+                            actx,
+                            out_element_group=out_grp,
+                            in_element_group=in_grp
+                        ),
+                        ae_i,
+                        vec_i,
+                        arg_names=("mass_mat", "jac", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for in_grp, out_grp, ae_i, vec_i in zip(
+                    in_discr.groups, out_discr.groups, area_elements, vec)
+        )
+    )
+    """
+    
+
+def mass(dcoll: DiscretizationCollection, *args):
+    r"""Return the action of the DG mass matrix on a vector (or vectors)
+    of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
+    *vec* being an object array of :class:`~meshmode.dof_array.DOFArray`\ s,
+    the mass operator is applied in the Kronecker sense (component-wise).
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
+    Specifically, this function applies the mass matrix elementwise on a
+    vector of coefficients :math:`\mathbf{f}` via:
+    :math:`\mathbf{M}_{E}\mathbf{f}|_E`, where
+
+    .. math::
+
+        \left(\mathbf{M}_{E}\right)_{ij} = \int_E \phi_i \cdot \phi_j\,\mathrm{d}x,
+
+    where :math:`\phi_i` are local polynomial basis functions on :math:`E`.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
@@ -331,34 +715,355 @@ def mass(dcoll, *args):
     else:
         raise TypeError("invalid number of arguments")
 
+    return _apply_mass_operator(dcoll, dof_desc.DD_VOLUME, dd, vec)
+
+# }}}
+
+
+# {{{ Mass inverse operator
+
+def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+    @keyed_memoize_in(
+        actx, reference_inverse_mass_matrix,
+        lambda grp: grp.discretization_key())
+    def get_ref_inv_mass_mat(grp):
+        from modepy import inverse_mass_matrix
+        basis = grp.basis_obj()
+
+        return actx.freeze(
+            actx.from_numpy(
+                np.asarray(
+                    inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                    order="C"
+                )
+            )
+        )
+
+    return get_ref_inv_mass_mat(element_group)
+
+
+def _apply_inverse_mass_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: mass(dcoll, dd, el), vec)
+            lambda vi: _apply_inverse_mass_operator(dcoll,
+                                                    dd_out,
+                                                    dd_in, vi), vec
+        )
 
-    return _bound_mass(dcoll, dd)(u=vec)
+    from grudge.geometry import area_element
+
+    if dd_out != dd_in:
+        raise ValueError(
+            "Cannot compute inverse of a mass matrix mapping "
+            "between different element groups; inverse is not "
+            "guaranteed to be well-defined"
+        )
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd(dd_in)
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    group_data = []
+    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
+
+        ref_mass_inverse = reference_inverse_mass_matrix(actx,
+                                                         element_group=grp)
+
+        fp_format = vec_i.dtype
+        Ne, Nj = vec_i.shape
+        _, Ni = jac_inv.shape
+
+        kernel_data = [
+            lp.GlobalArg("arg2", fp_format, shape=(Ne, Nj), offset=lp.auto, tags=[IsDOFArray()]),
+            lp.GlobalArg("arg1", fp_format, shape=(Ni, Nj), offset=lp.auto, tags=[IsOpArray()]),
+            lp.GlobalArg("arg0", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()]),  
+            lp.GlobalArg("out",  fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        group_data.append(
+            # Based on https://arxiv.org/pdf/1608.03836.pdf
+            # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+            actx.einsum("ei,ij,ej->ei",
+                        jac_inv,
+                        ref_mass_inverse,
+                        vec_i,
+                        tagged=(FirstAxisIsElementsTag(),kd_tag))
+        )
+
+    return DOFArray(actx, data=tuple(group_data))
 
 
-@memoize_on_first_arg
-def _bound_inverse_mass(dcoll):
-    return bind(dcoll, sym.InverseMassOperator()(sym.Variable("u")),
-            local_only=True)
+def inverse_mass(dcoll: DiscretizationCollection, vec):
+    r"""Return the action of the DG mass matrix inverse on a vector
+    (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
+    In the case of *vec* being an object array of
+    :class:`~meshmode.dof_array.DOFArray`\ s, the inverse mass operator is
+    applied in the Kronecker sense (component-wise).
+
+    For affine elements :math:`E`, the element-wise mass inverse
+    is computed directly as the inverse of the (physical) mass matrix:
+
+    .. math::
+
+        \left(\mathbf{M}_{J^e}\right)_{ij} =
+            \int_{\widehat{E}} \widehat{\phi}_i\cdot\widehat{\phi}_j J^e
+            \mathrm{d}\widehat{x},
+
+    where :math:`\widehat{\phi}_i` are basis functions over the reference
+    element :math:`\widehat{E}`, and :math:`J^e` is the (constant) Jacobian
+    scaling factor (see :func:`grudge.geometry.area_element`).
+
+    For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
+    weight-adjusted approximation is used instead following [Chan_2016]_:
+
+    .. math::
+
+        \mathbf{M}_{J^e}^{-1} \approx
+            \widehat{\mathbf{M}}^{-1}\mathbf{M}_{1/J^e}\widehat{\mathbf{M}}^{-1},
+
+    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
+    :math:`\widehat{E}`.
+
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the inverse mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
+
+    return _apply_inverse_mass_operator(
+        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+    )
+
+# }}}
 
 
-def inverse_mass(dcoll, vec):
+# {{{ Face mass operator
+
+def reference_face_mass_matrix(
+        actx: ArrayContext, face_element_group, vol_element_group, dtype):
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda face_grp, vol_grp: (face_grp.discretization_key(),
+                                   vol_grp.discretization_key()))
+    def get_ref_face_mass_mat(face_grp, vol_grp):
+        nfaces = vol_grp.mesh_el_group.nfaces
+        assert face_grp.nelements == nfaces * vol_grp.nelements
+
+        matrix = np.empty(
+            (vol_grp.nunit_dofs,
+            nfaces,
+            face_grp.nunit_dofs),
+            dtype=dtype
+        )
+
+        import modepy as mp
+        from meshmode.discretization import ElementGroupWithBasis
+        from meshmode.discretization.poly_element import \
+            QuadratureSimplexElementGroup
+
+        n = vol_grp.order
+        m = face_grp.order
+        vol_basis = vol_grp.basis_obj()
+        faces = mp.faces_for_shape(vol_grp.shape)
+
+        for iface, face in enumerate(faces):
+            # If the face group is defined on a higher-order
+            # quadrature grid, use the underlying quadrature rule
+            if isinstance(face_grp, QuadratureSimplexElementGroup):
+                face_quadrature = face_grp.quadrature_rule()
+                if face_quadrature.exact_to < m:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {m}."
+                    )
+            else:
+                # NOTE: This handles the general case where
+                # volume and surface quadrature rules may have different
+                # integration orders
+                face_quadrature = mp.quadrature_for_space(
+                    mp.space_for_shape(face, 2*max(n, m)),
+                    face
+                )
+
+            # If the group has a nodal basis and is unisolvent,
+            # we use the basis on the face to compute the face mass matrix
+            if (isinstance(face_grp, ElementGroupWithBasis)
+                    and face_grp.space.space_dim == face_grp.nunit_dofs):
+
+                face_basis = face_grp.basis_obj()
+
+                # Sanity check for face quadrature accuracy. Not integrating
+                # degree N + M polynomials here is asking for a bad time.
+                if face_quadrature.exact_to < m + n:
+                    raise ValueError(
+                        "The face quadrature rule is only exact for polynomials "
+                        f"of total degree {face_quadrature.exact_to}. Please "
+                        "ensure a quadrature rule is used that is at least "
+                        f"exact for degree {n+m}."
+                    )
+
+                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
+                    face, face_quadrature,
+                    face_basis.functions, vol_basis.functions,
+                    vol_grp.unit_nodes,
+                    face_grp.unit_nodes,
+                )
+            else:
+                # Otherwise, we use a routine that is purely quadrature-based
+                # (no need for explicit face basis functions)
+                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
+                    face,
+                    face_quadrature,
+                    vol_basis.functions,
+                    vol_grp.unit_nodes,
+                )
+
+        return actx.freeze(actx.from_numpy(matrix))
+
+    return get_ref_face_mass_mat(face_element_group, vol_element_group)
+
+
+def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
     if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
-                lambda el: inverse_mass(dcoll, el), vec)
+            lambda vi: _apply_face_mass_operator(dcoll, dd, vi), vec
+        )
 
-    return _bound_inverse_mass(dcoll)(u=vec)
+    from grudge.geometry import area_element
+
+    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    face_discr = dcoll.discr_from_dd(dd)
+    dtype = vec.entry_dtype
+    actx = vec.array_context
+
+    assert len(face_discr.groups) == len(volm_discr.groups)
+    surf_area_elements = area_element(actx, dcoll, dd=dd,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    data = []
+    for vgrp, afgrp, vec_i, surf_ae_i, in zip(volm_discr.groups, face_discr.groups, vec, surf_area_elements):
+
+        
+        ref_fm_mat = reference_face_mass_matrix(
+                                actx,
+                                face_element_group=afgrp,
+                                vol_element_group=vgrp,
+                                dtype=dtype)
+
+        fp_format = dtype
+        Ni, Nf, Nj = ref_fm_mat.shape 
+        Ne = vgrp.nelements
+
+        kernel_data = [
+            lp.GlobalArg("vec", fp_format, shape=(Nf, Ne, Nj), offset=lp.auto, tags=[IsFaceDOFArray()]),
+            lp.GlobalArg("jac_surf", fp_format, shape=(Nf, Ne, Nj), offset=lp.auto, tags=[IsFaceDOFArray()]),
+            lp.GlobalArg("ref_face_mass_mat", fp_format, shape=(Ni, Nf, Nj), 
+                offset=lp.auto, tags=[IsFaceMassOpArray()]),  
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), offset=lp.auto, tags=[IsDOFArray()], is_output=True),  
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+            ...
+        ]
+    
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("ifj,fej,fej->ei",
+                        ref_fm_mat,
+                        surf_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                -1),
+                        vec_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs),
+                        arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)))
+        
+        
+
+       
+
+    return DOFArray(actx, data=tuple(data))
+
+    """
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ifj,fej,fej->ei",
+                        reference_face_mass_matrix(
+                                actx,
+                                face_element_group=afgrp,
+                                vol_element_group=vgrp,
+                                dtype=dtype),
+                        surf_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                -1),
+                        vec_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs),
+                        arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
+                                                     face_discr.groups,
+                                                     vec,
+                                                     surf_area_elements)
+        )
+    )
+    """
 
 
-@memoize_on_first_arg
-def _bound_face_mass(dcoll, dd):
-    u = sym.Variable("u", dd=dd)
-    return bind(dcoll, sym.FaceMassOperator(dd_in=dd)(u), local_only=True)
+def face_mass(dcoll: DiscretizationCollection, *args):
+    r"""Return the action of the DG face mass matrix on a vector (or vectors)
+    of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
+    *vec* being an object array of :class:`~meshmode.dof_array.DOFArray`\ s,
+    the mass operator is applied in the Kronecker sense (component-wise).
 
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
-def face_mass(dcoll, *args):
+    Specifically, this function applies the face mass matrix elementwise on a
+    vector of coefficients :math:`\mathbf{f}` as the sum of contributions for
+    each face :math:`f \subset \partial E`:
+
+    .. math::
+
+        \sum_{f=1}^{N_{\text{faces}} } \mathbf{M}_{f, E}\mathbf{f}|_f,
+
+    where
+
+    .. math::
+
+        \left(\mathbf{M}_{f, E}\right)_{ij} =
+            \int_{f \subset \partial E} \phi_i(s)\psi_j(s)\,\mathrm{d}s,
+
+    where :math:`\phi_i` are (volume) polynomial basis functions on :math:`E`
+    evaluated on the face :math:`f`, and :math:`\psi_j` are basis functions for
+    a polynomial space defined on :math:`f`.
+
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base ``"all_faces"`` discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` denoting the
+        application of the face mass matrix, or an object array of
+        :class:`~meshmode.dof_array.DOFArray`\ s.
+    """
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
@@ -367,191 +1072,7 @@ def face_mass(dcoll, *args):
     else:
         raise TypeError("invalid number of arguments")
 
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: face_mass(dcoll, dd, el), vec)
-
-    return _bound_face_mass(dcoll, dd)(u=vec)
-
-# }}}
-
-
-# {{{ reductions
-
-@memoize_on_first_arg
-def _norm(dcoll, p, dd):
-    return bind(dcoll,
-            sym.norm(p, sym.var("arg", dd=dd), dd=dd),
-            local_only=True)
-
-
-def norm(dcoll, vec, p, dd=None):
-    if dd is None:
-        dd = "vol"
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(
-                    norm(dcoll, vec[idx], p, dd=dd)**2
-                    for idx in np.ndindex(vec.shape))**0.5
-        elif p == np.inf:
-            return max(
-                    norm(dcoll, vec[idx], np.inf, dd=dd)
-                    for idx in np.ndindex(vec.shape))
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, p, dd)(arg=vec)
-
-
-@memoize_on_first_arg
-def _nodal_reduction(dcoll, operator, dd):
-    return bind(dcoll, operator(dd)(sym.var("arg")), local_only=True)
-
-
-def nodal_sum(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalSum, dd)(arg=vec)
-
-
-def nodal_min(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalMin, dd)(arg=vec)
-
-
-def nodal_max(dcoll, dd, vec):
-    return _nodal_reduction(dcoll, sym.NodalMax, dd)(arg=vec)
-
-# }}}
-
-
-@memoize_on_first_arg
-def connected_ranks(dcoll):
-    from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(dcoll._volume_discr.mesh)
-
-
-# {{{ interior_trace_pair
-
-def interior_trace_pair(dcoll, vec):
-    """Return a :class:`grudge.sym.TracePair` for the interior faces of
-    *dcoll*.
-    """
-    i = project(dcoll, "vol", "int_faces", vec)
-
-    def get_opposite_face(el):
-        if isinstance(el, Number):
-            return el
-        else:
-            return dcoll.opposite_face_connection()(el)
-
-    e = obj_array_vectorize(get_opposite_face, i)
-
-    return TracePair("int_faces", interior=i, exterior=e)
-
-# }}}
-
-
-# {{{ distributed-memory functionality
-
-class _RankBoundaryCommunication:
-    base_tag = 1273
-
-    def __init__(self, dcoll, remote_rank, vol_field, tag=None):
-        self.tag = self.base_tag
-        if tag is not None:
-            self.tag += tag
-
-        self.dcoll = dcoll
-        self.array_context = vol_field.array_context
-        self.remote_btag = BTAG_PARTITION(remote_rank)
-
-        self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
-        self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
-
-        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
-
-        comm = self.dcoll.mpi_communicator
-
-        self.send_req = comm.Isend(
-                local_data, remote_rank, tag=self.tag)
-
-        self.remote_data_host = np.empty_like(local_data)
-        self.recv_req = comm.Irecv(self.remote_data_host, remote_rank, self.tag)
-
-    def finish(self):
-        self.recv_req.Wait()
-
-        actx = self.array_context
-        remote_dof_array = unflatten(self.array_context, self.bdry_discr,
-                actx.from_numpy(self.remote_data_host))
-
-        bdry_conn = self.dcoll.get_distributed_boundary_swap_connection(
-                dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
-        swapped_remote_dof_array = bdry_conn(remote_dof_array)
-
-        self.send_req.Wait()
-
-        return TracePair(self.remote_btag,
-                interior=self.local_dof_array,
-                exterior=swapped_remote_dof_array)
-
-
-def _cross_rank_trace_pairs_scalar_field(dcoll, vec, tag=None):
-    if isinstance(vec, Number):
-        return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
-                for remote_rank in connected_ranks(dcoll)]
-    else:
-        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, vec, tag=tag)
-                for remote_rank in connected_ranks(dcoll)]
-        return [rbcomm.finish() for rbcomm in rbcomms]
-
-
-def cross_rank_trace_pairs(dcoll, ary, tag=None):
-    r"""Get a list of *ary* trace pairs for each partition boundary.
-
-    For each partition boundary, the field data values in *ary* are
-    communicated to/from the neighboring partition. Presumably, this
-    communication is MPI (but strictly speaking, may not be, and this
-    routine is agnostic to the underlying communication, see e.g.
-    _cross_rank_trace_pairs_scalar_field).
-
-    For each face on each partition boundary, a :class:`TracePair` is
-    created with the locally, and remotely owned partition boundary face
-    data as the `internal`, and `external` components, respectively.
-    Each of the TracePair components are structured like *ary*.
-
-    The input field data *ary* may be a single
-    :class:`~meshmode.dof_array.DOFArray`, or an object
-    array of ``DOFArray``\ s of arbitrary shape.
-    """
-    if isinstance(ary, np.ndarray):
-        oshape = ary.shape
-        comm_vec = ary.flatten()
-
-        n, = comm_vec.shape
-        result = {}
-        # FIXME: Batch this communication rather than
-        # doing it in sequence.
-        for ivec in range(n):
-            for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, comm_vec[ivec]):
-                assert isinstance(rank_tpair.dd.domain_tag, dof_desc.DTAG_BOUNDARY)
-                assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
-                result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
-
-        return [
-            TracePair(
-                dd=dof_desc.as_dofdesc(
-                    dof_desc.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-                interior=make_obj_array([
-                    result[remote_rank, i].int for i in range(n)]).reshape(oshape),
-                exterior=make_obj_array([
-                    result[remote_rank, i].ext for i in range(n)]).reshape(oshape)
-                )
-            for remote_rank in connected_ranks(dcoll)]
-    else:
-        return _cross_rank_trace_pairs_scalar_field(dcoll, ary, tag=tag)
+    return _apply_face_mass_operator(dcoll, dd, vec)
 
 # }}}
 

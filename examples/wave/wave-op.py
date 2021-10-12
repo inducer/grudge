@@ -253,7 +253,7 @@ def bump(actx, dcoll, t=0):
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(actx, op.nodes(dcoll))
+    nodes = thaw(actx, dcoll.nodes())
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)
@@ -274,7 +274,7 @@ def main():
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
     dim = 3
-    order = 7
+    order = 2
 
     #nel_1d = 2**5
     #mesh = generate_regular_rect_mesh(
