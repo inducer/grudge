@@ -479,6 +479,126 @@ def gen_autotune_list(queue, knl, start_param=None):
 
     return parameter_list
 
+def apply_transformations_and_run_test(queue, knl, test_fn, params, max_gflops=None,
+	device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
+	
+    kio, kii, iio, iii, ji = params
+
+    # Transform and run
+
+    # Change this to just use the transformation list instead of applying the transformations
+    # directly
+    # Should probably read in eligible transformations from a file instead of using if-statements
+    knl = knl_base.copy()
+    knl = lp.split_iname(knl, "iel", kio, outer_tag="g.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "iel_inner", kii, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
+    knl = lp.split_iname(knl, "idof", iio, outer_tag="g.1", slabs=(0,0))
+    knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
+
+    if knl.default_entrypoint.name == "face_mass":
+	knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	#knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
+    elif knl.default_entrypoint.name == "nodes":
+	knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	knl = lp.tag_array_axes(knl, "vecf", "f,f")
+    elif "resample_by_mat" in knl.default_entrypoint.name: # Reads are scattered so prefetching is difficult
+	pass
+	#knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	#knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
+    else:   
+	knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	knl = lp.tag_array_axes(knl, "vecf", "f,f")
+
+    knl = lp.split_iname(knl, "j", ji, outer_tag="for", inner_tag="for")
+    knl = lp.add_inames_for_unused_hw_axes(knl)
+
+
+    # Add specific transformations to list
+    trans_list = []
+    if "diff" in knl.default_entrypoint.name:
+	trans_list.append(["tag_inames", ["imatrix: ilp"]])
+    trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+    trans_list.append(["split_iname", ["iel_inner", kii], 
+	{"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+    trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+    trans_list.append(["split_iname", ["idof_inner", iii], 
+	{"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+
+    if knl.default_entrypoint.name == "face_mass":
+	pass
+	#trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
+	#    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+	#trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+    elif knl.default_entrypoint.name == "nodes":
+	trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
+	    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+	trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+    elif "resample_by_mat" in knl.default_entrypoint.name:
+	# Indirection may prevent prefetching
+	pass
+    else:
+	trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
+	    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+	trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+
+    trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+    trans_list.append(["add_inames_for_unused_hw_axes"]) 
+
+    print(knl.default_entrypoint.name)
+    print(trans_list)
+
+    # Execute and analyze the results
+    dev_arrays, avg_time = test_fn(queue, knl)
+
+    return avg_time
+
+    """
+    # The analysis should be done elsewhere
+    bw = None
+    flop_rate = None
+
+    if device_memory_bandwidth is not None:  # noqa
+	bw = analyze_knl_bandwidth(knl, avg_time)
+	frac_peak_GBps = bw / device_memory_bandwidth
+	if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+	    # Should validate result here
+	    print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+	    return avg_time, params
+
+    # Einsum complicates this. This depends on the kernel being called.
+    if max_gflops is not None:
+	frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
+	if frac_peak_gflops >= gflops_cutoff:
+	    # Should validate result here
+	    print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+	    return choices
+
+    if device_memory_bandwidth is not None and max_gflops is not None:
+	data = (avg_time, 
+			    frac_peak_GBps*device_memory_bandwidth, 
+			    frac_peak_gflops*max_gflops, 
+			    frac_peak_GBps, 
+			    frac_peak_gflops, 
+			    (kio, kii, iio, iii, ji))
+	result_list.append(data)
+	f.write(str(data) + "\n")
+
+    if avg_time < avg_time_saved:
+	avg_time_saved = avg_time
+	result_saved = choices
+	result_saved_list = trans_list
+    if time.time() - start > time_limit: 
+	result_list.sort()
+	print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
+	for entry in result_list:
+	    print(entry)
+	print()
+
+
+	#return result_saved_list
+	return result_saved
+    """
+
 
 def exhaustive_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
@@ -1038,9 +1158,9 @@ if __name__ == "__main__":
     knl = diff_prg(3, 100000, 56, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
-    dofs = 84
-    knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
-    start_param = (24, 4, 126, 9, 28)#(96, 32, 60, 2, 5)
+    #dofs = 84
+    #knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
+    #start_param = (24, 4, 126, 9, 28)#(96, 32, 60, 2, 5)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
