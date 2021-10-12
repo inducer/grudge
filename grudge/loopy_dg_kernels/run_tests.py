@@ -375,7 +375,7 @@ def verifyResultFortran(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
             / np.linalg.norm(A_host3 @ X_host)))
 
 def k_inner_inner_options(start_val=None):
-    options = [64, 32, 16, 8] #For AMD GPU
+    options = [8, 16, 4, 32] #For AMD GPU
     #options = [32, 16, 8]
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
@@ -395,6 +395,8 @@ def k_inner_outer_options(n_in, k_inner_inner, sm_size,
 
 def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_val=None):
     factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
+    # Fix for AMD
+    #factors = np.arange(3, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
     # Ensure total number of workitems is less than maximum
     usable_factors = factors[factors*k_inner_inner <= max_work_group_size]
     options = sorted(usable_factors, reverse=True)
@@ -404,7 +406,7 @@ def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_
 
 def i_inner_outer_options(n_out, i_inner_inner, start_val=None):
     # Select a number of inline blocks such that n_out % outer*inner == 0
-    inline = np.arange(1, (n_out // i_inner_inner) + 1)
+    inline = np.arange(3, (n_out // i_inner_inner) + 1)
     options = list(i_inner_inner*inline[n_out % (inline*i_inner_inner) == 0])
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
@@ -412,7 +414,10 @@ def i_inner_outer_options(n_out, i_inner_inner, start_val=None):
 
 
 def j_inner_options(n_in, start_val=None):
-    factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
+
+    start = 1
+    factors = list(np.arange(start, n_in + 1)[(n_in % np.arange(start, n_in + 1)) == 0])
+    #factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
     # Should this be limited by the number of registers
     start_ind = 0 if start_val is None else factors.index(start_val)
     factors = factors[start_ind:]
@@ -973,12 +978,12 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    #knl = diff_prg(3, 1000000, 35, np.float64)
+    #knl = diff_prg(3, 1000000, 84, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
-    dofs = 10
+    dofs = 84
     knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
-    start_param = None#(40, 8, 252, 4, 42)
+    start_param = (24, 4, 126, 9, 28)#(96, 32, 60, 2, 5)
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
