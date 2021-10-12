@@ -96,6 +96,8 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
 
     from arraycontext import get_container_context_recursively
     actx = get_container_context_recursively(vec)
+    dd = dof_desc.as_dofdesc(dd)
+    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
 
     dd = dof_desc.as_dofdesc(dd)
 
@@ -106,7 +108,9 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
                 nodal_sum(
                     dcoll, dd,
                     actx.np.conjugate(vec)
-                    * _apply_mass_operator(dcoll, dd, dd, vec))))
+                    * _apply_mass_operator(
+                        dcoll, dd_base, dd,
+                        dcoll.connection_from_dds(dd_base, dd)(vec)))))
     elif p == np.inf:
         return nodal_max(dcoll, dd, actx.np.abs(vec))
     else:
@@ -252,12 +256,15 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :returns: a device scalar denoting the evaluated integral.
     """
     from grudge.op import _apply_mass_operator
+    from grudge.projection import project
 
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
+    # FIXME: See https://github.com/inducer/grudge/issues/38
+    vec = project(dcoll, dd_base, dd, vec)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
     return nodal_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+        dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
     )
 
 # }}}
@@ -466,6 +473,9 @@ def elementwise_integral(
         :class:`~arraycontext.container.ArrayContainer` like *vec* containing the
         elementwise integral if *vec*.
     """
+    from grudge.op import _apply_mass_operator
+    from grudge.projection import project
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
@@ -475,12 +485,12 @@ def elementwise_integral(
         raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
+    # FIXME: See https://github.com/inducer/grudge/issues/38
+    vec = project(dcoll, dd_base, dd, vec)
 
-    from grudge.op import _apply_mass_operator
-
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
     return elementwise_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+        dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
     )
 
 # }}}
