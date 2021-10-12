@@ -98,7 +98,7 @@ from grudge.trace_pair import (  # noqa: F401
 # {{{ common derivative "kernels"
 
 def _single_axis_derivative_kernel(
-        actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, xyz_axis, vec,
+        actx, base_discr, quad_discr, get_diff_mat, inv_jac_mat, xyz_axis, vec,
         *, metric_in_matvec):
     # This gets used from both the strong and the weak derivative. These differ
     # in three ways:
@@ -116,19 +116,20 @@ def _single_axis_derivative_kernel(
                         ijm_i[xyz_axis],
                         get_diff_mat(
                             actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp
+                            base_element_group=base_grp,
+                            quad_element_group=quad_grp
                         ),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
                         tagged=(FirstAxisIsElementsTag(),))
 
-            for out_grp, in_grp, vec_i, ijm_i in zip(
-                out_discr.groups, in_discr.groups, vec,
+            for base_grp, quad_grp, vec_i, ijm_i in zip(
+                base_discr.groups, quad_discr.groups, vec,
                 inv_jac_mat)))
 
 
-def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
+def _gradient_kernel(
+        actx, base_discr, quad_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
@@ -139,37 +140,38 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     ijm_i,
                     get_diff_mat(
                         actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
+                        base_element_group=base_grp,
+                        quad_element_group=quad_grp
                     ),
                     vec_i,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
-        for out_grp, in_grp, vec_i, ijm_i in zip(
-            out_discr.groups, in_discr.groups, vec,
+        for base_grp, quad_grp, vec_i, ijm_i in zip(
+            base_discr.groups, quad_discr.groups, vec,
             inv_jac_mat)]
 
     return make_obj_array([
             DOFArray(
                 actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_grads]))
-            for xyz_axis in range(out_discr.ambient_dim)])
+            for xyz_axis in range(base_discr.ambient_dim)])
 
 # }}}
 
 
 # {{{ Derivative operators
 
-def _reference_derivative_matrices(actx: ArrayContext,
-        out_element_group, in_element_group):
-    # We're accepting in_element_group for interface consistency with
-    # _reference_stiffness_transpose_matrix.
-    assert out_element_group is in_element_group
+def reference_derivative_matrices(
+        actx: ArrayContext, base_element_group, quad_element_group):
+    # We're accepting quad_element_group for interface consistency with
+    # reference_stiffness_transpose_matrix.
+    assert quad_element_group is base_element_group
 
     @keyed_memoize_in(
-        actx, _reference_derivative_matrices,
+        actx, reference_derivative_matrices,
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
+
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
@@ -177,7 +179,8 @@ def _reference_derivative_matrices(actx: ArrayContext,
                 )
             )
         )
-    return get_ref_derivative_mats(out_element_group)
+
+    return get_ref_derivative_mats(base_element_group)
 
 
 def local_grad(
@@ -231,7 +234,7 @@ def local_grad(
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     return _gradient_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
+            reference_derivative_matrices, inverse_jac_mat, vec,
             metric_in_matvec=False)
 
 
@@ -263,7 +266,7 @@ def local_d_dx(
 
     return _single_axis_derivative_kernel(
         actx, discr, discr,
-        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec,
+        reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec,
         metric_in_matvec=False)
 
 
@@ -325,37 +328,37 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
 
 # {{{ Weak derivative operators
 
-def _reference_stiffness_transpose_matrix(
-        actx: ArrayContext, out_element_group, in_element_group):
+def reference_stiffness_transpose_matrix(
+        actx: ArrayContext, base_element_group, quad_element_group):
     @keyed_memoize_in(
-        actx, _reference_stiffness_transpose_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
-    def get_ref_stiffness_transpose_mat(out_grp, in_grp):
-        if in_grp == out_grp:
+        actx, reference_stiffness_transpose_matrix,
+        lambda base_grp, quad_grp: (base_grp.discretization_key(),
+                                    quad_grp.discretization_key()))
+    def get_ref_stiffness_transpose_mat(base_grp, quad_grp):
+        if quad_grp == base_grp:
             from meshmode.discretization.poly_element import \
                 mass_matrix, diff_matrices
 
-            mmat = mass_matrix(out_grp)
+            mmat = mass_matrix(base_grp)
             return actx.freeze(
                 actx.from_numpy(
                     np.asarray(
-                        [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]
+                        [dmat.T @ mmat.T for dmat in diff_matrices(base_grp)]
                     )
                 )
             )
 
         from modepy import vandermonde
-        basis = out_grp.basis_obj()
-        vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        grad_vand = vandermonde(basis.gradients, in_grp.unit_nodes)
+        basis = base_grp.basis_obj()
+        vand = vandermonde(basis.functions, base_grp.unit_nodes)
+        grad_vand = vandermonde(basis.gradients, quad_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
             # NOTE: special case for 1d
             grad_vand = (grad_vand,)
 
-        weights = in_grp.quadrature_rule().weights
+        weights = quad_grp.quadrature_rule().weights
         return actx.freeze(
             actx.from_numpy(
                 np.einsum(
@@ -366,8 +369,8 @@ def _reference_stiffness_transpose_matrix(
                 ).copy()  # contigify the array
             )
         )
-    return get_ref_stiffness_transpose_mat(out_element_group,
-                                           in_element_group)
+    return get_ref_stiffness_transpose_mat(base_element_group,
+                                           quad_element_group)
 
 
 def weak_local_grad(
@@ -383,7 +386,8 @@ def weak_local_grad(
     information. For non-scalar :math:`f`, the function will return a nested object
     array containing the component-wise weak derivatives.
 
-    :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization to be used in the volume.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
@@ -395,9 +399,9 @@ def weak_local_grad(
     """
     if len(args) == 1:
         vec, = args
-        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 2:
-        dd_in, vec = args
+        dd, vec = args
     else:
         raise TypeError("invalid number of arguments")
 
@@ -416,7 +420,7 @@ def weak_local_grad(
         # each component and return a matrix of derivatives by stacking
         # the results
         grad = obj_array_vectorize(
-            lambda el: weak_local_grad(dcoll, dd_in, el, nested=nested), vec)
+                lambda el: weak_local_grad(dcoll, dd, el, nested=nested), vec)
         if nested:
             return grad
         else:
@@ -424,20 +428,20 @@ def weak_local_grad(
 
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(weak_local_grad, dcoll, dd_in, nested=nested), vec)
+            partial(weak_local_grad, dcoll, dd, nested=nested), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
-    in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    quad_discr = dcoll.discr_from_dd(dd)
+    base_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
             times_area_element=True,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    return _gradient_kernel(actx, out_discr, in_discr,
-            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+    return _gradient_kernel(actx, base_discr, quad_discr,
+            reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
             metric_in_matvec=True)
 
 
@@ -462,7 +466,8 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     is the elemental mass matrix (see :func:`mass` for more information), and
     :math:`\mathbf{f}|_E` is a vector of coefficients for :math:`f` on :math:`E`.
 
-    :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization to be used in the volume.
         Defaults to the base volume discretization if not provided.
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken.
@@ -473,9 +478,9 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     elif len(args) == 3:
-        dd_in, xyz_axis, vec = args
+        dd, xyz_axis, vec = args
     else:
         raise TypeError("invalid number of arguments")
 
@@ -487,16 +492,16 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
-    in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    quad_discr = dcoll.discr_from_dd(dd)
+    base_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
             times_area_element=True,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
-            actx, out_discr, in_discr, _reference_stiffness_transpose_matrix,
+            actx, base_discr, quad_discr, reference_stiffness_transpose_matrix,
             inverse_jac_mat, xyz_axis, vec,
             metric_in_matvec=True)
 
@@ -520,7 +525,8 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     an :math:`E` for the :math:`i`-th spatial coordinate, and :math:`\mathbf{M}_E`
     is the elemental mass matrix (see :func:`mass` for more information).
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization to be used in the volume.
         Defaults to the base volume discretization if not provided.
     :arg vecs: an object array of
         :class:`~meshmode.dof_array.DOFArray`\s or an
@@ -644,7 +650,8 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     where :math:`\phi_i` are local polynomial basis functions on :math:`E`.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization to be used in the volume.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
@@ -747,6 +754,8 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     In the case of *vec* being an :class:`~arraycontext.container.ArrayContainer`,
     the inverse mass operator is applied component-wise.
 
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
     For affine elements :math:`E`, the element-wise mass inverse
     is computed directly as the inverse of the (physical) mass matrix:
 
@@ -771,6 +780,9 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
     :math:`\widehat{E}`.
 
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization to be used in the volume.
+        Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
@@ -954,8 +966,10 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     evaluated on the face :math:`f`, and :math:`\psi_j` are basis functions for
     a polynomial space defined on :math:`f`.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base ``"all_faces"`` discretization if not provided.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
+        describing the type of quadrature discretization on the skeleton of the
+        mesh (``"all_faces"``).
+        Defaults to the base discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
