@@ -628,7 +628,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
         err_global = abs(op_global)
-        err_local = op.norm(dcoll, op_local, np.inf)
+        err_local = op.norm(dcoll, op_local, np.inf, dd=dq)
         logger.info("errors: global %.5e local %.5e", err_global, err_local)
 
         # compute max element size
@@ -748,8 +748,17 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             StrongAdvectionOperator, WeakAdvectionOperator
         )
         from meshmode.mesh import BTAG_ALL
+        from meshmode.discretization.poly_element \
+            import QuadratureSimplexGroupFactory
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        qtag = dof_desc.DISCR_TAG_QUAD
+        discr_tag_to_group_factory = {
+            qtag: QuadratureSimplexGroupFactory(order=2*order)
+        }
+        dcoll = DiscretizationCollection(
+            actx, mesh, order=order,
+            discr_tag_to_group_factory=discr_tag_to_group_factory
+        )
         op_class = {"strong": StrongAdvectionOperator,
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
@@ -801,10 +810,12 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                         [("u", event.state_component)]
                     )
 
+        dq = dof_desc.DD_VOLUME.with_discr_tag(qtag)
         error_l2 = op.norm(
             dcoll,
-            last_u - u_analytic(nodes, t=last_t),
-            2
+            last_u - u_analytic(thaw(dcoll.nodes(), actx), t=last_t),
+            2,
+            dd=dq
         )
         logger.info("h_max %.5e error %.5e", actx.to_numpy(h_max), error_l2)
         eoc_rec.add_data_point(actx.to_numpy(h_max), actx.to_numpy(error_l2))
@@ -841,7 +852,17 @@ def test_convergence_maxwell(actx_factory,  order):
                 b=(1.0,)*dims,
                 nelements_per_axis=(n,)*dims)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        from meshmode.discretization.poly_element \
+            import QuadratureSimplexGroupFactory
+
+        qtag = dof_desc.DISCR_TAG_QUAD
+        discr_tag_to_group_factory = {
+            qtag: QuadratureSimplexGroupFactory(order=2*order)
+        }
+        dcoll = DiscretizationCollection(
+            actx, mesh, order=order,
+            discr_tag_to_group_factory=discr_tag_to_group_factory
+        )
 
         epsilon = 1
         mu = 1
@@ -887,7 +908,8 @@ def test_convergence_maxwell(actx_factory,  order):
                 logger.debug("[%04d] t = %.5e", step, event.t)
 
         sol = analytic_sol(nodes, t=step * dt)
-        total_error = op.norm(dcoll, esc - sol, 2)
+        dq = dof_desc.DD_VOLUME.with_discr_tag(qtag)
+        total_error = op.norm(dcoll, esc - sol, 2, dd=dq)
         eoc_rec.add_data_point(1.0/n, actx.to_numpy(total_error))
 
     logger.info("\n%s", eoc_rec.pretty_print(
