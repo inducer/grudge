@@ -31,8 +31,8 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from arraycontext import thaw, freeze
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
 
@@ -158,14 +158,20 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
             / width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False):
+def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+    if lazy:
+        actx = PytatoPyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        )
+    else:
+        actx = PyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
 
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -201,17 +207,20 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
+    compiled_rhs = actx.compile(rhs)
+
     logger.info("dt = %g", dt)
 
     t = 0
     t_final = 3
     istep = 0
     while t < t_final:
-        fields = rk4_step(fields, t, dt, rhs)
+        fields = thaw(freeze(fields, actx), actx)
+        fields = rk4_step(fields, t, dt, compiled_rhs)
 
         if istep % 10 == 0:
             logger.info(f"step: {istep} t: {t} "
-                        f"L2: {op.norm(dcoll, fields[0], 2)} "
+                        f"L2: {actx.to_numpy(op.norm(dcoll, fields[0], 2))} "
                         f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
                         f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
                         f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
@@ -230,7 +239,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
         # NOTE: These are here to ensure the solution is bounded for the
         # time interval specified
-        assert op.norm(dcoll, fields[0], 2) < 1
+        assert actx.to_numpy(op.norm(dcoll, fields[0], 2)) < 1
 
 
 if __name__ == "__main__":
@@ -240,12 +249,14 @@ if __name__ == "__main__":
     parser.add_argument("--dim", default=2, type=int)
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--lazy", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
 
 # vim: foldmethod=marker
