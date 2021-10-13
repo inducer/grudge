@@ -214,6 +214,7 @@ def local_grad(
 
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
     return _gradient_kernel(
         actx,
         discr,
@@ -245,6 +246,7 @@ def local_d_dx(
     actx = vec.array_context
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
+
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
@@ -402,9 +404,15 @@ def weak_local_grad(
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
+
+    # FIXME: See https://github.com/inducer/grudge/issues/174
+    use_geoderiv_connection = (
+        actx.supports_nonscalar_broadcasting
+        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
+
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=use_geoderiv_connection)
 
     return _gradient_kernel(
         actx,
@@ -462,9 +470,15 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
+
+    # FIXME: See https://github.com/inducer/grudge/issues/174
+    use_geoderiv_connection = (
+        actx.supports_nonscalar_broadcasting
+        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
+
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=use_geoderiv_connection)
 
     return _single_axis_derivative_kernel(
         actx,
@@ -577,8 +591,14 @@ def _apply_mass_operator(
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
+
+    # FIXME: See https://github.com/inducer/grudge/issues/174
+    use_geoderiv_connection = (
+        actx.supports_nonscalar_broadcasting
+        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
+
     area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=use_geoderiv_connection)
 
     return DOFArray(
         actx,
@@ -677,8 +697,10 @@ def _apply_inverse_mass_operator(
 
     actx = vec.array_context
     discr = dcoll.discr_from_dd(dd_out)
+
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_out,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
     group_data = []
     for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
 
@@ -859,8 +881,14 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
     actx = vec.array_context
 
     assert len(face_discr.groups) == len(volm_discr.groups)
+
+    # FIXME: See https://github.com/inducer/grudge/issues/174
+    use_geoderiv_connection = (
+        actx.supports_nonscalar_broadcasting
+        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
+
     surf_area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=use_geoderiv_connection)
 
     return DOFArray(
         actx,
