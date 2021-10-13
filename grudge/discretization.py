@@ -336,6 +336,9 @@ class DiscretizationCollection:
         This is an internal function, not intended for use outside
         :mod:`grudge`.
         """
+        if dd.discretization_tag is not DISCR_TAG_BASE:
+            raise ValueError("*dd* must be defined on a base discretization.")
+
         base_discr = self.discr_from_dd(dd)
         if not self._has_affine_groups():
             # no benefit to having another discretization that takes
