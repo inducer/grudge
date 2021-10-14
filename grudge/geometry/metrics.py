@@ -793,11 +793,20 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :returns: a rank-2 object array describing the shape operator.
     """
+    if dd is None:
+        dd = DD_VOLUME
 
-    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
-    form2 = second_fundamental_form(actx, dcoll, dd=dd)
+    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
 
-    return -form2.dot(inv_form1)
+    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd_base)
+    form2 = second_fundamental_form(actx, dcoll, dd=dd_base)
+
+    result = -form2.dot(inv_form1)
+
+    if dd.uses_quadrature():
+        result = dcoll.connection_from_dds(dd_base, dd)(result)
+
+    return result
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
@@ -816,10 +825,6 @@ def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the summed
         curvature at each nodal coordinate.
     """
-
-    if dd is None:
-        dd = DD_VOLUME
-
     dim = dcoll.ambient_dim - 1
 
     if dcoll.ambient_dim == 1:
