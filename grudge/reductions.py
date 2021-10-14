@@ -85,7 +85,6 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd_base, dd) -> "DeviceScalar
         return np.fabs(vec)
     if p == 2:
         from grudge.op import _apply_mass_operator
-        from grudge.projection import project
 
         # FIXME: See https://github.com/inducer/grudge/issues/38
         return vec.array_context.np.sqrt(
@@ -99,7 +98,7 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd_base, dd) -> "DeviceScalar
                         dcoll,
                         dd_base,
                         dd,
-                        project(dcoll, dd_base, dd, vec)
+                        dcoll.connection_from_dds(dd_base, dd)(vec)
                     )
                 )
             )
@@ -126,7 +125,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
         dd = dof_desc.DD_VOLUME
 
     dd = dof_desc.as_dofdesc(dd)
-    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
     if not isinstance(vec, DOFArray):
         if isinstance(vec, Number):
@@ -287,12 +286,12 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :returns: a scalar denoting the evaluated integral.
     """
     from grudge.op import _apply_mass_operator
-    from grudge.projection import project
 
     dd = dof_desc.as_dofdesc(dd)
-    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
-    # FIXME: See https://github.com/inducer/grudge/issues/38
-    vec = project(dcoll, dd_base, dd, vec)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
+    if dd.uses_quadrature():
+        vec = dcoll.connection_from_dds(dd_base, dd)(vec)
 
     return nodal_sum(
         dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
@@ -458,7 +457,6 @@ def elementwise_integral(
         elementwise integral if *vec*.
     """
     from grudge.op import _apply_mass_operator
-    from grudge.projection import project
 
     if len(args) == 1:
         vec, = args
@@ -469,9 +467,10 @@ def elementwise_integral(
         raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
-    dd_base = dof_desc.DOFDesc(dd.domain_tag, dof_desc.DISCR_TAG_BASE)
-    # FIXME: See https://github.com/inducer/grudge/issues/38
-    vec = project(dcoll, dd_base, dd, vec)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
+
+    if dd.uses_quadrature():
+        vec = dcoll.connection_from_dds(dd_base, dd)(vec)
 
     return elementwise_sum(
         dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
