@@ -165,13 +165,15 @@ def tg_vortex_initial_condition(dcoll, x_vec, t=0):
                       momentum=momentum)
 
 
-def run_tg_vortex(actx, order=3, resolution=16, final_time=20, visualize=False):
+def run_tg_vortex(actx, order=3, resolution=16, final_time=20,
+                  dumpfreq=50, timestepper="lsrk54", visualize=False):
     logger.info(
         """
         Taylor-Green vortex parameters:\n
-        order: %s, resolution: %s, final time: %s, visualize: %s
+        order: %s, resolution: %s, final time: %s, \n
+        dumpfreq: %s, timestepper: %s, visualize: %s
         """,
-        order, resolution, final_time, visualize
+        order, resolution, final_time, dumpfreq, timestepper, visualize
     )
 
     # eos-related parameters
@@ -222,8 +224,16 @@ def run_tg_vortex(actx, order=3, resolution=16, final_time=20, visualize=False):
     compiled_rhs = actx.compile(rhs)
 
     fields = tg_vortex_initial_condition(dcoll, thaw(dcoll.nodes(), actx))
-    dt = 2*euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
-    # dt = 2/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+
+    if timestepper == "lsrk54":
+        scaling = 2/3
+        stepper = lsrk54_step
+    else:
+        assert timestepper == "lsrk144"
+        scaling = 2
+        stepper = lsrk144_step
+
+    dt = scaling * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
 
     logger.info("Timestep size: %g", dt)
 
@@ -239,10 +249,9 @@ def run_tg_vortex(actx, order=3, resolution=16, final_time=20, visualize=False):
     t = 0.0
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = lsrk144_step(fields, t, dt, compiled_rhs)
-        # fields = lsrk54_step(fields, t, dt, compiled_rhs)
+        fields = stepper(fields, t, dt, compiled_rhs)
 
-        if step % 50 == 0:
+        if step % dumpfreq == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
@@ -261,7 +270,8 @@ def run_tg_vortex(actx, order=3, resolution=16, final_time=20, visualize=False):
     # }}}
 
 
-def main(ctx_factory, order=3, final_time=20, resolution=16, visualize=False):
+def main(ctx_factory, order=3, final_time=20,
+         resolution=16, dumpfreq=50, timestepper="lsrk54", visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -273,6 +283,8 @@ def main(ctx_factory, order=3, final_time=20, resolution=16, visualize=False):
         order=order,
         resolution=resolution,
         final_time=final_time,
+        dumpfreq=dumpfreq,
+        timestepper=timestepper,
         visualize=visualize
     )
 
@@ -284,7 +296,10 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=20., type=float)
     parser.add_argument("--resolution", default=8, type=int)
+    parser.add_argument("--dumpfreq", default=50, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--timestepper", default="lsrk54",
+                        choices=['lsrk54', 'lsrk144'])
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -292,4 +307,6 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         dumpfreq=args.dumpfreq,
+         timestepper=args.timestepper,
          visualize=args.visualize)
