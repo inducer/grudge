@@ -405,14 +405,9 @@ def weak_local_grad(
 
     actx = vec.array_context
 
-    # FIXME: See https://github.com/inducer/grudge/issues/174
-    use_geoderiv_connection = (
-        actx.supports_nonscalar_broadcasting
-        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
-
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=use_geoderiv_connection)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _gradient_kernel(
         actx,
@@ -471,14 +466,9 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
 
     actx = vec.array_context
 
-    # FIXME: See https://github.com/inducer/grudge/issues/174
-    use_geoderiv_connection = (
-        actx.supports_nonscalar_broadcasting
-        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
-
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=use_geoderiv_connection)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
         actx,
@@ -592,13 +582,8 @@ def _apply_mass_operator(
 
     actx = vec.array_context
 
-    # FIXME: See https://github.com/inducer/grudge/issues/174
-    use_geoderiv_connection = (
-        actx.supports_nonscalar_broadcasting
-        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
-
     area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=use_geoderiv_connection)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return DOFArray(
         actx,
@@ -882,13 +867,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
 
     assert len(face_discr.groups) == len(volm_discr.groups)
 
-    # FIXME: See https://github.com/inducer/grudge/issues/174
-    use_geoderiv_connection = (
-        actx.supports_nonscalar_broadcasting
-        and dd_in.discretization_tag is dof_desc.DISCR_TAG_BASE)
-
     surf_area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=use_geoderiv_connection)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return DOFArray(
         actx,
