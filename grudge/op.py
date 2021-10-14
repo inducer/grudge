@@ -982,7 +982,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         describing the type of quadrature discretization on the skeleton of the
-        mesh (``"all_faces"``).
+        mesh (see :data:`~meshmode.discretization.connection.FACE_RESTR_ALL`).
         Defaults to the base discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
