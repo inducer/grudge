@@ -80,6 +80,8 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd):
         return np.fabs(vec)
     if p == 2:
         from grudge.op import _apply_mass_operator
+        # Quantities being summed are real up to rounding error, so abs() can go on
+        # the outside
         return abs(
             nodal_sum(
                 dcoll,
