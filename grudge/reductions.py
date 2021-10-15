@@ -80,14 +80,14 @@ def _norm(dcoll: DiscretizationCollection, vec, p, dd):
         return np.fabs(vec)
     if p == 2:
         from grudge.op import _apply_mass_operator
-        # Quantities being summed are real up to rounding error, so abs() can go on
-        # the outside
-        return abs(
-            nodal_sum(
-                dcoll,
-                dd,
-                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))
-            )**(1/2)
+        return vec.array_context.np.sqrt(
+            # Quantities being summed are real up to rounding error, so abs() can
+            # go on the outside
+            abs(
+                nodal_sum(
+                    dcoll,
+                    dd,
+                    vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))))
     elif p == np.inf:
         return nodal_max(dcoll, dd, abs(vec))
     else:
