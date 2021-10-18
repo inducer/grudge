@@ -293,7 +293,7 @@ def dt_geometric_factors(
         
         kernel_data = [
             lp.GlobalArg("arg0", fp_format, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
-            lp.GlobalArg("out", fp_format, is_output=True),
+            #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
             lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
             lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
             lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
