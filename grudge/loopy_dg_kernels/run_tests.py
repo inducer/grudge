@@ -496,18 +496,18 @@ def apply_transformations_and_run_test(queue, knl, test_fn, params, max_gflops=N
     knl = lp.split_iname(knl, "idof_inner", iii, outer_tag="ilp", inner_tag="l.1", slabs=(0,0))        
 
     if knl.default_entrypoint.name == "face_mass":
-	knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-	#knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
+        knl = lp.add_prefetch(knl, "vec", "f,j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	    #knl = lp.tag_array_axes(knl, "vecf", "N1,N0,N2") # Should be this but breaks
     elif knl.default_entrypoint.name == "nodes":
-	knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-	knl = lp.tag_array_axes(knl, "vecf", "f,f")
+	    knl = lp.add_prefetch(knl, "nodes", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	    knl = lp.tag_array_axes(knl, "vecf", "f,f")
     elif "resample_by_mat" in knl.default_entrypoint.name: # Reads are scattered so prefetching is difficult
-	pass
-	#knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-	#knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
+	    pass
+	    #knl = lp.add_prefetch(knl, "ary", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	    #knl = lp.tag_array_axes(knl, "vecf", "f,f")                           
     else:   
-	knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
-	knl = lp.tag_array_axes(knl, "vecf", "f,f")
+	    knl = lp.add_prefetch(knl, "vec", "j,iel_inner_outer,iel_inner_inner", temporary_name="vecf", default_tag="l.auto")
+	    knl = lp.tag_array_axes(knl, "vecf", "f,f")
 
     knl = lp.split_iname(knl, "j", ji, outer_tag="for", inner_tag="for")
     knl = lp.add_inames_for_unused_hw_axes(knl)
@@ -516,41 +516,41 @@ def apply_transformations_and_run_test(queue, knl, test_fn, params, max_gflops=N
     # Add specific transformations to list
     trans_list = []
     if "diff" in knl.default_entrypoint.name:
-	trans_list.append(["tag_inames", ["imatrix: ilp"]])
-    trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["iel_inner", kii], 
-	{"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["idof_inner", iii], 
-	{"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+        trans_list.append(["tag_inames", ["imatrix: ilp"]])
+        trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["iel_inner", kii], 
+	        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+        trans_list.append(["split_iname", ["idof_inner", iii], 
+	        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
 
     if knl.default_entrypoint.name == "face_mass":
-	pass
-	#trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
-	#    {"temporary_name":"vecf", "default_tag":"l.auto"}])
-	#trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+	    pass
+	    #trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
+	    #    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+	    #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
     elif knl.default_entrypoint.name == "nodes":
-	trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
-	    {"temporary_name":"vecf", "default_tag":"l.auto"}])
-	trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+	    trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
+	        {"temporary_name":"vecf", "default_tag":"l.auto"}])
+	    trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
     elif "resample_by_mat" in knl.default_entrypoint.name:
-	# Indirection may prevent prefetching
-	pass
+	    # Indirection may prevent prefetching
+	    pass
     else:
-	trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
-	    {"temporary_name":"vecf", "default_tag":"l.auto"}])
-	trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+        trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
+            {"temporary_name":"vecf", "default_tag":"l.auto"}])
+        trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
 
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
 
-    print(knl.default_entrypoint.name)
-    print(trans_list)
+    #print(knl.default_entrypoint.name)
+    #print(trans_list)
 
     # Execute and analyze the results
     dev_arrays, avg_time = test_fn(queue, knl)
 
-    return avg_time
+    return avg_time, trans_list
 
     """
     # The analysis should be done elsewhere
