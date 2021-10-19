@@ -99,7 +99,8 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
+def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
+        flux_type="upwind"):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PyOpenCLArrayContext(
@@ -115,11 +116,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # number of points in each dimension
     npoints = 25
 
-    # finale time
-    final_time = 0.5
-
-    # flux
-    flux_type = "upwind"
+    # final time
+    final_time = 1
 
     if use_quad:
         qtag = dof_desc.DISCR_TAG_QUAD
@@ -158,12 +156,13 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ advection operator
 
     # gaussian parameters
-    source_center = np.array([0.5, 0.75, 0.0])[:dim]
-    source_width = 0.05
 
-    def f_gaussian(x):
-        return actx.np.exp(-np.dot(x - source_center,
-                                   x - source_center) / source_width**2)
+    def f_halfcircle(x):
+        source_center = np.array([d/2, d/2, d/2])[:dim]
+        dist = x - source_center
+        return (
+                (0.5+0.5*actx.np.tanh(500*(-np.dot(dist, dist) + 0.4**2)))
+                * (0.5+0.5*actx.np.tanh(500*(dist[0]))))
 
     def zero_inflow_bc(dtag, t=0):
         dd = dof_desc.DOFDesc(dtag, qtag)
@@ -192,7 +191,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         flux_type=flux_type
     )
 
-    u = f_gaussian(x)
+    u = f_halfcircle(x)
 
     def rhs(t, u):
         return adv_operator.operator(t, u)
@@ -237,6 +236,9 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--use-quad", action="store_true")
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--flux", default="upwind",
+            help="'central' or 'upwind'. Run with central to observe aliasing "
+            "instability. Add --use-quad to fix that instability.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -244,4 +246,5 @@ if __name__ == "__main__":
          dim=args.dim,
          order=args.order,
          use_quad=args.use_quad,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         flux_type=args.flux)
