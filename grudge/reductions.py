@@ -58,14 +58,13 @@ THE SOFTWARE.
 
 
 from numbers import Number
-from functools import reduce
+from functools import reduce, partial
 
-from arraycontext import make_loopy_program
+from arraycontext import make_loopy_program, map_array_container
 
 from grudge.discretization import DiscretizationCollection
 
 from pytools import memoize_in
-from pytools.obj_array import obj_array_vectorize
 
 from meshmode.dof_array import DOFArray
 
@@ -275,27 +274,19 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
 # {{{  Elementwise reductions
 
 def _apply_elementwise_reduction(
-        op_name: str, dcoll: DiscretizationCollection, *args) -> DOFArray:
+        op_name: str, dcoll: DiscretizationCollection, dd, vec) -> DOFArray:
     r"""Returns a vector of DOFs with all entries on each element set
     to the reduction operation *op_name* over all degrees of freedom.
 
-    :arg \*args: Arguments for the reduction operator, such as *dd* and *vec*.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: a :class:`~meshmode.dof_array.DOFArray` or object arrary of
         :class:`~meshmode.dof_array.DOFArray`s.
     """
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-            lambda vi: _apply_elementwise_reduction(op_name, dcoll, dd, vi), vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_elementwise_reduction, op_name, dcoll, dd), vec
         )
 
     actx = vec.array_context
@@ -335,7 +326,7 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
     r"""Returns a vector of DOFs with all entries on each element set
     to the sum of DOFs on that element.
 
-    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -343,14 +334,24 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
         denote the element-wise sum of *vec*.
     """
-    return _apply_elementwise_reduction("sum", dcoll, *args)
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    return _apply_elementwise_reduction("sum", dcoll, dd, vec)
 
 
 def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
     r"""Returns a vector of DOFs with all entries on each element set
     to the maximum over all DOFs on that element.
 
-    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -359,14 +360,24 @@ def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
         denote the element-wise max of *vec*.
     """
-    return _apply_elementwise_reduction("max", dcoll, *args)
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    return _apply_elementwise_reduction("max", dcoll, dd, vec)
 
 
 def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
     r"""Returns a vector of DOFs with all entries on each element set
     to the minimum over all DOFs on that element.
 
-    May be called with ``(dcoll, vec)`` or ``(dcoll, dd, vec)``.
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -375,22 +386,44 @@ def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
         denote the element-wise min of *vec*.
     """
-    return _apply_elementwise_reduction("min", dcoll, *args)
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
+    return _apply_elementwise_reduction("min", dcoll, dd, vec)
 
 
-def elementwise_integral(dcoll: DiscretizationCollection, dd, vec) -> DOFArray:
+def elementwise_integral(dcoll: DiscretizationCollection, *args) -> DOFArray:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
     each element of a discretization, given by *dd*.
 
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
+    :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         elementwise integral if *vec*.
     """
-    from grudge.op import _apply_mass_operator
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
+
+    from grudge.op import _apply_mass_operator
 
     ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
     return elementwise_sum(

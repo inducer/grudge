@@ -24,10 +24,19 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw
+from dataclasses import dataclass
+
+from arraycontext import (
+    thaw,
+    with_container_arithmetic,
+    dataclass_array_container,
+    pytest_generate_tests_for_array_contexts
+)
+
+from meshmode.dof_array import DOFArray
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
@@ -118,11 +127,11 @@ def test_elementwise_reductions(actx_factory):
     mins = []
     maxs = []
     sums = []
-    for gidx, grp_f in enumerate(field):
+    for grp_f in field:
         min_res = np.empty(grp_f.shape)
         max_res = np.empty(grp_f.shape)
         sum_res = np.empty(grp_f.shape)
-        for eidx in range(dcoll._volume_discr.groups[gidx].nelements):
+        for eidx in range(dcoll.mesh.nelements):
             element_data = actx.to_numpy(grp_f[eidx])
             min_res[eidx, :] = np.min(element_data)
             max_res[eidx, :] = np.max(element_data)
@@ -131,7 +140,7 @@ def test_elementwise_reductions(actx_factory):
         maxs.append(actx.from_numpy(max_res))
         sums.append(actx.from_numpy(sum_res))
 
-    from meshmode.dof_array import DOFArray, flat_norm
+    from meshmode.dof_array import flat_norm
 
     ref_mins = DOFArray(actx, data=tuple(mins))
     ref_maxs = DOFArray(actx, data=tuple(maxs))
@@ -144,6 +153,115 @@ def test_elementwise_reductions(actx_factory):
     assert flat_norm(elem_mins - ref_mins, ord=np.inf) < 1.e-15
     assert flat_norm(elem_maxs - ref_maxs, ord=np.inf) < 1.e-15
     assert flat_norm(elem_sums - ref_sums, ord=np.inf) < 1.e-15
+
+
+# {{{ Array container tests
+
+@with_container_arithmetic(bcast_obj_array=False,
+        eq_comparison=False, rel_comparison=False)
+@dataclass_array_container
+@dataclass(frozen=True)
+class MyContainer:
+    name: str
+    mass: DOFArray
+    momentum: np.ndarray
+    enthalpy: DOFArray
+
+    @property
+    def array_context(self):
+        return self.mass.array_context
+
+
+def test_elementwise_reductions_with_container(actx_factory):
+    actx = actx_factory()
+
+    from mesh_data import BoxMeshBuilder
+    builder = BoxMeshBuilder(ambient_dim=2)
+
+    nelements = 4
+    mesh = builder.get_mesh(nelements, builder.mesh_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    x = thaw(dcoll.nodes(), actx)
+
+    def f(x):
+        return actx.np.sin(x[0]) * actx.np.sin(x[1])
+
+    def g(x):
+        return actx.np.cos(x[0]) * actx.np.cos(x[1])
+
+    def h(x):
+        return actx.np.cos(x[0]) * actx.np.sin(x[1])
+
+    mass = 2*f(x) + 0.5*g(x)
+    momentum = make_obj_array([f(x)/g(x), h(x)])
+    enthalpy = 3*h(x) - g(x)
+
+    ary_container = MyContainer(name="container",
+                                mass=mass,
+                                momentum=momentum,
+                                enthalpy=enthalpy)
+
+    def _get_ref_data(field):
+        mins = []
+        maxs = []
+        sums = []
+        for grp_f in field:
+            min_res = np.empty(grp_f.shape)
+            max_res = np.empty(grp_f.shape)
+            sum_res = np.empty(grp_f.shape)
+            for eidx in range(dcoll.mesh.nelements):
+                element_data = actx.to_numpy(grp_f[eidx])
+                min_res[eidx, :] = np.min(element_data)
+                max_res[eidx, :] = np.max(element_data)
+                sum_res[eidx, :] = np.sum(element_data)
+            mins.append(actx.from_numpy(min_res))
+            maxs.append(actx.from_numpy(max_res))
+            sums.append(actx.from_numpy(sum_res))
+        min_field = DOFArray(actx, data=tuple(mins))
+        max_field = DOFArray(actx, data=tuple(maxs))
+        sums_field = DOFArray(actx, data=tuple(sums))
+        return min_field, max_field, sums_field
+
+    min_mass, max_mass, sums_mass = _get_ref_data(mass)
+    min_enthalpy, max_enthalpy, sums_enthalpy = _get_ref_data(enthalpy)
+    min_mom_x, max_mom_x, sums_mom_x = _get_ref_data(momentum[0])
+    min_mom_y, max_mom_y, sums_mom_y = _get_ref_data(momentum[1])
+    min_momentum = make_obj_array([min_mom_x, min_mom_y])
+    max_momentum = make_obj_array([max_mom_x, max_mom_y])
+    sums_momentum = make_obj_array([sums_mom_x, sums_mom_y])
+
+    reference_min = MyContainer(
+        name="Reference min",
+        mass=min_mass,
+        momentum=min_momentum,
+        enthalpy=min_enthalpy
+    )
+
+    reference_max = MyContainer(
+        name="Reference max",
+        mass=max_mass,
+        momentum=max_momentum,
+        enthalpy=max_enthalpy
+    )
+
+    reference_sums = MyContainer(
+        name="Reference sums",
+        mass=sums_mass,
+        momentum=sums_momentum,
+        enthalpy=sums_enthalpy
+    )
+
+    elem_mins = op.elementwise_min(dcoll, ary_container)
+    elem_maxs = op.elementwise_max(dcoll, ary_container)
+    elem_sums = op.elementwise_sum(dcoll, ary_container)
+
+    from meshmode.dof_array import flat_norm
+
+    assert flat_norm(elem_mins - reference_min, ord=np.inf) < 1.e-14
+    assert flat_norm(elem_maxs - reference_max, ord=np.inf) < 1.e-14
+    assert flat_norm(elem_sums - reference_sums, ord=np.inf) < 1.e-14
+
+# }}}
 
 
 # You can test individual routines by typing
