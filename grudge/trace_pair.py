@@ -137,7 +137,7 @@ class TracePair:
 
     @property
     def int(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         interior value to be used for the flux.
         """
@@ -145,7 +145,7 @@ class TracePair:
 
     @property
     def ext(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         exterior value to be used for the flux.
         """
@@ -153,7 +153,7 @@ class TracePair:
 
     @property
     def avg(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         average of the interior and exterior values.
         """
@@ -161,7 +161,7 @@ class TracePair:
 
     @property
     def diff(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         difference (exterior - interior) of the pair values.
         """
@@ -179,10 +179,12 @@ def bdry_trace_pair(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
-    :arg interior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         already on the boundary representing the interior value to be used
         for the flux.
-    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -199,11 +201,13 @@ def bv_trace_pair(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
-    :arg interior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         defined in the volume, which will be restricted to the boundary denoted
         by *dd*. The result will be used as the interior value
         for the flux.
-    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -222,8 +226,8 @@ def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a :class:`TracePair` object.
     """
     i = project(dcoll, "vol", "int_faces", vec)
@@ -244,8 +248,8 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
@@ -336,9 +340,8 @@ def cross_rank_trace_pairs(
     components, respectively. Each of the TracePair components are structured
     like *ary*.
 
-    :arg ary: a single :class:`~meshmode.dof_array.DOFArray`, or an object
-        array of :class:`~meshmode.dof_array.DOFArray`\ s
-        of arbitrary shape.
+    :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     if isinstance(ary, Number):

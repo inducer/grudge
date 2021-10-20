@@ -65,6 +65,7 @@ from arraycontext import (
     map_array_container,
     serialize_container
 )
+from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 
@@ -99,10 +100,8 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an object array of
-        a :class:`~meshmode.dof_array.DOFArray`\ s,
-        where the last axis of the array must have length
-        matching the volume dimension.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :arg p: an integer denoting the order of the integral norm. Currently,
         only values of 2 or `numpy.inf` are supported.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -136,7 +135,8 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the nodal sum.
     """
     comm = dcoll.mpi_communicator
@@ -155,7 +155,8 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the rank-local nodal sum.
     """
     if not isinstance(vec, DOFArray):
@@ -174,7 +175,8 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the nodal minimum.
     """
     comm = dcoll.mpi_communicator
@@ -193,7 +195,8 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
     if not isinstance(vec, DOFArray):
@@ -220,7 +223,8 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the nodal maximum.
     """
     comm = dcoll.mpi_communicator
@@ -239,7 +243,8 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
     if not isinstance(vec, DOFArray):
@@ -266,7 +271,8 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     :returns: a scalar denoting the evaluated integral.
     """
     from grudge.op import _apply_mass_operator
@@ -284,15 +290,17 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
 # {{{  Elementwise reductions
 
 def _apply_elementwise_reduction(
-        op_name: str, dcoll: DiscretizationCollection, dd, vec) -> DOFArray:
+        op_name: str, dcoll: DiscretizationCollection,
+        dd, vec) -> ArrayOrContainerT:
     r"""Returns a vector of DOFs with all entries on each element set
     to the reduction operation *op_name* over all degrees of freedom.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` or object arrary of
-        :class:`~meshmode.dof_array.DOFArray`s.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
     """
     if not isinstance(vec, DOFArray):
         return map_array_container(
@@ -332,7 +340,8 @@ def _apply_elementwise_reduction(
     )
 
 
-def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
+def elementwise_sum(
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Returns a vector of DOFs with all entries on each element set
     to the sum of DOFs on that element.
 
@@ -340,8 +349,10 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` whose entries
         denote the element-wise sum of *vec*.
     """
     if len(args) == 1:
@@ -357,7 +368,8 @@ def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
     return _apply_elementwise_reduction("sum", dcoll, dd, vec)
 
 
-def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
+def elementwise_max(
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Returns a vector of DOFs with all entries on each element set
     to the maximum over all DOFs on that element.
 
@@ -366,8 +378,10 @@ def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` whose entries
         denote the element-wise max of *vec*.
     """
     if len(args) == 1:
@@ -383,7 +397,8 @@ def elementwise_max(dcoll: DiscretizationCollection, *args) -> DOFArray:
     return _apply_elementwise_reduction("max", dcoll, dd, vec)
 
 
-def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
+def elementwise_min(
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Returns a vector of DOFs with all entries on each element set
     to the minimum over all DOFs on that element.
 
@@ -392,8 +407,10 @@ def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` whose entries
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` whose entries
         denote the element-wise min of *vec*.
     """
     if len(args) == 1:
@@ -409,7 +426,8 @@ def elementwise_min(dcoll: DiscretizationCollection, *args) -> DOFArray:
     return _apply_elementwise_reduction("min", dcoll, dd, vec)
 
 
-def elementwise_integral(dcoll: DiscretizationCollection, *args) -> DOFArray:
+def elementwise_integral(
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
     each element of a discretization, given by *dd*.
@@ -419,8 +437,10 @@ def elementwise_integral(dcoll: DiscretizationCollection, *args) -> DOFArray:
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray`
-    :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer`.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` containing the
         elementwise integral if *vec*.
     """
     if len(args) == 1:
