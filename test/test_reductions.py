@@ -140,8 +140,6 @@ def test_elementwise_reductions(actx_factory):
         maxs.append(actx.from_numpy(max_res))
         sums.append(actx.from_numpy(sum_res))
 
-    from meshmode.dof_array import flat_norm
-
     ref_mins = DOFArray(actx, data=tuple(mins))
     ref_maxs = DOFArray(actx, data=tuple(maxs))
     ref_sums = DOFArray(actx, data=tuple(sums))
@@ -150,9 +148,9 @@ def test_elementwise_reductions(actx_factory):
     elem_maxs = op.elementwise_max(dcoll, field)
     elem_sums = op.elementwise_sum(dcoll, field)
 
-    assert flat_norm(elem_mins - ref_mins, ord=np.inf) < 1.e-15
-    assert flat_norm(elem_maxs - ref_maxs, ord=np.inf) < 1.e-15
-    assert flat_norm(elem_sums - ref_sums, ord=np.inf) < 1.e-15
+    assert op.norm(dcoll, elem_mins - ref_mins, np.inf) < 1.e-15
+    assert op.norm(dcoll, elem_maxs - ref_maxs, np.inf) < 1.e-15
+    assert op.norm(dcoll, elem_sums - ref_sums, np.inf) < 1.e-15
 
 
 # {{{ Array container tests
@@ -301,7 +299,7 @@ def test_elementwise_reductions_with_container(actx_factory):
         enthalpy=max_enthalpy
     )
 
-    reference_sums = MyContainer(
+    reference_sum = MyContainer(
         name="Reference sums",
         mass=sums_mass,
         momentum=sums_momentum,
@@ -312,11 +310,9 @@ def test_elementwise_reductions_with_container(actx_factory):
     elem_maxs = op.elementwise_max(dcoll, ary_container)
     elem_sums = op.elementwise_sum(dcoll, ary_container)
 
-    from meshmode.dof_array import flat_norm
-
-    assert flat_norm(elem_mins - reference_min, ord=np.inf) < 1.e-14
-    assert flat_norm(elem_maxs - reference_max, ord=np.inf) < 1.e-14
-    assert flat_norm(elem_sums - reference_sums, ord=np.inf) < 1.e-14
+    assert op.norm(dcoll, elem_mins - reference_min, np.inf) < 1.e-14
+    assert op.norm(dcoll, elem_maxs - reference_max, np.inf) < 1.e-14
+    assert op.norm(dcoll, elem_sums - reference_sum, np.inf) < 1.e-14
 
 # }}}
 
