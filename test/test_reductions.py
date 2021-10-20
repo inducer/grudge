@@ -172,6 +172,63 @@ class MyContainer:
         return self.mass.array_context
 
 
+def test_nodal_reductions_with_container(actx_factory):
+    actx = actx_factory()
+
+    from mesh_data import BoxMeshBuilder
+    builder = BoxMeshBuilder(ambient_dim=2)
+
+    mesh = builder.get_mesh(4, builder.mesh_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    x = thaw(dcoll.nodes(), actx)
+
+    def f(x):
+        return -actx.np.sin(10*x[0]) * actx.np.cos(2*x[1])
+
+    def g(x):
+        return actx.np.cos(2*x[0]) * actx.np.sin(10*x[1])
+
+    def h(x):
+        return -actx.np.tan(5*x[0]) * actx.np.tan(0.5*x[1])
+
+    mass = f(x) + g(x)
+    momentum = make_obj_array([f(x)/g(x), h(x)])
+    enthalpy = h(x) - g(x)
+
+    ary_container = MyContainer(name="container",
+                                mass=mass,
+                                momentum=momentum,
+                                enthalpy=enthalpy)
+
+    mass_ref = actx.to_numpy(flatten(mass))
+    momentum_ref = np.concatenate([actx.to_numpy(mom_i)
+                                   for mom_i in flatten(momentum)])
+    enthalpy_ref = actx.to_numpy(flatten(enthalpy))
+    concat_fields = np.concatenate([mass_ref, momentum_ref, enthalpy_ref])
+
+    for inner_grudge_op, np_op in [(op.nodal_sum, np.sum),
+                                   (op.nodal_max, np.max),
+                                   (op.nodal_min, np.min)]:
+
+        # FIXME: Remove this once all grudge reductions return device scalars
+        def grudge_op(dcoll, dd, vec):
+            res = inner_grudge_op(dcoll, dd, vec)
+
+            from numbers import Number
+            if not isinstance(res, Number):
+                return actx.to_numpy(res)
+            else:
+                return res
+
+        assert np.isclose(grudge_op(dcoll, "vol", ary_container),
+                          np_op(concat_fields), rtol=1e-13)
+
+    # Check norm reduction
+    assert np.isclose(op.norm(dcoll, ary_container, np.inf),
+                      np.linalg.norm(concat_fields, ord=np.inf),
+                      rtol=1e-13)
+
+
 def test_elementwise_reductions_with_container(actx_factory):
     actx = actx_factory()
 

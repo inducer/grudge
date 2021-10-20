@@ -60,7 +60,11 @@ THE SOFTWARE.
 from numbers import Number
 from functools import reduce, partial
 
-from arraycontext import make_loopy_program, map_array_container
+from arraycontext import (
+    make_loopy_program,
+    map_array_container,
+    serialize_container
+)
 
 from grudge.discretization import DiscretizationCollection
 
@@ -110,16 +114,16 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
 
     dd = dof_desc.as_dofdesc(dd)
 
-    if isinstance(vec, np.ndarray):
+    if not isinstance(vec, DOFArray):
         if p == 2:
             return sum(
-                norm(dcoll, vec[idx], p, dd=dd)**2
-                for idx in np.ndindex(vec.shape)
-            )**0.5
+                norm(dcoll, comp, p, dd=dd)**2
+                for _, comp in serialize_container(vec)
+            )**(1/2)
         elif p == np.inf:
             return max(
-                norm(dcoll, vec[idx], np.inf, dd=dd)
-                for idx in np.ndindex(vec.shape)
+                norm(dcoll, comp, p, dd=dd)
+                for _, comp in serialize_container(vec)
             )
         else:
             raise ValueError("unsupported norm order")
@@ -154,9 +158,11 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal sum.
     """
-    if isinstance(vec, np.ndarray):
-        return sum(nodal_sum_loc(dcoll, dd, vec[idx])
-                   for idx in np.ndindex(vec.shape))
+    if not isinstance(vec, DOFArray):
+        return sum(
+            nodal_sum_loc(dcoll, dd, comp)
+            for _, comp in serialize_container(vec)
+        )
 
     # FIXME: do not force result onto host
     actx = vec.array_context
@@ -190,9 +196,11 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
-    if isinstance(vec, np.ndarray):
-        return min(nodal_min_loc(dcoll, dd, vec[idx])
-                   for idx in np.ndindex(vec.shape))
+    if not isinstance(vec, DOFArray):
+        return min(
+            nodal_min_loc(dcoll, dd, comp)
+            for _, comp in serialize_container(vec)
+        )
 
     actx = vec.array_context
 
@@ -234,9 +242,11 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
-    if isinstance(vec, np.ndarray):
-        return max(nodal_max_loc(dcoll, dd, vec[idx])
-                   for idx in np.ndindex(vec.shape))
+    if not isinstance(vec, DOFArray):
+        return max(
+            nodal_max_loc(dcoll, dd, comp)
+            for _, comp in serialize_container(vec)
+        )
 
     actx = vec.array_context
 
