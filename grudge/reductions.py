@@ -114,6 +114,9 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     dd = dof_desc.as_dofdesc(dd)
 
     if not isinstance(vec, DOFArray):
+        if isinstance(vec, Number):
+            return np.fabs(vec)
+
         if p == 2:
             return sum(
                 norm(dcoll, comp, p, dd=dd)**2
