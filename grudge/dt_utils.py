@@ -44,6 +44,7 @@ THE SOFTWARE.
 
 
 import numpy as np
+from typing import Any
 
 from arraycontext import ArrayContext, thaw, freeze
 from meshmode.transform_metadata import FirstAxisIsElementsTag
@@ -158,7 +159,7 @@ def dt_non_geometric_factors(
 
 @memoize_on_first_arg
 def h_max_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> float:
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> Any:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -182,16 +183,16 @@ def h_max_from_volume(
     actx = dcoll._setup_actx
 
     ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
-    return actx.to_numpy(nodal_max(
+    return nodal_max(
         dcoll,
         dd,
         elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
-    ) ** (1.0 / dim))
+    ) ** (1.0 / dim)
 
 
 @memoize_on_first_arg
 def h_min_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> float:
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> Any:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -215,11 +216,11 @@ def h_min_from_volume(
     actx = dcoll._setup_actx
 
     ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
-    return actx.to_numpy(nodal_min(
+    return nodal_min(
         dcoll,
         dd,
         elementwise_sum(dcoll, op.mass(dcoll, dd, ones))
-    ) ** (1.0 / dim))
+    ) ** (1.0 / dim)
 
 
 def dt_geometric_factors(

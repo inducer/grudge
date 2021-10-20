@@ -254,7 +254,7 @@ def test_mass_surface_area(actx_factory, name):
 
         h_max = h_max_from_volume(dcoll)
 
-        eoc.add_data_point(h_max, area_error)
+        eoc.add_data_point(actx.to_numpy(h_max), area_error)
 
     # }}}
 
@@ -328,7 +328,7 @@ def test_mass_operator_inverse(actx_factory, name):
 
         h_max = h_max_from_volume(dcoll)
 
-        eoc.add_data_point(h_max, inv_error)
+        eoc.add_data_point(actx.to_numpy(h_max), inv_error)
 
     logger.info("inverse mass error\n%s", str(eoc))
 
@@ -636,8 +636,8 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         h_max = h_max_from_volume(dcoll)
 
-        eoc_global.add_data_point(h_max, actx.to_numpy(err_global))
-        eoc_local.add_data_point(h_max, actx.to_numpy(err_local))
+        eoc_global.add_data_point(actx.to_numpy(h_max), actx.to_numpy(err_global))
+        eoc_local.add_data_point(actx.to_numpy(h_max), actx.to_numpy(err_local))
 
         if visualize:
             from grudge.shortcuts import make_visualizer
@@ -773,7 +773,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         from grudge.dt_utils import h_max_from_volume
 
         h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
-        dt = dt_factor * h_max/order**2
+        dt = actx.to_numpy(dt_factor * h_max/order**2)
         nsteps = (final_time // dt) + 1
         dt = final_time/nsteps + 1e-15
 
@@ -806,8 +806,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             last_u - u_analytic(nodes, t=last_t),
             2
         )
-        logger.info("h_max %.5e error %.5e", h_max, error_l2)
-        eoc_rec.add_data_point(h_max, actx.to_numpy(error_l2))
+        logger.info("h_max %.5e error %.5e", actx.to_numpy(h_max), error_l2)
+        eoc_rec.add_data_point(actx.to_numpy(h_max), actx.to_numpy(error_l2))
 
     logger.info("\n%s", eoc_rec.pretty_print(
         abscissa_label="h",
