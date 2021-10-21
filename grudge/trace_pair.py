@@ -301,15 +301,33 @@ class _RankBoundaryCommunication:
         if tag is not None:
             self.tag += tag
 
+        # Here, we create initialize both send and recieve operations through
+        # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
+        # and comm.Irecv (MPI_Irecv) respectively. These initiate non-blocking
+        # point-to-point communication requests and require explicit management
+        # via the use of wait (MPI_Wait, MPI_Waitall, MPI_Waitany, MPI_Waitsome),
+        # test (MPI_Test, MPI_Testall, MPI_Testany, MPI_Testsome), and cancel
+        # (MPI_Cancel). Currently, the rank-local data `local_bdry_data_np`
+        # will have its memory buffer exposed by initiating the `Isend` request,
+        # and will remain so until the send request is complete. As a result,
+        # one must be careful to not access the data at the Python level during
+        # this nonblocking communication process. Completion of the requests
+        # are handled in :meth:`finish`.
+        #
+        # For more details on the mpi4py semantics, see:
+        # https://mpi4py.readthedocs.io/en/stable/overview.html#nonblocking-communications
         self.send_req = comm.Isend(local_bdry_data_np, remote_rank, tag=self.tag)
         self.remote_data_host_numpy = np.empty_like(local_bdry_data_np)
         self.recv_req = comm.Irecv(self.remote_data_host_numpy,
                                    remote_rank, self.tag)
 
     def finish(self):
+        # Wait for the nonblocking recieve request to complete before
+        # accessing the data
         self.recv_req.Wait()
 
-        # Re-containerize the remote data
+        # Nonblocking recieve is complete, we can now acces the data and apply
+        # the boundary-swap connection
         actx = self.array_context
         remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
         remote_bdry_data = unflatten(self.local_bdry_data,
@@ -318,6 +336,8 @@ class _RankBoundaryCommunication:
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
         swapped_remote_bdry_data = bdry_conn(remote_bdry_data)
 
+        # Complete the nonblocking send request and close the memory buffer
+        # associated with `self.remote_data_host_numpy`
         self.send_req.Wait()
 
         return TracePair(self.remote_btag,
