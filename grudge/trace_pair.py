@@ -287,22 +287,22 @@ class _RankBoundaryCommunication:
         actx = get_container_context_recursively(array_container)
         btag = BTAG_PARTITION(remote_rank)
 
-        local_array_ctr = project(dcoll, "vol", btag, array_container)
-        numpy_data = to_numpy(flatten(local_array_ctr, actx), actx)
+        local_bdry_data = project(dcoll, "vol", btag, array_container)
+        local_bdry_data_np = to_numpy(flatten(local_bdry_data, actx), actx)
         comm = dcoll.mpi_communicator
 
         self.dcoll = dcoll
         self.array_context = actx
         self.remote_btag = btag
         self.bdry_discr = dcoll.discr_from_dd(btag)
-        self.local_array_ctr = local_array_ctr
+        self.local_bdry_data = local_bdry_data
 
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
 
-        self.send_req = comm.Isend(numpy_data, remote_rank, tag=self.tag)
-        self.remote_data_host_numpy = np.empty_like(numpy_data)
+        self.send_req = comm.Isend(local_bdry_data_np, remote_rank, tag=self.tag)
+        self.remote_data_host_numpy = np.empty_like(local_bdry_data_np)
         self.recv_req = comm.Irecv(self.remote_data_host_numpy,
                                    remote_rank, self.tag)
 
@@ -311,18 +311,18 @@ class _RankBoundaryCommunication:
 
         # Re-containerize the remote data
         actx = self.array_context
-        exchanged_data = from_numpy(self.remote_data_host_numpy, actx)
-        remote_array_ctr = unflatten(self.local_array_ctr,
-                                     exchanged_data, actx)
+        remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
+        remote_bdry_data = unflatten(self.local_bdry_data,
+                                     remote_bdry_data_flat, actx)
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
-        swapped_remote_array_ctr = bdry_conn(remote_array_ctr)
+        swapped_remote_bdry_data = bdry_conn(remote_bdry_data)
 
         self.send_req.Wait()
 
         return TracePair(self.remote_btag,
-                         interior=self.local_array_ctr,
-                         exterior=swapped_remote_array_ctr)
+                         interior=self.local_bdry_data,
+                         exterior=swapped_remote_bdry_data)
 
 
 def cross_rank_trace_pairs(
