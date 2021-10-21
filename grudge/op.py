@@ -191,7 +191,7 @@ def local_grad(
             \partial_x|_E f, \partial_y|_E f, \partial_z|_E f \right)
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :arg nested: return nested object arrays instead of a single multidimensional
         array if *vec* is non-scalar.
     :returns: an object array (possibly nested) of
@@ -278,7 +278,7 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
 
         \nabla|_E \cdot \mathbf{f} = \sum_{i=1}^d \partial_{x_i}|_E \mathbf{f}_i
 
-    :arg vec: an object array of
+    :arg vecs: an object array of
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer` objects,
         where the last axis of the array must have length
@@ -346,7 +346,7 @@ def weak_local_grad(
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
-    May be called with ``(vecs)`` or ``(dd, vecs)``.
+    May be called with ``(vec)`` or ``(dd_in, vec)``.
 
     Specifically, the function returns an object array where the :math:`i`-th
     component is the weak derivative with respect to the :math:`i`-th coordinate
@@ -354,7 +354,7 @@ def weak_local_grad(
     information. For non-scalar :math:`f`, the function will return a nested object
     array containing the component-wise weak derivatives.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
@@ -399,7 +399,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
-    May be called with ``(xyz_axis, vecs)`` or ``(dd, xyz_axis, vecs)``.
+    May be called with ``(xyz_axis, vec)`` or ``(dd_in, xyz_axis, vec)``.
 
     Specifically, this function computes the volume contribution of the
     weak derivative in the :math:`i`-th component (specified by *xyz_axis*)
@@ -416,8 +416,10 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     is the elemental mass matrix (see :func:`mass` for more information), and
     :math:`\mathbf{f}|_E` is a vector of coefficients for :math:`f` on :math:`E`.
 
+    :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
     :arg xyz_axis: an integer indicating the axis along which the derivative
-        is taken
+        is taken.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
@@ -468,7 +470,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
-    :arg vec: an object array of
+    :arg vecs: an object array of
         :class:`~meshmode.dof_array.DOFArray`\s or
         :class:`~arraycontext.container.ArrayContainer` objects,
         where the last axis of the array must have length
@@ -569,7 +571,7 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an :class:`~arraycontext.container.ArrayContainer`,
-    the mass operator is applied in the Kronecker sense (component-wise).
+    the mass operator is applied component-wise.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 
@@ -669,7 +671,7 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.container.ArrayContainer`,
-    the inverse mass operator is applied in the Kronecker sense (component-wise).
+    the inverse mass operator is applied component-wise.
 
     For affine elements :math:`E`, the element-wise mass inverse
     is computed directly as the inverse of the (physical) mass matrix:
@@ -845,7 +847,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Return the action of the DG face mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an arbitrary :class:`~arraycontext.container.ArrayContainer`,
-    the face mass operator is applied in the Kronecker sense (component-wise).
+    the face mass operator is applied component-wise.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 
