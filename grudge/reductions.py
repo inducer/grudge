@@ -203,27 +203,9 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> Any:
 
     actx = vec.array_context
 
-    if hasattr(actx, "_force_device_scalars"):
-        force_device_scalars = actx._force_device_scalars
-    else:
-        force_device_scalars = True
-
-    def as_device_scalar(x):
-        return actx.from_numpy(np.array(x))
-
-    def device_min(x):
-        result = actx.np.min(x)
-        if not force_device_scalars:
-            result = as_device_scalar(result)
-        return result
-
-    result = reduce(
-            lambda acc, grp_ary: actx.np.minimum(acc, device_min(grp_ary)),
-            vec, as_device_scalar(np.inf))
-    if not force_device_scalars:
-        result = actx.to_numpy(result)[()]
-
-    return result
+    return reduce(
+            lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
+            vec, actx.from_numpy(np.array(np.inf)))
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> Any:
@@ -261,27 +243,9 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> Any:
 
     actx = vec.array_context
 
-    if hasattr(actx, "_force_device_scalars"):
-        force_device_scalars = actx._force_device_scalars
-    else:
-        force_device_scalars = True
-
-    def as_device_scalar(x):
-        return actx.from_numpy(np.array(x))
-
-    def device_max(x):
-        result = actx.np.max(x)
-        if not force_device_scalars:
-            result = as_device_scalar(result)
-        return result
-
-    result = reduce(
-            lambda acc, grp_ary: actx.np.maximum(acc, device_max(grp_ary)),
-            vec, as_device_scalar(-np.inf))
-    if not force_device_scalars:
-        result = actx.to_numpy(result)[()]
-
-    return result
+    return reduce(
+            lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
+            vec, actx.from_numpy(np.array(-np.inf)))
 
 
 def integral(dcoll: DiscretizationCollection, dd, vec):
