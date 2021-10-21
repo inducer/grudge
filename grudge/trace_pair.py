@@ -345,12 +345,17 @@ def cross_rank_trace_pairs(
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     if isinstance(ary, Number):
+        # NOTE: Assumed that the same number is passed on every rank
         return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
                 for remote_rank in connected_ranks(dcoll)]
-    else:
-        return [_RankBoundaryCommunication(dcoll, ary,
-                                           remote_rank, tag=tag).finish()
-                for remote_rank in connected_ranks(dcoll)]
+
+    # Initializing and posting all sends/receives
+    rank_bdry_communcators = [
+        _RankBoundaryCommunication(dcoll, ary, remote_rank, tag=tag)
+        for remote_rank in connected_ranks(dcoll)
+    ]
+    # Complete send/receives and return communicated data
+    return [rc.finish() for rc in rank_bdry_communcators]
 
 # }}}
 
