@@ -75,23 +75,6 @@ import grudge.dof_desc as dof_desc
 
 # {{{ Nodal reductions
 
-def _norm(dcoll: DiscretizationCollection, vec, p, dd):
-    if isinstance(vec, Number):
-        return np.fabs(vec)
-    if p == 2:
-        from grudge.op import _apply_mass_operator
-        return abs(
-            nodal_sum(
-                dcoll,
-                dd,
-                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))
-            )**(1/2)
-    elif p == np.inf:
-        return nodal_max(dcoll, dd, abs(vec))
-    else:
-        raise NotImplementedError("Unsupported value of p")
-
-
 def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
@@ -109,23 +92,27 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     if dd is None:
         dd = dof_desc.DD_VOLUME
 
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
+
+    if actx is not None:
+        _np = actx.np
+    else:
+        _np = np
+
     dd = dof_desc.as_dofdesc(dd)
 
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(
-                norm(dcoll, vec[idx], p, dd=dd)**2
-                for idx in np.ndindex(vec.shape)
-            )**0.5
-        elif p == np.inf:
-            return max(
-                norm(dcoll, vec[idx], np.inf, dd=dd)
-                for idx in np.ndindex(vec.shape)
-            )
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, vec, p, dd)
+    if p == 2:
+        from grudge.op import _apply_mass_operator
+        return _np.sqrt(
+            _np.abs(
+                nodal_sum(
+                    dcoll, dd,
+                    _np.conjugate(vec) * _apply_mass_operator(dcoll, dd, dd, vec))))
+    elif p == np.inf:
+        return nodal_max(dcoll, dd, _np.abs(vec))
+    else:
+        raise ValueError("unsupported norm order")
 
 
 def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
