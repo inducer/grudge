@@ -57,7 +57,6 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
 from functools import reduce
 
 from arraycontext import make_loopy_program
@@ -95,22 +94,18 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     from arraycontext import get_container_context_recursively
     actx = get_container_context_recursively(vec)
 
-    if actx is not None:
-        _np = actx.np
-    else:
-        _np = np
-
     dd = dof_desc.as_dofdesc(dd)
 
     if p == 2:
         from grudge.op import _apply_mass_operator
-        return _np.sqrt(
-            _np.abs(
+        return actx.np.sqrt(
+            actx.np.abs(
                 nodal_sum(
                     dcoll, dd,
-                    _np.conjugate(vec) * _apply_mass_operator(dcoll, dd, dd, vec))))
+                    actx.np.conjugate(vec)
+                    * _apply_mass_operator(dcoll, dd, dd, vec))))
     elif p == np.inf:
-        return nodal_max(dcoll, dd, _np.abs(vec))
+        return nodal_max(dcoll, dd, actx.np.abs(vec))
     else:
         raise ValueError("unsupported norm order")
 

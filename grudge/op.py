@@ -50,8 +50,6 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
-
 from arraycontext import ArrayContext
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
@@ -519,9 +517,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
 
 def _apply_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):
-    if isinstance(vec, Number):
-        return vec
-    elif isinstance(vec, np.ndarray):
+    if isinstance(vec, np.ndarray):
         return obj_array_vectorize(
             lambda vi: _apply_mass_operator(dcoll,
                                             dd_out,
