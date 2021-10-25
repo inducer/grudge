@@ -248,7 +248,7 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> Any:
             vec, actx.from_numpy(np.array(-np.inf)))
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec):
+def integral(dcoll: DiscretizationCollection, dd, vec) -> Any:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
