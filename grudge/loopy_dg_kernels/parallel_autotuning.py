@@ -1,8 +1,33 @@
-from charm4py import charm
+from charm4py import charm, Chare, Array, Reducer, Future
 import pyopencl as cl
+import numpy as np
 #import grudge.loopy_dg_kernels as dgk
 #from grudge.execution import diff_prg, elwise_linear
 
+class AutotuneTask(Chare):
+
+    #def __init__(self, params):
+    #    pass
+
+    def get_queue():
+        platform = cl.get_platforms()
+        gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        n_gpus = len(gpu_devices)
+        print(gpu_devices[charm.myPe() % n_gpus])
+        #ctx = cl.Context(devices=[gpu_devices[charm.myPe() % n_gpus]])
+        #queue = cl.CommandQueue(ctx, properties=cl.commmand_queue_properties.PROFILING_ENABLE)    
+
+class Test(Chare):
+    def start(self):
+        print('I am element', self.thisIndex, 'on PE', charm.myPe(),
+              'sending a msg to element 1')
+        self.thisProxy[1].sayHi()
+
+    #@coro
+    def sayHi(self, future):
+        rn = np.random.rand()
+        print('Hello from element', self.thisIndex, 'on PE', charm.myPe(), 'random', rn)
+        self.reduce(future, rn, Reducer.max)
 
 def get_queue(pe_num, platform_num=0):
     platform = cl.get_platforms()
@@ -20,23 +45,24 @@ def square(x):
 
 
 def main(args):
-    n = 100000
-    CHUNK_SIZE = 16
-    # apply function 'square' to elements in 0 to n-1 using the available
-    # cores. Parallel tasks are formed by grouping elements into chunks
-    # of size CHUNK_SIZE
-    result = charm.pool.map(square, range(n), chunksize=CHUNK_SIZE)
-    assert result == [square(i) for i in range(n)]
 
-    # Create queue, assume all GPUs on the machine are the same
     platform = cl.get_platforms()
     gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+    assert charm.numPes() == charm.numHosts()*len(gpu_devices)
+
+    # Create queue, assume all GPUs on the machine are the same
     
     # Check that it can assign one PE to each GPU
     # The first PE is used for scheduling
     # Not certain how this will work with multiple nodes
-    assert charm.numPes() - 1 == charm.numHosts()*len(gpu_devices)
+    
+    print(charm.numPes())
 
+    a = Array(AutotuneTask(), charm.numPes)
+    a.get_queue()
+    
+
+    """
     # 
     ctx = cl.Context(devices=[gpu_devices[0]])
     queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
@@ -55,7 +81,13 @@ def main(args):
 
     print(charm.numHosts())
 
-    exit()
-
+    f = Future()
+    a = Array(Test, 4)
+    a.sayHi(f)
+    result = f.get()
+    print(result)
+    print("All finished")
+    exit()    
+    """
 
 charm.start(main)
