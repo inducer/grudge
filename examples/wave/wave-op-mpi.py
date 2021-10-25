@@ -201,12 +201,12 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
-        l2norm = op.norm(dcoll, fields[0], 2)
+        l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
 
         if istep % 10 == 0:
-            linfnorm = op.norm(dcoll, fields[0], np.inf)
-            nodalmax = op.nodal_max(dcoll, "vol", fields[0])
-            nodalmin = op.nodal_min(dcoll, "vol", fields[0])
+            linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
+            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
+            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
             if comm.rank == 0:
                 logger.info(f"step: {istep} t: {t} "
                             f"L2: {l2norm} "
