@@ -180,9 +180,7 @@ def h_max_from_volume(
     if dim is None:
         dim = dcoll.dim
 
-    actx = dcoll._setup_actx
-
-    ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
+    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
     return nodal_max(
         dcoll,
         dd,
@@ -213,9 +211,7 @@ def h_min_from_volume(
     if dim is None:
         dim = dcoll.dim
 
-    actx = dcoll._setup_actx
-
-    ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
+    ones = dcoll.discr_from_dd(dd).zeros(dcoll._setup_actx) + 1.0
     return nodal_min(
         dcoll,
         dd,
