@@ -71,4 +71,4 @@ class HyperbolicOperator(Operator):
             characteristic_lengthscales(actx, dcoll) / wavespeeds
         )
 
-        return actx.to_numpy(op.nodal_min(dcoll, "vol", local_timesteps))
+        return op.nodal_min(dcoll, "vol", local_timesteps)

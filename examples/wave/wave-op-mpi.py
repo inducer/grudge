@@ -185,7 +185,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
             )
 
     c = 1
-    dt = 0.45 * estimate_rk4_timestep(actx, dcoll, c)
+    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
 
     vis = make_visualizer(dcoll)
 

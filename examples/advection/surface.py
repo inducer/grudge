@@ -206,7 +206,8 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ time stepping
 
     # FIXME: dt estimate is not necessarily valid for surfaces
-    dt = 0.45 * adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u0)
+    dt = actx.to_numpy(
+        0.45 * adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u0))
     nsteps = int(final_time // dt) + 1
 
     logger.info("dt:        %.5e", dt)
