@@ -47,8 +47,9 @@ def do_work(args):
     params = args[0]
     knl = args[1]
     queue = get_queue(charm.myPe())
-    result = dgk.run_tests.apply_transformations_and_run_test(queue, knl, dgk.run_tests.generic_test, params)
-    return result
+    print("PE: ", charm.myPe())
+    avg_time, transform_list = dgk.run_tests.apply_transformations_and_run_test(queue, knl, dgk.run_tests.generic_test, params)
+    return avg_time, params
 
 def square(x):
     return x**2
@@ -72,15 +73,23 @@ def main(args):
     # Not certain how this will work with multiple nodes
     
     from grudge.execution import diff_prg, elwise_linear_prg
-    knl = diff_prg(3, 100000, 10, np.float64)
+    knl = diff_prg(3, 1000000, 10, np.float64)
     params = dgk.run_tests.gen_autotune_list(queue, knl)
 
     args = [[param, knl] for param in params]
+
+    # May help to balance workload
+    from random import shuffle
+    shuffle(args)
     
     #a = Array(AutotuneTask, dims=(len(args)), args=args[0])
     #a.get_queue()
    
-    result = charm.pool.map(do_work, args[:10])
+    result = charm.pool.map(do_work, args)
+    sort_key = lambda entry: entry[0]
+    result.sort(key=sort_key)
+    
+
     for r in result:
         print(r)
     
