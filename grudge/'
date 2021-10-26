@@ -219,12 +219,12 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
         #program = super().transform_loopy_program(program)
         return program
 
-
-class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
+class GrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
 
     def _get_fake_numpy_namespace(self):
         return GrudgeFakeNumpyNamespace(self)
 
+    '''
     def empty(self, shape, dtype):
         return cla.empty(self.queue, shape=shape, dtype=dtype,
                 allocator=self.allocator, order="F")
@@ -242,6 +242,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
             _, (out,) = ctof_knl(cq, input=thawed)
             thawed = out
         return thawed
+    '''
 
     def einsum(self, spec, *args, arg_names=None, tagged=()):
         """Computes the result of Einstein summation following the
@@ -270,8 +271,17 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         for tag in tagged:
             if isinstance(tag, KernelDataTag):
                 ep = prg.default_entrypoint
+                #print(tag.kernel_data)
+                new_tags = []
+                for entry in tag.kernel_data:
+                    if isinstance(entry, lp.ValueArg):
+                        new_tags.append(entry)
+                        #print(type(entry))
                 # Is there a better way to apply the kernel data besides making a new tunit object?
-                prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
+                # This line breaks stuff somehow
+
+                prg = lp.make_kernel(ep.domains, ep.instructions, name=ep.name, kernel_data=new_tags)
+                #prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
 
         return self.call_loopy(
             prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
@@ -286,25 +296,23 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
             cl_a = out
         return cl_a
 
-
-class GrudgeArrayContext(FortranOrderedArrayContext):
-
     @memoize_method
     def transform_loopy_program(self, program):
         #print(program.default_entrypoint.name)
 
         # Should probably move into a separate function
-        #for arg in program.default_entrypoint.args:
-        #    for tag in arg.tags:
-        #        if isinstance(tag, ParameterValue):
-        #            program = lp.fix_parameters(program, **{arg.name: tag.value})
+        for arg in program.default_entrypoint.args:
+            for tag in arg.tags:
+                if isinstance(tag, ParameterValue):
+                    program = lp.fix_parameters(program, **{arg.name: tag.value})
 
         program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
 
         # Set no_numpy and return_dict options here?
-        program = set_memory_layout(program)
+        #program = set_memory_layout(program)
         
         device_id = "NVIDIA Titan V"
+        # This read could be slow
         transform_id = get_transformation_id(device_id)
 
         # Should just have another array context that only changes the data layout. The transform code can
@@ -479,10 +487,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             program = super().transform_loopy_program(program)
         '''
 
-        print(program.default_entrypoint.name)
-        print(program)
-        exit()
-
         return program
 
     def call_loopy(self, program, **kwargs):
@@ -545,24 +549,22 @@ def convert(o):
     if isinstance(o, np.generic): return o.item()
     raise TypeError
 
-
-class AutotuningArrayContext(GrudgeArrayContext):
+class AutoTuningArrayContext(GrudgeArrayContext):
 
     @memoize_method
     def transform_loopy_program(self, program):
+        #print(program.default_entrypoint.name)
 
         device_id = "NVIDIA Titan V"
+        # This read could be slow
         transform_id = get_transformation_id(device_id)
 
-        print(program.default_entrypoint.name)
-        print(program)
 
-        if "lp_nodes" in program.default_entrypoint.name:
-            #"diff" in program.default_entrypoint.name or \
-           #"nodes" == program.default_entrypoint.name or \
-           #"face_mass" == program.default_entrypoint.name or \
-           #"elwise_linear" == program.default_entrypoint.name or \
-           #"resample_by_mat" in program.default_entrypoint.name: # The lack of known array sizes breaks this
+        if "diff" in program.default_entrypoint.name or \
+           "nodes" == program.default_entrypoint.name or \
+           "face_mass" == program.default_entrypoint.name or \
+           "elwise_linear" == program.default_entrypoint.name or \
+           "resample_by_mat" in program.default_entrypoint.name: # The lack of known array sizes breaks this
 
             # Set no_numpy and return_dict options here?
             program = set_memory_layout(program)
@@ -598,7 +600,9 @@ class AutotuningArrayContext(GrudgeArrayContext):
             try:
                 # Attempt to read from a transformation file in the current directory first,
                 # then try to read from the package files
+                #try:
                 hjson_file = open(f"{program.default_entrypoint.name}.hjson", "rt")
+                #except FileNotFoundError:
 
                 # Probably need to generalize this
                 indices = [transform_id, fp_string, str(ndofs)]
@@ -606,6 +610,8 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     indices)
                 hjson_file.close()
                 program = dgk.apply_transformation_list(program, transformations)
+
+            # How can the test times be excluded from the end-to-end time reports
 
             # File exists but a transformation is missing
             except KeyError:
@@ -646,11 +652,6 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 out_file = open(f"{program.default_entrypoint.name}.hjson", "wt")
                 hjson.dump(d, out_file,default=convert)
                 out_file.close()
-
-        elif True:
-            print(program.default_entrypoint.name)
-            print(program)
-            exit()
 
         # Maybe this should have an autotuner
 	# There isn't much room for optimization due to the indirection

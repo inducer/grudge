@@ -33,7 +33,8 @@ import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
-from grudge.grudge_array_context import GrudgeArrayContext
+from grudge.grudge_array_context import (AutotuningArrayContext, 
+    GrudgeArrayContext, ParameterFixingPyOpenCLArrayContext)
 
 from pytools.obj_array import flat_obj_array
 
@@ -145,7 +146,9 @@ def bump(actx, dcoll, t=0):
 def main(ctx_factory, dim=2, order=3, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-    actx = GrudgeArrayContext(
+    #actx = ParameterFixingPyOpenCLArrayContext(
+    actx = AutotuningArrayContext(
+    #actx = GrudgeArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,
@@ -199,7 +202,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     t = 0
     t_final = 3
     istep = 0
-    while t < t_final:
+    end_step = 10
+    while istep < end_step:#t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
         l2norm = op.norm(dcoll, fields[0], 2)
@@ -229,6 +233,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
         # NOTE: These are here to ensure the solution is bounded for the
         # time interval specified
+        print(f"NORM OF SOLUTION: {l2norm}")
         assert l2norm < 1
 
 
