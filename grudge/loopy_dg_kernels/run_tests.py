@@ -1243,19 +1243,20 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 100000, 56, np.float64)
+    knl = diff_prg(3, 1000000, 10, np.float64)
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     #dofs = 84
     #knl = elwise_linear_prg(1000000, 3*dofs, np.float64, nnodes_in=dofs)
     #start_param = (24, 4, 126, 9, 28)#(96, 32, 60, 2, 5)
+    start_param = None
     ## Figure out the actual dimensions
     #knl = face_mass_prg(178746, 4, 20, 20, np.float64)
 
     # Spock
-    #result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=11540, device_memory_bandwidth=1047, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
-    result = gen_autotune_list(queue, knl)
-    print(len(result))
+    result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=11540, device_memory_bandwidth=1047, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+    #result = gen_autotune_list(queue, knl)
+    #print(len(result))
 
     # Titan V
     #result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
