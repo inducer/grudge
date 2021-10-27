@@ -365,8 +365,13 @@ def cross_rank_trace_pairs(
     components, respectively. Each of the TracePair components are structured
     like *ary*.
 
+    During the case when *ary* is a number, rather than a
+    :class:`~meshmode.dof_array.DOFArray` or an
+    :class:`~arraycontext.container.ArrayContainer` of them, it is assumed
+    that the same number is being communicated on every rank.
+
     :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     if isinstance(ary, Number):

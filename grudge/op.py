@@ -230,9 +230,9 @@ def local_d_dx(
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
@@ -284,7 +284,7 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
 
     return _div_helper(dcoll,
@@ -357,7 +357,7 @@ def weak_local_grad(
     :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :arg nested: return nested object arrays instead of a single multidimensional
         array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
@@ -421,9 +421,9 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     :arg xyz_axis: an integer indicating the axis along which the derivative
         is taken.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
     if len(args) == 2:
         xyz_axis, vec = args
@@ -476,7 +476,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
     if len(args) == 1:
         vecs, = args
@@ -588,9 +588,9 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
 
     if len(args) == 1:
@@ -698,9 +698,9 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
     :math:`\widehat{E}`.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
 
     return _apply_inverse_mass_operator(
@@ -873,9 +873,9 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base ``"all_faces"`` discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
 
     if len(args) == 1:
