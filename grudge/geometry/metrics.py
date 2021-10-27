@@ -114,7 +114,11 @@ def forward_metric_nth_derivative(
     if dd is None:
         dd = DD_VOLUME
 
-    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
+    if dd.discretization_tag is not DISCR_TAG_BASE:
+        raise ValueError(
+            "The DOF descriptor associated with computing metric derivatives "
+            "must have `DISCR_TAG_BASE` as a discretization tag."
+        )
 
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
@@ -128,13 +132,14 @@ def forward_metric_nth_derivative(
     if len(set(ref_axes)) != len(ref_axes):
         raise ValueError("ref_axes must not contain an axis more than once")
 
-    from pytools import flatten
     from meshmode.discretization import num_reference_derivative
 
     return num_reference_derivative(
-        dcoll.discr_from_dd(dd_base),
-        flatten([rst_axis] * n for rst_axis, n in ref_axes),
-        thaw(dcoll.discr_from_dd(dd_base).nodes(), actx)[xyz_axis]
+        dcoll.discr_from_dd(dd),
+        [rst_axis
+         for rst_axis, n in ref_axes
+         for _ in range(n)],
+        thaw(dcoll.discr_from_dd(dd).nodes(), actx)[xyz_axis]
     )
 
 
