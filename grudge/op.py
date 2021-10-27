@@ -159,14 +159,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
 # {{{ Derivative operators
 
-def reference_derivative_matrices(actx: ArrayContext,
+def _reference_derivative_matrices(actx: ArrayContext,
         out_element_group, in_element_group):
     # We're accepting in_element_group for interface consistency with
-    # reference_stiffness_transpose_matrix.
+    # _reference_stiffness_transpose_matrix.
     assert out_element_group is in_element_group
 
     @keyed_memoize_in(
-        actx, reference_derivative_matrices,
+        actx, _reference_derivative_matrices,
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
@@ -236,7 +236,7 @@ def local_grad(
         actx,
         discr,
         discr,
-        reference_derivative_matrices,
+        _reference_derivative_matrices,
         inverse_jac_mat,
         vec,
         metric_in_matvec=False
@@ -274,7 +274,7 @@ def local_d_dx(
         actx,
         discr,
         discr,
-        reference_derivative_matrices,
+        _reference_derivative_matrices,
         inverse_jac_mat,
         xyz_axis,
         vec,
@@ -340,10 +340,10 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
 
 # {{{ Weak derivative operators
 
-def reference_stiffness_transpose_matrix(
+def _reference_stiffness_transpose_matrix(
         actx: ArrayContext, out_element_group, in_element_group):
     @keyed_memoize_in(
-        actx, reference_stiffness_transpose_matrix,
+        actx, _reference_stiffness_transpose_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
@@ -457,7 +457,7 @@ def weak_local_grad(
         actx,
         out_discr,
         in_discr,
-        reference_stiffness_transpose_matrix,
+        _reference_stiffness_transpose_matrix,
         inverse_jac_mat,
         vec,
         metric_in_matvec=True
@@ -524,7 +524,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
         actx,
         out_discr,
         in_discr,
-        reference_stiffness_transpose_matrix,
+        _reference_stiffness_transpose_matrix,
         inverse_jac_mat,
         xyz_axis,
         vec,
@@ -584,9 +584,9 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass operator
 
-def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
+def _reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
     @keyed_memoize_in(
-        actx, reference_mass_matrix,
+        actx, _reference_mass_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
@@ -642,7 +642,7 @@ def _apply_mass_operator(
         actx,
         data=tuple(
             actx.einsum("ij,ej,ej->ei",
-                        reference_mass_matrix(
+                        _reference_mass_matrix(
                             actx,
                             out_element_group=out_grp,
                             in_element_group=in_grp
@@ -704,9 +704,9 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass inverse operator
 
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+def _reference_inverse_mass_matrix(actx: ArrayContext, element_group):
     @keyed_memoize_in(
-        actx, reference_inverse_mass_matrix,
+        actx, _reference_inverse_mass_matrix,
         lambda grp: grp.discretization_key())
     def get_ref_inv_mass_mat(grp):
         from modepy import inverse_mass_matrix
@@ -742,8 +742,8 @@ def _apply_inverse_mass_operator(
     group_data = []
     for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
 
-        ref_mass_inverse = reference_inverse_mass_matrix(actx,
-                                                         element_group=grp)
+        ref_mass_inverse = \
+            _reference_inverse_mass_matrix(actx, element_group=grp)
 
         # FIXME: Use overintegration in WADG for non-affine groups
         # based on https://arxiv.org/pdf/1608.03836.pdf. That is,
@@ -819,10 +819,10 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Face mass operator
 
-def reference_face_mass_matrix(
+def _reference_face_mass_matrix(
         actx: ArrayContext, face_element_group, vol_element_group, dtype):
     @keyed_memoize_in(
-        actx, reference_face_mass_matrix,
+        actx, _reference_face_mass_matrix,
         lambda face_grp, vol_grp: (face_grp.discretization_key(),
                                    vol_grp.discretization_key()))
     def get_ref_face_mass_mat(face_grp, vol_grp):
@@ -927,7 +927,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
         actx,
         data=tuple(
             actx.einsum("ifj,fej,fej->ei",
-                        reference_face_mass_matrix(
+                        _reference_face_mass_matrix(
                                 actx,
                                 face_element_group=afgrp,
                                 vol_element_group=vgrp,
