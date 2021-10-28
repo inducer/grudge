@@ -125,11 +125,10 @@ def euler_boundary_numerical_flux_prescribed(
 
 class EulerOperator(HyperbolicOperator):
 
-    def __init__(self, dcoll, bdry_fcts=None, initial_condition=None,
+    def __init__(self, dcoll, bdry_conditions=None,
                  flux_type="lf", gamma=1.4, gas_const=287.1):
         self.dcoll = dcoll
-        self.bdry_fcts = bdry_fcts
-        self.initial_condition = initial_condition
+        self.bdry_conditions = bdry_conditions
         self.flux_type = flux_type
         self.gamma = gamma
         self.gas_const = gas_const
@@ -165,18 +164,15 @@ class EulerOperator(HyperbolicOperator):
                     lf_stabilization=self.lf_stabilization
                 ) for tpair in op.interior_trace_pairs(dcoll, q)
             )
-            + sum(
-                euler_boundary_numerical_flux_prescribed(
-                    dcoll,
-                    q,
-                    self.bdry_fcts[btag](thaw(self.dcoll.nodes(btag), actx), t),
-                    dd_bc=as_dofdesc(btag),
-                    qtag=DISCR_TAG_QUAD,
-                    gamma=gamma,
-                    lf_stabilization=self.lf_stabilization,
-                ) for btag in self.bdry_fcts
-            )
         )
+
+        if self.bdry_conditions is not None:
+            bc_fluxes = sum(
+                bc.apply(dcoll, q, t=t, lf_stabilization=self.lf_stabilization)
+                for bc in self.bdry_conditions
+            )
+            euler_flux_faces = euler_flux_faces + bc_fluxes
+
         return op.inverse_mass(
             dcoll,
             op.weak_local_div(
@@ -400,24 +396,6 @@ def entropy_stable_numerical_flux_chandrashekar(
     return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
 
-def entropy_stable_boundary_numerical_flux_prescribed(
-        dcoll, proj_ev_state, cv_prescribe, dd_bcq,
-        gamma=1.4, t=0.0, lf_stabilization=False):
-    """todo.
-    """
-    actx = proj_ev_state.array_context
-    x_bcq = thaw(dcoll.nodes(dd_bcq), actx)
-    ev_bcq = op.project(dcoll, "vol", dd_bcq, proj_ev_state)
-    bdry_tpair = TracePair(
-        dd_bcq,
-        # interior state in terms of the entropy-projected conservative vars
-        interior=entropy_to_conservative_vars(actx, ev_bcq, gamma=gamma),
-        exterior=cv_prescribe(x_bcq, t=t)
-    )
-    return entropy_stable_numerical_flux_chandrashekar(
-        dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
-
-
 class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
@@ -473,17 +451,11 @@ class EntropyStableEulerOperator(EulerOperator):
             )
         )
 
-        if self.bdry_fcts is not None:
+        if self.bdry_conditions is not None:
             bc_fluxes = sum(
-                # Boundary conditions (prescribed)
-                entropy_stable_boundary_numerical_flux_prescribed(
-                    dcoll,
-                    proj_entropy_vars,
-                    cv_prescribe=self.bdry_fcts[btag],
-                    dd_bcq=as_dofdesc(btag).with_discr_tag(DISCR_TAG_QUAD),
-                    t=t,
-                    lf_stabilization=self.lf_stabilization
-                ) for btag in self.bdry_fcts
+                bc.apply(dcoll, proj_entropy_vars,
+                         t=t, lf_stabilization=self.lf_stabilization)
+                for bc in self.bdry_conditions
             )
             num_fluxes_bdry = num_fluxes_bdry + bc_fluxes
 
@@ -491,6 +463,38 @@ class EntropyStableEulerOperator(EulerOperator):
             dcoll, dq,
             -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry)
         )
+
+# }}}
+
+
+# {{{ Boundary conditions
+
+class BCObject:
+    def __init__(self, dd, *, gamma=1.4, prescribed_state=None) -> None:
+        self.dd = dd
+        self.gamma = gamma
+        self.prescribed_state = prescribed_state
+
+    def apply(self, dcoll, state, t=0, lf_stabilization=False):
+        raise NotImplementedError("Apply method not implemented.")
+
+
+class PrescribedBC(BCObject):
+
+    def apply(self, dcoll, state, t=0, lf_stabilization=False):
+        actx = state.array_context
+        gamma = self.gamma
+        dd_bcq = self.dd
+        x_bcq = thaw(dcoll.nodes(dd_bcq), actx)
+        ev_bcq = op.project(dcoll, "vol", dd_bcq, state)
+        bdry_tpair = TracePair(
+            dd_bcq,
+            # interior state in terms of the entropy-projected conservative vars
+            interior=entropy_to_conservative_vars(actx, ev_bcq, gamma=gamma),
+            exterior=self.prescribed_state(x_bcq, t=t)
+        )
+        return entropy_stable_numerical_flux_chandrashekar(
+            dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
 
 # }}}
 
