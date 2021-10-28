@@ -360,10 +360,10 @@ def entropy_stable_numerical_flux_chandrashekar(
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
-    from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, DISCR_TAG_BASE
+    from grudge.dof_desc import DISCR_TAG_BASE
 
-    dd_intfaces_base = DOFDesc("int_faces", DISCR_TAG_BASE)
     dd_intfaces = tpair.dd
+    dd_intfaces_base = dd_intfaces.with_discr_tag(DISCR_TAG_BASE)
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_int = tpair.int
     q_ext = tpair.ext
