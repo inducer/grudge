@@ -147,7 +147,8 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
     compiled_rhs = actx.compile(rhs)
 
     fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = 1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields)
+    dt = actx.to_numpy(
+        1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
 
     logger.info("Timestep size: %g", dt)
 
@@ -227,7 +228,7 @@ def run_convergence_test_vortex(
             actx, mesh,
             discr_tag_to_group_factory=discr_tag_to_group_factory
         )
-        h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
+        h_max = actx.to_numpy(h_max_from_volume(dcoll, dim=dcoll.ambient_dim))
         nodes = thaw(dcoll.nodes(), actx)
 
         # }}}
