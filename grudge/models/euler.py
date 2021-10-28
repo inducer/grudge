@@ -496,6 +496,31 @@ class PrescribedBC(BCObject):
         return entropy_stable_numerical_flux_chandrashekar(
             dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
 
+class AdiabaticSlipBC(BCObject):
+
+    def apply(self, dcoll, state, t=0, lf_stabilization=False):
+        actx = state.array_context
+        gamma = self.gamma
+        dd_bcq = self.dd
+        nhat = thaw(dcoll.normal(dd_bcq), actx)
+        int_bcq = op.project(dcoll, "vol", dd_bcq, state)
+        interior = entropy_to_conservative_vars(actx, int_bcq, gamma=gamma)
+
+        bdry_tpair = TracePair(
+            dd_bcq,
+            # interior state in terms of the entropy-projected conservative vars
+            interior=interior,
+            exterior=EulerState(
+                mass=interior.mass,
+                energy=interior.energy,
+                momentum=(
+                    interior.momentum - 2.0 * nhat * np.dot(interior.momentum, nhat)
+                )
+            )
+        )
+        return entropy_stable_numerical_flux_chandrashekar(
+            dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
+
 # }}}
 
 
