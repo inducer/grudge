@@ -208,7 +208,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     )
 
     c = 1
-    dt = 0.45 * estimate_rk4_timestep(actx, dcoll, c)
+    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
 
     vis = make_visualizer(dcoll)
 
@@ -224,12 +224,12 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
-        l2norm = op.norm(dcoll, fields.u, 2)
+        l2norm = actx.to_numpy(op.norm(dcoll, fields.u, 2))
 
         if istep % 10 == 0:
-            linfnorm = op.norm(dcoll, fields.u, np.inf)
-            nodalmax = op.nodal_max(dcoll, "vol", fields.u)
-            nodalmin = op.nodal_min(dcoll, "vol", fields.u)
+            linfnorm = actx.to_numpy(op.norm(dcoll, fields.u, np.inf))
+            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields.u))
+            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields.u))
             if comm.rank == 0:
                 logger.info(f"step: {istep} t: {t} "
                             f"L2: {l2norm} "
