@@ -82,30 +82,20 @@ def test_nodal_reductions(actx_factory):
     h_ref = actx.to_numpy(flatten(fields[2]))
     concat_fields = np.concatenate([f_ref, g_ref, h_ref])
 
-    for inner_grudge_op, np_op in [(op.nodal_sum, np.sum),
+    for grudge_op, np_op in [(op.nodal_sum, np.sum),
                              (op.nodal_max, np.max),
                              (op.nodal_min, np.min)]:
 
-        # FIXME: Remove this once all grudge reductions return device scalars
-        def grudge_op(dcoll, dd, vec):
-            res = inner_grudge_op(dcoll, dd, vec)
-
-            from numbers import Number
-            if not isinstance(res, Number):
-                return actx.to_numpy(res)
-            else:
-                return res
-
         # Componentwise reduction checks
-        assert np.isclose(grudge_op(dcoll, "vol", fields[0]),
+        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[0])),
                           np_op(f_ref), rtol=1e-13)
-        assert np.isclose(grudge_op(dcoll, "vol", fields[1]),
+        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[1])),
                           np_op(g_ref), rtol=1e-13)
-        assert np.isclose(grudge_op(dcoll, "vol", fields[2]),
+        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[2])),
                           np_op(h_ref), rtol=1e-13)
 
         # Test nodal reductions work on object arrays
-        assert np.isclose(grudge_op(dcoll, "vol", fields),
+        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields)),
                           np_op(concat_fields), rtol=1e-13)
 
 
@@ -148,9 +138,9 @@ def test_elementwise_reductions(actx_factory):
     elem_maxs = op.elementwise_max(dcoll, field)
     elem_sums = op.elementwise_sum(dcoll, field)
 
-    assert op.norm(dcoll, elem_mins - ref_mins, np.inf) < 1.e-15
-    assert op.norm(dcoll, elem_maxs - ref_maxs, np.inf) < 1.e-15
-    assert op.norm(dcoll, elem_sums - ref_sums, np.inf) < 1.e-15
+    assert actx.to_numpy(op.norm(dcoll, elem_mins - ref_mins, np.inf)) < 1.e-15
+    assert actx.to_numpy(op.norm(dcoll, elem_maxs - ref_maxs, np.inf)) < 1.e-15
+    assert actx.to_numpy(op.norm(dcoll, elem_sums - ref_sums, np.inf)) < 1.e-15
 
 
 # {{{ Array container tests
@@ -204,25 +194,15 @@ def test_nodal_reductions_with_container(actx_factory):
     enthalpy_ref = actx.to_numpy(flatten(enthalpy))
     concat_fields = np.concatenate([mass_ref, momentum_ref, enthalpy_ref])
 
-    for inner_grudge_op, np_op in [(op.nodal_sum, np.sum),
-                                   (op.nodal_max, np.max),
-                                   (op.nodal_min, np.min)]:
+    for grudge_op, np_op in [(op.nodal_sum, np.sum),
+                             (op.nodal_max, np.max),
+                             (op.nodal_min, np.min)]:
 
-        # FIXME: Remove this once all grudge reductions return device scalars
-        def grudge_op(dcoll, dd, vec):
-            res = inner_grudge_op(dcoll, dd, vec)
-
-            from numbers import Number
-            if not isinstance(res, Number):
-                return actx.to_numpy(res)
-            else:
-                return res
-
-        assert np.isclose(grudge_op(dcoll, "vol", ary_container),
+        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", ary_container)),
                           np_op(concat_fields), rtol=1e-13)
 
     # Check norm reduction
-    assert np.isclose(op.norm(dcoll, ary_container, np.inf),
+    assert np.isclose(actx.to_numpy(op.norm(dcoll, ary_container, np.inf)),
                       np.linalg.norm(concat_fields, ord=np.inf),
                       rtol=1e-13)
 
@@ -310,9 +290,9 @@ def test_elementwise_reductions_with_container(actx_factory):
     elem_maxs = op.elementwise_max(dcoll, ary_container)
     elem_sums = op.elementwise_sum(dcoll, ary_container)
 
-    assert op.norm(dcoll, elem_mins - reference_min, np.inf) < 1.e-14
-    assert op.norm(dcoll, elem_maxs - reference_max, np.inf) < 1.e-14
-    assert op.norm(dcoll, elem_sums - reference_sum, np.inf) < 1.e-14
+    assert actx.to_numpy(op.norm(dcoll, elem_mins - reference_min, np.inf)) < 1.e-14
+    assert actx.to_numpy(op.norm(dcoll, elem_maxs - reference_max, np.inf)) < 1.e-14
+    assert actx.to_numpy(op.norm(dcoll, elem_sums - reference_sum, np.inf)) < 1.e-14
 
 # }}}
 
