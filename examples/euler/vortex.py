@@ -157,7 +157,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
         fields = rk4_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
-            norm_q = actx.to_numpy(op.norm(dcoll, fields.join(), 2))
+            norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
                 vis.write_vtk_file(
