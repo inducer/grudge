@@ -290,7 +290,7 @@ def entropy_projection(
     return aux_cv_state_q, ev_state
 
 
-def flux_chandrashekar(dcoll, gamma, use_numpy, qi, qj):
+def flux_chandrashekar(dcoll, gamma, qi, qj):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
@@ -369,7 +369,7 @@ def entropy_stable_numerical_flux_chandrashekar(
     q_ext = tpair.ext
     actx = q_int.array_context
 
-    flux = flux_chandrashekar(dcoll, gamma, False, q_int, q_ext)
+    flux = flux_chandrashekar(dcoll, gamma, q_int, q_ext)
     # FIXME: Because of the affineness of the geometry, this normal technically
     # does not need to be interpolated to the quadrature grid.
     normal = thaw(dcoll.normal(dd_intfaces_base), actx)
@@ -439,7 +439,7 @@ class EntropyStableEulerOperator(EulerOperator):
 
         flux_diff = volume_flux_differencing(
             dcoll,
-            partial(flux_chandrashekar, dcoll, gamma, False),
+            partial(flux_chandrashekar, dcoll, gamma),
             dq, df,
             qtilde_allquad
         )
