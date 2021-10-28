@@ -32,15 +32,19 @@ THE SOFTWARE.
 """
 
 
+import numpy as np
+
 from functools import partial
 
-from arraycontext import map_array_container
+from arraycontext import ArrayContext, map_array_container
 from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
 from meshmode.dof_array import DOFArray
+
+from pytools import keyed_memoize_in
 
 from numbers import Number
 
@@ -84,7 +88,6 @@ def volume_quadrature_l2_projection_matrix(
                                         vol_quad_grp.discretization_key()))
     def get_ref_l2_proj_mat(base_grp, vol_quad_grp):
         from grudge.interpolation import volume_quadrature_interpolation_matrix
-        from grudge.op import reference_inverse_mass_matrix
 
         vdm_q = actx.to_numpy(
             volume_quadrature_interpolation_matrix(
@@ -92,9 +95,7 @@ def volume_quadrature_l2_projection_matrix(
             )
         )
         weights = vol_quad_grp.quadrature_rule().weights
-        inv_mass_mat = actx.to_numpy(
-            reference_inverse_mass_matrix(actx, base_grp, vol_quad_grp)
-        )
+        inv_mass_mat = np.linalg.inv(weights * vdm_q.T @ vdm_q)
         return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T * weights)))
 
     return get_ref_l2_proj_mat(base_element_group, vol_quad_element_group)
