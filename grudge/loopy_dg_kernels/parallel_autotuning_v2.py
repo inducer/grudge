@@ -3,130 +3,31 @@ from charm4py.pool import PoolScheduler, Pool
 from charm4py.charm import Charm, CharmRemote
 #from charm4py.chare import GROUP, MAINCHARE, ARRAY, CHARM_TYPES, Mainchare, Group, ArrayMap
 #from charm4py.sections import SectionManager
-import inspect
-import sys
+#import inspect
+#import sys
 
 import pyopencl as cl
 import numpy as np
 import grudge.loopy_dg_kernels as dgk
 #from grudge.execution import diff_prg, elwise_linear
 
-# Balances the number of workers per host
-
-'''
+# Makes one PE inactive on each host so the number of workers is the same on all hosts as
+# opposed to the basic PoolScheduler which has one fewer worker on the host with PE 0.
+# This can be useful for running tasks on a GPU cluster for example.
 class BalancedPoolScheduler(PoolScheduler):
-    pass 
-    """
+
     def __init__(self):
        super().__init__()
        n_pes = charm.numPes()
        n_hosts = charm.numHosts()
-       assert n_pes % n_hosts == 0 # Enforce constant number of pes per host
        pes_per_host = n_pes // n_hosts
+
+       assert n_pes % n_hosts == 0 # Enforce constant number of pes per host
        assert pes_per_host > 1 # We're letting one pe on each host be unused
 
        self.idle_workers = set([i for i in range(n_pes) if not i % pes_per_host == 0 ])
        self.num_workers = len(self.idle_workers)
-    """
-'''
 
-class MyCharm(Charm):
-    pass
-
-    """
-    def _registerInternalChares(self):
-        global SectionManager
-        from charm4py.sections import SectionManager
-        self.register(SectionManager, (GROUP,))
-
-        self.register(CharmRemote, (GROUP,))
-
-        from charm4py.pool import Worker
-        if self.interactive:
-            if sys.version_info < (3, 0, 0):
-                entry_method.coro(BalancedPoolScheduler.start.im_func)
-                entry_method.coro(BalancedPoolScheduler.startSingleTask.im_func)
-            else:
-                entry_method.coro(BalancedPoolScheduler.start)
-                entry_method.coro(BalancedPoolScheduler.startSingleTask)
-        self.register(BalancedPoolScheduler, (ARRAY,))
-        self.register(Worker, (GROUP,))
-
-        if self.options.profiling:
-            self.internalChareTypes.update({SectionManager, CharmRemote,
-                                            BalancedPoolScheduler, Worker})
-    """
-
-    """
-    def _createInternalChares(self):
-        Group(CharmRemote)
-        Group(SectionManager)
-
-        from charm4py.pool import Pool, BalancedPoolScheduler
-        pool_proxy = Chare(BalancedPoolScheduler, onPE=0)
-        self.pool = Pool(pool_proxy)
-        readonlies.charm_pool_proxy__h = pool_proxy
-
-    """
-
-    """
-    def registerInCharm(self, C):
-        C.idx = [None] * len(CHARM_TYPES)
-        charm_types = self.registered[C]
-        if Mainchare in charm_types:
-            self.registerInCharmAs(C, Mainchare, self.lib.CkRegisterMainchare)
-        if Group in charm_types:
-            if ArrayMap in C.mro():
-                self.registerInCharmAs(C, Group, self.lib.CkRegisterArrayMap)
-            elif C == SectionManager:
-                self.registerInCharmAs(C, Group, self.lib.CkRegisterSectionManager)
-            else:
-                self.registerInCharmAs(C, Group, self.lib.CkRegisterGroup)
-        if Array in charm_types:
-            self.registerInCharmAs(C, Array, self.lib.CkRegisterArray)
-
-
-    def registerAs(self, C, charm_type_id):
-        if charm_type_id == MAINCHARE:
-            assert not self.mainchareRegistered, 'More than one entry point has been specified'
-            self.mainchareRegistered = True
-            # make mainchare constructor always a coroutine
-            if sys.version_info < (3, 0, 0):
-                entry_method.coro(C.__init__.im_func)
-            else:
-                entry_method.coro(C.__init__)
-        charm_type = chare.charm_type_id_to_class[charm_type_id]
-        # print("charm4py: Registering class " + C.__name__, "as", charm_type.__name__, "type_id=", charm_type_id, charm_type)
-        profilingOn = self.options.profiling
-        ems = [entry_method.EntryMethod(C, m, profilingOn) for m in charm_type.__baseEntryMethods__()]
-
-        members = dir(C)
-        if C == SectionManager:
-            ems.append(entry_method.EntryMethod(C, 'sendToSection', profilingOn))
-            members.remove('sendToSection')
-        self.classEntryMethods[charm_type_id][C] = ems
-
-        for m in members:
-            m_obj = getattr(C, m)
-            if not callable(m_obj) or inspect.isclass(m_obj):
-                continue
-            if m in chare.method_restrictions['reserved'] and m_obj != getattr(Chare, m):
-                raise Charm4PyError(str(C) + " redefines reserved method '"  + m + "'")
-            if m.startswith('__') and m.endswith('__'):
-                continue  # filter out non-user methods
-            if m in chare.method_restrictions['non_entry_method']:
-                continue
-            if charm_type_id != ARRAY and m in {'migrate', 'setMigratable'}:
-                continue
-            # print(m)
-            em = entry_method.EntryMethod(C, m, profilingOn)
-            self.classEntryMethods[charm_type_id][C].append(em)
-        self.registered[C].add(charm_type)
-    """
-
-#charm object that uses the BalancedPoolScheduler
-#charm = MyCharm()
-#charm = Charm()
 
 ##### To Delete
 
@@ -215,31 +116,7 @@ def main(args):
     #a.get_queue()
    
     #result = charm.pool.map(do_work, args)
-
-    def my__init__(self):
-        self.workers = None
-        self.idle_workers = set(range(1, charm.numPes()))
-
-        #assert charm.numPes() % charm.numHosts() == 0
-        #pes_per_host = charm.numPes() // charm.numHosts()
-        #assert pes_per_host > 0
-        #self.idle_workers = set([i for i in range(charm.numPes()) if not i % pes_per_host == 0])
-
-        self.num_workers = len(self.idle_workers)
-        from charm4py.pool import INITIAL_MAX_JOBS
-        self.jobs = [None] * INITIAL_MAX_JOBS
-        self.job_id_pool = set(range(INITIAL_MAX_JOBS))
-        self.job_next = None
-        self.job_last = self
-        from collections import defaultdict
-        self.worker_knows = defaultdict(set)
-        self.setMigratable(False)
-
-    # Pretty hacky but this seems to be the easiest way to change the
-    # scheduler
-    PoolScheduler.__init__ = my__init__
-
-    pool_proxy = Chare(PoolScheduler, onPE=0)
+    pool_proxy = Chare(BalancedPoolScheduler, onPE=0)
     mypool = Pool(pool_proxy)
     result = mypool.map(do_work, args)
 
