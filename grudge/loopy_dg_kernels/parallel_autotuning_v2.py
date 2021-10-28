@@ -1,10 +1,10 @@
-from charm4py import entry_method, charm, chare, Chare, Array, Reducer, Future
-#from charm4py.pool import PoolScheduler
-#from charm4py.charm import Charm, CharmRemote
+from charm4py import entry_method, chare, Chare, Array, Reducer, Future, charm
+from charm4py.pool import PoolScheduler, Pool
+from charm4py.charm import Charm, CharmRemote
 #from charm4py.chare import GROUP, MAINCHARE, ARRAY, CHARM_TYPES, Mainchare, Group, ArrayMap
 #from charm4py.sections import SectionManager
-#import inspect
-#import sys
+import inspect
+import sys
 
 import pyopencl as cl
 import numpy as np
@@ -12,9 +12,11 @@ import grudge.loopy_dg_kernels as dgk
 #from grudge.execution import diff_prg, elwise_linear
 
 # Balances the number of workers per host
+
 '''
 class BalancedPoolScheduler(PoolScheduler):
-    
+    pass 
+    """
     def __init__(self):
        super().__init__()
        n_pes = charm.numPes()
@@ -23,10 +25,15 @@ class BalancedPoolScheduler(PoolScheduler):
        pes_per_host = n_pes // n_hosts
        assert pes_per_host > 1 # We're letting one pe on each host be unused
 
-       self.idle_workers = set([i for i in range(n_pes) if not i % per_per_host == 0 ])
+       self.idle_workers = set([i for i in range(n_pes) if not i % pes_per_host == 0 ])
        self.num_workers = len(self.idle_workers)
+    """
+'''
 
 class MyCharm(Charm):
+    pass
+
+    """
     def _registerInternalChares(self):
         global SectionManager
         from charm4py.sections import SectionManager
@@ -48,7 +55,9 @@ class MyCharm(Charm):
         if self.options.profiling:
             self.internalChareTypes.update({SectionManager, CharmRemote,
                                             BalancedPoolScheduler, Worker})
+    """
 
+    """
     def _createInternalChares(self):
         Group(CharmRemote)
         Group(SectionManager)
@@ -58,7 +67,9 @@ class MyCharm(Charm):
         self.pool = Pool(pool_proxy)
         readonlies.charm_pool_proxy__h = pool_proxy
 
+    """
 
+    """
     def registerInCharm(self, C):
         C.idx = [None] * len(CHARM_TYPES)
         charm_types = self.registered[C]
@@ -111,10 +122,11 @@ class MyCharm(Charm):
             em = entry_method.EntryMethod(C, m, profilingOn)
             self.classEntryMethods[charm_type_id][C].append(em)
         self.registered[C].add(charm_type)
-'''
+    """
 
 #charm object that uses the BalancedPoolScheduler
 #charm = MyCharm()
+#charm = Charm()
 
 ##### To Delete
 
@@ -182,9 +194,9 @@ def main(args):
     queue = cl.CommandQueue(ctx, properties=profiling)    
     
 
-    assert charm.numPes() > 1
+    #assert charm.numPes() > 1
     #assert charm.numPes() - 1 <= charm.numHosts()*len(gpu_devices)
-    assert charm.numPes() == charm.numHosts()*(len(gpu_devices) + 1)
+    #assert charm.numPes() == charm.numHosts()*(len(gpu_devices) + 1)
     # Check that it can assign one PE to each GPU
     # The first PE is used for scheduling
     # Not certain how this will work with multiple nodes
@@ -202,7 +214,35 @@ def main(args):
     #a = Array(AutotuneTask, dims=(len(args)), args=args[0])
     #a.get_queue()
    
-    result = charm.pool.map(do_work, args)
+    #result = charm.pool.map(do_work, args)
+
+    def my__init__(self):
+        self.workers = None
+        self.idle_workers = set(range(1, charm.numPes()))
+
+        #assert charm.numPes() % charm.numHosts() == 0
+        #pes_per_host = charm.numPes() // charm.numHosts()
+        #assert pes_per_host > 0
+        #self.idle_workers = set([i for i in range(charm.numPes()) if not i % pes_per_host == 0])
+
+        self.num_workers = len(self.idle_workers)
+        from charm4py.pool import INITIAL_MAX_JOBS
+        self.jobs = [None] * INITIAL_MAX_JOBS
+        self.job_id_pool = set(range(INITIAL_MAX_JOBS))
+        self.job_next = None
+        self.job_last = self
+        from collections import defaultdict
+        self.worker_knows = defaultdict(set)
+        self.setMigratable(False)
+
+    # Pretty hacky but this seems to be the easiest way to change the
+    # scheduler
+    PoolScheduler.__init__ = my__init__
+
+    pool_proxy = Chare(PoolScheduler, onPE=0)
+    mypool = Pool(pool_proxy)
+    result = mypool.map(do_work, args)
+
     sort_key = lambda entry: entry[0]
     result.sort(key=sort_key)
     
@@ -225,4 +265,5 @@ def main(args):
     charm.exit()    
 
 if __name__ == "__main__":
+    #charm = Charm()
     charm.start(main)
