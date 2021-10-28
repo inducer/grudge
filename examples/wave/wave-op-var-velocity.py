@@ -189,7 +189,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     # bounded above by 1
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
-    dt = 0.5 * estimate_rk4_timestep(actx, dcoll, c=1)
+    dt = actx.to_numpy(0.5 * estimate_rk4_timestep(actx, dcoll, c=1))
 
     fields = flat_obj_array(
             bump(actx, dcoll, ),
@@ -209,12 +209,17 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
+        l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
+
         if istep % 10 == 0:
+            linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
+            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
+            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
             logger.info(f"step: {istep} t: {t} "
-                        f"L2: {op.norm(dcoll, fields[0], 2)} "
-                        f"Linf: {op.norm(dcoll, fields[0], np.inf)} "
-                        f"sol max: {op.nodal_max(dcoll, 'vol', fields[0])} "
-                        f"sol min: {op.nodal_min(dcoll, 'vol', fields[0])}")
+                        f"L2: {l2norm} "
+                        f"Linf: {linfnorm} "
+                        f"sol max: {nodalmax} "
+                        f"sol min: {nodalmin}")
             if visualize:
                 vis.write_vtk_file(
                     f"fld-wave-eager-var-velocity-{istep:04d}.vtu",
@@ -230,7 +235,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
         # NOTE: These are here to ensure the solution is bounded for the
         # time interval specified
-        assert op.norm(dcoll, fields[0], 2) < 1
+        assert l2norm < 1
 
 
 if __name__ == "__main__":

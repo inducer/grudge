@@ -93,7 +93,8 @@ def main(ctx_factory, dim=3, order=4, visualize=False):
     def rhs(t, w):
         return maxwell_operator.operator(t, w)
 
-    dt = maxwell_operator.estimate_rk4_timestep(actx, dcoll, fields=fields)
+    dt = actx.to_numpy(
+        maxwell_operator.estimate_rk4_timestep(actx, dcoll, fields=fields))
 
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 

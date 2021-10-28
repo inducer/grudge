@@ -70,7 +70,8 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
         mesh = builder.get_mesh(resolution, builder.mesh_order)
         dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
         min_factors.append(
-            op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx))
+            actx.to_numpy(
+                op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx)))
         )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
