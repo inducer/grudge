@@ -43,6 +43,7 @@ from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
 from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from pytools import keyed_memoize_in
 
