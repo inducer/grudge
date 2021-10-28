@@ -104,7 +104,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     def rhs(t, w):
         return wave_op.operator(t, w)
 
-    dt = 2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)
+    dt = actx.to_numpy(
+        2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
     dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
     final_t = 1
