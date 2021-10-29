@@ -36,11 +36,32 @@ from arraycontext import (
 from functools import partial
 
 from meshmode.dof_array import DOFArray
+from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
 
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
 
 import grudge.op as op
+
+
+@with_container_arithmetic(bcast_obj_array=False,
+                           bcast_container_types=(DOFArray, np.ndarray),
+                           matmul=True,
+                           rel_comparison=True)
+@dataclass_array_container
+@dataclass(frozen=True)
+class EulerState:
+    mass: DOFArray
+    energy: DOFArray
+    momentum: np.ndarray
+
+    @property
+    def array_context(self):
+        return self.mass.array_context
+
+    @property
+    def dim(self):
+        return len(self.momentum)
 
 
 def euler_flux(dcoll, cv_state, gamma=1.4):
@@ -135,10 +156,7 @@ class EulerOperator(HyperbolicOperator):
         self.lf_stabilization = flux_type == "lf"
 
     def operator(self, t, q):
-        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
-
         dcoll = self.dcoll
-        actx = q[0].array_context
         gamma = self.gamma
 
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
@@ -195,26 +213,6 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
-@with_container_arithmetic(bcast_obj_array=False,
-                           bcast_container_types=(DOFArray, np.ndarray),
-                           matmul=True,
-                           rel_comparison=True)
-@dataclass_array_container
-@dataclass(frozen=True)
-class EulerState:
-    mass: DOFArray
-    energy: DOFArray
-    momentum: np.ndarray
-
-    @property
-    def array_context(self):
-        return self.mass.array_context
-
-    @property
-    def dim(self):
-        return len(self.momentum)
-
-
 def conservative_to_entropy_vars(actx, cv_state, gamma=1.4):
     """todo.
     """
@@ -261,13 +259,11 @@ def entropy_projection(
     """todo.
     """
     from grudge.projection import volume_quadrature_project
-    from grudge.interpolation import (
-        volume_quadrature_interpolation,
+    from grudge.interpolation import \
         volume_and_surface_quadrature_interpolation
-    )
 
     # Interpolate cv_state to vol quad grid: u_q = V_q u
-    cv_state_q = volume_quadrature_interpolation(dcoll, dd_q, cv_state)
+    cv_state_q = op.project(dcoll, "vol", dd_q, cv_state)
     # Convert to entropy variables: v_q = v(u_q)
     ev_state_q = \
         conservative_to_entropy_vars(actx, cv_state_q, gamma=gamma)
@@ -356,8 +352,6 @@ def entropy_stable_numerical_flux_chandrashekar(
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
-    from grudge.dof_desc import DISCR_TAG_BASE
-
     dd_intfaces = tpair.dd
     dd_intfaces_base = dd_intfaces.with_discr_tag(DISCR_TAG_BASE)
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
@@ -399,8 +393,6 @@ def entropy_stable_numerical_flux_chandrashekar(
 class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
-        from grudge.dof_desc import DOFDesc, DISCR_TAG_QUAD, as_dofdesc
-
         gamma = self.gamma
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
         df = DOFDesc("all_faces", DISCR_TAG_QUAD)
@@ -453,8 +445,7 @@ class EntropyStableEulerOperator(EulerOperator):
 
         if self.bdry_conditions is not None:
             bc_fluxes = sum(
-                bc.apply(dcoll, proj_entropy_vars,
-                         t=t, lf_stabilization=self.lf_stabilization)
+                bc.apply(dcoll, q, t=t, lf_stabilization=self.lf_stabilization)
                 for bc in self.bdry_conditions
             )
             num_fluxes_bdry = num_fluxes_bdry + bc_fluxes
@@ -485,16 +476,16 @@ class PrescribedBC(BCObject):
         actx = state.array_context
         gamma = self.gamma
         dd_bcq = self.dd
-        x_bcq = thaw(dcoll.nodes(dd_bcq), actx)
-        ev_bcq = op.project(dcoll, "vol", dd_bcq, state)
+        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+
         bdry_tpair = TracePair(
             dd_bcq,
-            # interior state in terms of the entropy-projected conservative vars
-            interior=entropy_to_conservative_vars(actx, ev_bcq, gamma=gamma),
-            exterior=self.prescribed_state(x_bcq, t=t)
+            interior=op.project(dcoll, dd_base, dd_bcq, state),
+            exterior=self.prescribed_state(thaw(dcoll.nodes(dd_bcq), actx), t=t)
         )
         return entropy_stable_numerical_flux_chandrashekar(
             dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
+
 
 class AdiabaticSlipBC(BCObject):
 
@@ -502,13 +493,12 @@ class AdiabaticSlipBC(BCObject):
         actx = state.array_context
         gamma = self.gamma
         dd_bcq = self.dd
+        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
         nhat = thaw(dcoll.normal(dd_bcq), actx)
-        int_bcq = op.project(dcoll, "vol", dd_bcq, state)
-        interior = entropy_to_conservative_vars(actx, int_bcq, gamma=gamma)
+        interior = op.project(dcoll, dd_base, dd_bcq, state)
 
         bdry_tpair = TracePair(
             dd_bcq,
-            # interior state in terms of the entropy-projected conservative vars
             interior=interior,
             exterior=EulerState(
                 mass=interior.mass,
