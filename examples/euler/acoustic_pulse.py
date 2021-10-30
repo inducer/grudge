@@ -53,12 +53,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+def ssprk43_step(y, t, h, f):
+
+    def f_update(t, y):
+        return y + h*f(t, y)
+
+    y1 = 1/2*y + 1/2*f_update(t, y)
+    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
+    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
+
+    return 1/2*y3 + 1/2*f_update(t + h/2, y3)
 
 
 def gaussian_profile(
@@ -189,23 +193,13 @@ def run_acoustic_pulse(actx,
 
     vis = make_visualizer(dcoll)
 
-    if visualize:
-        vis.write_vtk_file(
-            f"fld-acoustic-pulse-initial_condition.vtu",
-            [
-                ("rho", fields.mass),
-                ("energy", fields.energy),
-                ("momentum", fields.momentum)
-            ]
-        )
-
     # {{{ time stepping
 
     step = 0
     t = 0.0
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = rk4_step(fields, t, dt, compiled_rhs)
+        fields = ssprk43_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))

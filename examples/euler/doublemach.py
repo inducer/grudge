@@ -105,6 +105,18 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
+def ssprk43_step(y, t, h, f):
+
+    def f_update(t, y):
+        return y + h*f(t, y)
+
+    y1 = 1/2*y + 1/2*f_update(t, y)
+    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
+    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
+
+    return 1/2*y3 + 1/2*f_update(t + h/2, y3)
+
+
 def doublemach_reflection_initial_condition(x_vec, t=0):
     shock_speed = 10
     shock_location = 1/6
@@ -233,7 +245,7 @@ def run_doublemach_reflection(
     t = 0.0
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = rk4_step(fields, t, dt, compiled_rhs)
+        fields = ssprk43_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
