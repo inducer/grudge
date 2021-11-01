@@ -13,10 +13,8 @@ import grudge.loopy_dg_kernels as dgk
 
 # Balances the number of workers per host
 
-'''
 class BalancedPoolScheduler(PoolScheduler):
-    pass 
-    """
+    #pass 
     def __init__(self):
        super().__init__()
        n_pes = charm.numPes()
@@ -27,9 +25,8 @@ class BalancedPoolScheduler(PoolScheduler):
 
        self.idle_workers = set([i for i in range(n_pes) if not i % pes_per_host == 0 ])
        self.num_workers = len(self.idle_workers)
-    """
-'''
 
+'''
 class MyCharm(Charm):
     pass
 
@@ -123,6 +120,7 @@ class MyCharm(Charm):
             self.classEntryMethods[charm_type_id][C].append(em)
         self.registered[C].add(charm_type)
     """
+'''
 
 #charm object that uses the BalancedPoolScheduler
 #charm = MyCharm()
@@ -194,9 +192,9 @@ def main(args):
     queue = cl.CommandQueue(ctx, properties=profiling)    
     
 
-    #assert charm.numPes() > 1
+    assert charm.numPes() > 1
     #assert charm.numPes() - 1 <= charm.numHosts()*len(gpu_devices)
-    #assert charm.numPes() == charm.numHosts()*(len(gpu_devices) + 1)
+    assert charm.numPes() <= charm.numHosts()*(len(gpu_devices) + 1)
     # Check that it can assign one PE to each GPU
     # The first PE is used for scheduling
     # Not certain how this will work with multiple nodes
@@ -235,11 +233,12 @@ def main(args):
         self.worker_knows = defaultdict(set)
         self.setMigratable(False)
 
-    # Pretty hacky but this seems to be the easiest way to change the
-    # scheduler
-    PoolScheduler.__init__ = my__init__
+    # Pretty hacky but this seems to be the easiest way to change
+    # which nodes the scheduler uses.
+    # Nevermind, seems to not work
+    #PoolScheduler.__init__ = my__init__
 
-    pool_proxy = Chare(PoolScheduler, onPE=0)
+    pool_proxy = Chare(BalancedPoolScheduler, onPE=0)
     mypool = Pool(pool_proxy)
     result = mypool.map(do_work, args)
 
