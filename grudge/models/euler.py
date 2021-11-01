@@ -63,50 +63,97 @@ class EulerState:
     def dim(self):
         return len(self.momentum)
 
+    def join(self):
+        """Call :func:`join_conserved` on *self*."""
+        return join_conserved(
+            dim=self.dim,
+            mass=self.mass,
+            energy=self.energy,
+            momentum=self.momentum)
+
+
+def join_conserved(dim, mass, energy, momentum):
+
+    def _aux_shape(ary, leading_shape):
+        """:arg leading_shape: a tuple with which ``ary.shape``
+        is expected to begin.
+        """
+        if (isinstance(ary, np.ndarray) and ary.dtype == object
+                and not isinstance(ary, DOFArray)):
+            naxes = len(leading_shape)
+            if ary.shape[:naxes] != leading_shape:
+                raise ValueError(
+                    "array shape does not start with expected leading dimensions"
+                )
+            return ary.shape[naxes:]
+        else:
+            if leading_shape != ():
+                raise ValueError(
+                    "array shape does not start with expected leading dimensions"
+                )
+            return ()
+
+    aux_shapes = [
+        _aux_shape(mass, ()),
+        _aux_shape(energy, ()),
+        _aux_shape(momentum, (dim,))]
+
+    from pytools import single_valued
+    aux_shape = single_valued(aux_shapes)
+
+    result = np.empty((2+dim,) + aux_shape, dtype=object)
+    result[0] = mass
+    result[1] = energy
+    result[2:dim+2] = momentum
+
+    return result
+
+
+def make_eulerstate(dim, q):
+    return EulerState(mass=q[0], energy=q[1], momentum=q[2:2+dim])
+
 
 def euler_flux(dcoll, cv_state, gamma=1.4):
     """todo.
     """
     dim = dcoll.dim
 
-    rho = cv_state[0]
-    rho_e = cv_state[1]
-    rho_u = cv_state[2:dim+2]
+    rho = cv_state.mass
+    rho_e = cv_state.energy
+    rho_u = cv_state.momentum
     u = rho_u / rho
     u_square = sum(v ** 2 for v in u)
     p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
 
-    flux = np.empty((2+dim, dim), dtype=object)
-    flux[0, :] = rho_u
-    flux[1, :] = u * (rho_e + p)
-    flux[2:dim+2, :] = np.outer(rho_u, u) + np.eye(dim) * p
-
-    return flux
+    return EulerState(
+        mass=rho_u,
+        energy=u * (rho_e + p),
+        momentum=np.outer(rho_u, u) + np.eye(dim) * p
+    )
 
 
 def euler_numerical_flux(
         dcoll, tpair, gamma=1.4, lf_stabilization=False):
     """todo.
     """
-    dim = dcoll.dim
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_int = tpair.int
     q_ext = tpair.ext
-    actx = q_int[0].array_context
+    actx = q_int.array_context
 
     normal = thaw(dcoll.normal(dd_intfaces), actx)
     num_flux = 0.5 * (euler_flux(dcoll, q_int, gamma=gamma)
                       + euler_flux(dcoll, q_ext, gamma=gamma)) @ normal
 
     if lf_stabilization:
-        rho_int = q_int[0]
-        rhoe_int = q_int[1]
-        rhou_int = q_int[2:dim+2]
+        rho_int = q_int.mass
+        rhoe_int = q_int.energy
+        rhou_int = q_int.momentum
 
-        rho_ext = q_ext[0]
-        rhoe_ext = q_ext[1]
-        rhou_ext = q_ext[2:dim+2]
+        rho_ext = q_ext.mass
+        rhoe_ext = q_ext.energy
+        rhou_ext = q_ext.momentum
 
         v_int = rhou_int / rho_int
         v_ext = rhou_ext / rho_ext
@@ -126,24 +173,6 @@ def euler_numerical_flux(
     return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
 
 
-def euler_boundary_numerical_flux_prescribed(
-        dcoll, cv_state, cv_prescribe, dd_bc,
-        qtag=None, gamma=1.4, lf_stabilization=False):
-    """todo.
-    """
-    dd_bcq = dd_bc.with_qtag(qtag)
-    cv_state_btag = op.project(dcoll, "vol", dd_bc, cv_state)
-    cv_bcq = op.project(dcoll, dd_bc, dd_bcq, cv_state_btag)
-
-    bdry_tpair = TracePair(
-        dd_bcq,
-        interior=cv_bcq,
-        exterior=op.project(dcoll, dd_bc, dd_bcq, cv_prescribe)
-    )
-    return euler_numerical_flux(
-        dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
-
-
 class EulerOperator(HyperbolicOperator):
 
     def __init__(self, dcoll, bdry_conditions=None,
@@ -158,6 +187,7 @@ class EulerOperator(HyperbolicOperator):
     def operator(self, t, q):
         dcoll = self.dcoll
         gamma = self.gamma
+        dim = q.dim
 
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
         df = DOFDesc("all_faces", DISCR_TAG_QUAD)
@@ -186,17 +216,25 @@ class EulerOperator(HyperbolicOperator):
 
         if self.bdry_conditions is not None:
             bc_fluxes = sum(
-                bc.apply(dcoll, q, t=t, lf_stabilization=self.lf_stabilization)
-                for bc in self.bdry_conditions
+                euler_numerical_flux(
+                    dcoll,
+                    bc.boundary_tpair(dcoll, q, t=t),
+                    gamma=gamma,
+                    lf_stabilization=self.lf_stabilization
+                ) for bc in self.bdry_conditions
             )
             euler_flux_faces = euler_flux_faces + bc_fluxes
 
-        return op.inverse_mass(
-            dcoll,
-            op.weak_local_div(
-                dcoll, dq, to_quad_vol(euler_flux(dcoll, q, gamma=gamma))
+        vol_div = make_eulerstate(
+            dim=dim,
+            q=op.weak_local_div(
+                dcoll, dq, to_quad_vol(euler_flux(dcoll, q, gamma=gamma)).join()
             )
-            - op.face_mass(dcoll, df, euler_flux_faces)
+        )
+
+        return op.inverse_mass(
+            dcoll, dq,
+            vol_div - op.face_mass(dcoll, df, euler_flux_faces)
         )
 
     def max_characteristic_velocity(self, actx, **kwargs):
@@ -431,7 +469,7 @@ class EntropyStableEulerOperator(EulerOperator):
                 )
             )
 
-        # Computing interface and boundary numerical fluxes
+        # Computing interface numerical fluxes
         num_fluxes_bdry = (
             sum(
                 entropy_stable_numerical_flux_chandrashekar(
@@ -443,10 +481,15 @@ class EntropyStableEulerOperator(EulerOperator):
             )
         )
 
+        # Compute boundary numerical fluxes
         if self.bdry_conditions is not None:
             bc_fluxes = sum(
-                bc.apply(dcoll, q, t=t, lf_stabilization=self.lf_stabilization)
-                for bc in self.bdry_conditions
+                entropy_stable_numerical_flux_chandrashekar(
+                    dcoll,
+                    bc.boundary_tpair(dcoll, q, t=t),
+                    gamma=gamma,
+                    lf_stabilization=self.lf_stabilization
+                ) for bc in self.bdry_conditions
             )
             num_fluxes_bdry = num_fluxes_bdry + bc_fluxes
 
@@ -461,43 +504,38 @@ class EntropyStableEulerOperator(EulerOperator):
 # {{{ Boundary conditions
 
 class BCObject:
-    def __init__(self, dd, *, gamma=1.4, prescribed_state=None) -> None:
+    def __init__(self, dd, *, prescribed_state=None) -> None:
         self.dd = dd
-        self.gamma = gamma
         self.prescribed_state = prescribed_state
 
-    def apply(self, dcoll, state, t=0, lf_stabilization=False):
-        raise NotImplementedError("Apply method not implemented.")
+    def boundary_tpair(self, dcoll, state, t=0):
+        raise NotImplementedError("Boundary pair method not implemented.")
 
 
 class PrescribedBC(BCObject):
 
-    def apply(self, dcoll, state, t=0, lf_stabilization=False):
+    def boundary_tpair(self, dcoll, state, t=0):
         actx = state.array_context
-        gamma = self.gamma
         dd_bcq = self.dd
         dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
 
-        bdry_tpair = TracePair(
+        return TracePair(
             dd_bcq,
             interior=op.project(dcoll, dd_base, dd_bcq, state),
             exterior=self.prescribed_state(thaw(dcoll.nodes(dd_bcq), actx), t=t)
         )
-        return entropy_stable_numerical_flux_chandrashekar(
-            dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
 
 
 class AdiabaticSlipBC(BCObject):
 
-    def apply(self, dcoll, state, t=0, lf_stabilization=False):
+    def boundary_tpair(self, dcoll, state, t=0):
         actx = state.array_context
-        gamma = self.gamma
         dd_bcq = self.dd
         dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
         nhat = thaw(dcoll.normal(dd_bcq), actx)
         interior = op.project(dcoll, dd_base, dd_bcq, state)
 
-        bdry_tpair = TracePair(
+        return TracePair(
             dd_bcq,
             interior=interior,
             exterior=EulerState(
@@ -508,8 +546,6 @@ class AdiabaticSlipBC(BCObject):
                 )
             )
         )
-        return entropy_stable_numerical_flux_chandrashekar(
-            dcoll, bdry_tpair, gamma=gamma, lf_stabilization=lf_stabilization)
 
 # }}}
 
