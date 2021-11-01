@@ -35,6 +35,7 @@ from grudge.array_context import PyOpenCLArrayContext
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext)
 
+from typing import Union
 from time import time
 from grudge import DiscretizationCollection
 
@@ -373,16 +374,20 @@ class HopefullySmartPytatoArrayContext(
         # {{{ CSE
 
         if self.DO_CSE:
-            nusers = pt.analysis.get_nusers(dag)
+            dag = pt.transform.materialize_with_mpms(dag)
 
-            def materialize(ary: pt.Array) -> pt.Array:
-                if ((not isinstance(ary, (pt.InputArgumentBase, pt.NamedArray)))
-                        and nusers[ary] > 1):
-                    return ary.tagged(pt.tags.ImplementAs(pt.tags.ImplStored("cse")))
+            def mark_materialized_nodes_as_cse(
+                        ary: Union[pt.Array,
+                                   pt.AbstractResultWithNamedArrays]) -> pt.Array:
+                if isinstance(ary, pt.AbstractResultWithNamedArrays):
+                    return ary
 
-                return ary
+                if ary.tags_of_type(pt.tags.ImplStored):
+                    return ary.tagged(pt.tags.PrefixNamed("cse"))
+                else:
+                    return ary
 
-            dag = pt.transform.map_and_copy(dag, materialize)
+            dag = pt.transform.map_and_copy(dag, mark_materialized_nodes_as_cse)
 
         # }}}
 
@@ -433,11 +438,10 @@ class HopefullySmartPytatoArrayContext(
                     return (pt.einsum("ifj,fej,fej->ei",
                                       mat,
                                       jac,
-                                      vec.tagged(pt.tags
-                                                 .ImplementAs(pt.tags
-                                                              .ImplStored("flux"))))
-                            .tagged(pt.tags.ImplementAs(pt.tags
-                                                        .ImplStored("face_mass"))))
+                                      vec.tagged((pt.tags.ImplStored(),
+                                                  pt.tags.PrefixNamed("flux"))))
+                            .tagged((pt.tags.ImplStored(),
+                                     pt.tags.PrefixNamed("face_mass"))))
                 else:
                     return expr
             else:
@@ -457,8 +461,9 @@ class HopefullySmartPytatoArrayContext(
                     return pt.einsum(my_tag.spec,
                                      arg1,
                                      arg2,
-                                     arg3.tagged(pt.tags.ImplementAs(
-                                         pt.tags.ImplStored("mass_inv_inp"))))
+                                     arg3.tagged(
+                                         (pt.tags.ImplStored(),
+                                          pt.tags.PrefixNamed("mass_inv_inp"))))
                 else:
                     return expr
             else:
@@ -493,8 +498,8 @@ class HopefullySmartPytatoArrayContext(
         return dag
 
     def transform_loopy_program(self, t_unit):
-        from arraycontext.impl.pytato.compile import FromActxCompile
-        if t_unit.default_entrypoint.tags_of_type(FromActxCompile):
+        from arraycontext.impl.pytato.compile import FromArrayContextCompile
+        if t_unit.default_entrypoint.tags_of_type(FromArrayContextCompile):
             import loopy as lp
             from loopy.transform.precompute import precompute_for_single_kernel
             from loopy.transform.instruction import simplify_indices
