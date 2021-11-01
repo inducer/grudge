@@ -39,6 +39,7 @@ from meshmode.array_context import (
 )
 from grudge.models.euler import (
     EulerState,
+    EulerOperator,
     EntropyStableEulerOperator,
     AdiabaticSlipBC
 )
@@ -125,6 +126,7 @@ def run_acoustic_pulse(actx,
                        order=3,
                        resolution=16,
                        final_time=0.1,
+                       nodal_dg=False,
                        visualize=False):
 
     # eos-related parameters
@@ -163,12 +165,18 @@ def run_acoustic_pulse(actx,
 
     bcs = [
         AdiabaticSlipBC(
-            dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD),
-            gamma=gamma
+            dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD)
         )
     ]
 
-    euler_operator = EntropyStableEulerOperator(
+    if nodal_dg:
+        operator_cls = EulerOperator
+        exp_name = "fld-acoustic-pulse"
+    else:
+        operator_cls = EntropyStableEulerOperator
+        exp_name = "fld-esdg-acoustic-pulse"
+
+    euler_operator = operator_cls(
         dcoll,
         bdry_conditions=bcs,
         flux_type="lf",
@@ -206,7 +214,7 @@ def run_acoustic_pulse(actx,
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
                 vis.write_vtk_file(
-                    f"fld-acoustic-pulse-{step:04d}.vtu",
+                    f"{exp_name}-{step:04d}.vtu",
                     [
                         ("rho", fields.mass),
                         ("energy", fields.energy),
@@ -221,7 +229,8 @@ def run_acoustic_pulse(actx,
     # }}}
 
 
-def main(ctx_factory, order=3, final_time=0.1, resolution=16, visualize=False):
+def main(ctx_factory, order=3, final_time=0.1, resolution=16,
+         nodal_dg=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -232,6 +241,7 @@ def main(ctx_factory, order=3, final_time=0.1, resolution=16, visualize=False):
     run_acoustic_pulse(
         actx, order=order, resolution=resolution,
         final_time=final_time,
+        nodal_dg=nodal_dg,
         visualize=visualize)
 
 
@@ -243,6 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--tfinal", default=0.1, type=float)
     parser.add_argument("--resolution", default=16, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--nodaldg", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -250,4 +261,5 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         nodal_dg=args.nodaldg,
          visualize=args.visualize)
