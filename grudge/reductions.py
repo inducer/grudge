@@ -60,7 +60,7 @@ THE SOFTWARE.
 from numbers import Number
 from functools import reduce
 
-from arraycontext import make_loopy_program
+from arraycontext import make_loopy_program, DeviceScalar
 
 from grudge.discretization import DiscretizationCollection
 
@@ -75,24 +75,26 @@ import grudge.dof_desc as dof_desc
 
 # {{{ Nodal reductions
 
-def _norm(dcoll: DiscretizationCollection, vec, p, dd):
+def _norm(dcoll: DiscretizationCollection, vec, p, dd) -> "DeviceScalar":
     if isinstance(vec, Number):
         return np.fabs(vec)
     if p == 2:
         from grudge.op import _apply_mass_operator
-        return abs(
-            nodal_sum(
-                dcoll,
-                dd,
-                vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))
-            )**(1/2)
+        return vec.array_context.np.sqrt(
+            # Quantities being summed are real up to rounding error, so abs() can
+            # go on the outside
+            abs(
+                nodal_sum(
+                    dcoll,
+                    dd,
+                    vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))))
     elif p == np.inf:
         return nodal_max(dcoll, dd, abs(vec))
     else:
         raise NotImplementedError("Unsupported value of p")
 
 
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
+def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
@@ -128,7 +130,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
     return _norm(dcoll, vec, p, dd)
 
 
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -144,10 +146,11 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
     from mpi4py import MPI
     actx = vec.array_context
 
-    return comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
-def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -159,12 +162,12 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
         return sum(nodal_sum_loc(dcoll, dd, vec[idx])
                    for idx in np.ndindex(vec.shape))
 
-    # FIXME: do not force result onto host
     actx = vec.array_context
+
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -178,11 +181,13 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN))
 
 
-def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -197,18 +202,12 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     actx = vec.array_context
 
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
-            lambda acc, grp_ary: actx.np.minimum(
-                acc,
-                actx.to_numpy(actx.np.min(grp_ary))[()]),
-            vec, np.inf)
+            lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
+            vec, actx.from_numpy(np.array(np.inf)))
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -222,11 +221,13 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX))
 
 
-def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
@@ -241,18 +242,12 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     actx = vec.array_context
 
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
-            lambda acc, grp_ary: actx.np.maximum(
-                acc,
-                actx.to_numpy(actx.np.max(grp_ary))[()]),
-            vec, -np.inf)
+            lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
+            vec, actx.from_numpy(np.array(-np.inf)))
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
+def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 

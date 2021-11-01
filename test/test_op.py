@@ -151,7 +151,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 ("expected_grad_u", expected_grad_u),
                 ], overwrite=True)
 
-        rel_linf_err = (
+        rel_linf_err = actx.to_numpy(
             op.norm(dcoll, grad_u - expected_grad_u, np.inf)
             / op.norm(dcoll, expected_grad_u, np.inf))
         eoc_rec.add_data_point(1./n, rel_linf_err)
@@ -267,7 +267,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 ("expected_div_u", expected_div_u),
                 ], overwrite=True)
 
-        rel_linf_err = (
+        rel_linf_err = actx.to_numpy(
             op.norm(dcoll, div_u - expected_div_u, np.inf)
             / op.norm(dcoll, expected_div_u, np.inf))
         eoc_rec.add_data_point(1./n, rel_linf_err)
