@@ -202,16 +202,13 @@ def run_doublemach_reflection(
 
     bcs = [
         PrescribedBC(dd=dd_ic1,
-                     gamma=gamma,
                      prescribed_state=doublemach_reflection_initial_condition),
         PrescribedBC(dd=dd_ic2,
-                     gamma=gamma,
                      prescribed_state=doublemach_reflection_initial_condition),
         PrescribedBC(dd=dd_ic3,
-                     gamma=gamma,
                      prescribed_state=doublemach_reflection_initial_condition),
-        AdiabaticSlipBC(dd=dd_wall, gamma=gamma),
-        AdiabaticSlipBC(dd=dd_out, gamma=gamma)
+        AdiabaticSlipBC(dd=dd_wall),
+        AdiabaticSlipBC(dd=dd_out)
     ]
 
     euler_operator = EntropyStableEulerOperator(
@@ -272,8 +269,7 @@ def main(ctx_factory, order=3, final_time=0.2, visualize=False):
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
         queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        # force_device_scalars=True,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
     )
     run_doublemach_reflection(
         actx, order=order, final_time=final_time, visualize=visualize)

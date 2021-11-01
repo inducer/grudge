@@ -129,7 +129,6 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
 
     bcs = [
         PrescribedBC(dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD),
-                     gamma=gamma,
                      prescribed_state=vortex_initial_condition)
     ]
 
@@ -201,7 +200,7 @@ def run_convergence_test_vortex(
     box_ur = 5.0
 
     from grudge import DiscretizationCollection
-    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
     from meshmode.discretization.poly_element import \
         (PolynomialWarpAndBlend2DRestrictingGroupFactory,
          QuadratureSimplexGroupFactory)
@@ -233,10 +232,14 @@ def run_convergence_test_vortex(
 
         # }}}
 
+        bcs = [
+            PrescribedBC(dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD),
+                        prescribed_state=vortex_initial_condition)
+        ]
+
         euler_operator = EntropyStableEulerOperator(
             dcoll,
-            bdry_fcts={BTAG_ALL: vortex_initial_condition},
-            initial_condition=vortex_initial_condition,
+            bdry_conditions=bcs,
             flux_type=flux_type,
             gamma=gamma,
             gas_const=gas_const,
