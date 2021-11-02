@@ -59,7 +59,7 @@ THE SOFTWARE.
 
 from functools import reduce
 
-from arraycontext import make_loopy_program
+from arraycontext import make_loopy_program, DeviceScalar
 
 from grudge.discretization import DiscretizationCollection
 
@@ -74,7 +74,7 @@ import grudge.dof_desc as dof_desc
 
 # {{{ Nodal reductions
 
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
+def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
@@ -110,7 +110,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> float:
         raise ValueError("unsupported norm order")
 
 
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -126,10 +126,11 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> float:
     from mpi4py import MPI
     actx = vec.array_context
 
-    return comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
-def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -141,12 +142,12 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
         return sum(nodal_sum_loc(dcoll, dd, vec[idx])
                    for idx in np.ndindex(vec.shape))
 
-    # FIXME: do not force result onto host
     actx = vec.array_context
+
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -160,11 +161,13 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_min_loc(dcoll, dd, vec), op=MPI.MIN)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN))
 
 
-def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -179,18 +182,12 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     actx = vec.array_context
 
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
-            lambda acc, grp_ary: actx.np.minimum(
-                acc,
-                actx.to_numpy(actx.np.min(grp_ary))[()]),
-            vec, np.inf)
+            lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
+            vec, actx.from_numpy(np.array(np.inf)))
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -204,11 +201,13 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     # NOTE: Don't move this
     from mpi4py import MPI
+    actx = vec.array_context
 
-    return comm.allreduce(nodal_max_loc(dcoll, dd, vec), op=MPI.MAX)
+    return actx.from_numpy(
+        comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX))
 
 
-def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
+def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
@@ -223,18 +222,12 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> float:
 
     actx = vec.array_context
 
-    # FIXME: do not force result onto host
-    # Host transfer is needed for now because actx.np.minimum does not succeed
-    # on array scalars.
-    # https://github.com/inducer/arraycontext/issues/49#issuecomment-869266944
     return reduce(
-            lambda acc, grp_ary: actx.np.maximum(
-                acc,
-                actx.to_numpy(actx.np.max(grp_ary))[()]),
-            vec, -np.inf)
+            lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
+            vec, actx.from_numpy(np.array(-np.inf)))
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec) -> float:
+def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
@@ -282,35 +275,46 @@ def _apply_elementwise_reduction(
 
     actx = vec.array_context
 
-    @memoize_in(actx, (_apply_elementwise_reduction,
-                       "elementwise_%s_prg" % op_name))
-    def elementwise_prg():
-        # FIXME: This computes the reduction value redundantly for each
-        # output DOF.
-        t_unit = make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
-            ],
-            """
-                result[iel, idof] = %s(jdof, operand[iel, jdof])
-            """ % op_name,
-            name="grudge_elementwise_%s_knl" % op_name
+    if actx.supports_nonscalar_broadcasting:
+        return DOFArray(
+            actx,
+            data=tuple(
+                actx.np.broadcast_to((getattr(actx.np, op_name)(vec_i, axis=1)
+                                      .reshape(-1, 1)),
+                                     vec_i.shape)
+                for vec_i in vec
+            )
         )
-        import loopy as lp
-        from meshmode.transform_metadata import (
-                ConcurrentElementInameTag, ConcurrentDOFInameTag)
-        return lp.tag_inames(t_unit, {
-            "iel": ConcurrentElementInameTag(),
-            "idof": ConcurrentDOFInameTag()})
+    else:
+        @memoize_in(actx, (_apply_elementwise_reduction,
+                        "elementwise_%s_prg" % op_name))
+        def elementwise_prg():
+            # FIXME: This computes the reduction value redundantly for each
+            # output DOF.
+            t_unit = make_loopy_program(
+                [
+                    "{[iel]: 0 <= iel < nelements}",
+                    "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
+                ],
+                """
+                    result[iel, idof] = %s(jdof, operand[iel, jdof])
+                """ % op_name,
+                name="grudge_elementwise_%s_knl" % op_name
+            )
+            import loopy as lp
+            from meshmode.transform_metadata import (
+                    ConcurrentElementInameTag, ConcurrentDOFInameTag)
+            return lp.tag_inames(t_unit, {
+                "iel": ConcurrentElementInameTag(),
+                "idof": ConcurrentDOFInameTag()})
 
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
-            for vec_i in vec
+        return DOFArray(
+            actx,
+            data=tuple(
+                actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
+                for vec_i in vec
+            )
         )
-    )
 
 
 def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:

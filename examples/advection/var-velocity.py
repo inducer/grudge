@@ -196,7 +196,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
     def rhs(t, u):
         return adv_operator.operator(t, u)
 
-    dt = adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u)
+    dt = actx.to_numpy(adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u))
 
     logger.info("Timestep size: %g", dt)
 
