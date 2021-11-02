@@ -677,8 +677,8 @@ class DiscretizationCollection:
         from grudge.metadata import (DiscretizationElementAxisTag,
                                      DiscretizationDOFAxisTag)
 
-        el_tag = DiscretizationElementAxisTag(self._volume_discr)
-        dof_tag = DiscretizationDOFAxisTag(self._volume_discr)
+        el_tag = DiscretizationElementAxisTag(DD_VOLUME)
+        dof_tag = DiscretizationDOFAxisTag(DD_VOLUME)
 
         def _tag_axes(dof_ary):
             actx = dof_ary.array_context
