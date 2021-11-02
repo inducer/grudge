@@ -318,13 +318,52 @@ class _RankBoundaryCommunication:
                          exterior=swapped_remote_dof_array)
 
 
+from pytato import make_distributed_send, make_distributed_recv
+
+ class _RankBoundaryCommunicationLazy:
+     base_tag = 1273
+
+     def __init__(self, discrwb, remote_rank, vol_field, tag=None):
+         self.tag = self.base_tag
+         if tag is not None:
+             self.tag += tag
+
+         self.discrwb = discrwb
+         self.array_context = vol_field.array_context
+         self.remote_btag = BTAG_PARTITION(remote_rank)
+
+         self.bdry_discr = discrwb.discr_from_dd(self.remote_btag)
+         self.local_dof_array = discrwb.project("vol", self.remote_btag, vol_field)
+
+         local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
+
+         self.send_req = make_distributed_send(
+                 data=local_data, dest_rank=remote_rank, comm_tag=self.tag)
+
+         self.remote_data_host = np.empty_like(local_data)
+         self.recv_req = make_distributed_recv(data=self.remote_data_host, src_rank=remote_rank, comm_tag=self.tag)
+
+     def finish(self):
+         actx = self.array_context
+         remote_dof_array = unflatten(self.array_context, self.bdry_discr,
+                 actx.from_numpy(self.remote_data_host))
+
+         bdry_conn = self.discrwb.get_distributed_boundary_swap_connection(
+                 sym.as_dofdesc(sym.DTAG_BOUNDARY(self.remote_btag)))
+         swapped_remote_dof_array = bdry_conn(remote_dof_array)
+
+         return TracePair(self.remote_btag,
+                 interior=self.local_dof_array,
+                 exterior=swapped_remote_dof_array)
+
+
 def _cross_rank_trace_pairs_scalar_field(
         dcoll: DiscretizationCollection, vec, tag=None) -> list:
     if isinstance(vec, Number):
         return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
                 for remote_rank in connected_ranks(dcoll)]
     else:
-        rbcomms = [_RankBoundaryCommunication(dcoll, remote_rank, vec, tag=tag)
+        rbcomms = [_RankBoundaryCommunicationLazy(dcoll, remote_rank, vec, tag=tag)
                    for remote_rank in connected_ranks(dcoll)]
         return [rbcomm.finish() for rbcomm in rbcomms]
 
