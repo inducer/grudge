@@ -672,18 +672,23 @@ def _reference_inverse_mass_matrix(actx: ArrayContext, element_group):
 
 
 def _apply_inverse_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd, dd_quad, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
+            partial(_apply_inverse_mass_operator, dcoll, dd, dd_quad), vec
         )
 
     from grudge.geometry import area_element
 
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_out)
+    discr = dcoll.discr_from_dd(dd)
 
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_out,
+    if (any(not mgrp.is_affine for mgrp in discr.mesh.groups)
+            and dd_quad.uses_quadrature()):
+        raise NotImplementedError(
+            "WADG using overintegration is not implemented for non-affine groups")
+
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_quad,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     group_data = []
@@ -694,7 +699,7 @@ def _apply_inverse_mass_operator(
 
         # FIXME: Use overintegration in WADG for non-affine groups
         # based on https://arxiv.org/pdf/1608.03836.pdf. That is,
-        # use *dd_in* to compute non-affine geometry terms
+        # use *dd_quad* to compute non-affine geometry terms
         # and evaluate ref_Minv * ref_M * (1/jac_det) * ref_Minv.
         # Related issue: https://github.com/inducer/grudge/issues/173
         group_data.append(
@@ -708,13 +713,12 @@ def _apply_inverse_mass_operator(
     return DOFArray(actx, data=tuple(group_data))
 
 
-def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def inverse_mass(
+        dcoll: DiscretizationCollection, vec, dd_quad=None) -> ArrayOrContainerT:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.container.ArrayContainer`,
     the inverse mass operator is applied component-wise.
-
-    May be called with ``(vec)`` or ``(dd_in, vec)``.
 
     For affine elements :math:`E`, the element-wise mass inverse
     is computed directly as the inverse of the (physical) mass matrix:
@@ -740,25 +744,21 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
     :math:`\widehat{E}`.
 
-    :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
-        describing the type of quadrature discretization to be used in the volume.
-        Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+    :arg dd_quad: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible
+        to one, describing the type of quadrature discretization to be used
+        in the volume. Note that this intended to be used to specify the choice
+        of quadrature when using a WADG approximation of the mass inverse for
+        non-affine mesh geometries.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
-
-    if len(args) == 1:
-        vec, = args
-        dd_in = dof_desc.DD_VOLUME
-    elif len(args) == 2:
-        dd_in, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
+    if dd_quad is None:
+        dd_quad = dof_desc.DD_VOLUME
 
     return _apply_inverse_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dd_in, vec
+        dcoll, dof_desc.DD_VOLUME, dd_quad, vec
     )
 
 # }}}
