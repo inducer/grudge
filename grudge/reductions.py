@@ -98,6 +98,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     actx = get_container_context_recursively(vec)
 
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
     if p == 2:
         from grudge.op import _apply_mass_operator
@@ -106,7 +107,15 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
                 nodal_sum(
                     dcoll, dd,
                     actx.np.conjugate(vec)
-                    * _apply_mass_operator(dcoll, dd, dd, vec))))
+                    * _apply_mass_operator(
+                        dcoll,
+                        dd_base,
+                        dd,
+                        dcoll.connection_from_dds(dd_base, dd)(vec)
+                    )
+                )
+            )
+        )
     elif p == np.inf:
         return nodal_max(dcoll, dd, actx.np.abs(vec))
     else:
@@ -254,10 +263,13 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     from grudge.op import _apply_mass_operator
 
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
+    if dd.uses_quadrature():
+        vec = dcoll.connection_from_dds(dd_base, dd)(vec)
+
     return nodal_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+        dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
     )
 
 # }}}
@@ -430,6 +442,8 @@ def elementwise_integral(
         :class:`~arraycontext.container.ArrayContainer` containing the
         elementwise integral if *vec*.
     """
+    from grudge.op import _apply_mass_operator
+
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
@@ -439,12 +453,13 @@ def elementwise_integral(
         raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dd.with_discr_tag(dof_desc.DISCR_TAG_BASE)
 
-    from grudge.op import _apply_mass_operator
+    if dd.uses_quadrature():
+        vec = dcoll.connection_from_dds(dd_base, dd)(vec)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
     return elementwise_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+        dcoll, dd, _apply_mass_operator(dcoll, dd_base, dd, vec)
     )
 
 # }}}
