@@ -233,8 +233,9 @@ class EulerOperator(HyperbolicOperator):
         )
 
         return op.inverse_mass(
-            dcoll, dq,
-            vol_div - op.face_mass(dcoll, df, euler_flux_faces)
+            dcoll,
+            vol_div - op.face_mass(dcoll, df, euler_flux_faces),
+            dd_quad=dq
         )
 
     def max_characteristic_velocity(self, actx, **kwargs):
@@ -494,8 +495,9 @@ class EntropyStableEulerOperator(EulerOperator):
             num_fluxes_bdry = num_fluxes_bdry + bc_fluxes
 
         return op.inverse_mass(
-            dcoll, dq,
-            -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry)
+            dcoll,
+            -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry),
+            dd_quad=dq
         )
 
 # }}}
