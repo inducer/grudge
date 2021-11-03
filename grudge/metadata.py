@@ -2,10 +2,15 @@ from pytools.tag import UniqueTag, tag_dataclass
 from .dof_desc import DOFDesc
 
 
+class DiscretizationEntityTag(UniqueTag):
+    pass
+
+
 @tag_dataclass
-class DiscretizationElementAxisTag(UniqueTag):
+class DiscretizationElementAxisTag(DiscretizationEntityTag):
     """
-    Tagged to an array's axis travesing elements in a discretization.
+    Tagged to an array's axis representing element indices in the
+    discretization identifier by :attr:`dd`.
 
     :attr dd: One of the domain discretization tags defined in
         :mod:`grudge.dof_desc`.
@@ -14,31 +19,12 @@ class DiscretizationElementAxisTag(UniqueTag):
 
 
 @tag_dataclass
-class DiscretizationDOFAxisTag(UniqueTag):
+class DiscretizationDOFAxisTag(DiscretizationEntityTag):
     """
-    Tagged to an array's axis travesing an DOFs in a discretization.
+    Tagged to an array's axis representing DOF-indices in the
+    discretization identifier by :attr:`dd`.
 
     :attr dd: One of the domain discretization tags defined in
         :mod:`grudge.dof_desc`.
     """
     dd: DOFDesc
-
-
-@tag_dataclass
-class DicretizationElementProjector(UniqueTag):
-    """
-    Tagged to an array used an indirection map from one discretization's
-    elements to another discretrization's elements.
-    """
-    from_dd: DOFDesc
-    to_dd: DOFDesc
-
-
-@tag_dataclass
-class DicretizationDOFProjector(UniqueTag):
-    """
-    Tagged to an array used an indirection map from one discretization's
-    elements to another discretrization's DOFs.
-    """
-    from_dd: DOFDesc
-    to_dd: DOFDesc
