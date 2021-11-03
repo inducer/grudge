@@ -4,11 +4,12 @@ import unification
 
 from grudge.metadata import DiscretizationEntityTag
 from pytato.transform import ArrayOrNames
+from arraycontext import ArrayContainer
+from arraycontext.container.traversal import rec_map_array_container
 from typing import Set, Mapping, Tuple
 
 
 # {{{ solve for discretization metadata for arrays' axes
-
 
 class DiscretizationEntityConstraintCollector(pt.transform.Mapper):
     """
@@ -24,7 +25,6 @@ class DiscretizationEntityConstraintCollector(pt.transform.Mapper):
 
         # axis_to_var: mapping from (array, iaxis) to the kanren variable to be
         # used for unification.
-        # Choosing id(array) to trivialize comparisons
         self.axis_to_tag_var: Mapping[Tuple[pt.Array, int],
                                       unification.variable.Var] = {}
         self.variables_to_solve: Set[unification.variable.Var] = set()
@@ -197,9 +197,9 @@ class DiscretizationEntityConstraintCollector(pt.transform.Mapper):
             self.rec(subexpr)
 
 
-# TODO: Accept an array container.
-def unify_discretization_entity_tags(expr: ArrayOrNames
-                                     ) -> ArrayOrNames:
+def _unify_discretization_entity_tags(expr: ArrayOrNames
+                                      ) -> ArrayOrNames:
+    from collections import defaultdict
     discr_unification_helper = DiscretizationEntityConstraintCollector()
     discr_unification_helper(expr)
     tag_var_to_axis = {}
@@ -214,11 +214,35 @@ def unify_discretization_entity_tags(expr: ArrayOrNames
                            variables_to_solve,
                            *discr_unification_helper.constraints)
 
-    for solution in solutions:
-        assert len(variables_to_solve) == len(solution)
-        for var, value in zip(variables_to_solve, solution):
-            print(f"{tag_var_to_axis[var]!r}:", value)
+    # There should be only solution
+    assert len(solutions) == 1
 
-        print(70 * "=")
+    # ary_to_axes_tags: mapping from array to a mapping from iaxis to the
+    # solved tag.
+    ary_to_axes_tags = defaultdict(dict)
+    for var, value in zip(variables_to_solve, solutions[0]):
+        ary, axis = tag_var_to_axis[var]
+        ary_to_axes_tags[ary][axis] = value
+
+    def attach_tags(expr: ArrayOrNames) -> ArrayOrNames:
+        if not isinstance(expr, pt.Array):
+            return expr
+
+        for iaxis, solved_tag in ary_to_axes_tags[expr].items():
+            if expr.axes[iaxis].tags_of_type(DiscretizationEntityTag):
+                discr_tag, = expr.axes[iaxis].tags_of_type(DiscretizationEntityTag)
+                assert discr_tag == solved_tag
+            else:
+                expr = expr.with_tagged_axis(iaxis, solved_tag)
+
+        return expr
+
+    return pt.transform.map_and_copy(expr, attach_tags)
+
+
+def unify_discretization_entity_tags(ary: ArrayContainer
+                                     ) -> ArrayContainer:
+    return rec_map_array_container(_unify_discretization_entity_tags,
+                                   ary)
 
 # }}}
