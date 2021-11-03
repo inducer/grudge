@@ -39,6 +39,7 @@ from meshmode.array_context import (
 )
 from grudge.models.euler import (
     EulerState,
+    EulerOperator,
     EntropyStableEulerOperator,
     PrescribedBC
 )
@@ -90,8 +91,22 @@ def vortex_initial_condition(x_vec, t=0):
 
 
 def run_vortex(actx, order=3, resolution=8, final_time=50,
+               nodal_dg=False,
                flux_type="central",
                visualize=False):
+
+    logger.info(
+        """
+        Isentropic vortex parameters:\n
+        order: %s\n
+        final_time: %s\n
+        nodal_dg: %s\n
+        resolution: %s\n
+        flux_type: %s\n
+        visualize: %s
+        """,
+        order, final_time, nodal_dg, resolution, flux_type, visualize
+    )
 
     # eos-related parameters
     gamma = 1.4
@@ -132,7 +147,14 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
                      prescribed_state=vortex_initial_condition)
     ]
 
-    euler_operator = EntropyStableEulerOperator(
+    if nodal_dg:
+        operator_cls = EulerOperator
+        exp_name = f"fld-acoustic-pulse-{flux_type}"
+    else:
+        operator_cls = EntropyStableEulerOperator
+        exp_name = f"fld-esdg-acoustic-pulse-{flux_type}"
+
+    euler_operator = operator_cls(
         dcoll,
         bdry_conditions=bcs,
         flux_type=flux_type,
@@ -170,7 +192,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
                 vis.write_vtk_file(
-                    f"fld-vortex-{step:04d}.vtu",
+                    f"{exp_name}-{step:04d}.vtu",
                     [
                         ("rho", fields.mass),
                         ("energy", fields.energy),
@@ -187,7 +209,19 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
 
 def run_convergence_test_vortex(
         actx, order=3, final_time=1,
+        nodal_dg=False,
         flux_type="central"):
+
+    logger.info(
+        """
+        Isentropic vortex convergence test parameters:\n
+        order: %s\n
+        final_time: %s\n
+        nodal_dg: %s\n
+        flux_type: %s
+        """,
+        order, final_time, nodal_dg, flux_type
+    )
 
     # eos-related parameters
     gamma = 1.4
@@ -237,7 +271,12 @@ def run_convergence_test_vortex(
                         prescribed_state=vortex_initial_condition)
         ]
 
-        euler_operator = EntropyStableEulerOperator(
+        if nodal_dg:
+            operator_cls = EulerOperator
+        else:
+            operator_cls = EntropyStableEulerOperator
+
+        euler_operator = operator_cls(
             dcoll,
             bdry_conditions=bcs,
             flux_type=flux_type,
@@ -285,14 +324,15 @@ def run_convergence_test_vortex(
 
 
 def main(ctx_factory, order=3, final_time=10, resolution=8,
-         lf_stabilization=False, visualize=False,
+         nodal_dg=False,
+         lf_stabilization=False,
+         visualize=False,
          test_convergence=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
         queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        # force_device_scalars=True,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
     )
 
     if lf_stabilization:
@@ -304,11 +344,13 @@ def main(ctx_factory, order=3, final_time=10, resolution=8,
         run_convergence_test_vortex(
             actx, order=order,
             final_time=0.25,
+            nodal_dg=nodal_dg,
             flux_type=flux_type)
     else:
         run_vortex(
             actx, order=order, resolution=resolution,
             final_time=final_time,
+            nodal_dg=nodal_dg,
             flux_type=flux_type,
             visualize=visualize)
 
@@ -320,6 +362,7 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=10.0, type=float)
     parser.add_argument("--resolution", default=8, type=int)
+    parser.add_argument("--nodaldg", action="store_true")
     parser.add_argument("--lfflux", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--convergence", action="store_true")
@@ -330,6 +373,7 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         nodal_dg=args.nodaldg,
          lf_stabilization=args.lfflux,
          visualize=args.visualize,
          test_convergence=args.convergence)
