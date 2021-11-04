@@ -84,7 +84,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     by its vector of degrees of freedom *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :arg p: an integer denoting the order of the integral norm. Currently,
         only values of 2 or `numpy.inf` are supported.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -120,7 +120,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
-    :returns: a scalar denoting the nodal sum.
+    :returns: a device scalar denoting the nodal sum.
     """
     comm = dcoll.mpi_communicator
     if comm is None:
@@ -140,7 +140,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a scalar denoting the rank-local nodal sum.
     """
     if not isinstance(vec, DOFArray):
@@ -160,8 +160,8 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
-    :returns: a scalar denoting the nodal minimum.
+        :class:`~arraycontext.container.ArrayContainer` of them.
+    :returns: a device scalar denoting the nodal minimum.
     """
     comm = dcoll.mpi_communicator
     if comm is None:
@@ -182,7 +182,7 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
     if not isinstance(vec, DOFArray):
@@ -204,8 +204,8 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
-    :returns: a scalar denoting the nodal maximum.
+        :class:`~arraycontext.container.ArrayContainer` of them.
+    :returns: a device scalar denoting the nodal maximum.
     """
     comm = dcoll.mpi_communicator
     if comm is None:
@@ -248,8 +248,8 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
-    :returns: a scalar denoting the evaluated integral.
+        :class:`~arraycontext.container.ArrayContainer` of them.
+    :returns: a device scalar denoting the evaluated integral.
     """
     from grudge.op import _apply_mass_operator
 
@@ -337,9 +337,9 @@ def elementwise_sum(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` whose entries
+        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise sum of *vec*.
     """
     if len(args) == 1:
@@ -368,7 +368,7 @@ def elementwise_max(
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` whose entries
+        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise max of *vec*.
     """
     if len(args) == 1:
@@ -395,9 +395,9 @@ def elementwise_min(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` whose entries
+        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise min of *vec*.
     """
     if len(args) == 1:
@@ -425,9 +425,9 @@ def elementwise_integral(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` containing the
+        :class:`~arraycontext.container.ArrayContainer` like *vec* containing the
         elementwise integral if *vec*.
     """
     if len(args) == 1:

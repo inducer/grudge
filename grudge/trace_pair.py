@@ -180,11 +180,11 @@ def bdry_trace_pair(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
     :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.container.ArrayContainer` of them that contains data
         already on the boundary representing the interior value to be used
         for the flux.
     :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.container.ArrayContainer` of them that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -227,7 +227,7 @@ def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     This does not include interior faces on different MPI ranks.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`TracePair` object.
     """
     i = project(dcoll, "vol", "int_faces", vec)
@@ -249,7 +249,7 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     parallel boundary.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
@@ -311,13 +311,15 @@ class _RankBoundaryCommunication:
         # (MPI_Cancel). The rank-local data `self.local_bdry_data_np` will have its
         # associated memory buffer sent across connected ranks and must not be
         # modified at the Python level during this process. Completion of the
-        # requests are handled in :meth:`finish`.
+        # requests is handled in :meth:`finish`.
         #
         # For more details on the mpi4py semantics, see:
         # https://mpi4py.readthedocs.io/en/stable/overview.html#nonblocking-communications
         #
-        # NOTE: mpi4py does hold onto the memory buffer for `self.local_bdry_data_np`
-        # until the send/recv requests are complete.
+        # NOTE: mpi4py currently (2021-11-03) holds a reference to the send memory buffer for
+        # (i.e. `self.local_bdry_data_np`) until the send requests is complete, however it is not clear
+        # that this is documented behavior. We hold on to the buffer (via the instance attribute)
+        # as well, just in case.
         self.send_req = comm.Isend(self.local_bdry_data_np,
                                    remote_rank,
                                    tag=self.tag)
@@ -327,11 +329,11 @@ class _RankBoundaryCommunication:
                                    tag=self.tag)
 
     def finish(self):
-        # Wait for the nonblocking recieve request to complete before
+        # Wait for the nonblocking receive request to complete before
         # accessing the data
         self.recv_req.Wait()
 
-        # Nonblocking recieve is complete, we can now access the data and apply
+        # Nonblocking receive is complete, we can now access the data and apply
         # the boundary-swap connection
         actx = self.array_context
         remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
@@ -365,7 +367,7 @@ def cross_rank_trace_pairs(
     components, respectively. Each of the TracePair components are structured
     like *ary*.
 
-    During the case when *ary* is a number, rather than a
+    If *ary* is a number, rather than a
     :class:`~meshmode.dof_array.DOFArray` or an
     :class:`~arraycontext.container.ArrayContainer` of them, it is assumed
     that the same number is being communicated on every rank.

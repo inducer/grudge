@@ -362,7 +362,8 @@ def weak_local_grad(
         array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s or
-        :class:`~arraycontext.container.ArrayContainer`\ s.
+        :class:`~arraycontext.container.ArrayContainer`\ s like *vec*,
+        with the object array from the gradient innermost.
     """
     if len(args) == 1:
         vec, = args
@@ -590,7 +591,7 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
 
     if len(args) == 1:
@@ -700,7 +701,7 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
 
     return _apply_inverse_mass_operator(
@@ -875,7 +876,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
 
     if len(args) == 1:

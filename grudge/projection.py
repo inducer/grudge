@@ -54,9 +54,9 @@ def project(
     :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
