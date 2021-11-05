@@ -130,9 +130,10 @@ def run_sod_shock_tube(actx,
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim,
+        periodic=(False, True),
         boundary_tag_to_face={
             "prescribed": ["+x", "-x"],
-            "slip": ["+y", "-y"]
+            # "slip": ["+y", "-y"]
         }
     )
 
@@ -163,9 +164,9 @@ def run_sod_shock_tube(actx,
     dd_slip = DTAG_BOUNDARY("slip")
     dd_prescribe = DTAG_BOUNDARY("prescribed")
     bcs = [
-        AdiabaticSlipBC(
-            dd=as_dofdesc(dd_slip).with_discr_tag(DISCR_TAG_QUAD)
-        ),
+        # AdiabaticSlipBC(
+        #     dd=as_dofdesc(dd_slip).with_discr_tag(DISCR_TAG_QUAD)
+        # ),
         PrescribedBC(dd=as_dofdesc(dd_prescribe).with_discr_tag(DISCR_TAG_QUAD),
                      prescribed_state=sod_shock_initial_condition)
     ]
@@ -192,7 +193,7 @@ def run_sod_shock_tube(actx,
 
     fields = sod_shock_initial_condition(thaw(dcoll.nodes(), actx))
     dt = actx.to_numpy(
-        1/6 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
+        1/8 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
 
     logger.info("Timestep size: %g", dt)
 
@@ -208,9 +209,9 @@ def run_sod_shock_tube(actx,
     t = 0.0
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = rk4_step(fields, t, dt, compiled_rhs)
+        fields = ssprk43_step(fields, t, dt, compiled_rhs)
 
-        if step % 1 == 0:
+        if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
