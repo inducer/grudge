@@ -316,9 +316,10 @@ class _RankBoundaryCommunication:
         # For more details on the mpi4py semantics, see:
         # https://mpi4py.readthedocs.io/en/stable/overview.html#nonblocking-communications
         #
-        # NOTE: mpi4py currently (2021-11-03) holds a reference to the send memory buffer for
-        # (i.e. `self.local_bdry_data_np`) until the send requests is complete, however it is not clear
-        # that this is documented behavior. We hold on to the buffer (via the instance attribute)
+        # NOTE: mpi4py currently (2021-11-03) holds a reference to the send
+        # memory buffer for (i.e. `self.local_bdry_data_np`) until the send
+        # requests is complete, however it is not clear that this is documented
+        # behavior. We hold on to the buffer (via the instance attribute)
         # as well, just in case.
         self.send_req = comm.Isend(self.local_bdry_data_np,
                                    remote_rank,
