@@ -41,7 +41,8 @@ from grudge.models.euler import (
     EulerState,
     EulerOperator,
     EntropyStableEulerOperator,
-    PrescribedBC
+    PrescribedBC,
+    EntropyStablePrescribedBC
 )
 
 from meshmode.mesh import BTAG_ALL
@@ -143,16 +144,18 @@ def run_vortex(actx, order=3, resolution=8, final_time=50,
     # {{{ Euler operator
 
     bcs = [
-        PrescribedBC(dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD),
-                     prescribed_state=vortex_initial_condition)
+        EntropyStablePrescribedBC(
+            dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD),
+            gamma=gamma,
+            prescribed_state=vortex_initial_condition)
     ]
 
     if nodal_dg:
         operator_cls = EulerOperator
-        exp_name = f"fld-acoustic-pulse-{flux_type}"
+        exp_name = f"fld-vortex-{flux_type}"
     else:
         operator_cls = EntropyStableEulerOperator
-        exp_name = f"fld-esdg-acoustic-pulse-{flux_type}"
+        exp_name = f"fld-esdg-vortex-{flux_type}"
 
     euler_operator = operator_cls(
         dcoll,

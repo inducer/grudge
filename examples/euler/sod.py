@@ -41,8 +41,9 @@ from grudge.models.euler import (
     EulerState,
     EulerOperator,
     EntropyStableEulerOperator,
-    AdiabaticSlipBC,
-    PrescribedBC
+    EntropyStableAdiabaticSlipBC,
+    PrescribedBC,
+    EntropyStablePrescribedBC
 )
 
 from meshmode.mesh import BTAG_ALL
@@ -83,11 +84,13 @@ def sod_shock_initial_condition(nodes, t=0):
     actx = x.array_context
     zeros = 0*x
 
+    yshift = 0.1
+    _magn = 1
     _x0 = 0.5
-    _rhoin = 1.0
-    _rhoout = 0.125
-    _pin = 1.0
-    _pout = 0.1
+    _rhoin = _magn + yshift
+    _rhoout = 0.125 + yshift
+    _pin = _magn + yshift
+    _pout = 0.1 + yshift
 
     rhoin = zeros + _rhoin
     rhoout = zeros + _rhoout
@@ -130,10 +133,10 @@ def run_sod_shock_tube(actx,
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim,
-        periodic=(False, True),
+        # periodic=(False, True),
         boundary_tag_to_face={
             "prescribed": ["+x", "-x"],
-            # "slip": ["+y", "-y"]
+            "slip": ["+y", "-y"]
         }
     )
 
@@ -164,11 +167,15 @@ def run_sod_shock_tube(actx,
     dd_slip = DTAG_BOUNDARY("slip")
     dd_prescribe = DTAG_BOUNDARY("prescribed")
     bcs = [
-        # AdiabaticSlipBC(
-        #     dd=as_dofdesc(dd_slip).with_discr_tag(DISCR_TAG_QUAD)
-        # ),
-        PrescribedBC(dd=as_dofdesc(dd_prescribe).with_discr_tag(DISCR_TAG_QUAD),
-                     prescribed_state=sod_shock_initial_condition)
+        EntropyStableAdiabaticSlipBC(
+            dd=as_dofdesc(dd_slip).with_discr_tag(DISCR_TAG_QUAD),
+            gamma=gamma
+        ),
+        EntropyStablePrescribedBC(
+            dd=as_dofdesc(dd_prescribe).with_discr_tag(DISCR_TAG_QUAD),
+            gamma=gamma,
+            prescribed_state=sod_shock_initial_condition
+        )
     ]
 
     if nodal_dg:
@@ -211,7 +218,7 @@ def run_sod_shock_tube(actx,
         fields = thaw(freeze(fields, actx), actx)
         fields = ssprk43_step(fields, t, dt, compiled_rhs)
 
-        if step % 10 == 0:
+        if step % 1 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:

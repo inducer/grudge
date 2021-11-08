@@ -487,7 +487,7 @@ class EntropyStableEulerOperator(EulerOperator):
             bc_fluxes = sum(
                 entropy_stable_numerical_flux_chandrashekar(
                     dcoll,
-                    bc.boundary_tpair(dcoll, q, t=t),
+                    bc.boundary_tpair(dcoll, proj_entropy_vars, t=t),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
                 ) for bc in self.bdry_conditions
@@ -506,9 +506,10 @@ class EntropyStableEulerOperator(EulerOperator):
 # {{{ Boundary conditions
 
 class BCObject:
-    def __init__(self, dd, *, prescribed_state=None) -> None:
+    def __init__(self, dd, *, gamma=1.4, prescribed_state=None) -> None:
         self.dd = dd
         self.prescribed_state = prescribed_state
+        self.gamma = gamma
 
     def boundary_tpair(self, dcoll, state, t=0):
         raise NotImplementedError("Boundary pair method not implemented.")
@@ -528,24 +529,58 @@ class PrescribedBC(BCObject):
         )
 
 
-class AdiabaticSlipBC(BCObject):
+class EntropyStablePrescribedBC(BCObject):
 
-    def boundary_tpair(self, dcoll, state, t=0):
-        actx = state.array_context
+    def boundary_tpair(self, dcoll, proj_entropy_vars, t=0):
+        actx = proj_entropy_vars.array_context
+        gamma = self.gamma
         dd_bcq = self.dd
         dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
-        nhat = thaw(dcoll.normal(dd_bcq), actx)
-        interior = op.project(dcoll, dd_base, dd_bcq, state)
+        dq = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
+        df = as_dofdesc("all_faces").with_discr_tag(DISCR_TAG_QUAD)
+
+        analytic = self.prescribed_state(thaw(dcoll.nodes(), actx), t=t)
+        _, analytic_entropy_vars = \
+            entropy_projection(actx, dcoll, dq, df, analytic, gamma=gamma)
+        bc_state_entropy_vars = op.project(
+            dcoll, dd_base, dd_bcq, analytic_entropy_vars)
 
         return TracePair(
             dd_bcq,
-            interior=interior,
+            interior=entropy_to_conservative_vars(
+                actx,
+                op.project(dcoll, dd_base, dd_bcq, proj_entropy_vars),
+                gamma=self.gamma
+            ),
+            exterior=entropy_to_conservative_vars(
+                actx, bc_state_entropy_vars, gamma=gamma)
+        )
+
+
+class EntropyStableAdiabaticSlipBC(BCObject):
+
+    def boundary_tpair(self, dcoll, proj_entropy_vars, t=0):
+        actx = proj_entropy_vars.array_context
+        gamma = self.gamma
+        dd_bcq = self.dd
+        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+        nhat = thaw(dcoll.normal(dd_bcq), actx)
+
+        interior_entropy_vars = \
+            op.project(dcoll, dd_base, dd_bcq, proj_entropy_vars)
+        interior_cv_state = \
+            entropy_to_conservative_vars(actx, interior_entropy_vars, gamma=gamma)
+
+        interior_vel = interior_cv_state.momentum / interior_cv_state.mass
+        wall_vel = interior_vel - 2.0*nhat*np.dot(interior_vel, nhat)
+
+        return TracePair(
+            dd_bcq,
+            interior=interior_cv_state,
             exterior=EulerState(
-                mass=interior.mass,
-                energy=interior.energy,
-                momentum=(
-                    interior.momentum - 2.0 * nhat * np.dot(interior.momentum, nhat)
-                )
+                mass=interior_cv_state.mass,
+                energy=interior_cv_state.energy,
+                momentum=interior_cv_state.mass * wall_vel
             )
         )
 
