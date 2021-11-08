@@ -495,6 +495,31 @@ class HopefullySmartPytatoArrayContext(
 
         # }}}
 
+        # {{{ infer axis types
+
+        from grudge.pytato.utils import (unify_discretization_entity_tags,
+                                         are_all_stored_arrays_inferred)
+
+        dag = unify_discretization_entity_tags(dag)
+        are_all_stored_arrays_inferred(dag)
+
+        # }}}
+
+        # {{{ /!\ Remove tags from Loopy call results.
+        # See <https://www.github.com/inducer/pytato/issues/195>
+
+        def untag_loopy_call_results(expr):
+            from pytato.loopy import LoopyCallResult
+            if isinstance(expr, LoopyCallResult):
+                return expr.copy(tags=frozenset(),
+                                 axes=(pt.Axis(frozenset()),)*expr.ndim)
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, untag_loopy_call_results)
+
+        # }}}
+
         return dag
 
     def transform_loopy_program(self, t_unit):
