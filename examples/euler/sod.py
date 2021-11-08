@@ -42,8 +42,11 @@ from grudge.models.euler import (
     EulerOperator,
     EntropyStableEulerOperator,
     AdiabaticSlipBC,
-    PrescribedBC
+    PrescribedBC,
+    positivity_preserving_limiter
 )
+
+from functools import partial
 
 from meshmode.mesh import BTAG_ALL
 
@@ -55,14 +58,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def ssprk43_step(y, t, h, f):
+def ssprk43_step(y, t, h, f, limiter=None):
 
     def f_update(t, y):
         return y + h*f(t, y)
 
     y1 = 1/2*y + 1/2*f_update(t, y)
+
+    if limiter is not None:
+        y1 = limiter(y1)
+
     y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
+
+    if limiter is not None:
+        y2 = limiter(y2)
+
     y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
+
+    if limiter is not None:
+        y3 = limiter(y3)
 
     return 1/2*y3 + 1/2*f_update(t + h/2, y3)
 
@@ -83,11 +97,13 @@ def sod_shock_initial_condition(nodes, t=0):
     actx = x.array_context
     zeros = 0*x
 
+    yshift = 0.0
+    _magn = 1
     _x0 = 0.5
-    _rhoin = 1.0
-    _rhoout = 0.125
-    _pin = 1.0
-    _pout = 0.1
+    _rhoin = _magn + yshift
+    _rhoout = 0.125 + yshift
+    _pin = _magn + yshift
+    _pout = 0.1 + yshift
 
     rhoin = zeros + _rhoin
     rhoout = zeros + _rhoout
@@ -133,7 +149,7 @@ def run_sod_shock_tube(actx,
         periodic=(False, True),
         boundary_tag_to_face={
             "prescribed": ["+x", "-x"],
-            # "slip": ["+y", "-y"]
+            "slip": ["+y", "-y"]
         }
     )
 
@@ -207,9 +223,12 @@ def run_sod_shock_tube(actx,
 
     step = 0
     t = 0.0
+
+    limiter = partial(positivity_preserving_limiter, dcoll)
+
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = ssprk43_step(fields, t, dt, compiled_rhs)
+        fields = ssprk43_step(fields, t, dt, compiled_rhs, limiter=limiter)
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))

@@ -43,6 +43,9 @@ from grudge.trace_pair import TracePair
 
 import grudge.op as op
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 @with_container_arithmetic(bcast_obj_array=False,
                            bcast_container_types=(DOFArray, np.ndarray),
@@ -499,6 +502,62 @@ class EntropyStableEulerOperator(EulerOperator):
             -flux_diff - op.face_mass(dcoll, df, num_fluxes_bdry),
             dd_quad=dq
         )
+
+# }}}
+
+
+# {{{ Limiter
+
+def positivity_preserving_limiter(dcoll, state):
+    actx = state.array_context
+
+    # Interpolate state to quadrature grid
+    dd_quad = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
+    density = op.project(dcoll, "vol", dd_quad, state.mass)
+
+    # Compute nodal and elementwise max/mins
+    _mmax = op.nodal_max(dcoll, dd_quad, density)
+    _mmin = op.nodal_min(dcoll, dd_quad, density)
+    _mmax_i = op.elementwise_max(dcoll, dd_quad, density)
+    _mmin_i = op.elementwise_min(dcoll, dd_quad, density)
+
+    # Compute cell averages of the state
+    from grudge.geometry import area_element
+
+    inv_area_elements = 1./area_element(
+        actx, dcoll, dd=dd_quad,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    state_cell_avgs = inv_area_elements * op.project(
+        dcoll,
+        "vol",
+        dd_quad,
+        op.elementwise_integral(dcoll, dd_quad, state.mass)
+    )
+
+    # Compute scaling factor
+    # import ipdb; ipdb.set_trace()
+    theta = actx.np.minimum(
+        1,
+        actx.np.minimum(
+            abs((_mmax - state_cell_avgs)/(_mmax_i - state_cell_avgs)),
+            abs((_mmin - state_cell_avgs)/(_mmin_i - state_cell_avgs))
+        )
+    )
+
+    # NOTE: This doesn't work...
+    from meshmode.discretization.connection import \
+        L2ProjectionInverseDiscretizationConnection
+
+    from_quad = L2ProjectionInverseDiscretizationConnection(
+        dcoll.connection_from_dds("vol", dd_quad)
+    )
+
+    return EulerState(
+        # Need to get limited mass off the quad grid and back to the interp grid
+        mass=from_quad(theta*(density - state_cell_avgs) + state_cell_avgs),
+        energy=state.energy,
+        momentum=state.momentum
+    )
 
 # }}}
 
