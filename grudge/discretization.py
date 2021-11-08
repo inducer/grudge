@@ -674,18 +674,7 @@ class DiscretizationCollection:
             vector of dtype :attr:`complex_dtype`. If
             *None* (the default), a real vector will be returned.
         """
-        from grudge.metadata import (DiscretizationElementAxisTag,
-                                     DiscretizationDOFAxisTag)
-
-        el_tag = DiscretizationElementAxisTag(DD_VOLUME)
-        dof_tag = DiscretizationDOFAxisTag(DD_VOLUME)
-
-        def _tag_axes(dof_ary):
-            actx = dof_ary.array_context
-            dof_ary = actx.tag_axis(0, el_tag, dof_ary)
-            return actx.tag_axis(1, dof_tag, dof_ary)
-
-        return _tag_axes(self._volume_discr.zeros(array_context, dtype))
+        return self._volume_discr.zeros(array_context, dtype)
 
     def is_volume_where(self, where):
         return where is None or as_dofdesc(where).is_volume()
@@ -712,21 +701,7 @@ class DiscretizationCollection:
         if dd is None:
             dd = DD_VOLUME
 
-        from grudge.metadata import (DiscretizationElementAxisTag,
-                                     DiscretizationDOFAxisTag)
-        from pytools.obj_array import make_obj_array
-
-        el_tag = DiscretizationElementAxisTag(dd)
-        dof_tag = DiscretizationDOFAxisTag(dd)
-
-        def _tag_axes(dof_ary):
-            actx = self._setup_actx
-            dof_ary = actx.tag_axis(0, el_tag, dof_ary)
-            return actx.tag_axis(1, dof_tag, dof_ary)
-
-        return make_obj_array([
-                _tag_axes(ary)
-                for ary in self.discr_from_dd(dd).nodes()])
+        return self.discr_from_dd(dd).nodes()
 
     def normal(self, dd):
         r"""Get the unit normal to the specified surface discretization, *dd*.
