@@ -46,7 +46,8 @@ THE SOFTWARE.
 import numpy as np
 
 from arraycontext import ArrayContext, thaw, freeze
-from meshmode.transform_metadata import FirstAxisIsElementsTag
+from meshmode.transform_metadata import (FirstAxisIsElementsTag,
+                                         DiscretizationElementAxisTag)
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
 from grudge.discretization import DiscretizationCollection
@@ -284,11 +285,13 @@ def dt_geometric_factors(
         actx,
         data=tuple(
             actx.einsum("fej->e",
-                        face_ae_i.reshape(
-                            vgrp.mesh_el_group.nfaces,
-                            vgrp.nelements,
-                            afgrp.nunit_dofs
-                        ),
+                        actx.tag_axis(1,
+                                      DiscretizationElementAxisTag.from_group(vgrp),
+                                      face_ae_i.reshape(
+                                          vgrp.mesh_el_group.nfaces,
+                                          vgrp.nelements,
+                                          afgrp.nunit_dofs
+                                      )),
                         tagged=(FirstAxisIsElementsTag(),)) / afgrp.nunit_dofs
 
             for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
