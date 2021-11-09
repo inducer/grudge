@@ -238,6 +238,18 @@ class EulerOperator(HyperbolicOperator):
             dd_quad=dq
         )
 
+    def state_to_mathematical_entropy(self, state):
+        actx = state.array_context
+        gamma = self.gamma
+        rho = state.mass
+        rhoe = state.energy
+        rhov = state.momentum
+        v = rhov / rho
+        p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
+        s = actx.np.log(p) - gamma*actx.np.log(rho)
+
+        return -rho * s / (gamma - 1)
+
     def max_characteristic_velocity(self, actx, **kwargs):
         q = kwargs["state"]
         rho = q.mass
