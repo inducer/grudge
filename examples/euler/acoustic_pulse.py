@@ -41,7 +41,7 @@ from grudge.models.euler import (
     EulerState,
     EulerOperator,
     EntropyStableEulerOperator,
-    AdiabaticSlipBC
+    EntropyStableAdiabaticSlipBC
 )
 
 from meshmode.mesh import BTAG_ALL
@@ -164,7 +164,7 @@ def run_acoustic_pulse(actx,
     # {{{ Euler operator
 
     bcs = [
-        AdiabaticSlipBC(
+        EntropyStableAdiabaticSlipBC(
             dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD)
         )
     ]
@@ -205,6 +205,11 @@ def run_acoustic_pulse(actx,
 
     step = 0
     t = 0.0
+
+    dd_quad = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
+    entropy = euler_operator.state_to_mathematical_entropy(fields)
+    entropy_int0 =  actx.to_numpy(op.integral(dcoll, dd_quad, entropy))
+
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
         fields = ssprk43_step(fields, t, dt, compiled_rhs)
@@ -212,6 +217,12 @@ def run_acoustic_pulse(actx,
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
+
+            entropy = euler_operator.state_to_mathematical_entropy(fields)
+            entropy_integral = actx.to_numpy(op.integral(dcoll, dd_quad, entropy))
+            int_diff = abs(entropy_integral - entropy_int0)
+            logger.info("Entropy integral ∫η1 - ∫η0: %s", int_diff/abs(entropy_int0))
+
             if visualize:
                 vis.write_vtk_file(
                     f"{exp_name}-{step:04d}.vtu",
