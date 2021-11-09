@@ -180,8 +180,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
     return get_ref_derivative_mats(out_element_group)
 
 
-def local_grad(
-        dcoll: DiscretizationCollection, vec, *, nested=False) -> np.ndarray:
+def local_grad(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
 
@@ -196,15 +195,10 @@ def local_grad(
         array if *vec* is non-scalar.
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s or
-        :class:`~arraycontext.container.ArrayContainer`\ s.
+        :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-    if isinstance(vec, np.ndarray):
-        grad = obj_array_vectorize(
-                lambda el: local_grad(dcoll, el, nested=nested), vec)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(partial(local_grad, dcoll), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
@@ -234,6 +228,9 @@ def local_d_dx(
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
+    if not isinstance(vec, DOFArray):
+        return map_array_container(partial(local_d_dx, dcoll, xyz_axis), vec)
+
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
@@ -247,27 +244,12 @@ def local_d_dx(
         metric_in_matvec=False)
 
 
-def _div_helper(dcoll: DiscretizationCollection, diff_func, vecs):
+def _div_helper(diff_func, vecs):
     if not isinstance(vecs, np.ndarray):
         raise TypeError("argument must be an object array")
     assert vecs.dtype == object
 
-    if isinstance(vecs[(0,)*vecs.ndim], np.ndarray):
-        div_shape = vecs.shape
-    else:
-        if vecs.shape[-1] != dcoll.ambient_dim:
-            raise ValueError("last dimension of *vecs* argument doesn't match "
-                    "ambient dimension")
-        div_shape = vecs.shape[:-1]
-
-    if len(div_shape) == 0:
-        return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
-    else:
-        result = np.zeros(div_shape, dtype=object)
-        for idx in np.ndindex(div_shape):
-            result[idx] = sum(
-                    diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
-        return result
+    return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
 
 
 def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
@@ -286,10 +268,10 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
+    if not (isinstance(vecs, np.ndarray) and vecs.dtype == "O"):
+        return map_array_container(partial(local_div, dcoll), vecs)
 
-    return _div_helper(dcoll,
-            lambda i, subvec: local_d_dx(dcoll, i, subvec),
-            vecs)
+    return _div_helper(lambda i, subvec: local_d_dx(dcoll, i, subvec), vecs)
 
 # }}}
 
@@ -341,8 +323,7 @@ def _reference_stiffness_transpose_matrix(
                                            in_element_group)
 
 
-def weak_local_grad(
-        dcoll: DiscretizationCollection, *args, nested=False) -> np.ndarray:
+def weak_local_grad(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -362,8 +343,7 @@ def weak_local_grad(
         array if *vec* is non-scalar
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s or
-        :class:`~arraycontext.container.ArrayContainer`\ s like *vec*,
-        with the object array from the gradient innermost.
+        :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
     if len(args) == 1:
         vec, = args
@@ -373,13 +353,8 @@ def weak_local_grad(
     else:
         raise TypeError("invalid number of arguments")
 
-    if isinstance(vec, np.ndarray):
-        grad = obj_array_vectorize(
-                lambda el: weak_local_grad(dcoll, dd_in, el, nested=nested), vec)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
+    if not isinstance(vec, DOFArray):
+        return map_array_container(partial(weak_local_grad, dcoll, dd_in), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
@@ -434,6 +409,12 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     else:
         raise TypeError("invalid number of arguments")
 
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(weak_local_d_dx, dcoll, dd_in, xyz_axis),
+            vec
+        )
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     in_discr = dcoll.discr_from_dd(dd_in)
@@ -477,7 +458,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
         where the last axis of the array must have length
         matching the volume dimension.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
     if len(args) == 1:
         vecs, = args
@@ -487,9 +468,13 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     else:
         raise TypeError("invalid number of arguments")
 
-    return _div_helper(dcoll,
-            lambda i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
-            vecs)
+    if not (isinstance(vecs, np.ndarray) and vecs.dtype == "O"):
+        return map_array_container(partial(weak_local_div, dcoll, dd), vecs)
+
+    return _div_helper(
+        lambda i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
+        vecs
+    )
 
 # }}}
 
