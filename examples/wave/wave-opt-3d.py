@@ -47,6 +47,7 @@ from meshmode.transform_metadata import (DiscretizationEntityAxisTag,
                                          DiscretizationFaceAxisTag)
 
 import grudge.op as op
+import kanren
 
 import logging
 logger = logging.getLogger(__name__)
@@ -367,19 +368,6 @@ def transform_diff(t_unit):
     return t_unit
 
 
-def get_iname_buckets_of_type(kernel, tag_t):
-    from collections import defaultdict
-    from pyrsistent import pmap
-
-    buckets = defaultdict(set)
-
-    for name, iname in kernel.inames.items():
-        for tag in iname.tags_of_type(tag_t):
-            buckets[tag].add(name)
-
-    return pmap(buckets)
-
-
 class HopefullySmartPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
 
@@ -571,9 +559,22 @@ class HopefullySmartPytatoArrayContext(
                     (DiscretizationFaceAxisTag, "iface"),
                     (DiscretizationElementAxisTag, "iel"),
                     (DiscretizationDOFAxisTag, "idof")]:
-                tag_types_to_inames = get_iname_buckets_of_type(knl, mesh_entity)
+                taggedo = lp.relations.get_taggedo_of_type(knl, mesh_entity)
 
-                for _, inames in tag_types_to_inames.items():
+                # tag_k: different tags of type 'mesh_entity'
+                tag_k = kanren.var()
+                tags = kanren.run(0,
+                                  tag_k,
+                                  taggedo(kanren.var(), tag_k),
+                                  results_filter=frozenset)
+                for tag in tags:
+                    # iname_k: 'inames' tagged with 'tag'
+                    iname_k = kanren.var()
+                    inames = kanren.run(0,
+                                        iname_k,
+                                        taggedo(iname_k, tag),
+                                        results_filter=frozenset)
+
                     knl = lp.rename_inames_in_batch(
                         knl,
                         lp.get_kennedy_unweighted_fusion_candidates(
