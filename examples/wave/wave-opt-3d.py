@@ -41,6 +41,10 @@ from grudge import DiscretizationCollection
 
 from pytools.obj_array import flat_obj_array
 from loopy.symbolic import (get_dependencies, CombineMapper)
+from meshmode.transform_metadata import (DiscretizationEntityAxisTag,
+                                         DiscretizationElementAxisTag,
+                                         DiscretizationDOFAxisTag,
+                                         DiscretizationFaceAxisTag)
 
 import grudge.op as op
 
@@ -363,6 +367,19 @@ def transform_diff(t_unit):
     return t_unit
 
 
+def get_iname_buckets_of_type(kernel, tag_t):
+    from collections import defaultdict
+    from pyrsistent import pmap
+
+    buckets = defaultdict(set)
+
+    for name, iname in kernel.inames.items():
+        for tag in iname.tags_of_type(tag_t):
+            buckets[tag].add(name)
+
+    return pmap(buckets)
+
+
 class HopefullySmartPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
 
@@ -520,6 +537,22 @@ class HopefullySmartPytatoArrayContext(
 
         # }}}
 
+        # {{{ make the discretization entity tags loopy iname tags
+
+        def make_discretization_tags_iname_tags(expr):
+            if isinstance(expr, pt.Array):
+                for iaxis, axis in enumerate(expr.axes):
+                    for tag in axis.tags_of_type(DiscretizationEntityAxisTag):
+                        expr = expr.with_tagged_axis(iaxis,
+                                                     pt.tags.AxisToLoopyInameTag(tag)
+                                                     )
+
+            return expr
+
+        dag = pt.transform.map_and_copy(dag, make_discretization_tags_iname_tags)
+
+        # }}}
+
         return dag
 
     def transform_loopy_program(self, t_unit):
@@ -530,8 +563,23 @@ class HopefullySmartPytatoArrayContext(
             from loopy.transform.instruction import simplify_indices
 
             t_unit = simplify_indices(t_unit)
-
             knl = t_unit.default_entrypoint
+
+            # {{{ extract the indices
+
+            for mesh_entity, fused_loop_name in [
+                    (DiscretizationFaceAxisTag, "iface"),
+                    (DiscretizationElementAxisTag, "iel"),
+                    (DiscretizationDOFAxisTag, "idof")]:
+                tag_types_to_inames = get_iname_buckets_of_type(knl, mesh_entity)
+
+                for _, inames in tag_types_to_inames.items():
+                    knl = lp.rename_inames_in_batch(
+                        knl,
+                        lp.get_kennedy_unweighted_fusion_candidates(
+                            knl, inames, prefix=fused_loop_name))
+
+            # }}}
 
             # {{{ Plot the digraph of the CSEs
 
