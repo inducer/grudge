@@ -369,7 +369,7 @@ def transform_diff(t_unit):
     return t_unit
 
 
-class HopefullySmartPytatoArrayContext(
+class SmartWithoutKanrenPytatoArrayContext(
         SingleGridWorkBalancingPytatoArrayContext):
 
     DO_CSE = True
@@ -526,22 +526,6 @@ class HopefullySmartPytatoArrayContext(
 
         # }}}
 
-        # {{{ make the discretization entity tags loopy iname tags
-
-        def make_discretization_tags_iname_tags(expr):
-            if isinstance(expr, pt.Array):
-                for iaxis, axis in enumerate(expr.axes):
-                    for tag in axis.tags_of_type(DiscretizationEntityAxisTag):
-                        expr = expr.with_tagged_axis(iaxis,
-                                                     pt.tags.AxisToLoopyInameTag(tag)
-                                                     )
-
-            return expr
-
-        dag = pt.transform.map_and_copy(dag, make_discretization_tags_iname_tags)
-
-        # }}}
-
         return dag
 
     def transform_loopy_program(self, t_unit):
@@ -552,75 +536,103 @@ class HopefullySmartPytatoArrayContext(
             from loopy.transform.instruction import simplify_indices
 
             t_unit = simplify_indices(t_unit)
+
             knl = t_unit.default_entrypoint
 
-            # {{{ loop fusion
+            # {{{ Plot the digraph of the CSEs
 
-            for mesh_entity, fused_loop_name in [
-                    (DiscretizationFaceAxisTag, "iface"),
-                    (DiscretizationElementAxisTag, "iel"),
-                    (DiscretizationDOFAxisTag, "idof")]:
-                taggedo = lp.relations.get_taggedo_of_type(knl, mesh_entity)
+            if 0 and self.DO_CSE:
+                rmap = knl.reader_map()
+                print("digraph {")
+                for arg in knl.args:
+                    print(f"  {arg.name} [shape=record]")
 
-                # tag_k: tag of type 'mesh_entity'
-                tag_k = kanren.var()
-                tags = kanren.run(0,
-                                  tag_k,
-                                  taggedo(kanren.var(), tag_k),
-                                  results_filter=frozenset)
-                for tag in tags:
-                    # iname_k: iname tagged with 'tag'
-                    iname_k = kanren.var()
-                    inames = kanren.run(0,
-                                        iname_k,
-                                        taggedo(iname_k, tag),
-                                        results_filter=frozenset)
+                for tv in (knl.args
+                           + list(knl.temporary_variables.values())):
+                    indirect_access_checker = IndirectAccessChecker(tv.name,
+                                                                    knl.all_inames())
+                    for insn_id in rmap.get(tv.name, ()):
+                        insn = knl.id_to_insn[insn_id]
+                        if indirect_access_checker(insn.expression):
+                            color = "red"
+                        else:
+                            color = "blue"
 
-                    knl = lp.rename_inames_in_batch(
-                        knl,
-                        lp.get_kennedy_unweighted_fusion_candidates(
-                            knl, inames, prefix=fused_loop_name))
+                        print(f"  {tv.name} -> {insn.assignee_name}"
+                              f"[color={color}]")
+
+                print("}")
+                1/0
 
             # }}}
 
-            # {{{ array contraction
+            # {{{ CSE kernels
 
-            tempo = lp.relations.get_tempo(knl)
-            producero = lp.relations.get_producero(knl)
-            consumero = lp.relations.get_consumero(knl)
-            withino = lp.relations.get_withino(knl)
-            reduce_insno = lp.relations.get_reduce_insno(knl)
+            cse_kernel1 = {"cse", "cse_0", "cse_6", "cse_8", "cse_4"}
+            cse_kernel2 = {"cse_1", "cse_2", "cse_3", "cse_5", "cse_7", "cse_9",
+                           "cse_10", "cse_11", "cse_31", "cse_33", "cse_35"}
+            cse_kernel3 = {"cse_12", "cse_13", "cse_14", "cse_15", "cse_16",
+                           "cse_17", "cse_18", "cse_19", "cse_20", "cse_21",
+                           "cse_22", "cse_23", "cse_24", "cse_25", "cse_26",
+                           "cse_27", "cse_28", "cse_29", "cse_30", "cse_32",
+                           "cse_34", "cse_36"}
 
-            all_temps = frozenset(knl.temporary_variables)
+            # Why a list and not a 'set': Loopy's model of substitutions not
+            # having dependencies forces it to add fake dependencies to
+            # instructions. So, in short "order matters".
 
-            # temp_k: temporary variable that cannot be contracted
-            temp_k = kanren.var()
-            producer_insn_k = kanren.var()
-            consumer_insn_k = kanren.var()
-            producer_loops_k = kanren.var()
-            consumer_loops_k = kanren.var()
-            temps_not_to_contract = kanren.run(0,
-                                               temp_k,
-                                               tempo(temp_k),
-                                               producero(producer_insn_k, temp_k),
-                                               consumero(consumer_insn_k, temp_k),
-                                               withino(producer_insn_k,
-                                                       producer_loops_k),
-                                               withino(consumer_insn_k,
-                                                       consumer_loops_k),
-                                               kanren.lany(
-                                                   kanren_neq(producer_loops_k,
-                                                              consumer_loops_k),
-                                                   reduce_insno(producer_insn_k),
-                                                   reduce_insno(consumer_insn_k)),
-                                               results_filter=frozenset)
+            assert len(cse_kernel1 & cse_kernel2) == 0
+            assert len(cse_kernel3 & cse_kernel2) == 0
+            assert len(cse_kernel3 & cse_kernel1) == 0
+            assert len(cse_kernel1 | cse_kernel2 | cse_kernel3) == 38
+            assert ((cse_kernel1 | cse_kernel2 | cse_kernel3)
+                    < set(knl.temporary_variables))
 
-            for temp in sorted(all_temps - frozenset(temps_not_to_contract)):
-                knl = lp.assignment_to_subst(knl, temp)
-                knl = precompute_for_single_kernel(
-                    knl, t_unit.callables_table, f"{temp}_subst",
-                    sweep_inames=(),
-                    temporary_address_space=lp.AddressSpace.PRIVATE)
+            priv_cse_kernel2_vars = ["cse_3", "cse_10",
+                                     "cse_1", "cse_2", "cse_7", "cse_9", "cse_5"]
+
+            priv_cse_kernel3_vars = ["cse_24", "cse_29",
+                                     "cse_26", "cse_27", "cse_28", "cse_13",
+                                     "cse_23", "cse_25",
+                                     "cse_12", "cse_14", "cse_22",
+                                     "cse_19", "cse_21",
+                                     "cse_16", "cse_18", "cse_20",
+                                     "cse_15", "cse_17"]
+
+            for i, var_names in enumerate((cse_kernel1, cse_kernel2, cse_kernel3)):
+                for var_name in var_names:
+                    knl = lp.rename_iname(knl, f"{var_name}_dim0", f"iel_cse_{i}",
+                                          existing_ok=True)
+                    knl = lp.rename_iname(knl, f"{var_name}_dim1", f"idof_cse_{i}",
+                                          existing_ok=True)
+
+            for i, var_names in enumerate((priv_cse_kernel2_vars,
+                                           priv_cse_kernel3_vars)):
+                for var_name in var_names:
+                    knl = lp.assignment_to_subst(knl, var_name)
+                for var_name in var_names[::-1]:
+                    knl = precompute_for_single_kernel(
+                        knl, t_unit.callables_table, f"{var_name}_subst",
+                        sweep_inames=(),
+                        temporary_address_space=lp.AddressSpace.PRIVATE,
+                        compute_insn_id=f"cse_knl{i+2}_prcmpt_{var_name}")
+
+            knl = lp.map_instructions(knl,
+                      " or ".join(f"writes:{var_name}"
+                                  for var_name in cse_kernel1),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join([f"writes:{var_name}"
+                                   for var_name in cse_kernel2]
+                                  + ["id:cse_knl2_prcmpt_*"]),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
+
+            knl = lp.map_instructions(knl,
+                      " or ".join([f"writes:{var_name}"
+                                   for var_name in cse_kernel3]
+                                  + ["id:cse_knl3_prcmpt_*"]),
+                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
 
             # }}}
 
@@ -865,6 +877,341 @@ class HopefullySmartPytatoArrayContext(
             return super().transform_loopy_program(t_unit)
 
 
+class SmartWithKanrenPytatoArrayContext(
+        SingleGridWorkBalancingPytatoArrayContext):
+
+    def transform_dag(self, dag):
+        import pytato as pt
+
+        # {{{ CSE
+
+        dag = pt.transform.materialize_with_mpms(dag)
+
+        def mark_materialized_nodes_as_cse(
+                    ary: Union[pt.Array,
+                                pt.AbstractResultWithNamedArrays]) -> pt.Array:
+            if isinstance(ary, pt.AbstractResultWithNamedArrays):
+                return ary
+
+            if ary.tags_of_type(pt.tags.ImplStored):
+                return ary.tagged(pt.tags.PrefixNamed("cse"))
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag, mark_materialized_nodes_as_cse)
+
+        # }}}
+
+        # {{{ collapse data wrappers
+
+        data_wrapper_cache = {}
+
+        def cached_data_wrapper_if_present(ary):
+            if isinstance(ary, pt.DataWrapper):
+                cache_key = (ary.data.data.int_ptr, ary.data.offset,
+                             ary.shape, ary.data.strides)
+                try:
+                    result = data_wrapper_cache[cache_key]
+                except KeyError:
+                    result = ary
+                    data_wrapper_cache[cache_key] = result
+
+                return result
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag, cached_data_wrapper_if_present)
+
+        # }}}
+
+        # {{{ get rid of copies for different views of a cl-array
+
+        def eliminate_reshapes_of_data_wrappers(ary):
+            if (isinstance(ary, pt.Reshape)
+                    and isinstance(ary.array, pt.DataWrapper)):
+                return (pt.make_data_wrapper(ary.array.data.reshape(ary.shape))
+                        .tagged(ary.tags))
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag,
+                                        eliminate_reshapes_of_data_wrappers)
+
+        # }}}
+
+        # {{{ face_mass: materialize einsum args
+
+        def materialize_face_mass_input_and_output(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "ifj,fej,fej->ei":
+                    mat, jac, vec = expr.args
+                    return (pt.einsum("ifj,fej,fej->ei",
+                                      mat,
+                                      jac,
+                                      vec.tagged((pt.tags.ImplStored(),
+                                                  pt.tags.PrefixNamed("flux"))))
+                            .tagged((pt.tags.ImplStored(),
+                                     pt.tags.PrefixNamed("face_mass"))))
+                else:
+                    return expr
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, materialize_face_mass_input_and_output)
+
+        # }}}
+
+        # {{{ materialize inverse mass inputs
+
+        def materialize_inverse_mass_inputs(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "ei,ij,ej->ei":
+                    arg1, arg2, arg3 = expr.args
+                    return pt.einsum(my_tag.spec,
+                                     arg1,
+                                     arg2,
+                                     arg3.tagged(
+                                         (pt.tags.ImplStored(),
+                                          pt.tags.PrefixNamed("mass_inv_inp"))))
+                else:
+                    return expr
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, materialize_inverse_mass_inputs)
+
+        # }}}
+
+        # {{{ rewrite einsum node of divs
+
+        def rewrite_einsum_exprs(expr):
+            if isinstance(expr, pt.Einsum):
+                my_tag, = expr.tags_of_type(pt.tags.EinsumInfo)
+                if my_tag.spec == "dij,ej,ej,dej->ei":
+                    arg0, arg1, arg2, arg3 = expr.args
+                    return (pt.einsum("ej,ej,eij->ei", arg1, arg2,
+                                      pt.einsum("dij,dej->eij", arg0, arg3))
+                            .tagged((tag
+                                     for tag in expr.tags if tag != my_tag)))
+                else:
+                    return expr
+            else:
+                return expr
+
+        if REWRITE_DIFF_EINSUM:
+            # early scheduling of loops is bad
+            dag = pt.transform.map_and_copy(dag, rewrite_einsum_exprs)
+
+        # }}}
+
+        # {{{ infer axis types
+
+        from grudge.pytato.utils import (unify_discretization_entity_tags,
+                                         are_all_stored_arrays_inferred)
+
+        dag = unify_discretization_entity_tags(dag)
+        are_all_stored_arrays_inferred(dag)
+
+        # }}}
+
+        # {{{ /!\ Remove tags from Loopy call results.
+        # See <https://www.github.com/inducer/pytato/issues/195>
+
+        def untag_loopy_call_results(expr):
+            from pytato.loopy import LoopyCallResult
+            if isinstance(expr, LoopyCallResult):
+                return expr.copy(tags=frozenset(),
+                                 axes=(pt.Axis(frozenset()),)*expr.ndim)
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, untag_loopy_call_results)
+
+        # }}}
+
+        # {{{ make the discretization entity tags loopy iname tags
+
+        def make_discretization_tags_iname_tags(expr):
+            if isinstance(expr, pt.Array):
+                for iaxis, axis in enumerate(expr.axes):
+                    for tag in axis.tags_of_type(DiscretizationEntityAxisTag):
+                        expr = expr.with_tagged_axis(iaxis,
+                                                     pt.tags.AxisToLoopyInameTag(tag)
+                                                     )
+
+            return expr
+
+        dag = pt.transform.map_and_copy(dag, make_discretization_tags_iname_tags)
+
+        # }}}
+
+        return dag
+
+    def transform_loopy_program(self, t_unit):
+        from arraycontext.impl.pytato.compile import FromArrayContextCompile
+        if t_unit.default_entrypoint.tags_of_type(FromArrayContextCompile):
+            import loopy as lp
+            from loopy.transform.precompute import precompute_for_single_kernel
+            from loopy.transform.instruction import simplify_indices
+
+            t_unit = simplify_indices(t_unit)
+            knl = t_unit.default_entrypoint
+
+            # {{{ loop fusion
+
+            for mesh_entity, fused_loop_name in [
+                    (DiscretizationFaceAxisTag, "iface"),
+                    (DiscretizationElementAxisTag, "iel"),
+                    (DiscretizationDOFAxisTag, "idof")]:
+                taggedo = lp.relations.get_taggedo_of_type(knl, mesh_entity)
+
+                # tag_k: tag of type 'mesh_entity'
+                tag_k = kanren.var()
+                tags = kanren.run(0,
+                                  tag_k,
+                                  taggedo(kanren.var(), tag_k),
+                                  results_filter=frozenset)
+                for itag, tag in enumerate(tags):
+                    # iname_k: iname tagged with 'tag'
+                    iname_k = kanren.var()
+                    inames = kanren.run(0,
+                                        iname_k,
+                                        taggedo(iname_k, tag),
+                                        results_filter=frozenset)
+
+                    knl = lp.rename_inames_in_batch(
+                        knl,
+                        lp.get_kennedy_unweighted_fusion_candidates(
+                            knl, inames, prefix=f"{fused_loop_name}_{itag}_"))
+                    knl = lp.tag_inames(knl, {f"{fused_loop_name}_{itag}_*": tag})
+
+            # }}}
+
+            # {{{ array contraction
+
+            tempo = lp.relations.get_tempo(knl)
+            producero = lp.relations.get_producero(knl)
+            consumero = lp.relations.get_consumero(knl)
+            withino = lp.relations.get_withino(knl)
+            reduce_insno = lp.relations.get_reduce_insno(knl)
+
+            all_temps = frozenset(knl.temporary_variables)
+
+            # temp_k: temporary variable that cannot be contracted
+            temp_k = kanren.var()
+            producer_insn_k = kanren.var()
+            consumer_insn_k = kanren.var()
+            producer_loops_k = kanren.var()
+            consumer_loops_k = kanren.var()
+            temps_not_to_contract = kanren.run(0,
+                                               temp_k,
+                                               tempo(temp_k),
+                                               producero(producer_insn_k, temp_k),
+                                               consumero(consumer_insn_k, temp_k),
+                                               withino(producer_insn_k,
+                                                       producer_loops_k),
+                                               withino(consumer_insn_k,
+                                                       consumer_loops_k),
+                                               kanren.lany(
+                                                   kanren_neq(producer_loops_k,
+                                                              consumer_loops_k),
+                                                   reduce_insno(consumer_insn_k)),
+                                               results_filter=frozenset)
+
+            # FIXME: A bug in loopy forces to insert this 'sorted'
+            for temp in sorted(all_temps - frozenset(temps_not_to_contract)):
+                knl = lp.assignment_to_subst(knl, temp)
+                knl = precompute_for_single_kernel(
+                    knl, t_unit.callables_table, f"{temp}_subst",
+                    sweep_inames=(),
+                    temporary_address_space=lp.AddressSpace.PRIVATE)
+
+            # }}}
+
+            # {{{ Stats
+
+            if 0:
+                from loopy.kernel.array import ArrayBase
+                from pytools import product
+                t_unit = t_unit.with_kernel(knl)
+
+                op_map = lp.get_op_map(t_unit,
+                                       subgroup_size=32)
+                f64_ops = op_map.filter_by(dtype=[np.float64],
+                                           kernel_name="_pt_kernel").eval_and_sum({})
+
+                # {{{ footprint gathering
+
+                nfootprint_bytes = 0
+
+                for ary in knl.args:
+                    if (isinstance(ary, ArrayBase)
+                            and ary.address_space == lp.AddressSpace.GLOBAL):
+                        nfootprint_bytes += (product(ary.shape)
+                                             * ary.dtype.itemsize)
+
+                for ary in knl.temporary_variables.values():
+                    if ary.address_space == lp.AddressSpace.GLOBAL:
+                        # global temps would be written once and read once
+                        nfootprint_bytes += (2 * product(ary.shape)
+                                             * ary.dtype.itemsize)
+
+                # }}}
+
+                print("Double-prec. GFlOps:", f64_ops * 1e-9)
+                print("Footprint GBs:",  nfootprint_bytes * 1e-9)
+                1/0
+
+            # }}}
+
+            l_one_size = 4
+            l_zero_size = 16
+
+            # {{{ split element loops
+
+            taggedo = lp.relations.get_taggedo_of_type(knl,
+                                                       DiscretizationElementAxisTag)
+
+            # iname_k: iname tagged with 'tag'
+            iname_k = kanren.var()
+            iel_inames = kanren.run(0,
+                                    iname_k,
+                                    taggedo(iname_k, kanren.var()),
+                                    results_filter=frozenset)
+            for iel_iname in sorted(iel_inames):
+                knl = lp.split_iname(knl, iel_iname, l_one_size,
+                                    inner_tag="l.1", outer_tag="g.0")
+
+            # }}}
+
+            # {{{ split DOF loops
+
+            taggedo = lp.relations.get_taggedo_of_type(knl,
+                                                       DiscretizationDOFAxisTag)
+
+            # iname_k: iname tagged with 'tag'
+            iname_k = kanren.var()
+            idof_inames = kanren.run(0,
+                                    iname_k,
+                                    taggedo(iname_k, kanren.var()),
+                                    results_filter=frozenset)
+            for idof_iname in sorted(idof_inames):
+                knl = lp.split_iname(knl, idof_iname, l_zero_size,
+                                     inner_tag="l.0")
+
+            # }}}
+
+            knl = lp.set_options(knl, "insert_gbarriers")
+
+            t_unit = t_unit.with_kernel(knl)
+
+            return t_unit
+        else:
+            return super().transform_loopy_program(t_unit)
+
+
 def rk4_step(y, t, h, f):
     k1 = f(t, y)
     k2 = f(t+h/2, y + h/2*k1)
@@ -1001,15 +1348,20 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument("--dumblazy", action="store_true", default=False)
-    parser.add_argument("--hopefullysmartlazy", action="store_true", default=False)
+    parser.add_argument("--smartwithoutkanren", action="store_true",
+                        default=False)
+    parser.add_argument("--smartwithkanren", action="store_true",
+                        default=True)
     args = parser.parse_args()
 
     assert not (args.dumblazy and args.hopefullysmartlazy)
 
     if args.dumblazy:
         actx_class = SingleGridWorkBalancingPytatoArrayContext
-    elif args.hopefullysmartlazy:
-        actx_class = HopefullySmartPytatoArrayContext
+    elif args.smartwithoutkanren:
+        actx_class = SmartWithoutKanrenPytatoArrayContext
+    elif args.smartwithkanren:
+        actx_class = SmartWithKanrenPytatoArrayContext
     else:
         actx_class = PyOpenCLArrayContext
 
