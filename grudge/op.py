@@ -198,6 +198,15 @@ def local_grad(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
     if not isinstance(vec, DOFArray):
+        # FIXME: Occasionally, data structures coming from *mirgecom* will
+        # contain empty object arrays as placeholders for fields.
+        # For example, species mass fractions is an empty object array when
+        # running in a single-species configuration.
+        # This hack here ensures that these empty arrays, at the very least,
+        # have their shape updated when applying the gradient operator
+        if (isinstance(vec, np.ndarray) and vec.dtype == object
+                and vec.size == 0):
+            vec = vec.reshape((0, dcoll.dim))
         return map_array_container(partial(local_grad, dcoll), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -245,9 +254,14 @@ def local_d_dx(
 
 
 def _div_helper(diff_func, vecs):
-    if not isinstance(vecs, np.ndarray):
+    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
         raise TypeError("argument must be an object array")
-    assert vecs.dtype == object
+
+    if vecs.size == 0:
+        # FIXME: Need to handle the special case where *mirgecom* passes in
+        # an empty object array to denote that there are no multiple species
+        # in the state.
+        return np.empty(shape=(0,), dtype=vecs.dtype)
 
     return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
 
@@ -268,7 +282,7 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
-    if not (isinstance(vecs, np.ndarray) and vecs.dtype == "O"):
+    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
         return map_array_container(partial(local_div, dcoll), vecs)
 
     return _div_helper(lambda i, subvec: local_d_dx(dcoll, i, subvec), vecs)
@@ -354,6 +368,15 @@ def weak_local_grad(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
         raise TypeError("invalid number of arguments")
 
     if not isinstance(vec, DOFArray):
+        # FIXME: Occasionally, data structures coming from *mirgecom* will
+        # contain empty object arrays as placeholders for fields.
+        # For example, species mass fractions is an empty object array when
+        # running in a single-species configuration.
+        # This hack here ensures that these empty arrays, at the very least,
+        # have their shape updated when applying the gradient operator
+        if (isinstance(vec, np.ndarray) and vec.dtype == object
+                and vec.size == 0):
+            vec = vec.reshape((0, dcoll.dim))
         return map_array_container(partial(weak_local_grad, dcoll, dd_in), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -468,7 +491,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     else:
         raise TypeError("invalid number of arguments")
 
-    if not (isinstance(vecs, np.ndarray) and vecs.dtype == "O"):
+    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
         return map_array_container(partial(weak_local_div, dcoll, dd), vecs)
 
     return _div_helper(
