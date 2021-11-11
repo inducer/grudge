@@ -267,7 +267,7 @@ def local_d_dx(
         metric_in_matvec=False)
 
 
-def _div_helper(diff_func, vecs):
+def _div_helper(dcoll, diff_func, vecs):
     if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
         raise TypeError("argument must be an object array")
 
@@ -277,7 +277,22 @@ def _div_helper(diff_func, vecs):
         # in the state.
         return np.empty(shape=(0,), dtype=vecs.dtype)
 
-    return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
+    if isinstance(vecs[(0,)*vecs.ndim], np.ndarray):
+        div_shape = vecs.shape
+    else:
+        if vecs.shape[-1] != dcoll.ambient_dim:
+            raise ValueError("last dimension of *vecs* argument doesn't match "
+                    "ambient dimension")
+        div_shape = vecs.shape[:-1]
+
+    if len(div_shape) == 0:
+        return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
+    else:
+        result = np.zeros(div_shape, dtype=object)
+        for idx in np.ndindex(div_shape):
+            result[idx] = sum(
+                    diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
+        return result
 
 
 def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
@@ -299,7 +314,11 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
         return map_array_container(partial(local_div, dcoll), vecs)
 
-    return _div_helper(lambda i, subvec: local_d_dx(dcoll, i, subvec), vecs)
+    return _div_helper(
+        dcoll,
+        lambda i, subvec: local_d_dx(dcoll, i, subvec),
+        vecs
+    )
 
 # }}}
 
@@ -523,6 +542,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
         return map_array_container(partial(weak_local_div, dcoll, dd), vecs)
 
     return _div_helper(
+        dcoll,
         lambda i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
         vecs
     )
