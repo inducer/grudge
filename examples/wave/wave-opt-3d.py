@@ -50,6 +50,8 @@ import grudge.op as op
 import kanren
 from kanren.constraints import neq as kanren_neq
 
+from functools import reduce
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -1354,7 +1356,9 @@ if __name__ == "__main__":
                         default=True)
     args = parser.parse_args()
 
-    assert not (args.dumblazy and args.hopefullysmartlazy)
+    assert reduce(lambda x, y: x ^ y,
+                  [args.dumblazy, args.smartwithoutkanren,
+                   args.smartwithkanren])
 
     if args.dumblazy:
         actx_class = SingleGridWorkBalancingPytatoArrayContext
