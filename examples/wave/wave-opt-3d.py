@@ -48,6 +48,7 @@ from meshmode.transform_metadata import (DiscretizationEntityAxisTag,
 
 import grudge.op as op
 import kanren
+from kanren.constraints import neq as kanren_neq
 
 import logging
 logger = logging.getLogger(__name__)
@@ -553,7 +554,7 @@ class HopefullySmartPytatoArrayContext(
             t_unit = simplify_indices(t_unit)
             knl = t_unit.default_entrypoint
 
-            # {{{ extract the indices
+            # {{{ loop fusion
 
             for mesh_entity, fused_loop_name in [
                     (DiscretizationFaceAxisTag, "iface"),
@@ -561,14 +562,14 @@ class HopefullySmartPytatoArrayContext(
                     (DiscretizationDOFAxisTag, "idof")]:
                 taggedo = lp.relations.get_taggedo_of_type(knl, mesh_entity)
 
-                # tag_k: different tags of type 'mesh_entity'
+                # tag_k: tag of type 'mesh_entity'
                 tag_k = kanren.var()
                 tags = kanren.run(0,
                                   tag_k,
                                   taggedo(kanren.var(), tag_k),
                                   results_filter=frozenset)
                 for tag in tags:
-                    # iname_k: 'inames' tagged with 'tag'
+                    # iname_k: iname tagged with 'tag'
                     iname_k = kanren.var()
                     inames = kanren.run(0,
                                         iname_k,
@@ -582,100 +583,44 @@ class HopefullySmartPytatoArrayContext(
 
             # }}}
 
-            # {{{ Plot the digraph of the CSEs
+            # {{{ array contraction
 
-            if 0 and self.DO_CSE:
-                rmap = knl.reader_map()
-                print("digraph {")
-                for arg in knl.args:
-                    print(f"  {arg.name} [shape=record]")
+            tempo = lp.relations.get_tempo(knl)
+            producero = lp.relations.get_producero(knl)
+            consumero = lp.relations.get_consumero(knl)
+            withino = lp.relations.get_withino(knl)
+            reduce_insno = lp.relations.get_reduce_insno(knl)
 
-                for tv in (knl.args
-                           + list(knl.temporary_variables.values())):
-                    indirect_access_checker = IndirectAccessChecker(tv.name,
-                                                                    knl.all_inames())
-                    for insn_id in rmap.get(tv.name, ()):
-                        insn = knl.id_to_insn[insn_id]
-                        if indirect_access_checker(insn.expression):
-                            color = "red"
-                        else:
-                            color = "blue"
+            all_temps = frozenset(knl.temporary_variables)
 
-                        print(f"  {tv.name} -> {insn.assignee_name}"
-                              f"[color={color}]")
+            # temp_k: temporary variable that cannot be contracted
+            temp_k = kanren.var()
+            producer_insn_k = kanren.var()
+            consumer_insn_k = kanren.var()
+            producer_loops_k = kanren.var()
+            consumer_loops_k = kanren.var()
+            temps_not_to_contract = kanren.run(0,
+                                               temp_k,
+                                               tempo(temp_k),
+                                               producero(producer_insn_k, temp_k),
+                                               consumero(consumer_insn_k, temp_k),
+                                               withino(producer_insn_k,
+                                                       producer_loops_k),
+                                               withino(consumer_insn_k,
+                                                       consumer_loops_k),
+                                               kanren.lany(
+                                                   kanren_neq(producer_loops_k,
+                                                              consumer_loops_k),
+                                                   reduce_insno(producer_insn_k),
+                                                   reduce_insno(consumer_insn_k)),
+                                               results_filter=frozenset)
 
-                print("}")
-                1/0
-
-            # }}}
-
-            # {{{ CSE kernels
-
-            cse_kernel1 = {"cse", "cse_0", "cse_6", "cse_8", "cse_4"}
-            cse_kernel2 = {"cse_1", "cse_2", "cse_3", "cse_5", "cse_7", "cse_9",
-                           "cse_10", "cse_11", "cse_31", "cse_33", "cse_35"}
-            cse_kernel3 = {"cse_12", "cse_13", "cse_14", "cse_15", "cse_16",
-                           "cse_17", "cse_18", "cse_19", "cse_20", "cse_21",
-                           "cse_22", "cse_23", "cse_24", "cse_25", "cse_26",
-                           "cse_27", "cse_28", "cse_29", "cse_30", "cse_32",
-                           "cse_34", "cse_36"}
-
-            # Why a list and not a 'set': Loopy's model of substitutions not
-            # having dependencies forces it to add fake dependencies to
-            # instructions. So, in short "order matters".
-
-            assert len(cse_kernel1 & cse_kernel2) == 0
-            assert len(cse_kernel3 & cse_kernel2) == 0
-            assert len(cse_kernel3 & cse_kernel1) == 0
-            assert len(cse_kernel1 | cse_kernel2 | cse_kernel3) == 38
-            assert ((cse_kernel1 | cse_kernel2 | cse_kernel3)
-                    < set(knl.temporary_variables))
-
-            priv_cse_kernel2_vars = ["cse_3", "cse_10",
-                                     "cse_1", "cse_2", "cse_7", "cse_9", "cse_5"]
-
-            priv_cse_kernel3_vars = ["cse_24", "cse_29",
-                                     "cse_26", "cse_27", "cse_28", "cse_13",
-                                     "cse_23", "cse_25",
-                                     "cse_12", "cse_14", "cse_22",
-                                     "cse_19", "cse_21",
-                                     "cse_16", "cse_18", "cse_20",
-                                     "cse_15", "cse_17"]
-
-            for i, var_names in enumerate((cse_kernel1, cse_kernel2, cse_kernel3)):
-                for var_name in var_names:
-                    knl = lp.rename_iname(knl, f"{var_name}_dim0", f"iel_cse_{i}",
-                                          existing_ok=True)
-                    knl = lp.rename_iname(knl, f"{var_name}_dim1", f"idof_cse_{i}",
-                                          existing_ok=True)
-
-            for i, var_names in enumerate((priv_cse_kernel2_vars,
-                                           priv_cse_kernel3_vars)):
-                for var_name in var_names:
-                    knl = lp.assignment_to_subst(knl, var_name)
-                for var_name in var_names[::-1]:
-                    knl = precompute_for_single_kernel(
-                        knl, t_unit.callables_table, f"{var_name}_subst",
-                        sweep_inames=(),
-                        temporary_address_space=lp.AddressSpace.PRIVATE,
-                        compute_insn_id=f"cse_knl{i+2}_prcmpt_{var_name}")
-
-            knl = lp.map_instructions(knl,
-                      " or ".join(f"writes:{var_name}"
-                                  for var_name in cse_kernel1),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl1")))
-
-            knl = lp.map_instructions(knl,
-                      " or ".join([f"writes:{var_name}"
-                                   for var_name in cse_kernel2]
-                                  + ["id:cse_knl2_prcmpt_*"]),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl2")))
-
-            knl = lp.map_instructions(knl,
-                      " or ".join([f"writes:{var_name}"
-                                   for var_name in cse_kernel3]
-                                  + ["id:cse_knl3_prcmpt_*"]),
-                      lambda x: x.tagged(lp.LegacyStringInstructionTag("cse_knl3")))
+            for temp in sorted(all_temps - frozenset(temps_not_to_contract)):
+                knl = lp.assignment_to_subst(knl, temp)
+                knl = precompute_for_single_kernel(
+                    knl, t_unit.callables_table, f"{temp}_subst",
+                    sweep_inames=(),
+                    temporary_address_space=lp.AddressSpace.PRIVATE)
 
             # }}}
 
