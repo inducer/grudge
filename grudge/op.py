@@ -180,7 +180,8 @@ def _reference_derivative_matrices(actx: ArrayContext,
     return get_ref_derivative_mats(out_element_group)
 
 
-def local_grad(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
+def local_grad(
+        dcoll: DiscretizationCollection, vec, *, nested=False) -> ArrayOrContainerT:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
 
@@ -197,17 +198,30 @@ def local_grad(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-    if not isinstance(vec, DOFArray):
+    if isinstance(vec, np.ndarray):
         # FIXME: Occasionally, data structures coming from *mirgecom* will
         # contain empty object arrays as placeholders for fields.
         # For example, species mass fractions is an empty object array when
         # running in a single-species configuration.
         # This hack here ensures that these empty arrays, at the very least,
         # have their shape updated when applying the gradient operator
-        if (isinstance(vec, np.ndarray) and vec.dtype == object
-                and vec.size == 0):
-            vec = vec.reshape((0, dcoll.dim))
-        return map_array_container(partial(local_grad, dcoll), vec)
+        if vec.size == 0:
+            return vec.reshape((0, dcoll.ambient_dim))
+
+        # For containers with ndarray data (such as momentum/velocity),
+        # the gradient is matrix-valued, so we compute the gradient for
+        # each component and return a matrix of derivatives by stacking
+        # the results
+        grad = obj_array_vectorize(
+            lambda el: local_grad(dcoll, el, nested=nested), vec)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
+
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(local_grad, dcoll, nested=nested), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
@@ -337,7 +351,8 @@ def _reference_stiffness_transpose_matrix(
                                            in_element_group)
 
 
-def weak_local_grad(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def weak_local_grad(
+        dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainerT:
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -367,17 +382,30 @@ def weak_local_grad(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     else:
         raise TypeError("invalid number of arguments")
 
-    if not isinstance(vec, DOFArray):
+    if isinstance(vec, np.ndarray):
         # FIXME: Occasionally, data structures coming from *mirgecom* will
         # contain empty object arrays as placeholders for fields.
         # For example, species mass fractions is an empty object array when
         # running in a single-species configuration.
         # This hack here ensures that these empty arrays, at the very least,
         # have their shape updated when applying the gradient operator
-        if (isinstance(vec, np.ndarray) and vec.dtype == object
-                and vec.size == 0):
-            vec = vec.reshape((0, dcoll.dim))
-        return map_array_container(partial(weak_local_grad, dcoll, dd_in), vec)
+        if vec.size == 0:
+            return vec.reshape((0, dcoll.ambient_dim))
+
+        # For containers with ndarray data (such as momentum/velocity),
+        # the gradient is matrix-valued, so we compute the gradient for
+        # each component and return a matrix of derivatives by stacking
+        # the results
+        grad = obj_array_vectorize(
+            lambda el: weak_local_grad(dcoll, dd_in, el, nested=nested), vec)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
+
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(weak_local_grad, dcoll, dd_in, nested=nested), vec)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
