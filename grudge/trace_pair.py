@@ -16,6 +16,7 @@ Boundary trace functions
 Interior and cross-rank trace functions
 ---------------------------------------
 
+.. autofunction:: interior_trace_pair
 .. autofunction:: interior_trace_pairs
 .. autofunction:: cross_rank_trace_pairs
 """
@@ -214,7 +215,7 @@ def bv_trace_pair(
 
 # {{{ Interior trace pairs
 
-def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     r"""Return a :class:`TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
@@ -248,18 +249,9 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
-        [_interior_trace_pair(dcoll, vec)]
+        [interior_trace_pair(dcoll, vec)]
         + cross_rank_trace_pairs(dcoll, vec)
     )
-
-
-def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
-    from warnings import warn
-    warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
-         "in version 2022.x. Use `grudge.trace_pair.interior_trace_pairs` "
-         "instead, which includes contributions from different MPI ranks.",
-         DeprecationWarning, stacklevel=2)
-    return _interior_trace_pair(dcoll, vec)
 
 # }}}
 
