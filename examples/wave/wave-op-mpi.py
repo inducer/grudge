@@ -31,8 +31,8 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from arraycontext import thaw, freeze
+from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
 
@@ -141,14 +141,19 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False):
+def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
+    actx_outer = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,
     )
+
+    if lazy:
+        actx_rhs = PytatoPyOpenCLArrayContext(queue)
+    else:
+        actx_rhs = actx_outer
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -176,21 +181,27 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
+    dcoll = DiscretizationCollection(actx_outer, local_mesh, order=order,
                     mpi_communicator=comm)
 
     fields = flat_obj_array(
-            bump(actx, dcoll),
-            [dcoll.zeros(actx) for i in range(dcoll.dim)]
+            bump(actx_outer, dcoll),
+            [dcoll.zeros(actx_outer) for i in range(dcoll.dim)]
             )
 
     c = 1
-    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
+    dt = actx_outer.to_numpy(0.45 * estimate_rk4_timestep(actx_outer, dcoll, c))
 
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
+
+    compiled_rhs = actx_rhs.compile(rhs)
+
+    def rhs_wrapper(t, q):
+        r = compiled_rhs(t, thaw(freeze(q, actx_outer), actx_rhs))
+        return thaw(freeze(r, actx_rhs), actx_outer)
 
     if comm.rank == 0:
         logger.info("dt = %g", dt)
@@ -199,14 +210,14 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     t_final = 3
     istep = 0
     while t < t_final:
-        fields = rk4_step(fields, t, dt, rhs)
+        fields = rk4_step(fields, t, dt, rhs_wrapper)
 
-        l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
+        l2norm = actx_outer.to_numpy(op.norm(dcoll, fields[0], 2))
 
         if istep % 10 == 0:
-            linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
-            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
-            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
+            linfnorm = actx_outer.to_numpy(op.norm(dcoll, fields[0], np.inf))
+            nodalmax = actx_outer.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
+            nodalmin = actx_outer.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
             if comm.rank == 0:
                 logger.info(f"step: {istep} t: {t} "
                             f"L2: {l2norm} "
@@ -238,12 +249,16 @@ if __name__ == "__main__":
     parser.add_argument("--dim", default=2, type=int)
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--lazy", action="store_true",
+                        help="switch to a lazy computation mode")
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
 
 # vim: foldmethod=marker
