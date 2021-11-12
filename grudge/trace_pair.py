@@ -318,7 +318,7 @@ class _RankBoundaryCommunication:
                          exterior=swapped_remote_dof_array)
 
 
-from pytato import make_distributed_send, make_distributed_recv
+from pytato import make_distributed_recv, staple_distributed_send
 
 
 class _RankBoundaryCommunicationLazy:
@@ -342,11 +342,9 @@ class _RankBoundaryCommunicationLazy:
 
         local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
 
-        self.send_req = make_distributed_send(
-                data=local_data, dest_rank=remote_rank, comm_tag=self.tag)
-        self.remote_data_host = np.empty_like(local_data)
-        self.recv_req = make_distributed_recv(
-            data=self.remote_data_host, src_rank=remote_rank, comm_tag=self.tag)
+        self.remote_data_host = staple_distributed_send(local_data, dest_rank=remote_rank, comm_tag=self.tag,
+            stapled_to=make_distributed_recv(
+                src_rank=remote_rank, comm_tag=self.tag, shape=local_data.shape, dtype=local_data.dtype))
 
     def finish(self):
         actx = self.array_context
