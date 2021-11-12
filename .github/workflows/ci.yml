@@ -64,7 +64,7 @@ jobs:
                 build_py_project_in_conda_env
                 run_examples
 
-                python wave-op-mpi.py --lazy
+                python wave/wave-op-mpi.py --lazy
 
     docs:
         name: Documentation
