@@ -334,6 +334,15 @@ def elementwise_sum(
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 
+    The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
+    an :class:`~arraycontext.container.ArrayContainer` with
+    :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
+    array context (see :class:`arraycontext.ArrayContext`) for *vec*
+    supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
+    entries will contain a single value for each element. Otherwise, the
+    entries will have the same number of degrees of freedom as *vec*, but
+    set to the same value.
+
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
@@ -361,6 +370,15 @@ def elementwise_max(
     to the maximum over all DOFs on that element.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
+
+    The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
+    an :class:`~arraycontext.container.ArrayContainer` with
+    :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
+    array context (see :class:`arraycontext.ArrayContext`) for *vec*
+    supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
+    entries will contain a single value for each element. Otherwise, the
+    entries will have the same number of degrees of freedom as *vec*, but
+    set to the same value.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -391,6 +409,15 @@ def elementwise_min(
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 
+    The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
+    an :class:`~arraycontext.container.ArrayContainer` with
+    :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
+    array context (see :class:`arraycontext.ArrayContext`) for *vec*
+    supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
+    entries will contain a single value for each element. Otherwise, the
+    entries will have the same number of degrees of freedom as *vec*, but
+    set to the same value.
+
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -420,6 +447,15 @@ def elementwise_integral(
     each element of a discretization, given by *dd*.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
+
+    The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
+    an :class:`~arraycontext.container.ArrayContainer` with
+    :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
+    array context (see :class:`arraycontext.ArrayContext`) for *vec*
+    supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
+    entries will contain a single value for each element. Otherwise, the
+    entries will have the same number of degrees of freedom as *vec*, but
+    set to the same value.
 
     :arg dcoll: a :class:`grudge.discretization.DiscretizationCollection`.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.

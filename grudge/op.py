@@ -304,10 +304,10 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
         \nabla|_E \cdot \mathbf{f} = \sum_{i=1}^d \partial_{x_i}|_E \mathbf{f}_i
 
     :arg vecs: an object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s or
-        :class:`~arraycontext.container.ArrayContainer` objects,
-        where the last axis of the array must have length
-        matching the volume dimension.
+        :class:`~meshmode.dof_array.DOFArray`\s or an
+        :class:`~arraycontext.container.ArrayContainer` object
+        with object array entries. The last axis of the array
+        must have length matching the volume dimension.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
@@ -523,10 +523,10 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vecs: an object array of
-        :class:`~meshmode.dof_array.DOFArray`\s or
-        :class:`~arraycontext.container.ArrayContainer` objects,
-        where the last axis of the array must have length
-        matching the volume dimension.
+        :class:`~meshmode.dof_array.DOFArray`\s or an
+        :class:`~arraycontext.container.ArrayContainer` object
+        with object array entries. The last axis of the array
+        must have length matching the volume dimension.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """

@@ -176,6 +176,9 @@ def bdry_trace_pair(
         dcoll: DiscretizationCollection, dd, interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
+    If the input arguments *interior* and *exterior* are
+    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
@@ -198,6 +201,9 @@ def bv_trace_pair(
     argument is assumed to be defined on the volume discretization, and will
     therefore be restricted to the boundary *dd* prior to creating a
     :class:`TracePair`.
+    If the input arguments *interior* and *exterior* are
+    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
