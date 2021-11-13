@@ -333,7 +333,7 @@ def dt_geometric_factors(
         Ne, Ni = cv_i.shape
  
         kernel_data = [
-            lp.GlobalArg("arg0", fp_format), 
+            lp.GlobalArg("arg0", fp_format, shape=(Ne,)), 
             lp.GlobalArg("arg1", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()]), 
             lp.GlobalArg("out", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()], is_output=True),
             lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),

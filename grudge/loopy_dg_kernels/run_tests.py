@@ -35,7 +35,8 @@ loopy.options.ALLOW_TERMINAL_COLORS = False
 
 from grudge.loopy_dg_kernels import (gen_diff_knl, gen_diff_knl_fortran2,
     apply_transformation_list, gen_elwise_linear_knl, gen_face_mass_knl, gen_face_mass_knl_merged)
-from grudge.grudge_tags import IsDOFArray, IsSepVecDOFArray, IsOpArray, IsSepVecOpArray, IsFaceDOFArray, IsFaceMassOpArray
+from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray, IsOpArray,
+    IsSepVecOpArray, IsFaceDOFArray, IsFaceMassOpArray, IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray)
 import  grudge.grudge_array_context as gac#import set_memory_layout
 
 def testBandwidth(fp_format=np.float32, nruns=100):
@@ -243,12 +244,12 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
                     obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=mem_pool, order="F") for i in range(arg.shape[0])]
                     arg_dict[arg.name] = make_obj_array(obj_array)
                 else:
-                    print("Input VecDOFArrays are not currently supported")
+                    print("Input SepVecDOFArrays are not currently supported")
                     exit()
             elif IsSepVecOpArray() in arg.tags:
                 obj_array = [cl.clrandom.rand(queue, arg.shape[1:], dtype=arg.dtype) for i in range(arg.shape[0])]
                 arg_dict[arg.name] = make_obj_array(obj_array)
-            elif IsOpArray() in arg.tags:
+            elif IsOpArray() in arg.tags or IsVecOpArray() in arg.tags:
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
             elif IsFaceDOFArray() in arg.tags:
                 fp_bytes = arg.dtype.numpy_dtype.itemsize
@@ -260,8 +261,23 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
             elif IsFaceMassOpArray() in arg.tags:
                 # Are these strides correct?
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
+            elif IsVecDOFArray() in arg.tags:
+                fp_bytes = arg.dtype.numpy_dtype.itemsize
+                nr, nelements, ndofs = arg.shape
+                strides = (fp_bytes*nelements*ndofs, fp_bytes, fp_bytes*nelements) #original
+                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
+                    strides=strides, allocator=mem_pool)
+                cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
+            elif IsFourAxisDOFArray() in arg.tags:
+                fp_bytes = arg.dtype.numpy_dtype.itemsize
+                nx, nr, nelements, ndofs = arg.shape
+                strides = (fp_bytes*nelements*ndofs*nr, fp_bytes*nelements*ndofs,
+                            fp_bytes, fp_bytes*nelements)
+                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
+                    strides=strides, allocator=mem_pool)
+                cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
             elif isinstance(arg, lp.ArrayArg):
-                #print("HERE")
+                print("No tags recognized. Assuming default data layout")
                 print(arg.name)
                 # Assume default layout
                 arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
@@ -294,6 +310,10 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
 def analyze_knl_bandwidth(knl, avg_time):
     nbytes = 0
+    # What if the output is not in the input arguments?
+    #print(knl.default_entrypoint.args)
+    # Would probably be better to use the memory footprint
+    # if can get it to work.
     for arg in knl.default_entrypoint.args:
         print(arg.name)
         print(arg.shape)
@@ -302,33 +322,61 @@ def analyze_knl_bandwidth(knl, avg_time):
         fp_bytes = arg.dtype.dtype.itemsize
         nbytes += fp_bytes * entries
     bw = nbytes / avg_time / 1e9
-    print("Time: {}, Bytes: {}, Bandwidth: {} GB/s".format(avg_time, nbytes, bw))
+
+    # Seems lp.gather_access_footprint_bytes breaks
+    #footprint = lp.gather_access_footprint_bytes(knl)
+    #footprint_bytes = 0
+    #for val in footprint.values():
+    #    footprint_bytes += val.eval_with_dict({})
+    #footprint_bw =  footprint_bytes / avg_time / 1e9  
+    #print(f"Time: {avg_time}, Bytes: {nbytes}, Bandwidth: {bw} GB/s Footprint BW: {footprint_bw} GB/s")
+
+    print(f"Time: {avg_time}, Bytes: {nbytes}, Bandwidth: {bw} GB/s")
     return bw
 
 
-def analyze_FLOPS(knl, peak_gflops, avg_time):
+def analyze_FLOPS(knl, avg_time, max_gflops=None):
 
+    # Will need to make compatible with the other kernels.
+    # This gives a wildly different number than the straightforward calculation
+    op_map = lp.get_op_map(knl, count_within_subscripts=False, subgroup_size=1)
+    #print(op_map)
+    map_flops = 0
+    for val in op_map.values():
+        map_flops += val.eval_with_dict({})
+    # This is precisely 1.5x higher than the hand calculated rate
+    # Actually, that is probably accurate because there is a 'jac' matrix
+    gflop_rate = map_flops / avg_time / 1e9
+
+    """
     n_mat = 1
     nfaces = 1
     for arg in knl.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
-        elif IsSepVecOpArray() in arg.tags:
+        elif IsSepVecOpArray() in arg.tags or IsVecOpArray() in arg.tags:
             n_mat, n_out, n_in = arg.shape
         elif IsOpArray() in arg.tags:
             n_out, n_in = arg.shape
         elif IsFaceDOFArray() in arg.tags:
             nfaces, n_elem, n_in = arg.shape
     
-    
-
     flops = nfaces*n_mat*2*(n_out * n_in * n_elem)
-    gflop_rate = (flops / avg_time) * 1e-9
-    frac_peak_gflops = gflop_rate / peak_gflops
+    """
+    gflop_rate = (map_flops / avg_time) * 1e-9
     print("GFLOP/s: " + str(gflop_rate))
-    print("Peak GFLOP/s: " + str(peak_gflops))
-    print("Percent peak: " + str(100*(frac_peak_gflops)))
+
+    #print("Map GFLOP/s: " + str(map_gflop_rate))
+    #print(flops)
+    #print(map_flops)
+
+    frac_peak_gflops = None
+    if max_gflops is not None:
+        print("Peak GFLOP/s: " + str(max_gflops))
+        frac_peak_gflops = gflop_rate / max_gflops
+        print("Percent peak: " + str(100*(frac_peak_gflops)))
+    
     print()
 
     # Calculate bandwidth
@@ -341,7 +389,8 @@ def analyze_FLOPS(knl, peak_gflops, avg_time):
     #print("Peak GB/s: " + str(device_memory_bandwidth))
     #print("Percent peak: " + str(100*(frac_peak_GBps)))
     #print()
-    return frac_peak_gflops
+
+    return gflop_rate, frac_peak_gflops
 
 
 def verifyResult(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
@@ -381,141 +430,6 @@ def verifyResultFortran(B_dev1, B_dev2, B_dev3, A_dev1, A_dev2, A_dev3, X_dev):
     print("Norm3: " + str(np.linalg.norm((A_host3 @ X_host).T - B_host3)
             / np.linalg.norm(A_host3 @ X_host)))
 
-def k_inner_inner_options(start_val=None):
-    options = [8, 16, 4, 32] #For AMD GPU
-    #options = [32, 16, 8]
-    start_ind = 0 if start_val is None else options.index(start_val)
-    options = options[start_ind:]
-    return options
-
-
-def k_inner_outer_options(n_in, k_inner_inner, sm_size,
-                            fp_bytes=4, start_val=None):
-    # Possibilities limited by size of global memory
-    options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
-    #Arbitrarily limit to at max 12 inline to limit search space
-    #options = k_inner_inner*options[options <= 12]
-    options = list(k_inner_inner*options[options <= 6])
-    start_ind = 0 if start_val is None else options.index(start_val)
-    options = options[start_ind:]
-    return options
-
-def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_val=None):
-    factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
-    # Fix for AMD
-    #factors = np.arange(3, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
-    # Ensure total number of workitems is less than maximum
-    usable_factors = factors[factors*k_inner_inner <= max_work_group_size]
-    options = sorted(usable_factors, reverse=True)
-    start_ind = 0 if start_val is None else options.index(start_val)
-    options = options[start_ind:]
-    return options
-
-def i_inner_outer_options(n_out, i_inner_inner, start_val=None):
-    # Select a number of inline blocks such that n_out % outer*inner == 0
-    inline = np.arange(3, (n_out // i_inner_inner) + 1)
-    options = list(i_inner_inner*inline[n_out % (inline*i_inner_inner) == 0])
-    start_ind = 0 if start_val is None else options.index(start_val)
-    options = options[start_ind:]
-    return options
-
-
-def j_inner_options(n_in, start_val=None):
-
-    start = 1
-    factors = list(np.arange(start, n_in + 1)[(n_in % np.arange(start, n_in + 1)) == 0])
-    #factors = list(np.arange(1, n_in + 1)[(n_in % np.arange(1, n_in + 1)) == 0])
-    # Should this be limited by the number of registers
-    start_ind = 0 if start_val is None else factors.index(start_val)
-    factors = factors[start_ind:]
-    return factors
-
-# Creates a list containing tuples of search space parameters.
-# Will need to create separate ones of this for each einsum kernel
-def gen_autotune_list(queue, knl, start_param=None):
-
-    #from grudge.grudge_tags import ParameterValue
-
-    local_mem_size = queue.device.local_mem_size
-    max_work_group_size = queue.device.max_work_group_size    
-    nfaces = 1
-
-    for arg in knl.default_entrypoint.args:
-        if "resample_by_mat" not in knl.default_entrypoint.name:
-            if IsDOFArray() in arg.tags:
-                n_elem, n_out = arg.shape
-                fp_bytes = arg.dtype.dtype.itemsize
-                #n_in = n_out # Not true for non-square
-            elif IsSepVecOpArray() in arg.tags:
-                n_mat, n_out, n_in = arg.shape
-            elif IsOpArray() in arg.tags:
-                n_out, n_in = arg.shape
-            elif IsFaceDOFArray() in arg.tags:
-                nfaces, n_elem, n_in = arg.shape
-        else:
-            if IsOpArray() in arg.tags:
-                n_out, n_in = arg.shape
-                fp_bytes = arg.dtype.dtype.itemsize
-
-    n_in = n_in * nfaces #Prevents shared memory from overflowing in face mass kernel   
-
-    if start_param is not None:
-        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
-    else:
-        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
-
-    # Iterate over five search dimensions
-    parameter_list = []
-    for kii in k_inner_inner_options(start_val=kii_s):
-        for kio in k_inner_outer_options(n_in*nfaces, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
-            kio_s = None # Set to None so will form the full set the next time around
-            for iii in i_inner_inner_options(n_out, kii,
-                    max_work_group_size=max_work_group_size, start_val=iii_s):
-                iii_s = None
-                for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
-                    iio_s = None
-                    for ji in j_inner_options(n_in, start_val=ji_s):
-                        ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
-                        #print(choices)
-
-    return parameter_list
-
-def mxm_trans_list_generator(knl, params):
-    trans_list = []
-    kio, kii, iio, iii, ji = params
-
-    if "diff" in knl.default_entrypoint.name:
-        trans_list.append(["tag_inames", ["imatrix: ilp"]])
-
-    trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["iel_inner", kii], 
-        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["idof_inner", iii], 
-        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-
-    if knl.default_entrypoint.name == "face_mass":
-        pass
-        #trans_list.append(["add_prefetch", ["vec", "f,j,iel_inner_outer,iel_inner_inner"],
-        #    {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        #trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
-    elif knl.default_entrypoint.name == "nodes":
-        trans_list.append(["add_prefetch", ["nodes", "j,iel_inner_outer,iel_inner_inner"],
-            {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-    elif "resample_by_mat" in knl.default_entrypoint.name:
-        # Indirection may prevent prefetching
-        pass
-    else:
-        trans_list.append(["add_prefetch", ["vec", "j,iel_inner_outer,iel_inner_inner"],
-            {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-
-    trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
-    trans_list.append(["add_inames_for_unused_hw_axes"]) 
-    return trans_list
 
 # This can be removed eventually
 def apply_transformations_and_run_test(queue, knl, test_fn, params, tgenerator, max_gflops=None,
@@ -632,28 +546,24 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
 	
     # Should probably obtain device_memory_bandwidth from empirical tests
 
-    # Imports
-    #from grudge.grudge_tags import ParameterValue
-
     # Also fixes the parameters. Maybe that should be a separate function   
     knl = gac.set_memory_layout(knl)
 
-    #tested = []
-
     knl_base = knl.copy()
 
-    #avg_time_saved = float("inf")
-    #result_saved = None
-    #result_saved_list = []
-
     params_list = pspace_generator(queue, knl, start_param=start_param)
+    print(knl)
+    print("HERE")
+    print(len(params_list))
     
     result_list = []
     start = time.time()
 
     # Iterate over parameter space coordinates
+    # If serial run this otherwise, run the parallel autotuner
+    # Should probably make separate function for each.
     for params in params_list:
-        trans_list = tlist_generator(knl, params) # Eventually should not need knl because each kernel with have its own
+        trans_list = tlist_generator(params, knl=knl)
         knl = apply_transformation_list(knl_base, trans_list)
         dev_arrays, avg_time = test_fn(queue, knl)
 
@@ -670,6 +580,10 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
         #(kio, kii, iio, iii, ji) = param
         #print(choices)
 
+        # Should this return the fraction of peak of should that be calculated in this function?
+        gflops, frac_peak_gflops = analyze_FLOPS(knl, avg_time, max_gflops=max_gflops)
+        bw = analyze_knl_bandwidth(knl, avg_time)
+
         if device_memory_bandwidth is not None:  # noqa
             bw = analyze_knl_bandwidth(knl, avg_time)
             frac_peak_GBps = bw / device_memory_bandwidth
@@ -678,6 +592,7 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
                 print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
                 return choices
 
+        # This is incorrect for general einsum kernels
         if max_gflops is not None:
             frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
             if frac_peak_gflops >= gflops_cutoff:
@@ -697,21 +612,21 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
         #result_list.append(data)
         #f.write(str(data) + "\n")
 
-        """            
-        if avg_time < avg_time_saved:
-            avg_time_saved = avg_time
-            result_saved = choices
-            result_saved_list = trans_list
+        #if avg_time < avg_time_saved:
+        #    avg_time_saved = avg_time
+        #    result_saved = choices
+        #    result_saved_list = trans_list
+        
         if time.time() - start > time_limit: 
-            result_list.sort()
-            print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
-            for entry in result_list:
-                print(entry)
-            print()
+            break
+            #result_list.sort()
+            #print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
+            #for entry in result_list:
+            #    print(entry)
+            #print()
 
         #return result_saved_list
-        return result_saved
-        """
+        #return result_saved
 
     #print("Avg_time, Peak_BW, Peak_GFLOPS, Frac_peak_bandwidth, Frac_peak_GFlops")
     #for entry in result_list:

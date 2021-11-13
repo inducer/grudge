@@ -14,7 +14,7 @@ from arraycontext.container.traversal import (rec_map_array_container,
 from numpy import prod
 import hjson
 import numpy as np
-from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search
+from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search, exhaustive_search_v2
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
 import pyopencl as cl
@@ -55,7 +55,7 @@ def set_memory_layout(program):
             program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
         elif IsVecDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "N2,N0,N1")
-        elif IsVecOpArray() in arg.tags:
+        elif IsVecOpArray() in arg.tags or IsFaceMassOpArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "c,c,c")
         elif IsFourAxisDOFArray() in arg.tags:
             program = lp.tag_array_axes(program, arg.name, "N3,N2,N0,N1")
@@ -101,7 +101,7 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
                 name="actx_special_%s" % c_name,
                 tags=(ElementwiseMapKernelTag(),))
         for arg in prg.default_entrypoint.args:
-            if isinstance(arg, lp.ArrayArg):
+            if isinstance(arg, lp.ArrayArg) and len(arg.shape) > 1:
                 arg.tags = [IsDOFArray()]
 
         return prg
@@ -479,9 +479,10 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             program = super().transform_loopy_program(program)
         '''
 
-        print(program.default_entrypoint.name)
-        print(program)
-        exit()
+        program = super().transform_loopy_program(program)
+        #print(program.default_entrypoint.name)
+        #print(program)
+        #exit()
 
         return program
 
@@ -525,7 +526,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                         #print(val.shape)
                     except AttributeError:
                         nbytes += 0 # Or maybe 1*8 if this is a scalar
-                #print(nbytes)
             #print("Output")
             #print(result.keys())
             for val in result.values():
@@ -537,7 +537,7 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
 
         bw = nbytes / dt / 1e9
 
-        #print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
+        print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
 
         return result
 
@@ -545,6 +545,13 @@ def convert(o):
     if isinstance(o, np.generic): return o.item()
     raise TypeError
 
+# Could be problematic if code generation is not deterministic.
+def unique_program_id(program):
+    from hashlib import md5
+    code = lp.generate_code_v2(program).device_code()
+    h = md5(code.encode())
+    identifier = h.hexdigest()
+    return identifier
 
 class AutotuningArrayContext(GrudgeArrayContext):
 
@@ -556,9 +563,28 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         print(program.default_entrypoint.name)
         print(program)
+        #if program.default_entrypoint.name not in handled:
+        #    exit()
 
-        if "lp_nodes" in program.default_entrypoint.name:
-            #"diff" in program.default_entrypoint.name or \
+        # These are the most compute intensive kernels
+        to_optimize = {} #{"einsum2to2_kernel"}
+        if program.default_entrypoint.name in to_optimize:
+            print(program)
+            for arg in program.default_entrypoint.args:
+                print(arg.tags)
+            exit()
+
+        # Kernels to autotune
+        autotuned_kernels = {"einsum3to2_kernel",
+                             "einsum4to2_kernel", 
+                             "einsum5to3_kernel", 
+                             "einsum2to2_kernel",
+                             "diff", 
+                             "lp_nodes",
+                             "grudge_elementwise_sum_knl"}
+        if program.default_entrypoint.name in autotuned_kernels:
+           #"diff" in program.default_entrypoint.name or \
+           #"einsum3to2_kernel" == program.default_entrypoint.name:# or \
            #"nodes" == program.default_entrypoint.name or \
            #"face_mass" == program.default_entrypoint.name or \
            #"elwise_linear" == program.default_entrypoint.name or \
@@ -566,13 +592,16 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
             # Set no_numpy and return_dict options here?
             program = set_memory_layout(program)
- 
+            pid = unique_program_id(program)
 
             #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,
             # Rename this file
+
+            # This can be removed since we're now using the hash of the program code to specify the file.
+            # Kernels with different dimensions will have different files.
             fp_format = None
-            #print(program)
+            ndofs = None # The value doesn't matter now
             for arg in program.default_entrypoint.args:
                 if IsOpArray() in arg.tags:
                     dim = 1
@@ -587,73 +616,86 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     ndofs = arg.shape[0]
                     fp_format = arg.dtype.numpy_dtype
                     break
+                elif IsDOFArray() in arg.tags:
+                    ndofs = arg.shape[1]
+                    fp_format = arg.dtype.numpy_dtype
+                    break 
 
+            if fp_format is None:
+                print("Unknown fp_format")
+                exit()                
+            if ndofs is None:
+                print("Unknown ndofs")
+                exit()
 
             # FP format is very specific. Could have integer arrays?
             # What about mixed data types?
             fp_string = get_fp_string(fp_format)
-            search_fn = exhaustive_search#random_search
 
-            # TODO: Should search in current directory for transform file
+            hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
             try:
                 # Attempt to read from a transformation file in the current directory first,
-                # then try to read from the package files
-                hjson_file = open(f"{program.default_entrypoint.name}.hjson", "rt")
+                # then try to read from the package files - this is not currently implemented
+                # Maybe should have ability to search in arbitrary specified directories.
+
+                hjson_file = open(hjson_file_str, "rt")
 
                 # Probably need to generalize this
                 indices = [transform_id, fp_string, str(ndofs)]
                 transformations = dgk.load_transformations_from_file(hjson_file,
                     indices)
                 hjson_file.close()
-                program = dgk.apply_transformation_list(program, transformations)
 
-            # File exists but a transformation is missing
-            except KeyError:
-                # What if already have a set of transformation parameters but want to
-                # refine them more
-                # If there is a key error, the autotuner should be called to figure
-                # out a set of transformations and then write it back to the hjson file
-                #print("ARRAY SIZE NOT IN TRANSFORMATION FILE")
+            except (KeyError, FileNotFoundError) as e:
+                
+                search_fn = exhaustive_search_v2#random_search
+                if program.default_entrypoint.name == "einsum3to2_kernel":
+                    from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_tlist_generator as tlist_generator
+                    from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_pspace_generator as pspace_generator
+                elif program.default_entrypoint.name == "einsum4to2_kernel":
+                    from grudge.loopy_dg_kernels.generators import einsum4to2_kernel_tlist_generator as tlist_generator
+                    from grudge.loopy_dg_kernels.generators import einsum4to2_kernel_pspace_generator as pspace_generator
+                elif program.default_entrypoint.name == "einsum5to3_kernel":
+                    from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_tlist_generator as tlist_generator
+                    from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_pspace_generator as pspace_generator
+                elif program.default_entrypoint.name == "einsum2to2_kernel":
+                    from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_tlist_generator as tlist_generator
+                    from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_pspace_generator as pspace_generator
+                elif program.default_entrypoint.name == "grudge_elementwise_sum_knl":
+                    from grudge.loopy_dg_kernels.generators import grudge_elementwise_sum_knl_tlist_generator as tlist_generator
+                    from grudge.loopy_dg_kernels.generators import grudge_elementwise_sum_knl_pspace_generator as pspace_generator
+                else:
+                    from grudge.loopy_dg_kernels.generators import gen_autotune_list as pspace_generator
+                    from grudge.loopy_dg_kernels.generators import mxm_trans_list_generator as tlist_generator
 
-                transformations = search_fn(self.queue, program, generic_test, time_limit=60)
-                transformations = dgk.generate_transformation_list(*transformations) 
-                program = dgk.apply_transformation_list(program, transformations)
+
+                avg_time, transformations, data = search_fn(self.queue, program, generic_test, 
+                                                pspace_generator, tlist_generator, time_limit=np.inf)
+                #transformations = search_fn(self.queue, program, generic_test, time_limit=60)
+                #transformations = dgk.generate_transformation_list(*transformations) 
                 
                 # Write the new transformations back to local file
-                hjson_file = open(f"{program.default_entrypoint.name}.hjson", "rt")
-                # Need to figure out how to copy existing transformations 
-
-                od = hjson.load(hjson_file)
-                hjson_file.close()
-                od[transform_id][fp_string][ndofs] = transformations
-                out_file = open(f"{program.default_entrypoint.name}.hjson", "wt")
-                #from pprint import pprint
-                #pprint(od)
-                
+                if isinstance(e, KeyError):
+                    hjson_file = open(hjson_file_str, "rt")
+                    # Need to figure out how to copy existing transformations 
+                    od = hjson.load(hjson_file)
+                    hjson_file.close()
+                    od[transform_id][fp_string][ndofs] = transformations
+                else:
+                    od = {transform_id: {fp_string: {str(ndofs): transformations} } }
+           
+                out_file = open(hjson_file_str, "wt")
                 hjson.dump(od, out_file,default=convert)
                 out_file.close()
-                 
-            # No transformation files exist
-            except FileNotFoundError:
+                #from pprint import pprint
+                #pprint(od)
 
-                transformations = search_fn(self.queue, program, generic_test, time_limit=60)
-                transformations = dgk.generate_transformation_list(*transformations) 
-                program = dgk.apply_transformation_list(program, transformations)
-                
-                # Write the new transformations to a file
-                # Will need a new transform_id
-                d = {transform_id: {fp_string: {str(ndofs): transformations} } }
-                out_file = open(f"{program.default_entrypoint.name}.hjson", "wt")
-                hjson.dump(d, out_file,default=convert)
-                out_file.close()
-
-        elif True:
-            print(program.default_entrypoint.name)
-            print(program)
-            exit()
+            program = dgk.apply_transformation_list(program, transformations)
+        # Kernels to not autotune. Should probably still load the transformation from a
+        # generator function.
 
         # Maybe this should have an autotuner
-	# There isn't much room for optimization due to the indirection
+	    # There isn't much room for optimization due to the indirection
         elif "resample_by_picking" in program.default_entrypoint.name:
             for arg in program.default_entrypoint.args:
                 if arg.name == "n_to_nodes":
@@ -677,9 +719,10 @@ class AutotuningArrayContext(GrudgeArrayContext):
                                         inner_tag="l.1", slabs=(0, 0))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
-            # Need to add autotuner support for this
             program = set_memory_layout(program)
-            program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
+            # Sometimes sqrt is called on single values.
+            if "i0" in program.default_entrypoint.inames:
+                program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
                                         inner_tag="l.0", slabs=(0, 1))
             #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
             #                           slabs=(0,1))
@@ -713,7 +756,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         else:
             #print(program)
-            #print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
+            print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
             program = super().transform_loopy_program(program)
 
         '''       

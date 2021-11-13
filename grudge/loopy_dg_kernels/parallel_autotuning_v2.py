@@ -11,18 +11,11 @@ import numpy as np
 import grudge.loopy_dg_kernels as dgk
 #from grudge.execution import diff_prg, elwise_linear
 
-<<<<<<< HEAD
-# Balances the number of workers per host
-
-class BalancedPoolScheduler(PoolScheduler):
-    #pass 
-=======
 # Makes one PE inactive on each host so the number of workers is the same on all hosts as
 # opposed to the basic PoolScheduler which has one fewer worker on the host with PE 0.
 # This can be useful for running tasks on a GPU cluster for example.
 class BalancedPoolScheduler(PoolScheduler):
 
->>>>>>> 7d8ce71c4a8e6dd9eb264884c1ee8e7d5e6a916d
     def __init__(self):
        super().__init__()
        n_pes = charm.numPes()
@@ -34,7 +27,23 @@ class BalancedPoolScheduler(PoolScheduler):
 
        self.idle_workers = set([i for i in range(n_pes) if not i % pes_per_host == 0 ])
        self.num_workers = len(self.idle_workers)
-<<<<<<< HEAD
+
+
+class AllPEsPoolScheduler(PoolScheduler):
+
+    def __init__(self):
+       super().__init__()
+       n_pes = charm.numPes()
+       n_hosts = charm.numHosts()
+       #pes_per_host = n_pes // n_hosts
+
+       #assert n_pes % n_hosts == 0 # Enforce constant number of pes per host
+       #assert pes_per_host > 1 # We're letting one pe on each host be unused
+       # Use all PEs including PE 0 
+       self.idle_workers = set(range(n_pes))
+       self.num_workers = len(self.idle_workers)
+
+
 
 '''
 class MyCharm(Charm):
