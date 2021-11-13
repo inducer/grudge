@@ -220,6 +220,14 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
 
+    For certain applications, it may be useful to distinguish between
+    rank-local and cross-rank trace pairs. For example, avoiding unnecessary
+    communication of derived quantities (i.e. temperature) on partition
+    boundaries by computing them directly. Having the ability for
+    user applications to distinguish between rank-local and cross-rank
+    contributions can also help enable overlapping communication with
+    computation.
+
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`TracePair` object.
@@ -243,6 +251,9 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
+
+    Note that :func:`interior_trace_pair` provides the rank-local contributions
+    if those are needed in isolation.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
