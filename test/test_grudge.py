@@ -36,7 +36,7 @@ from arraycontext.container.traversal import thaw
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
-from pytools.obj_array import flat_obj_array, make_obj_array
+from pytools.obj_array import flat_obj_array
 
 from grudge import DiscretizationCollection
 
@@ -1090,6 +1090,27 @@ def test_function_symbol_array(actx_factory, array_type):
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
+def test_norm_real(actx_factory, p):
+    actx = actx_factory()
+
+    dim = 2
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(0,)*dim, b=(1,)*dim,
+            nelements_per_axis=(8,)*dim, order=1)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    nodes = thaw(dcoll.nodes(), actx)
+
+    norm = op.norm(dcoll, nodes[0], p)
+    if p == 2:
+        ref_norm = (1/3)**0.5
+    elif p == np.inf:
+        ref_norm = 1
+
+    logger.info("norm: %.5e %.5e", norm, ref_norm)
+    assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
+
+
+@pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_complex(actx_factory, p):
     actx = actx_factory()
 
@@ -1098,52 +1119,38 @@ def test_norm_complex(actx_factory, p):
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-
     nodes = thaw(dcoll.nodes(), actx)
-    f = nodes[0] + 1j * nodes[0]
 
-    norm = op.norm(dcoll, f, p)
+    norm = op.norm(dcoll, (1 + 1j)*nodes[0], p)
     if p == 2:
-        ref_norm = ((1/3)*dim)**0.5
+        ref_norm = (2/3)**0.5
     elif p == np.inf:
         ref_norm = 2**0.5
 
+    logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_obj_array(actx_factory, p):
-    """Test :func:`grudge.op.norm` for object arrays."""
-
     actx = actx_factory()
 
     dim = 2
     mesh = mgen.generate_regular_rect_mesh(
-            a=(-0.5,)*dim, b=(0.5,)*dim,
+            a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
+    nodes = thaw(dcoll.nodes(), actx)
 
-    w = make_obj_array([1.0, 2.0, 3.0])[:dim]
+    norm = op.norm(dcoll, nodes, p)
 
-    # {{ scalar
+    if p == 2:
+        ref_norm = (dim/3)**0.5
+    elif p == np.inf:
+        ref_norm = 1
 
-    norm = op.norm(dcoll, w[0], p)
-
-    norm_exact = w[0]
-    logger.info("norm: %.5e %.5e", norm, norm_exact)
-    assert abs(norm - norm_exact) < 1.0e-14
-
-    # }}}
-
-    # {{{ vector
-
-    norm = op.norm(dcoll, w, p)
-
-    norm_exact = np.sqrt(np.sum(w**2)) if p == 2 else np.max(w)
-    logger.info("norm: %.5e %.5e", norm, norm_exact)
-    assert abs(norm - norm_exact) < 1.0e-14
-
-    # }}}
+    logger.info("norm: %.5e %.5e", norm, ref_norm)
+    assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
 
 
 def test_empty_boundary(actx_factory):

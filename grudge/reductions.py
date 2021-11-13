@@ -57,7 +57,6 @@ THE SOFTWARE.
 """
 
 
-from numbers import Number
 from functools import reduce
 
 from arraycontext import make_loopy_program, DeviceScalar
@@ -74,25 +73,6 @@ import grudge.dof_desc as dof_desc
 
 
 # {{{ Nodal reductions
-
-def _norm(dcoll: DiscretizationCollection, vec, p, dd) -> "DeviceScalar":
-    if isinstance(vec, Number):
-        return np.fabs(vec)
-    if p == 2:
-        from grudge.op import _apply_mass_operator
-        return vec.array_context.np.sqrt(
-            # Quantities being summed are real up to rounding error, so abs() can
-            # go on the outside
-            abs(
-                nodal_sum(
-                    dcoll,
-                    dd,
-                    vec.conj() * _apply_mass_operator(dcoll, dd, dd, vec))))
-    elif p == np.inf:
-        return nodal_max(dcoll, dd, abs(vec))
-    else:
-        raise NotImplementedError("Unsupported value of p")
-
 
 def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     r"""Return the vector p-norm of a function represented
@@ -111,23 +91,23 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
     if dd is None:
         dd = dof_desc.DD_VOLUME
 
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
+
     dd = dof_desc.as_dofdesc(dd)
 
-    if isinstance(vec, np.ndarray):
-        if p == 2:
-            return sum(
-                norm(dcoll, vec[idx], p, dd=dd)**2
-                for idx in np.ndindex(vec.shape)
-            )**0.5
-        elif p == np.inf:
-            return max(
-                norm(dcoll, vec[idx], np.inf, dd=dd)
-                for idx in np.ndindex(vec.shape)
-            )
-        else:
-            raise ValueError("unsupported norm order")
-
-    return _norm(dcoll, vec, p, dd)
+    if p == 2:
+        from grudge.op import _apply_mass_operator
+        return actx.np.sqrt(
+            actx.np.abs(
+                nodal_sum(
+                    dcoll, dd,
+                    actx.np.conjugate(vec)
+                    * _apply_mass_operator(dcoll, dd, dd, vec))))
+    elif p == np.inf:
+        return nodal_max(dcoll, dd, actx.np.abs(vec))
+    else:
+        raise ValueError("unsupported norm order")
 
 
 def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
@@ -296,41 +276,52 @@ def _apply_elementwise_reduction(
     actx = vec.array_context
 
     import loopy as lp
-    @memoize_in(actx, (_apply_elementwise_reduction,
-                       "elementwise_%s_prg" % op_name))
-    def elementwise_prg(nelements, ndofs, fp_format):
-        # FIXME: This computes the reduction value redundantly for each
-        # output DOF.
-        from meshmode.array_context import IsDOFArray, ParameterValue
-        t_unit = make_loopy_program(
-            [
-                "{[iel]: 0 <= iel < nelements}",
-                "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
-            ],
-            """
-                result[iel, idof] = %s(jdof, operand[iel, jdof])
-            """ % op_name,
-            kernel_data = [
-                lp.GlobalArg("result", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),
-                lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),       
-                lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
-                lp.ValueArg("nelements", tags=[ParameterValue(nelements)])
-            ],
-            name="grudge_elementwise_%s_knl" % op_name
+    if actx.supports_nonscalar_broadcasting:
+        return DOFArray(
+            actx,
+            data=tuple(
+                actx.np.broadcast_to((getattr(actx.np, op_name)(vec_i, axis=1)
+                                      .reshape(-1, 1)),
+                                     vec_i.shape)
+                for vec_i in vec
+            )
         )
-        from meshmode.transform_metadata import (
-                ConcurrentElementInameTag, ConcurrentDOFInameTag)
-        return lp.tag_inames(t_unit, {
-            "iel": ConcurrentElementInameTag(),
-            "idof": ConcurrentDOFInameTag()})
+    else:
+        @memoize_in(actx, (_apply_elementwise_reduction,
+                           "elementwise_%s_prg" % op_name))
+        def elementwise_prg(nelements, ndofs, fp_format):
+            # FIXME: This computes the reduction value redundantly for each
+            # output DOF.
+            from meshmode.array_context import IsDOFArray, ParameterValue
+            t_unit = make_loopy_program(
+                [
+                    "{[iel]: 0 <= iel < nelements}",
+                    "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
+                ],
+                """
+                    result[iel, idof] = %s(jdof, operand[iel, jdof])
+                """ % op_name,
+                kernel_data = [
+                    lp.GlobalArg("result", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),       
+                    lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
+                    lp.ValueArg("nelements", tags=[ParameterValue(nelements)])
+                ],
+                name="grudge_elementwise_%s_knl" % op_name
+            )
+            from meshmode.transform_metadata import (
+                    ConcurrentElementInameTag, ConcurrentDOFInameTag)
+            return lp.tag_inames(t_unit, {
+                "iel": ConcurrentElementInameTag(),
+                "idof": ConcurrentDOFInameTag()})
 
-    data = []
-    for vec_i in vec:
-        iel, jdof = vec_i.shape
-        fp_format = vec_i.dtype
-        data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)["result"])
-        
-    return DOFArray(actx, data=tuple(data))
+        data = []
+        for vec_i in vec:
+            iel, jdof = vec_i.shape
+            fp_format = vec_i.dtype
+            data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)["result"])
+            
+        return DOFArray(actx, data=tuple(data))
 
 
 def elementwise_sum(dcoll: DiscretizationCollection, *args) -> DOFArray:
