@@ -113,10 +113,6 @@ def _single_axis_derivative_kernel(
 
     data = []
     for out_grp, in_grp, vec_i, ijm_i in zip(out_discr.groups, in_discr.groups, vec, inv_jac_mat):
-        print(type(ijm_i))
-        print(ijm_i.shape)
-        print(ijm_i.strides)
-        #exit()
         ref_stiffT_mat = get_diff_mat(
                         actx,
                         out_element_group=out_grp,

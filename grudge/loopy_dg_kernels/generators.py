@@ -216,26 +216,29 @@ def einsum3to2_kernel_tlist_generator(params, **kwargs):
         {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
     # Should the i loop have (0,1) slabs for both?
 
-    arg_names = {arg.name for arg in knl.default_entrypoint.args}
-    prefetch_names = {"vec", "jac", "arg0", "arg2"}
+    for arg in knl.default_entrypoint.args:
 
-    if "vec" in arg_names:
-        trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
-            {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-    if "jac" in arg_names:
-        trans_list.append(["add_prefetch", ["jac", "j,e_inner_outer,e_inner_inner"],
-            {"temporary_name":"jacf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
-    if "arg2" in arg_names:
-        trans_list.append(["add_prefetch", ["arg2", "j,e_inner_outer,e_inner_inner"],
-            {"temporary_name":"arg2f", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
-    if "arg0" in arg_names:
-        trans_list.append(["add_prefetch",
-            ["arg0", "i_inner_outer,i_inner_inner,e_inner_outer,e_inner_inner"],
-            {"temporary_name":"arg0f", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
+        if "vec" == arg.name:
+            trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
+                {"temporary_name":"vecf", "default_tag":"l.auto"}])
+            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+        elif "jac" == arg.name:
+            trans_list.append(["add_prefetch", ["jac", "j,e_inner_outer,e_inner_inner"],
+                {"temporary_name":"jacf", "default_tag":"l.auto"}])
+            trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
+        elif "arg2" == arg.name and IsDOFArray() in arg.tags:
+            trans_list.append(["add_prefetch", ["arg2", "j,e_inner_outer,e_inner_inner"],
+                {"temporary_name":"arg2f", "default_tag":"l.auto"}])
+            trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
+        elif "arg1" == arg.name and IsDOFArray() in arg.tags:
+            trans_list.append(["add_prefetch", ["arg1", "j,e_inner_outer,e_inner_inner"],
+                {"temporary_name":"arg1f", "default_tag":"l.auto"}])
+            trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
+        elif "arg0" == arg.name and IsDOFArray() in arg.tags:
+            trans_list.append(["add_prefetch",
+                ["arg0", "i_inner_outer,i_inner_inner,e_inner_outer,e_inner_inner"],
+                {"temporary_name":"arg0f", "default_tag":"l.auto"}])
+            trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
 
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 

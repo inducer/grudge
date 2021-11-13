@@ -1,5 +1,5 @@
 from pytools.tag import Tag, UniqueTag
-from meshmode.array_context import IsDOFArray, IsOpArray, ParameterValue
+from arraycontext import IsDOFArray, IsOpArray, ParameterValue, KernelDataTag
 
 class IsVecDOFArray(Tag):
     pass
@@ -22,7 +22,7 @@ class IsFaceMassOpArray(Tag):
 class IsFourAxisDOFArray(Tag):
     pass
 
-class KernelDataTag(Tag):
-
-    def __init__(self, kernel_data):
-        self.kernel_data = kernel_data
+#class KernelDataTag(Tag):
+#
+#    def __init__(self, kernel_data):
+#        self.kernel_data = kernel_data
