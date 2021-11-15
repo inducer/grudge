@@ -249,6 +249,18 @@ class EulerOperator(HyperbolicOperator):
 
         return actx.np.sqrt(np.dot(v, v)) + actx.np.sqrt(gamma * (p / rho))
 
+    def state_to_mathematical_entropy(self, state):
+        actx = state.array_context
+        gamma = self.gamma
+        rho = state.mass
+        rhoe = state.energy
+        rhov = state.momentum
+        v = rhov / rho
+        p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
+        s = actx.np.log(p) - gamma*actx.np.log(rho)
+
+        return -rho * s / (gamma - 1)
+
 
 # {{{ Entropy stable operator
 
@@ -291,34 +303,6 @@ def entropy_to_conservative_vars(actx, ev_state, gamma=1.4):
     return EulerState(mass=-rho_iota * v5,
                       energy=rho_iota * (1 - v_square/(2*v5)),
                       momentum=rho_iota * v2t4)
-
-
-def entropy_projection(
-        actx, dcoll, dd_q, dd_f, cv_state, gamma=1.4):
-    """todo.
-    """
-    from grudge.projection import volume_quadrature_project
-    from grudge.interpolation import \
-        volume_and_surface_quadrature_interpolation
-
-    # Interpolate cv_state to vol quad grid: u_q = V_q u
-    cv_state_q = op.project(dcoll, "vol", dd_q, cv_state)
-    # Convert to entropy variables: v_q = v(u_q)
-    ev_state_q = \
-        conservative_to_entropy_vars(actx, cv_state_q, gamma=gamma)
-    # Project entropy variables and interpolate the result to the
-    # volume and surface quadrature nodes:
-    # vtilde = [vtilde_q; vtilde_f] = [V_q; V_f] .* P_q * v_q
-    # NOTE: Potential optimization: fuse [V_q; V_f] .* P_q
-    ev_state = volume_quadrature_project(dcoll, dd_q, ev_state_q)
-    aux_ev_state_q = volume_and_surface_quadrature_interpolation(
-        dcoll, dd_q, dd_f, ev_state
-    )
-    # Convert from project entropy to conservative variables:
-    # utilde = [utilde_q; utilde_f] = u(vtilde) = u([vtilde_q; vtilde_f])
-    aux_cv_state_q = \
-        entropy_to_conservative_vars(actx, aux_ev_state_q, gamma=gamma)
-    return aux_cv_state_q, ev_state
 
 
 def flux_chandrashekar(dcoll, gamma, qi, qj):
@@ -432,6 +416,10 @@ def entropy_stable_numerical_flux_chandrashekar(
 class EntropyStableEulerOperator(EulerOperator):
 
     def operator(self, t, q):
+        from grudge.projection import volume_quadrature_project
+        from grudge.interpolation import \
+            volume_and_surface_quadrature_interpolation
+
         gamma = self.gamma
         dq = DOFDesc("vol", DISCR_TAG_QUAD)
         df = DOFDesc("all_faces", DISCR_TAG_QUAD)
@@ -439,9 +427,24 @@ class EntropyStableEulerOperator(EulerOperator):
         dcoll = self.dcoll
         actx = q.array_context
 
-        # Get the projected entropy variables and state
-        qtilde_allquad, proj_entropy_vars = entropy_projection(
-            actx, dcoll, dq, df, q, gamma=gamma)
+        # Interpolate cv_state to vol quad grid: u_q = V_q u
+        q_quad = op.project(dcoll, "vol", dq, q)
+
+        # Convert to projected entropy variables: v_q = V_h P_q v(u_q)
+        entropy_vars = conservative_to_entropy_vars(actx, q_quad, gamma=gamma)
+        proj_entropy_vars = volume_quadrature_project(dcoll, dq, entropy_vars)
+
+        # Compute conserved state in terms of the (interpolated)
+        # projected entropy variables on the quad grid
+        qtilde_allquad = \
+            entropy_to_conservative_vars(
+                actx,
+                # Interpolate projected entropy variables to
+                # volume + surface quadrature grids
+                volume_and_surface_quadrature_interpolation(
+                    dcoll, dq, df, proj_entropy_vars
+                ),
+                gamma=gamma)
 
         # Compute volume derivatives using flux differencing
         from grudge.flux_differencing import volume_flux_differencing
@@ -456,12 +459,12 @@ class EntropyStableEulerOperator(EulerOperator):
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
             dd_intfaces_quad = dd_intfaces.with_discr_tag(DISCR_TAG_QUAD)
-            vtilde_tpair = op.project(
-                dcoll, dd_intfaces, dd_intfaces_quad, tpair)
+            # Interpolate entropy variables to the surface quadrature grid
+            vtilde_tpair = \
+                op.project(dcoll, dd_intfaces, dd_intfaces_quad, tpair)
             return TracePair(
                 dd_intfaces_quad,
-                # int and ext states are terms of the entropy-projected
-                # conservative vars
+                # Convert interior and exterior states to conserved variables
                 interior=entropy_to_conservative_vars(
                     actx, vtilde_tpair.int, gamma=gamma
                 ),
@@ -478,6 +481,9 @@ class EntropyStableEulerOperator(EulerOperator):
                     entropy_tpair(tpair),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
+                    # NOTE: Trace pairs consist of the projected entropy variables
+                    # which will be converted to conserved variables in
+                    # *entropy_tpair*
                 ) for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
             )
         )
