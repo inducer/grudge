@@ -54,25 +54,49 @@ import grudge.op as op
 import logging
 logger = logging.getLogger(__name__)
 
+from dataclasses import dataclass
 
-def ssprk43_step(y, t, h, f):
+@dataclass(frozen=True)
+class LSRKCoefficients:
+    """Dataclass which defines a given low-storage Runge-Kutta (LSRK) scheme.
+    The methods are determined by the provided `A`, `B` and `C` coefficient arrays.
+    """
 
-    def f_update(t, y):
-        return y + h*f(t, y)
-
-    y1 = 1/2*y + 1/2*f_update(t, y)
-    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
-    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
-
-    return 1/2*y3 + 1/2*f_update(t + h/2, y3)
+    A: np.ndarray
+    B: np.ndarray
+    C: np.ndarray
 
 
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
+    A=np.array([
+        0.,
+        -567301805773/1357537059087,
+        -2404267990393/2016746695238,
+        -3550918686646/2091501179385,
+        -1275806237668/842570457699]),
+    B=np.array([
+        1432997174477/9575080441755,
+        5161836677717/13612068292357,
+        1720146321549/2090206949498,
+        3134564353537/4481467310338,
+        2277821191437/14882151754819]),
+    C=np.array([
+        0.,
+        1432997174477/9575080441755,
+        2526269341429/6820363962896,
+        2006345519317/3224310063776,
+        2802321613138/2924317926251]))
+
+
+def lsrk_step(state, t, dt, rhs):
+    """Take one step using a low-storage Runge-Kutta method."""
+    k = 0.0 * state
+    coefs = LSRK54CarpenterKennedyCoefs
+    for i in range(len(coefs.A)):
+        k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
+        state += coefs.B[i]*k
+
+    return state
 
 
 def sod_shock_initial_condition(nodes, t=0):
@@ -192,8 +216,12 @@ def run_sod_shock_tube(actx,
     compiled_rhs = actx.compile(rhs)
 
     fields = sod_shock_initial_condition(thaw(dcoll.nodes(), actx))
-    dt = actx.to_numpy(
-        1/8 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
+
+    from grudge.dt_utils import h_min_from_volume
+
+    cfl = 0.125
+    cn = 0.5*(order + 1)**2
+    dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
     logger.info("Timestep size: %g", dt)
 
@@ -209,7 +237,7 @@ def run_sod_shock_tube(actx,
     t = 0.0
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
-        fields = ssprk43_step(fields, t, dt, compiled_rhs)
+        fields = lsrk_step(fields, t, dt, compiled_rhs)
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
