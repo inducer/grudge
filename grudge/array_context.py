@@ -48,6 +48,20 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
+    def transform_dag(self, dag: "pytato.DictOfNamedArrays") -> "pytato.DictOfNamedArrays":
+        print("transform_dag", dag._data)
+
+        from pytato import find_partition_distributed, gather_distributed_comm_info, generate_code_for_partition
+        parts = find_partition_distributed(dag)
+
+        distributed_parts = gather_distributed_comm_info(parts)
+        prg_per_partition = generate_code_for_partition(distributed_parts)
+
+        from pytato import get_dot_graph_from_partition
+        get_dot_graph_from_partition(distributed_parts)
+
+        return super().transform_dag(dag)
+
 
 # {{{ pytest actx factory
 
