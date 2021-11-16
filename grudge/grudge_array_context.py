@@ -1,7 +1,10 @@
 from meshmode.array_context import PyOpenCLArrayContext
 from pytools import memoize_method, memoize_in
 import loopy as lp
+import pyopencl as cl
 import pyopencl.array as cla
+import numpy as np
+
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray, IsFaceDOFArray, 
     IsOpArray, IsSepVecOpArray, ParameterValue, IsFaceMassOpArray, KernelDataTag,
@@ -11,13 +14,11 @@ from arraycontext.impl.pyopencl.fake_numpy import (PyOpenCLFakeNumpyNamespace)
 from arraycontext.container.traversal import (rec_map_array_container,
     multimapped_over_array_containers)
 
-from numpy import prod
+from hashlib import md5
 import hjson
-import numpy as np
 from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search, exhaustive_search_v2
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
-import pyopencl as cl
 
 try:
     import importlib.resources as pkg_resources
@@ -216,8 +217,63 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
                 if isinstance(tag, ParameterValue):
                     program = lp.fix_parameters(program, **{arg.name: tag.value})
 
-        #program = super().transform_loopy_program(program)
+        program = super().transform_loopy_program(program)
         return program
+
+
+    def call_loopy(self, program, **kwargs):
+
+        result = super().call_loopy(program, **kwargs)
+        evt = result["evt"]
+        evt.wait()
+        dt = evt.profile.end - evt.profile.start
+        dt = dt / 1e9
+
+        nbytes = 0
+        # Could probably just use program.default_entrypoint.args but maybe all
+        # parameters are not set
+
+        if "resample_by_mat" in program.default_entrypoint.name:
+            n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
+            nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
+                        n_to_nodes*n_from_nodes +
+                        kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
+        elif "resample_by_picking" in program.default_entrypoint.name:
+            # Double check this
+            if "rhs" not in program.default_entrypoint.name:
+                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
+                        + kwargs["to_element_indices"].shape[0])*8
+            else:
+                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
+
+        else:
+            #print(program.default_entrypoint.name)
+            #print(kwargs.keys())
+            for key, val in kwargs.items():
+                # output may be a list of pyopenclarrays or it could be a 
+                # pyopenclarray. This prevents double counting (allowing
+                # other for-loop to count the bytes in the former case)
+                if key not in result.keys(): 
+                    try: 
+                        nbytes += np.prod(val.shape)*8
+                        #print(val.shape)
+                    except AttributeError:
+                        nbytes += 0 # Or maybe 1*8 if this is a scalar
+            #print("Output")
+            #print(result.keys())
+            for val in result.values():
+                try:
+                    nbytes += np.prod(val.shape)*8
+                    #print(val.shape)
+                except AttributeError:
+                    nbytes += 0 # Or maybe this is a scalar?
+
+        bw = nbytes / dt / 1e9
+
+        print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
+
+        return result
+
 
 
 class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
@@ -286,7 +342,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
             cl_a = out
         return cl_a
 
-
+# This class could be used for some set of default transformations
 class GrudgeArrayContext(FortranOrderedArrayContext):
 
     @memoize_method
@@ -479,67 +535,12 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             program = super().transform_loopy_program(program)
         '''
 
-        program = super().transform_loopy_program(program)
+        #program = super().transform_loopy_program(program)
         #print(program.default_entrypoint.name)
         #print(program)
         #exit()
 
         return program
-
-    def call_loopy(self, program, **kwargs):
-
-        result = super().call_loopy(program, **kwargs)
-        evt = result["evt"]
-        evt.wait()
-        dt = evt.profile.end - evt.profile.start
-        dt = dt / 1e9
-
-        nbytes = 0
-        # Could probably just use program.default_entrypoint.args but maybe all
-        # parameters are not set
-
-        #print("Input")
-
-        if "resample_by_mat" in program.default_entrypoint.name:
-            n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
-            nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
-                        n_to_nodes*n_from_nodes +
-                        kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
-        elif "resample_by_picking" in program.default_entrypoint.name:
-            # Double check this
-            if "rhs" not in program.default_entrypoint.name:
-                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
-                        + kwargs["to_element_indices"].shape[0])*8
-            else:
-                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
-
-        else:
-            #print(program.default_entrypoint.name)
-            #print(kwargs.keys())
-            for key, val in kwargs.items():
-                # output may be a list of pyopenclarrays or it could be a 
-                # pyopenclarray. This prevents double counting (allowing
-                # other for-loop to count the bytes in the former case)
-                if key not in result.keys(): 
-                    try: 
-                        nbytes += prod(val.shape)*8
-                        #print(val.shape)
-                    except AttributeError:
-                        nbytes += 0 # Or maybe 1*8 if this is a scalar
-            #print("Output")
-            #print(result.keys())
-            for val in result.values():
-                try:
-                    nbytes += prod(val.shape)*8
-                    #print(val.shape)
-                except AttributeError:
-                    nbytes += 0 # Or maybe this is a scalar?
-
-        bw = nbytes / dt / 1e9
-
-        print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
-
-        return result
 
 def convert(o):
     if isinstance(o, np.generic): return o.item()
@@ -547,7 +548,6 @@ def convert(o):
 
 # Could be problematic if code generation is not deterministic.
 def unique_program_id(program):
-    from hashlib import md5
     code = lp.generate_code_v2(program).device_code()
     h = md5(code.encode())
     identifier = h.hexdigest()
@@ -563,11 +563,9 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         print(program.default_entrypoint.name)
         print(program)
-        #if program.default_entrypoint.name not in handled:
-        #    exit()
 
         # These are the most compute intensive kernels
-        to_optimize = {} #{"einsum2to2_kernel"}
+        to_optimize = {}#{"smooth_comp"}
         if program.default_entrypoint.name in to_optimize:
             print(program)
             for arg in program.default_entrypoint.args:
@@ -593,6 +591,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
             # Set no_numpy and return_dict options here?
             program = set_memory_layout(program)
             pid = unique_program_id(program)
+            print(pid)
 
             #program = lp.set_options(program, "write_cl")
             # TODO: Dynamically determine device id,
@@ -668,7 +667,6 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     from grudge.loopy_dg_kernels.generators import gen_autotune_list as pspace_generator
                     from grudge.loopy_dg_kernels.generators import mxm_trans_list_generator as tlist_generator
 
-
                 avg_time, transformations, data = search_fn(self.queue, program, generic_test, 
                                                 pspace_generator, tlist_generator, time_limit=np.inf)
                 #transformations = search_fn(self.queue, program, generic_test, time_limit=60)
@@ -683,8 +681,8 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     od[transform_id][fp_string][ndofs] = transformations
                 else:
                     od = {transform_id: {fp_string: {str(ndofs): transformations} } }
-           
-                out_file = open(hjson_file_str, "wt")
+                
+                out_file = open(hjson_file_str, "wt+")
                 hjson.dump(od, out_file,default=convert)
                 out_file.close()
                 #from pprint import pprint
@@ -757,6 +755,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
         else:
             #print(program)
             print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
+            #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
             program = super().transform_loopy_program(program)
 
         '''       
