@@ -33,24 +33,20 @@ import pyopencl.tools as cl_tools
 from dataclasses import dataclass
 
 from arraycontext import thaw, freeze
-from grudge.array_context import (  # noqa: F401
-    PyOpenCLArrayContext
-)
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
 )
 from grudge.models.euler import (
     EulerState,
     EulerOperator,
-    EntropyStableEulerOperator,
-    PrescribedBC
+    EntropyStableEulerOperator
 )
-
-from meshmode.mesh import BTAG_ALL
 
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
+
+import matplotlib.pyplot as pt
 
 import logging
 logger = logging.getLogger(__name__)
@@ -99,16 +95,8 @@ def lsrk_step(state, t, dt, rhs):
     return state
 
 
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
-
-
 def vortex_initial_condition(x_vec, t=0):
-    M = 0.5
+    M = 0.5  # Mach number
     _x0 = 5
     epsilon = 1   # vortex strength
     gamma = 1.4
@@ -227,9 +215,14 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     entropy = euler_operator.state_to_mathematical_entropy(fields)
     entropy_int0 =  actx.to_numpy(op.integral(dcoll, dq, entropy))
 
+    fig = pt.figure(figsize=(8, 8), dpi=300)
+    taxis = [0]
+    entropy_rel_diff = [0]
+
     while t < final_time:
         fields = thaw(freeze(fields, actx), actx)
         fields = lsrk_step(fields, t, dt, compiled_rhs)
+        t += dt
 
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
@@ -245,7 +238,12 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
             entropy = euler_operator.state_to_mathematical_entropy(fields)
             entropy_integral = actx.to_numpy(op.integral(dcoll, dq, entropy))
             int_diff = entropy_integral - entropy_int0
-            logger.info("∫η1 - ∫η0 /|∫η0|: %s", int_diff/abs(entropy_int0))
+            rel_diff = abs(int_diff)/abs(entropy_int0)
+
+            taxis.append(t)
+            entropy_rel_diff.append(rel_diff)
+            logger.info("|∫η1 - ∫η0|/|∫η0|: %s", rel_diff)
+
             if visualize:
                 vis.write_vtk_file(
                     f"{exp_name}-{step:04d}.vtu",
@@ -260,10 +258,23 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
                 )
             assert norm_q < 10000
 
-        t += dt
         step += 1
 
     # }}}
+
+    # Plot entropy integral rel. diff over time:
+    filename = \
+        f"{exp_name}-entropy-diff-cfl{cfl}-r{resolution}-deg{order}.png"
+    pt.rcParams.update({'font.size': 20})
+    ax = fig.gca()
+    ax.grid()
+    ax.set_yscale('log')
+    ax.plot(taxis, entropy_rel_diff, "-")
+    ax.plot(taxis, entropy_rel_diff, "k.")
+    ax.set_xlabel("time")
+    ax.set_ylabel("|∫η1 - ∫η0| /|∫η0|")
+    pt.title(f'Rel. change in entropy: cfl={cfl}')
+    fig.savefig(filename, bbox_inches="tight")
 
 
 def run_convergence_test_vortex(
@@ -358,7 +369,7 @@ def run_convergence_test_vortex(
         last_q = None
         while t < final_time:
             fields = thaw(freeze(fields, actx), actx)
-            fields = rk4_step(fields, t, dt, compiled_rhs)
+            fields = lsrk_step(fields, t, dt, compiled_rhs)
             t += dt
             logger.info("[%04d] t = %.5f", step, t)
             last_q = fields
