@@ -340,27 +340,25 @@ class _RankBoundaryCommunicationLazy:
 
         self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
 
-        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
+        # FIXME: Support more than one group array
+        local_group_array, = self.local_dof_array
 
-        self.remote_data_host = staple_distributed_send(local_data, dest_rank=remote_rank, comm_tag=self.tag,
-            stapled_to=make_distributed_recv(
-                src_rank=remote_rank, comm_tag=self.tag, shape=local_data.shape, dtype=local_data.dtype))
+        self.remote_data = staple_distributed_send(
+                local_group_array, dest_rank=remote_rank, comm_tag=self.tag,
+                stapled_to=make_distributed_recv(
+                    src_rank=remote_rank, comm_tag=self.tag,
+                    shape=local_group_array.shape, dtype=local_group_array.dtype))
 
     def finish(self):
-        actx = self.array_context
-        remote_dof_array = unflatten(
-            self.array_context, self.bdry_discr,
-            actx.from_numpy(self.remote_data_host)
-        )
+        from meshmode.dof_array import DOFArray
+        remote_dof_array = DOFArray(self.array_context, (self.remote_data,))
 
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag))
-        )
-        swapped_remote_dof_array = bdry_conn(remote_dof_array)
+            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
 
         return TracePair(self.remote_btag,
                          interior=self.local_dof_array,
-                         exterior=swapped_remote_dof_array)
+                         exterior=bdry_conn(remote_dof_array))
 
 
 def _cross_rank_trace_pairs_scalar_field(
