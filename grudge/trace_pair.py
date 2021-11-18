@@ -323,14 +323,8 @@ from pytato import make_distributed_recv, staple_distributed_send
 
 class _RankBoundaryCommunicationLazy:
 
-    base_tag = 1273
-
     def __init__(self, dcoll: DiscretizationCollection, remote_rank,
-                 vol_field, tag=None):
-        self.tag = self.base_tag
-        if tag is not None:
-            self.tag += tag
-
+                 vol_field, tag):
         self.dcoll = dcoll
         self.array_context = vol_field.array_context
         self.remote_btag = BTAG_PARTITION(remote_rank)
@@ -344,9 +338,9 @@ class _RankBoundaryCommunicationLazy:
         local_group_array, = self.local_dof_array
 
         self.remote_data = staple_distributed_send(
-                local_group_array, dest_rank=remote_rank, comm_tag=self.tag,
+                local_group_array, dest_rank=remote_rank, comm_tag=tag,
                 stapled_to=make_distributed_recv(
-                    src_rank=remote_rank, comm_tag=self.tag,
+                    src_rank=remote_rank, comm_tag=tag,
                     shape=local_group_array.shape, dtype=local_group_array.dtype))
 
     def finish(self):
@@ -362,7 +356,7 @@ class _RankBoundaryCommunicationLazy:
 
 
 def _cross_rank_trace_pairs_scalar_field(
-        dcoll: DiscretizationCollection, vec, tag=None) -> list:
+        dcoll: DiscretizationCollection, vec, tag) -> list:
     if isinstance(vec, Number):
         return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
                 for remote_rank in connected_ranks(dcoll)]
@@ -392,6 +386,9 @@ def cross_rank_trace_pairs(
         of arbitrary shape.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
+    if tag is None:
+        tag = 1237
+
     if isinstance(ary, np.ndarray):
         oshape = ary.shape
         comm_vec = ary.flatten()
@@ -401,8 +398,12 @@ def cross_rank_trace_pairs(
         # FIXME: Batch this communication rather than
         # doing it in sequence.
         for ivec in range(n):
+            # FIXME: tag+ivec is problematic:
+            # - it may clash with different tags supplied by the user
+            # - it doesn't support artbitrary, recursively nested array
+            #   containers
             for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, comm_vec[ivec]):
+                    dcoll, comm_vec[ivec], tag+ivec):
                 assert isinstance(rank_tpair.dd.domain_tag, dof_desc.DTAG_BOUNDARY)
                 assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
                 result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
