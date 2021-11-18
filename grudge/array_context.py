@@ -147,11 +147,6 @@ class _DistributedCompiledFunction:
                 self.actx.queue, self.actx.mpi_communicator,
                 input_args=input_args_for_prg)
 
-        # FIXME Kernels (for now) allocate tons of memory in temporaries. If we
-        # race too far ahead with enqueuing, there is a distinct risk of
-        # running out of memory. This mitigates that risk a bit, for now.
-        evt.wait()
-
         def to_output_template(keys, _):
             return self.actx.thaw(out_dict[self.output_id_to_name_in_program[keys]])
 
