@@ -72,6 +72,7 @@ from grudge.discretization import DiscretizationCollection
 from pytools import memoize_in
 
 from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 import numpy as np
 import grudge.dof_desc as dof_desc
@@ -364,13 +365,12 @@ def _apply_elementwise_reduction(
                 "iel": ConcurrentElementInameTag(),
                 "idof": ConcurrentDOFInameTag()})
 
-        return DOFArray(
-            actx,
-            data=tuple(
-                actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
-                for vec_i in vec
-            )
-        )
+        return actx.tag_axis(1, DiscretizationDOFAxisTag(),
+                DOFArray(
+                    actx,
+                    data=tuple(
+                        actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
+                        for vec_i in vec)))
 
 
 def elementwise_sum(

@@ -57,13 +57,16 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import ArrayContext, map_array_container
+from arraycontext import ArrayContext, map_array_container, tag_axes
 from arraycontext.container import ArrayOrContainerT
 
 from functools import partial
 
 from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import FirstAxisIsElementsTag
+from meshmode.transform_metadata import (FirstAxisIsElementsTag,
+                                         DiscretizationDOFAxisTag,
+                                         DiscretizationElementAxisTag,
+                                         DiscretizationFaceAxisTag)
 
 from grudge.discretization import DiscretizationCollection
 
@@ -168,8 +171,7 @@ def _single_axis_derivative_kernel(
                         get_diff_mat(
                             actx,
                             out_element_group=out_grp,
-                            in_element_group=in_grp
-                        ),
+                            in_element_group=in_grp),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
                         tagged=(FirstAxisIsElementsTag(),))
@@ -222,12 +224,10 @@ def _reference_derivative_matrices(actx: ArrayContext,
     def get_ref_derivative_mats(grp):
         from meshmode.discretization.poly_element import diff_matrices
         return actx.freeze(
-            actx.from_numpy(
-                np.asarray(
-                    [dfmat for dfmat in diff_matrices(grp)]
-                )
-            )
-        )
+                actx.tag_axis(
+                    1, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray([dfmat for dfmat in diff_matrices(grp)]))))
     return get_ref_derivative_mats(out_element_group)
 
 
@@ -346,12 +346,10 @@ def _reference_stiffness_transpose_matrix(
 
             mmat = mass_matrix(out_grp)
             return actx.freeze(
-                actx.from_numpy(
-                    np.asarray(
-                        [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]
-                    )
-                )
-            )
+                actx.tag_axis(1, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray(
+                            [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]))))
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -568,13 +566,11 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
 
         weights = in_grp.quadrature_rule().weights
         return actx.freeze(
-            actx.from_numpy(
-                np.asarray(
-                    np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
-                    order="C"
-                )
-            )
-        )
+                actx.tag_axis(0, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray(
+                            np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                            order="C"))))
 
     return get_ref_mass_mat(out_element_group, in_element_group)
 
@@ -598,15 +594,15 @@ def _apply_mass_operator(
         actx,
         data=tuple(
             actx.einsum("ij,ej,ej->ei",
-                        reference_mass_matrix(
-                            actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp
-                        ),
-                        ae_i,
-                        vec_i,
-                        arg_names=("mass_mat", "jac", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
+                reference_mass_matrix(
+                    actx,
+                    out_element_group=out_grp,
+                    in_element_group=in_grp
+                    ),
+                ae_i,
+                vec_i,
+                arg_names=("mass_mat", "jac", "vec"),
+                tagged=(FirstAxisIsElementsTag(),))
 
             for in_grp, out_grp, ae_i, vec_i in zip(
                     in_discr.groups, out_discr.groups, area_elements, vec)
@@ -664,13 +660,11 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
         basis = grp.basis_obj()
 
         return actx.freeze(
-            actx.from_numpy(
-                np.asarray(
-                    inverse_mass_matrix(basis.functions, grp.unit_nodes),
-                    order="C"
-                )
-            )
-        )
+            actx.tag_axis(0, DiscretizationDOFAxisTag(),
+                actx.from_numpy(
+                    np.asarray(
+                        inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                        order="C"))))
 
     return get_ref_inv_mass_mat(element_group)
 
@@ -695,21 +689,15 @@ def _apply_inverse_mass_operator(
     discr = dcoll.discr_from_dd(dd_in)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    group_data = []
-    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
-
-        ref_mass_inverse = reference_inverse_mass_matrix(actx,
-                                                         element_group=grp)
-
-        group_data.append(
+    group_data = [
             # Based on https://arxiv.org/pdf/1608.03836.pdf
             # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
             actx.einsum("ei,ij,ej->ei",
                         jac_inv,
-                        ref_mass_inverse,
+                        reference_inverse_mass_matrix(actx, element_group=grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),))
-        )
+            for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec)]
 
     return DOFArray(actx, data=tuple(group_data))
 
@@ -840,7 +828,12 @@ def reference_face_mass_matrix(
                     vol_grp.unit_nodes,
                 )
 
-        return actx.freeze(actx.from_numpy(matrix))
+        return actx.freeze(
+                tag_axes(actx, {
+                    0: DiscretizationDOFAxisTag(),
+                    2: DiscretizationDOFAxisTag()
+                    },
+                    actx.from_numpy(matrix)))
 
     return get_ref_face_mass_mat(face_element_group, vol_element_group)
 
@@ -867,27 +860,27 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
         data=tuple(
             actx.einsum("ifj,fej,fej->ei",
                         reference_face_mass_matrix(
-                                actx,
-                                face_element_group=afgrp,
-                                vol_element_group=vgrp,
-                                dtype=dtype),
-                        surf_ae_i.reshape(
+                            actx,
+                            face_element_group=afgrp,
+                            vol_element_group=vgrp,
+                            dtype=dtype),
+                        actx.tag_axis(1, DiscretizationElementAxisTag(),
+                            surf_ae_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                surf_ae_i.shape[-1]),
-                        vec_i.reshape(
+                                surf_ae_i.shape[-1])),
+                        actx.tag_axis(0, DiscretizationFaceAxisTag(),
+                            vec_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                afgrp.nunit_dofs),
+                                afgrp.nunit_dofs)),
                         arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
             for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_discr.groups,
                                                      vec,
-                                                     surf_area_elements)
-        )
-    )
+                                                     surf_area_elements)))
 
 
 def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
