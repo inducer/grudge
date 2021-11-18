@@ -32,7 +32,7 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw, freeze
-from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
+from grudge.array_context import MPIPytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
 
@@ -150,13 +150,13 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
         force_device_scalars=True,
     )
 
-    if lazy:
-        actx_rhs = PytatoPyOpenCLArrayContext(queue)
-    else:
-        actx_rhs = actx_outer
-
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
+
+    if lazy:
+        actx_rhs = MPIPytatoPyOpenCLArrayContext(comm, queue)
+    else:
+        actx_rhs = actx_outer
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)

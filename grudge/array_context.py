@@ -25,6 +25,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import TYPE_CHECKING, Mapping, Tuple, Any, Callable
+from dataclasses import dataclass
 
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
@@ -33,6 +35,13 @@ from meshmode.array_context import (
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
         register_pytest_array_context_factory)
+from arraycontext.container import ArrayContainer
+from arraycontext.impl.pytato.compile import LazilyCompilingFunctionCaller
+
+if TYPE_CHECKING:
+    import pytato as pt
+    from pytato.partition import PartId
+    from pytato.distributed import DistributedGraphPartition
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
@@ -42,25 +51,128 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """
 
 
+# {{{ pytato
+
 class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
 
-    def transform_dag(self, dag: "pytato.DictOfNamedArrays") -> "pytato.DictOfNamedArrays":
-        print("transform_dag", dag._data)
+# }}}
 
-        from pytato import find_partition_distributed, gather_distributed_comm_info, generate_code_for_partition
-        parts = find_partition_distributed(dag)
 
-        distributed_parts = gather_distributed_comm_info(parts)
-        prg_per_partition = generate_code_for_partition(distributed_parts)
+# {{{ mpi + pytato
 
-        from pytato import get_dot_graph_from_partition
-        get_dot_graph_from_partition(distributed_parts)
+class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
+    def _dag_to_compiled_func(self, dict_of_named_arrays,
+            input_id_to_name_in_program, output_id_to_name_in_program,
+            output_template):
+        from pytato import find_distributed_partition
+        distributed_partition = find_distributed_partition(dict_of_named_arrays)
 
-        return super().transform_dag(dag)
+        part_id_to_prg = {}
+
+        from pytato import DictOfNamedArrays
+        for part in distributed_partition.parts.values():
+            d = DictOfNamedArrays(
+                        {var_name: distributed_partition.var_name_to_result[var_name]
+                            for var_name in part.output_names
+                         })
+            part_id_to_prg[part.pid] = self._dag_to_transformed_loopy_prg(d)
+
+        #from pytato import get_dot_graph_from_partition
+        #get_dot_graph_from_partition(distributed_partition)
+
+        return _DistributedCompiledFunction(
+                actx=self.actx,
+                distributed_partition=distributed_partition,
+                part_id_to_prg=part_id_to_prg,
+                input_id_to_name_in_program=input_id_to_name_in_program,
+                output_id_to_name_in_program=output_id_to_name_in_program,
+                output_template=output_template)
+
+
+@dataclass(frozen=True)
+class _DistributedCompiledFunction:
+    """
+    A callable which captures the :class:`pytato.target.BoundProgram`  resulting
+    from calling :attr:`~LazilyCompilingFunctionCaller.f` with a given set of
+    input types, and generating :mod:`loopy` IR from it.
+
+    .. attribute:: pytato_program
+
+    .. attribute:: input_id_to_name_in_program
+
+        A mapping from input id to the placeholder name in
+        :attr:`CompiledFunction.pytato_program`. Input id is represented as the
+        position of :attr:`~LazilyCompilingFunctionCaller.f`'s argument augmented
+        with the leaf array's key if the argument is an array container.
+
+    .. attribute:: output_id_to_name_in_program
+
+        A mapping from output id to the name of
+        :class:`pytato.array.NamedArray` in
+        :attr:`CompiledFunction.pytato_program`. Output id is represented by
+        the key of a leaf array in the array container
+        :attr:`CompiledFunction.output_template`.
+
+    .. attribute:: output_template
+
+       An instance of :class:`arraycontext.ArrayContainer` that is the return
+       type of the callable.
+    """
+
+    actx: "MPIPytatoPyOpenCLArrayContext"
+    distributed_partition: "DistributedGraphPartition"
+    part_id_to_prg: "Mapping[PartId, pt.target.BoundProgram]"
+    input_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
+    output_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
+    output_template: ArrayContainer
+
+    def __call__(self, arg_id_to_arg) -> ArrayContainer:
+        """
+        :arg arg_id_to_arg: Mapping from input id to the passed argument. See
+            :attr:`CompiledFunction.input_id_to_name_in_program` for input id's
+            representation.
+        """
+
+        from arraycontext.impl.pytato.compile import _args_to_cl_buffers
+        input_args_for_prg = _args_to_cl_buffers(
+                self.actx, self.input_id_to_name_in_program, arg_id_to_arg)
+
+        from pytato.distributed import execute_distributed_partition
+        out_dict = execute_distributed_partition(
+                self.distributed_partition, self.part_id_to_prg,
+                self.actx.queue, self.actx.mpi_communicator,
+                input_args=input_args_for_prg)
+
+        # FIXME Kernels (for now) allocate tons of memory in temporaries. If we
+        # race too far ahead with enqueuing, there is a distinct risk of
+        # running out of memory. This mitigates that risk a bit, for now.
+        evt.wait()
+
+        def to_output_template(keys, _):
+            return self.actx.thaw(out_dict[self.output_id_to_name_in_program[keys]])
+
+        from arraycontext.container.traversal import rec_keyed_map_array_container
+        return rec_keyed_map_array_container(to_output_template,
+                                             self.output_template)
+
+
+class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
+    def __init__(self, mpi_communicator, queue, *, allocator=None):
+        super().__init__(queue, allocator)
+
+        self.mpi_communicator = mpi_communicator
+
+    # FIXME: implement distributed-aware freeze
+
+    def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
+        return _DistributedLazilyCompilingFunctionCaller(self, f)
+
+
+# }}}
 
 
 # {{{ pytest actx factory
