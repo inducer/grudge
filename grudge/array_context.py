@@ -163,6 +163,9 @@ class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
     def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
         return _DistributedLazilyCompilingFunctionCaller(self, f)
 
+    def clone(self):
+        return type(self)(self.mpi_communicator, self.queue)
+
 
 # }}}
 
