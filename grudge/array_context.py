@@ -81,9 +81,6 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
                          })
             part_id_to_prg[part.pid] = self._dag_to_transformed_loopy_prg(d)
 
-        #from pytato import get_dot_graph_from_partition
-        #get_dot_graph_from_partition(distributed_partition)
-
         return _DistributedCompiledFunction(
                 actx=self.actx,
                 distributed_partition=distributed_partition,
