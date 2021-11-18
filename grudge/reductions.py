@@ -67,6 +67,7 @@ from pytools import memoize_in
 from pytools.obj_array import obj_array_vectorize
 
 from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 import numpy as np
 import grudge.dof_desc as dof_desc
@@ -276,13 +277,17 @@ def _apply_elementwise_reduction(
     actx = vec.array_context
 
     if actx.supports_nonscalar_broadcasting:
+        actx_np_op = getattr(actx.np, op_name)
         return DOFArray(
             actx,
             data=tuple(
-                actx.np.broadcast_to((getattr(actx.np, op_name)(vec_i, axis=1)
-                                      .reshape(-1, 1)),
-                                     vec_i.shape)
-                for vec_i in vec
+                actx.tag_axis(1,
+                              DiscretizationDOFAxisTag.from_group(grp),
+                              actx.np.broadcast_to((actx_np_op(vec_i, axis=1)
+                                                    .reshape(-1, 1)),
+                                                   vec_i.shape))
+                for vec_i, grp in zip(vec,
+                                      dcoll.discr_from_dd(dd).groups)
             )
         )
     else:
