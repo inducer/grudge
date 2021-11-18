@@ -60,7 +60,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw, freeze, ArrayContext
+from arraycontext import thaw, freeze, ArrayContext, tag_axes
 from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
@@ -69,6 +69,10 @@ import grudge.dof_desc as dof_desc
 from grudge.dof_desc import (
     DD_VOLUME, DOFDesc, DISCR_TAG_BASE
 )
+
+from meshmode.transform_metadata import (DiscretizationAmbientDimAxisTag,
+                                         DiscretizationTopologicalDimAxisTag)
+
 
 from pymbolic.geometric_algebra import MultiVector
 
@@ -513,15 +517,19 @@ def inverse_surface_metric_derivative_mat(
             multiplier = 1
 
         mat = actx.np.stack([
-                actx.np.stack([
-                    multiplier
-                    * inverse_surface_metric_derivative(actx, dcoll,
-                        rst_axis, xyz_axis, dd=dd,
-                        _use_geoderiv_connection=_use_geoderiv_connection)
-                    for rst_axis in range(dcoll.dim)])
-                for xyz_axis in range(dcoll.ambient_dim)])
+            actx.np.stack([
+                multiplier
+                * inverse_surface_metric_derivative(
+                    actx, dcoll,
+                    rst_axis, xyz_axis, dd=dd,
+                    _use_geoderiv_connection=_use_geoderiv_connection)
+                for rst_axis in range(dcoll.dim)])
+            for xyz_axis in range(dcoll.ambient_dim)])
 
-        return freeze(mat, actx)
+        return freeze(tag_axes(actx, {
+            0: DiscretizationAmbientDimAxisTag(),
+            1: DiscretizationTopologicalDimAxisTag()},
+            mat))
 
     return thaw(_inv_surf_metric_deriv(), actx)
 
