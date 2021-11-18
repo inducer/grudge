@@ -361,7 +361,13 @@ def _cross_rank_trace_pairs_scalar_field(
         return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
                 for remote_rank in connected_ranks(dcoll)]
     else:
-        rbcomms = [_RankBoundaryCommunicationLazy(dcoll, remote_rank, vec, tag=tag)
+        from grudge.array_context import MPIPytatoPyOpenCLArrayContext
+        if (hasattr(vec, "array_context")
+                and isinstance(vec.array_context, MPIPytatoPyOpenCLArrayContext)):
+            rbc = _RankBoundaryCommunicationLazy
+        else:
+            rbc = _RankBoundaryCommunication
+        rbcomms = [rbc(dcoll, remote_rank, vec, tag=tag)
                    for remote_rank in connected_ranks(dcoll)]
         return [rbcomm.finish() for rbcomm in rbcomms]
 
