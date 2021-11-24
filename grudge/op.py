@@ -56,7 +56,10 @@ from arraycontext.container import ArrayOrContainerT
 from functools import partial
 
 from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import FirstAxisIsElementsTag
+from meshmode.transform_metadata import (FirstAxisIsElementsTag,
+                                         DiscretizationDOFAxisTag,
+                                         DiscretizationElementAxisTag,
+                                         DiscretizationFaceAxisTag)
 
 from grudge.discretization import DiscretizationCollection
 
@@ -114,11 +117,13 @@ def _single_axis_derivative_kernel(
             # r for rst axis
             actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
                         ijm_i[xyz_axis],
-                        get_diff_mat(
-                            actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp
-                        ),
+                        actx.tag_axis(1,
+                                      DiscretizationDOFAxisTag.from_group(out_grp),
+                                      get_diff_mat(
+                                          actx,
+                                          out_element_group=out_grp,
+                                          in_element_group=in_grp
+                                      )),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
                         tagged=(FirstAxisIsElementsTag(),))
@@ -642,10 +647,14 @@ def _apply_mass_operator(
         actx,
         data=tuple(
             actx.einsum("ij,ej,ej->ei",
-                        _reference_mass_matrix(
-                            actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp
+                        actx.tag_axis(
+                            0,
+                            DiscretizationDOFAxisTag.from_group(out_grp),
+                            _reference_mass_matrix(
+                                actx,
+                                out_element_group=out_grp,
+                                in_element_group=in_grp
+                            )
                         ),
                         ae_i,
                         vec_i,
@@ -927,19 +936,28 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
         actx,
         data=tuple(
             actx.einsum("ifj,fej,fej->ei",
-                        _reference_face_mass_matrix(
-                                actx,
-                                face_element_group=afgrp,
-                                vol_element_group=vgrp,
-                                dtype=dtype),
-                        surf_ae_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                -1),
-                        vec_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                afgrp.nunit_dofs),
+                        actx.tag_axis(0,
+                                      DiscretizationDOFAxisTag.from_group(vgrp),
+                                      actx.tag_axis(
+                                          2,
+                                          DiscretizationDOFAxisTag.from_group(afgrp),
+                                          _reference_face_mass_matrix(
+                                              actx,
+                                              face_element_group=afgrp,
+                                              vol_element_group=vgrp,
+                                              dtype=dtype))),
+                        actx.tag_axis(1,
+                                      DiscretizationElementAxisTag.from_group(vgrp),
+                                      surf_ae_i.reshape(
+                                          vgrp.mesh_el_group.nfaces,
+                                          vgrp.nelements,
+                                          -1)),
+                        actx.tag_axis(0,
+                                      DiscretizationFaceAxisTag.from_group(vgrp),
+                                      vec_i.reshape(
+                                          vgrp.mesh_el_group.nfaces,
+                                          vgrp.nelements,
+                                          afgrp.nunit_dofs)),
                         arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
                         tagged=(FirstAxisIsElementsTag(),))
 
