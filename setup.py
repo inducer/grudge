@@ -49,6 +49,7 @@ def main():
             "pymbolic>=2013.2",
             "loopy>=2020.2",
             "cgen>=2013.1.2",
+            "pytato>=2021.1",
         ],
     )
 
