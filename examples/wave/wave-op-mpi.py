@@ -31,7 +31,7 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw, freeze
+from arraycontext import thaw
 from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
@@ -144,16 +144,15 @@ def bump(actx, dcoll, t=0):
 def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx_outer = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
 
     if lazy:
-        actx_rhs = PytatoPyOpenCLArrayContext(queue)
+        actx = PytatoPyOpenCLArrayContext(queue)
     else:
-        actx_rhs = actx_outer
+        actx = PyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -181,27 +180,23 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx_outer, local_mesh, order=order,
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
                     mpi_communicator=comm)
 
     fields = flat_obj_array(
-            bump(actx_outer, dcoll),
-            [dcoll.zeros(actx_outer) for i in range(dcoll.dim)]
+            bump(actx, dcoll),
+            [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
 
     c = 1
-    dt = actx_outer.to_numpy(0.45 * estimate_rk4_timestep(actx_outer, dcoll, c))
+    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
 
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
-    compiled_rhs = actx_rhs.compile(rhs)
-
-    def rhs_wrapper(t, q):
-        r = compiled_rhs(t, thaw(freeze(q, actx_outer), actx_rhs))
-        return thaw(freeze(r, actx_rhs), actx_outer)
+    compiled_rhs = actx.compile(rhs)
 
     if comm.rank == 0:
         logger.info("dt = %g", dt)
@@ -210,14 +205,14 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     t_final = 3
     istep = 0
     while t < t_final:
-        fields = rk4_step(fields, t, dt, rhs_wrapper)
+        fields = rk4_step(fields, t, dt, compiled_rhs)
 
-        l2norm = actx_outer.to_numpy(op.norm(dcoll, fields[0], 2))
+        l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
 
         if istep % 10 == 0:
-            linfnorm = actx_outer.to_numpy(op.norm(dcoll, fields[0], np.inf))
-            nodalmax = actx_outer.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
-            nodalmin = actx_outer.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
+            linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
+            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
+            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
             if comm.rank == 0:
                 logger.info(f"step: {istep} t: {t} "
                             f"L2: {l2norm} "
