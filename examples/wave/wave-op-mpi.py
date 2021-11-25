@@ -31,7 +31,7 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
+from arraycontext import thaw, freeze
 from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
@@ -205,6 +205,9 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     t_final = 3
     istep = 0
     while t < t_final:
+        if lazy:
+            fields = thaw(freeze(fields, actx), actx)
+
         fields = rk4_step(fields, t, dt, compiled_rhs)
 
         l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
