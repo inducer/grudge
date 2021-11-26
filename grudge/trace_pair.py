@@ -16,8 +16,8 @@ Boundary trace functions
 Interior and cross-rank trace functions
 ---------------------------------------
 
-.. autofunction:: interior_trace_pair
 .. autofunction:: interior_trace_pairs
+.. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
 """
 
@@ -215,7 +215,7 @@ def bv_trace_pair(
 
 # {{{ Interior trace pairs
 
-def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     r"""Return a :class:`TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
@@ -247,21 +247,31 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return TracePair("int_faces", interior=i, exterior=e)
 
 
+def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+    from warnings import warn
+    warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
+         "in version 2022.x. Use `local_interior_trace_pair` "
+         "instead, or `interior_trace_pairs` which also includes contributions "
+         "from different MPI ranks.",
+         DeprecationWarning, stacklevel=2)
+    return local_interior_trace_pair(dcoll, vec)
+
+
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
 
-    Note that :func:`interior_trace_pair` provides the rank-local contributions
-    if those are needed in isolation.
+    Note that :func:`local_interior_trace_pair` provides the rank-local contributions
+    if those are needed in isolation. Similarly, :func:`cross_rank_trace_pairs`
+    provides only the trace pairs defined on cross-rank boundaries.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
         :class:`~meshmode.dof_array.DOFArray`\ s.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
-        [interior_trace_pair(dcoll, vec)]
-        + cross_rank_trace_pairs(dcoll, vec)
+        [local_interior_trace_pair(dcoll, vec)] + cross_rank_trace_pairs(dcoll, vec)
     )
 
 # }}}
