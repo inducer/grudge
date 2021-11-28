@@ -494,14 +494,19 @@ def _signed_face_ones(
     signed_face_ones = dcoll.discr_from_dd(dd).zeros(
         actx, dtype=dcoll.real_dtype
     ) + 1
+
+    from arraycontext import to_numpy, from_numpy, thaw
+
+    _signed_face_ones_numpy = to_numpy(signed_face_ones, actx)
+
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
-            i = actx.thaw(batch.to_element_indices)
-            grp_field = signed_face_ones[igrp].reshape(-1)
+            i = to_numpy(thaw(batch.to_element_indices, actx), actx)
+            grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
                 (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
 
-    return signed_face_ones
+    return from_numpy(_signed_face_ones_numpy, actx)
 
 
 def parametrization_derivative(
@@ -580,15 +585,16 @@ def area_element(
         result = actx.np.sqrt(
             pseudoscalar(actx, dcoll, dd=dd_base).norm_squared())
 
-        if _use_geoderiv_connection:
-            result = dcoll._base_to_geoderiv_connection(dd_base)(result)
+        if dcoll.discr_from_dd(dd).dim != 0:
+            if _use_geoderiv_connection:
+                result = dcoll._base_to_geoderiv_connection(dd_base)(result)
 
-        if dd.uses_quadrature():
-            # NOTE: We do not want to interpolate to the quadrature grid
-            # unless we are using non-affine storage
-            # (or if *_use_geoderiv_connection* is *False*)
-            if not dcoll._has_affine_groups() or not _use_geoderiv_connection:
-                result = dcoll.connection_from_dds(dd_base, dd)(result)
+            if dd.uses_quadrature():
+                # NOTE: We do not want to interpolate to the quadrature grid
+                # unless we are using non-affine storage
+                # (or if *_use_geoderiv_connection* is *False*)
+                if not dcoll._has_affine_groups() or not _use_geoderiv_connection:
+                    result = dcoll.connection_from_dds(dd_base, dd)(result)
 
         return freeze(result, actx)
 
@@ -687,15 +693,16 @@ def mv_normal(
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
-        if _use_geoderiv_connection:
-            result = dcoll._base_to_geoderiv_connection(dd_base)(result)
+        if dim != 0:
+            if _use_geoderiv_connection:
+                result = dcoll._base_to_geoderiv_connection(dd_base)(result)
 
-        if dd.uses_quadrature():
-            # NOTE: We do not want to interpolate to the quadrature grid
-            # unless we are using non-affine storage
-            # (or if *_use_geoderiv_connection* is *False*)
-            if not dcoll._has_affine_groups() or not _use_geoderiv_connection:
-                result = dcoll.connection_from_dds(dd_base, dd)(result)
+            if dd.uses_quadrature():
+                # NOTE: We do not want to interpolate to the quadrature grid
+                # unless we are using non-affine storage
+                # (or if *_use_geoderiv_connection* is *False*)
+                if not dcoll._has_affine_groups() or not _use_geoderiv_connection:
+                    result = dcoll.connection_from_dds(dd_base, dd)(result)
 
         return freeze(result, actx)
 
