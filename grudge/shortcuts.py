@@ -22,6 +22,53 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import numpy as np
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class LSRKCoefficients:
+    """Dataclass which defines a given low-storage Runge-Kutta (LSRK) scheme.
+    The methods are determined by the provided `A`, `B` and `C` coefficient arrays.
+    """
+
+    A: np.ndarray
+    B: np.ndarray
+    C: np.ndarray
+
+
+LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
+    A=np.array([
+        0.,
+        -567301805773/1357537059087,
+        -2404267990393/2016746695238,
+        -3550918686646/2091501179385,
+        -1275806237668/842570457699]),
+    B=np.array([
+        1432997174477/9575080441755,
+        5161836677717/13612068292357,
+        1720146321549/2090206949498,
+        3134564353537/4481467310338,
+        2277821191437/14882151754819]),
+    C=np.array([
+        0.,
+        1432997174477/9575080441755,
+        2526269341429/6820363962896,
+        2006345519317/3224310063776,
+        2802321613138/2924317926251]))
+
+
+def lsrk54_step(state, t, dt, rhs):
+    """Take one step using a low-storage Runge-Kutta method."""
+    k = 0.0 * state
+    coefs = LSRK54CarpenterKennedyCoefs
+    for i in range(len(coefs.A)):
+        k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
+        state += coefs.B[i]*k
+
+    return state
+
 
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
     from leap.rk import LSRK4MethodBuilder
