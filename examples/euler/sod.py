@@ -25,15 +25,10 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw, freeze
-from grudge.array_context import (  # noqa: F401
-    PyOpenCLArrayContext
-)
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
 )
@@ -41,11 +36,9 @@ from grudge.models.euler import (
     EulerState,
     EulerOperator,
     EntropyStableEulerOperator,
-    AdiabaticSlipBC,
     PrescribedBC
 )
-
-from meshmode.mesh import BTAG_ALL
+from grudge.shortcuts import lsrk54_step
 
 from pytools.obj_array import make_obj_array
 
@@ -53,50 +46,6 @@ import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
-
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class LSRKCoefficients:
-    """Dataclass which defines a given low-storage Runge-Kutta (LSRK) scheme.
-    The methods are determined by the provided `A`, `B` and `C` coefficient arrays.
-    """
-
-    A: np.ndarray
-    B: np.ndarray
-    C: np.ndarray
-
-
-LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
-    A=np.array([
-        0.,
-        -567301805773/1357537059087,
-        -2404267990393/2016746695238,
-        -3550918686646/2091501179385,
-        -1275806237668/842570457699]),
-    B=np.array([
-        1432997174477/9575080441755,
-        5161836677717/13612068292357,
-        1720146321549/2090206949498,
-        3134564353537/4481467310338,
-        2277821191437/14882151754819]),
-    C=np.array([
-        0.,
-        1432997174477/9575080441755,
-        2526269341429/6820363962896,
-        2006345519317/3224310063776,
-        2802321613138/2924317926251]))
-
-
-def lsrk_step(state, t, dt, rhs):
-    """Take one step using a low-storage Runge-Kutta method."""
-    k = 0.0 * state
-    coefs = LSRK54CarpenterKennedyCoefs
-    for i in range(len(coefs.A)):
-        k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
-        state += coefs.B[i]*k
-
-    return state
 
 
 def sod_shock_initial_condition(nodes, t=0):
@@ -120,7 +69,7 @@ def sod_shock_initial_condition(nodes, t=0):
     energyout = zeros + gmn1 * _pout
 
     x0 = zeros + _x0
-    sigma = 0.05
+    sigma = 1e-13
     xtanh = 1.0/sigma*(x - x0)
 
     mass = (rhoin/2.0*(actx.np.tanh(-xtanh) + 1.0)
@@ -133,8 +82,8 @@ def sod_shock_initial_condition(nodes, t=0):
 
 
 def run_sod_shock_tube(actx,
-                       order=3,
-                       resolution=16,
+                       order=4,
+                       resolution=32,
                        final_time=0.2,
                        nodal_dg=False,
                        visualize=False):
@@ -147,17 +96,15 @@ def run_sod_shock_tube(actx,
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
-    dim = 2
+    dim = 1
     box_ll = 0.0
     box_ur = 1.0
     mesh = generate_regular_rect_mesh(
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim,
-        periodic=(False, True),
         boundary_tag_to_face={
             "prescribed": ["+x", "-x"],
-            # "slip": ["+y", "-y"]
         }
     )
 
@@ -165,14 +112,14 @@ def run_sod_shock_tube(actx,
     from grudge.dof_desc import \
         as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD, DTAG_BOUNDARY
     from meshmode.discretization.poly_element import \
-        (PolynomialWarpAndBlend2DRestrictingGroupFactory,
+        (default_simplex_group_factory,
          QuadratureSimplexGroupFactory)
 
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            DISCR_TAG_BASE: PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+            DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(order + 2)
         }
     )
 
@@ -180,27 +127,18 @@ def run_sod_shock_tube(actx,
 
     # {{{ Euler operator
 
-    # bcs = [
-    #     AdiabaticSlipBC(
-    #         dd=as_dofdesc(BTAG_ALL).with_discr_tag(DISCR_TAG_QUAD)
-    #     )
-    # ]
-    dd_slip = DTAG_BOUNDARY("slip")
     dd_prescribe = DTAG_BOUNDARY("prescribed")
     bcs = [
-        # AdiabaticSlipBC(
-        #     dd=as_dofdesc(dd_slip).with_discr_tag(DISCR_TAG_QUAD)
-        # ),
         PrescribedBC(dd=as_dofdesc(dd_prescribe).with_discr_tag(DISCR_TAG_QUAD),
                      prescribed_state=sod_shock_initial_condition)
     ]
 
     if nodal_dg:
         operator_cls = EulerOperator
-        exp_name = "fld-sod-2d"
+        exp_name = f"fld-sod-1d-N{order}-K{resolution}"
     else:
         operator_cls = EntropyStableEulerOperator
-        exp_name = "fld-esdg-sod-2d"
+        exp_name = f"fld-esdg-sod-1d-N{order}-K{resolution}"
 
     euler_operator = operator_cls(
         dcoll,
@@ -236,9 +174,6 @@ def run_sod_shock_tube(actx,
     step = 0
     t = 0.0
     while t < final_time:
-        fields = thaw(freeze(fields, actx), actx)
-        fields = lsrk_step(fields, t, dt, compiled_rhs)
-
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
@@ -253,13 +188,15 @@ def run_sod_shock_tube(actx,
                 )
             assert norm_q < 10000
 
+        fields = thaw(freeze(fields, actx), actx)
+        fields = lsrk54_step(fields, t, dt, compiled_rhs)
         t += dt
         step += 1
 
     # }}}
 
 
-def main(ctx_factory, order=3, final_time=0.2, resolution=16,
+def main(ctx_factory, order=4, final_time=0.2, resolution=32,
          nodal_dg=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -279,9 +216,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--tfinal", default=0.2, type=float)
-    parser.add_argument("--resolution", default=16, type=int)
+    parser.add_argument("--resolution", default=32, type=int)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--nodaldg", action="store_true")
     args = parser.parse_args()
