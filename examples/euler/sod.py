@@ -61,21 +61,17 @@ def sod_shock_initial_condition(nodes, t=0):
     _rhoout = 0.125
     _pin = 1.0
     _pout = 0.1
-
     rhoin = zeros + _rhoin
     rhoout = zeros + _rhoout
-
     energyin = zeros + gmn1 * _pin
     energyout = zeros + gmn1 * _pout
 
     x0 = zeros + _x0
     sigma = 1e-13
-    xtanh = 1.0/sigma*(x - x0)
+    weight = 0.5 * (1.0 - actx.np.tanh(1.0/sigma * (x - x0)))
 
-    mass = (rhoin/2.0*(actx.np.tanh(-xtanh) + 1.0)
-            + rhoout/2.0*(actx.np.tanh(xtanh) + 1.0))
-    energy = (energyin/2.0*(actx.np.tanh(-xtanh) + 1.0)
-              + energyout/2.0*(actx.np.tanh(xtanh) + 1.0))
+    mass = rhoout + (rhoin - rhoout)*weight
+    energy = energyout + (energyin - energyout)*weight
     momentum = make_obj_array([zeros for _ in range(dim)])
 
     return EulerState(mass=mass, energy=energy, momentum=momentum)

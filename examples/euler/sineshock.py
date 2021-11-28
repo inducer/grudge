@@ -61,30 +61,29 @@ def sine_shock_initial_condition(nodes, t=0):
     _rhoout = 1 + .2*actx.np.sin(5*x)
     _uin = 2.629369
     _uout = 0.0
-    _pin = 31/3
+    _pin = 10.3333
     _pout = 1
 
     rhoin = zeros + _rhoin
-    rhoout = zeros + _rhoout
+    rhoout = _rhoout
 
     energyin = zeros + gmn1 * _pin
     energyout = zeros + gmn1 * _pout
 
     x0 = zeros + _x0
-    sigma = 0.05
+    sigma = 0.001
     xtanh = 1.0/sigma*(x - x0)
+    weight = 0.5*(1.0 - actx.np.tanh(xtanh))
 
-    mass = (rhoin/2.0*(actx.np.tanh(-xtanh) + 1.0)
-            + rhoout/2.0*(actx.np.tanh(xtanh) + 1.0))
-    energy = (energyin/2.0*(actx.np.tanh(-xtanh) + 1.0)
-              + energyout/2.0*(actx.np.tanh(xtanh) + 1.0))
-    momentum = make_obj_array(
-        [
-            mass*(_uin/2.0*(actx.np.tanh(-xtanh) + 1.0)
-            + _uout/2.0*(actx.np.tanh(xtanh) + 1.0))
-            for _ in range(dim)
-        ]
+    mass = rhoout + (rhoin - rhoout)*weight
+
+    uin = zeros + _uin
+    uout = zeros + _uout
+    momentum = mass * make_obj_array(
+        [uout + (uin - uout)*weight for _ in range(dim)]
     )
+
+    energy = energyout + (energyin - energyout)*weight
 
     return EulerState(mass=mass, energy=energy, momentum=momentum)
 
@@ -128,7 +127,6 @@ def run_sine_shock_problem(actx,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(dim, order),
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(order + 2)
-            # DISCR_TAG_QUAD: default_simplex_group_factory(dim, order)
         }
     )
 
