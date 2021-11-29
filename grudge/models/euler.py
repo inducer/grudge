@@ -264,15 +264,24 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable operator
 
-def conservative_to_entropy_vars(actx, cv_state, gamma=1.4):
+def conservative_to_primitive_vars(cv_state, gamma=1.4):
     """todo.
     """
     rho = cv_state.mass
     rho_e = cv_state.energy
     rho_u = cv_state.momentum
     u = rho_u / rho
+    p = (gamma - 1) * (rho_e - 0.5 * sum(rho_u * u))
+
+    return rho, u, p
+
+
+def conservative_to_entropy_vars(actx, cv_state, gamma=1.4):
+    """todo.
+    """
+    rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
+
     u_square = sum(v ** 2 for v in u)
-    p = (gamma - 1) * (rho_e - 0.5 * rho * u_square)
     s = actx.np.log(p) - gamma*actx.np.log(rho)
     rho_p = rho / p
 
@@ -305,67 +314,53 @@ def entropy_to_conservative_vars(actx, ev_state, gamma=1.4):
                       momentum=rho_iota * v2t4)
 
 
-def flux_chandrashekar(dcoll, gamma, qi, qj):
+def flux_chandrashekar(dcoll, gamma, q_ll, q_rr):
     """Entropy conserving two-point flux by Chandrashekar (2013)
     Kinetic Energy Preserving and Entropy Stable Finite Volume Schemes
     for Compressible Euler and Navier-Stokes Equations
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
 
-    :args qi: an array container for the "left" state
-    :args qj: an array container for the "right" state
+    :args q_ll: an array container for the "left" state
+    :args q_rr: an array container for the "right" state
     """
     dim = dcoll.dim
-    actx = qi.array_context
+    actx = q_ll.array_context
 
-    def log_mean(x: DOFArray, y: DOFArray, epsilon=1e-4):
-        zeta = x / y
-        f = (zeta - 1) / (zeta + 1)
-        u = f*f
-        ff = actx.np.where(actx.np.less(u, epsilon),
-                           1 + u/3 + u*u/5 + u*u*u/7,
-                           actx.np.log(zeta)/2/f)
-        return (x + y) / (2*ff)
+    def ln_mean(x: DOFArray, y: DOFArray, epsilon=1e-4):
+        f2 = (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y)
+        return actx.np.where(
+            actx.np.less(f2, epsilon),
+            (x + y) / (2 + f2*2/3 + f2*f2*2/5 + f2*f2*f2*2/7),
+            (y - x) / actx.np.log(y/ x)
+        )
 
-    rho_i = qi.mass
-    rhoe_i = qi.energy
-    rhou_i = qi.momentum
+    rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
+    rho_rr, u_rr, p_rr = conservative_to_primitive_vars(q_rr, gamma=gamma)
 
-    rho_j = qj.mass
-    rhoe_j = qj.energy
-    rhou_j = qj.momentum
+    beta_ll = 0.5 * rho_ll / p_ll
+    beta_rr = 0.5 * rho_rr / p_rr
+    specific_kin_ll = 0.5 * sum(v**2 for v in u_ll)
+    specific_kin_rr = 0.5 * sum(v**2 for v in u_rr)
 
-    v_i = rhou_i / rho_i
-    v_j = rhou_j / rho_j
+    rho_avg = 0.5 * (rho_ll + rho_rr)
+    rho_mean  = ln_mean(rho_ll,  rho_rr)
+    beta_mean = ln_mean(beta_ll, beta_rr)
+    beta_avg = 0.5 * (beta_ll + beta_rr)
+    u_avg = 0.5 * (u_ll + u_rr)
+    p_mean = 0.5 * rho_avg / beta_avg
 
-    p_i = (gamma - 1) * (rhoe_i - 0.5 * sum(rhou_i * v_i))
-    p_j = (gamma - 1) * (rhoe_j - 0.5 * sum(rhou_j * v_j))
+    velocity_square_avg = specific_kin_ll + specific_kin_rr
 
-    beta_i = 0.5 * rho_i / p_i
-    beta_j = 0.5 * rho_j / p_j
-    specific_kin_i = 0.5 * sum(v**2 for v in v_i)
-    specific_kin_j = 0.5 * sum(v**2 for v in v_j)
-    v_avg = 0.5 * (v_i + v_j)
-    velocity_square_avg = (
-        2 * sum(vi_avg**2 for vi_avg in v_avg)
-        - (specific_kin_i + specific_kin_j)
+    mass_flux = rho_mean * u_avg
+    momentum_flux = np.outer(mass_flux, u_avg) + np.eye(dim) * p_mean
+    energy_flux = (
+        mass_flux * 0.5 * (1/(gamma - 1)/beta_mean - velocity_square_avg)
+        + np.dot(momentum_flux, u_avg)
     )
 
-    rho_avg = 0.5 * (rho_i + rho_j)
-    beta_avg = 0.5 * (beta_i + beta_j)
-    p_avg = 0.5 * rho_avg / beta_avg
-    rho_mean = log_mean(rho_i, rho_j)
-    beta_mean = log_mean(beta_i, beta_j)
-    e_avg = (
-        (rho_mean / (2 * beta_mean * (gamma - 1)))
-        + 0.5 * velocity_square_avg
-    )
-    rho_mean_v_avg = rho_mean * v_avg
-
-    return EulerState(
-        mass=rho_mean_v_avg,
-        energy=v_avg * (e_avg + p_avg),
-        momentum=np.outer(rho_mean_v_avg, v_avg) + np.eye(dim) * p_avg
-    )
+    return EulerState(mass=mass_flux,
+                      energy=energy_flux,
+                      momentum=momentum_flux)
 
 
 def entropy_stable_numerical_flux_chandrashekar(
@@ -376,41 +371,33 @@ def entropy_stable_numerical_flux_chandrashekar(
     [DOI: 10.4208/cicp.170712.010313a](https://doi.org/10.4208/cicp.170712.010313a)
     """
     dd_intfaces = tpair.dd
-    dd_intfaces_base = dd_intfaces.with_discr_tag(DISCR_TAG_BASE)
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
-    q_int = tpair.int
-    q_ext = tpair.ext
-    actx = q_int.array_context
+    q_ll = tpair.int
+    q_rr = tpair.ext
+    actx = q_ll.array_context
 
-    flux = flux_chandrashekar(dcoll, gamma, q_int, q_ext)
+    num_flux = flux_chandrashekar(dcoll, gamma, q_ll, q_rr)
     # FIXME: Because of the affineness of the geometry, this normal technically
     # does not need to be interpolated to the quadrature grid.
-    normal = thaw(dcoll.normal(dd_intfaces_base), actx)
-    num_flux = flux @ normal
+    normal = thaw(dcoll.normal(dd_intfaces), actx)
 
     if lf_stabilization:
-        # compute jump penalization parameter
-        # FIXME: Move into *flux_chandrashekar*
-        rho_int = q_int.mass
-        rhoe_int = q_int.energy
-        rhou_int = q_int.momentum
-        rho_ext = q_ext.mass
-        rhoe_ext = q_ext.energy
-        rhou_ext = q_ext.momentum
-        v_int = rhou_int / rho_int
-        v_ext = rhou_ext / rho_ext
-        p_int = (gamma - 1) * (rhoe_int - 0.5 * sum(rhou_int * v_int))
-        p_ext = (gamma - 1) * (rhoe_ext - 0.5 * sum(rhou_ext * v_ext))
+        from arraycontext import outer
 
-        lam = actx.np.maximum(
-            actx.np.sqrt(gamma * (p_int / rho_int))
-            + actx.np.sqrt(np.dot(v_int, v_int)),
-            actx.np.sqrt(gamma * (p_ext / rho_ext))
-            + actx.np.sqrt(np.dot(v_ext, v_ext))
-        )
-        num_flux -= 0.5 * lam * (q_ext - q_int)
+        rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
+        rho_rr, u_rr, p_rr = conservative_to_primitive_vars(q_rr, gamma=gamma)
 
-    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
+        def compute_wavespeed(rho, u, p):
+            return (
+                actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
+            )
+
+        # Compute jump penalization parameter
+        lam = actx.np.maximum(compute_wavespeed(rho_ll, u_ll, p_ll),
+                              compute_wavespeed(rho_rr, u_rr, p_rr))
+        num_flux -= lam*outer(tpair.diff, normal)/2
+
+    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux @ normal)
 
 
 class EntropyStableEulerOperator(EulerOperator):
