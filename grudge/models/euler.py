@@ -545,4 +545,47 @@ class AdiabaticSlipBC(BCObject):
 # }}}
 
 
+# {{{ Limiter
+
+def positivity_preserving_limiter(dcoll, state):
+    actx = state.array_context
+
+    # Interpolate state to quadrature grid
+    dd_quad = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
+    density = op.project(dcoll, "vol", dd_quad, state.mass)
+
+    # Compute nodal and elementwise max/mins
+    _mmax = op.nodal_max(dcoll, dd_quad, density)
+    _mmin = op.nodal_min(dcoll, dd_quad, density)
+    _mmax_i = op.elementwise_max(dcoll, density)
+    _mmin_i = op.elementwise_min(dcoll, density)
+
+    # Compute cell averages of the state
+    from grudge.geometry import area_element
+
+    inv_area_elements = 1./area_element(
+        actx, dcoll,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    state_cell_avgs = \
+        inv_area_elements * op.elementwise_integral(dcoll, state.mass)
+
+    # Compute minmod factor
+    theta = actx.np.minimum(
+        1,
+        actx.np.minimum(
+            abs((_mmax - state_cell_avgs)/(_mmax_i - state_cell_avgs)),
+            abs((_mmin - state_cell_avgs)/(_mmin_i - state_cell_avgs))
+        )
+    )
+
+    return EulerState(
+        # Limit only mass
+        mass=theta*(state.mass - state_cell_avgs) + state_cell_avgs,
+        energy=state.energy,
+        momentum=state.momentum
+    )
+
+# }}}
+
+
 # vim: foldmethod=marker

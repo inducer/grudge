@@ -97,24 +97,28 @@ def get_doublemach_mesh():
     return mesh
 
 
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
-
-
-def ssprk43_step(y, t, h, f):
+def ssprk43_step(y, t, h, f, limiter=None):
 
     def f_update(t, y):
         return y + h*f(t, y)
 
     y1 = 1/2*y + 1/2*f_update(t, y)
-    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
-    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
+    if limiter is not None:
+        y1 = limiter(y1)
 
-    return 1/2*y3 + 1/2*f_update(t + h/2, y3)
+    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
+    if limiter is not None:
+        y2 = limiter(y2)
+
+    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
+    if limiter is not None:
+        y3 = limiter(y3)
+
+    result = 1/2*y3 + 1/2*f_update(t + h/2, y3)
+    if limiter is not None:
+        result = limiter(result)
+
+    return result
 
 
 def doublemach_reflection_initial_condition(x_vec, t=0):
@@ -240,10 +244,13 @@ def run_doublemach_reflection(
 
     step = 0
     t = 0.0
-    while t < final_time:
-        fields = thaw(freeze(fields, actx), actx)
-        fields = ssprk43_step(fields, t, dt, compiled_rhs)
 
+    from grudge.models.euler import positivity_preserving_limiter
+    from functools import partial
+
+    limiter = partial(positivity_preserving_limiter, dcoll)
+
+    while t < final_time:
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
@@ -258,6 +265,8 @@ def run_doublemach_reflection(
                 )
             assert norm_q < 10000
 
+        fields = thaw(freeze(fields, actx), actx)
+        fields = ssprk43_step(fields, t, dt, compiled_rhs, limiter=limiter)
         t += dt
         step += 1
 
