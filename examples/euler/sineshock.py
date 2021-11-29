@@ -71,7 +71,7 @@ def sine_shock_initial_condition(nodes, t=0):
     energyout = zeros + gmn1 * _pout
 
     x0 = zeros + _x0
-    sigma = 0.001
+    sigma = 0.05
     xtanh = 1.0/sigma*(x - x0)
     weight = 0.5*(1.0 - actx.np.tanh(xtanh))
 
