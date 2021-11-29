@@ -30,8 +30,6 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from dataclasses import dataclass
-
 from arraycontext import thaw, freeze
 from meshmode.array_context import (
     SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
@@ -41,6 +39,7 @@ from grudge.models.euler import (
     EulerOperator,
     EntropyStableEulerOperator
 )
+from grudge.shortcuts import lsrk54_step
 
 from pytools.obj_array import make_obj_array
 
@@ -52,51 +51,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class LSRKCoefficients:
-    """Dataclass which defines a given low-storage Runge-Kutta (LSRK) scheme.
-    The methods are determined by the provided `A`, `B` and `C` coefficient arrays.
-    """
-
-    A: np.ndarray
-    B: np.ndarray
-    C: np.ndarray
-
-
-LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
-    A=np.array([
-        0.,
-        -567301805773/1357537059087,
-        -2404267990393/2016746695238,
-        -3550918686646/2091501179385,
-        -1275806237668/842570457699]),
-    B=np.array([
-        1432997174477/9575080441755,
-        5161836677717/13612068292357,
-        1720146321549/2090206949498,
-        3134564353537/4481467310338,
-        2277821191437/14882151754819]),
-    C=np.array([
-        0.,
-        1432997174477/9575080441755,
-        2526269341429/6820363962896,
-        2006345519317/3224310063776,
-        2802321613138/2924317926251]))
-
-
-def lsrk_step(state, t, dt, rhs):
-    """Take one step using a low-storage Runge-Kutta method."""
-    k = 0.0 * state
-    coefs = LSRK54CarpenterKennedyCoefs
-    for i in range(len(coefs.A)):
-        k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
-        state += coefs.B[i]*k
-
-    return state
-
-
 def vortex_initial_condition(x_vec, t=0):
-    M = 0.5  # Mach number
+    mach = 0.5  # Mach number
     _x0 = 5
     epsilon = 1   # vortex strength
     gamma = 1.4
@@ -111,10 +67,10 @@ def vortex_initial_condition(x_vec, t=0):
 
     velocity = make_obj_array([u, v])
     mass = (
-        1 - ((epsilon**2 * (gamma - 1) * M**2)/(8*np.pi**2)) * actx.np.exp(fxyt)
+        1 - ((epsilon**2 * (gamma - 1) * mach**2)/(8*np.pi**2)) * actx.np.exp(fxyt)
     ) ** (1 / (gamma - 1))
     momentum = mass * velocity
-    p = (mass ** gamma)/(gamma * M**2)
+    p = (mass ** gamma)/(gamma * mach**2)
 
     energy = p / (gamma - 1) + mass / 2 * (u ** 2 + v ** 2)
 
@@ -213,28 +169,16 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
 
     dq = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
     entropy = euler_operator.state_to_mathematical_entropy(fields)
-    entropy_int0 =  actx.to_numpy(op.integral(dcoll, dq, entropy))
+    entropy_int0 = actx.to_numpy(op.integral(dcoll, dq, entropy))
 
     fig = pt.figure(figsize=(8, 8), dpi=300)
     taxis = [0]
     entropy_rel_diff = [0]
 
     while t < final_time:
-        fields = thaw(freeze(fields, actx), actx)
-        fields = lsrk_step(fields, t, dt, compiled_rhs)
-        t += dt
-
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
-            # analytic = \
-            #     thaw(
-            #         freeze(
-            #             vortex_initial_condition(thaw(dcoll.nodes(), actx), t=t),
-            #             actx
-            #         ),
-            #         actx
-            #     )
             entropy = euler_operator.state_to_mathematical_entropy(fields)
             entropy_integral = actx.to_numpy(op.integral(dcoll, dq, entropy))
             int_diff = entropy_integral - entropy_int0
@@ -258,6 +202,9 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
                 )
             assert norm_q < 10000
 
+        fields = thaw(freeze(fields, actx), actx)
+        fields = lsrk54_step(fields, t, dt, compiled_rhs)
+        t += dt
         step += 1
 
     # }}}
@@ -265,15 +212,15 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     # Plot entropy integral rel. diff over time:
     filename = \
         f"{exp_name}-entropy-diff-cfl{cfl}-r{resolution}-deg{order}.png"
-    pt.rcParams.update({'font.size': 20})
+    pt.rcParams.update({"font.size": 20})
     ax = fig.gca()
     ax.grid()
-    ax.set_yscale('log')
+    ax.set_yscale("log")
     ax.plot(taxis, entropy_rel_diff, "-")
     ax.plot(taxis, entropy_rel_diff, "k.")
     ax.set_xlabel("time")
     ax.set_ylabel("|∫η1 - ∫η0| /|∫η0|")
-    pt.title(f'Rel. change in entropy: cfl={cfl}')
+    pt.title(f"Rel. change in entropy: cfl={cfl}")
     fig.savefig(filename, bbox_inches="tight")
 
 
@@ -298,8 +245,6 @@ def run_convergence_test_vortex(
     gas_const = 287.1
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
-
-    dim = 2
 
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
@@ -369,7 +314,7 @@ def run_convergence_test_vortex(
         last_q = None
         while t < final_time:
             fields = thaw(freeze(fields, actx), actx)
-            fields = lsrk_step(fields, t, dt, compiled_rhs)
+            fields = lsrk54_step(fields, t, dt, compiled_rhs)
             t += dt
             logger.info("[%04d] t = %.5f", step, t)
             last_q = fields
