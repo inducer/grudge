@@ -31,8 +31,8 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from arraycontext import thaw, freeze
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.grudge_array_context import (AutotuningArrayContext, 
     GrudgeArrayContext, ParameterFixingPyOpenCLArrayContext)
 
@@ -143,16 +143,24 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False):
+def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-    #actx = ParameterFixingPyOpenCLArrayContext(
-    actx = AutotuningArrayContext(
-    #actx = GrudgeArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+    if lazy:
+        actx = PytatoPyOpenCLArrayContext(queue)
+    else:
+        #actx = ParameterFixingPyOpenCLArrayContext(
+        actx = AutotuningArrayContext(
+        #actx = GrudgeArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
+        #actx = PyOpenCLArrayContext(
+        #    queue,
+        #    allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        #    force_device_scalars=True,
+        #)
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -198,6 +206,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     def rhs(t, w):
         return wave_operator(dcoll, c=c, w=w)
 
+    compiled_rhs = actx.compile(rhs)
+
     if comm.rank == 0:
         logger.info("dt = %g", dt)
 
@@ -205,8 +215,12 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     t_final = 3
     istep = 0
     end_step = 10
-    while istep < end_step:#t < t_final:
-        fields = rk4_step(fields, t, dt, rhs)
+
+    while t < t_final:
+        if lazy:
+            fields = thaw(freeze(fields, actx), actx)
+
+        fields = rk4_step(fields, t, dt, compiled_rhs)
 
         l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
 
@@ -246,12 +260,16 @@ if __name__ == "__main__":
     parser.add_argument("--dim", default=2, type=int)
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--lazy", action="store_true",
+                        help="switch to a lazy computation mode")
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
 
 # vim: foldmethod=marker

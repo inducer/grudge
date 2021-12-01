@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 
-def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
+def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0.0):
     from leap.rk import LSRK4MethodBuilder
     from dagrt.codegen import PythonCodeGenerator
 
