@@ -267,9 +267,11 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
 
 def _apply_elementwise_reduction(
         op_name: str, dcoll: DiscretizationCollection,
-        dd, vec) -> ArrayOrContainerT:
+        *args) -> ArrayOrContainerT:
     r"""Returns a vector of DOFs with all entries on each element set
     to the reduction operation *op_name* over all degrees of freedom.
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -278,6 +280,16 @@ def _apply_elementwise_reduction(
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
     """
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    dd = dof_desc.as_dofdesc(dd)
+
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(_apply_elementwise_reduction, op_name, dcoll, dd), vec
@@ -351,17 +363,7 @@ def elementwise_sum(
         :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise sum of *vec*.
     """
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    return _apply_elementwise_reduction("sum", dcoll, dd, vec)
+    return _apply_elementwise_reduction("sum", dcoll, *args)
 
 
 def elementwise_max(
@@ -389,17 +391,7 @@ def elementwise_max(
         :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise max of *vec*.
     """
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    return _apply_elementwise_reduction("max", dcoll, dd, vec)
+    return _apply_elementwise_reduction("max", dcoll, *args)
 
 
 def elementwise_min(
@@ -427,17 +419,7 @@ def elementwise_min(
         :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
         denote the element-wise min of *vec*.
     """
-    if len(args) == 1:
-        vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    dd = dof_desc.as_dofdesc(dd)
-
-    return _apply_elementwise_reduction("min", dcoll, dd, vec)
+    return _apply_elementwise_reduction("min", dcoll, *args)
 
 
 def elementwise_integral(
