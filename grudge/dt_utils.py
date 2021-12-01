@@ -292,7 +292,7 @@ def dt_geometric_factors(
         Nj = afgrp.nunit_dofs
         
         kernel_data = [
-            lp.GlobalArg("arg0", fp_format, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+            lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
             #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
             lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
             lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
@@ -333,7 +333,7 @@ def dt_geometric_factors(
         Ne, Ni = cv_i.shape
  
         kernel_data = [
-            lp.GlobalArg("arg0", fp_format, shape=(Ne,)), 
+            lp.GlobalArg("arg0", sae_i.dtype, shape=(Ne,), strides=lp.auto), 
             lp.GlobalArg("arg1", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()]), 
             lp.GlobalArg("out", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()], is_output=True),
             lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
@@ -341,8 +341,6 @@ def dt_geometric_factors(
             ...
         ]
         kd_tag = KernelDataTag(kernel_data)
-
-
 
         data.append(actx.einsum("e,ei->ei",
                         1/sae_i,

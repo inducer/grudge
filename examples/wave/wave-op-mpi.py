@@ -160,7 +160,9 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
 
-    nel_1d = 16
+    order=2
+    dim = 3
+    nel_1d = 2**5
 
     if mesh_dist.is_mananger_rank():
         from meshmode.mesh.generation import generate_regular_rect_mesh

@@ -17,6 +17,7 @@ from arraycontext.container.traversal import (rec_map_array_container,
 from hashlib import md5
 import hjson
 from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search, exhaustive_search_v2
+from arraycontext.container.traversal import rec_multimap_array_container
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
 
@@ -114,9 +115,60 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
 
 class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
 
+    def ravel(self, a, order="C"):
+        def _rec_ravel(a):
+            if order == "C" and len(a.shape) == 2 and a.flags.f_contiguous:
+                @memoize_in(self._array_context, (_rec_ravel, "flatten_grp_ary_prg"))
+                def prg():
+                    from arraycontext import make_loopy_program
+                    t_unit = make_loopy_program(
+                        [
+                            "{[iel]: 0 <= iel < nelements}",
+                            "{[idof]: 0 <= idof < ndofs_per_element}"
+                        ],
+                        """
+                            result[iel * ndofs_per_element + idof] = grp_ary[iel, idof]
+                        """,
+                        [
+                            lp.GlobalArg("result", None,
+                                         shape="nelements * ndofs_per_element"),
+                            lp.GlobalArg("grp_ary", None,
+                                         shape=("nelements", "ndofs_per_element"), tags=[IsDOFArray()]),
+                            lp.ValueArg("nelements", np.int32),
+                            lp.ValueArg("ndofs_per_element", np.int32),
+                            "..."
+                        ],
+                        name="flatten_grp_ary"
+                    )
+                    return t_unit
+                    #return lp.tag_inames(t_unit, {
+                    #    "iel": ConcurrentElementInameTag(),
+                    #    "idof": ConcurrentDOFInameTag()})
 
-    def stack(self, arrays, axis=0):
-        from arraycontext.container.traversal import rec_multimap_array_container
+                result = self._array_context.call_loopy(prg(), grp_ary=a)["result"]
+                return result
+            elif order in "FC":
+                return a.reshape(-1, order=order)
+            elif order == "A":
+                # TODO: upstream this to pyopencl.array
+                if a.flags.f_contiguous:
+                    return a.reshape(-1, order="F")
+                elif a.flags.c_contiguous:
+                    return a.reshape(-1, order="C")
+                else:
+                    raise ValueError("For `order='A'`, array should be either"
+                                     " F-contiguous or C-contiguous.")
+            elif order == "K":
+                raise NotImplementedError("PyOpenCLArrayContext.np.ravel not "
+                                          "implemented for 'order=K'")
+            else:
+                raise ValueError("`order` can be one of 'F', 'C', 'A' or 'K'. "
+                                 f"(got {order})")
+
+        return rec_map_array_container(_rec_ravel, a)
+
+
+    def stack(self,arrays, axis=0):
         from pytools.obj_array import make_obj_array
 
         if not axis == 0:
@@ -166,7 +218,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             d["n0"] = len(arrays)
             prg = lp.fix_parameters(prg,  **d)
 
-            # Should call_loopy be used instead?
+            # Should call_loopy be used instead? Probably. No reason no to
             result = prg(queue, input=make_obj_array(arrays))[1][0]
             #print(result.shape)
             return result
@@ -206,6 +258,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             raise AttributeError(name)
 
 # The PyOpenCLArrayContext needs this since the array dimensions are
+# Maybe the parameter fixing should be moved into the PyOpenCLArrayContext
 class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
 
     @memoize_method
@@ -224,56 +277,54 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
     def call_loopy(self, program, **kwargs):
 
         result = super().call_loopy(program, **kwargs)
-        evt = result["evt"]
-        evt.wait()
-        dt = evt.profile.end - evt.profile.start
-        dt = dt / 1e9
 
-        nbytes = 0
-        # Could probably just use program.default_entrypoint.args but maybe all
-        # parameters are not set
+        try: # Only if profiling is enabled
+            evt = result["evt"]
+            evt.wait()
+            dt = evt.profile.end - evt.profile.start
+            dt = dt / 1e9
 
-        if "resample_by_mat" in program.default_entrypoint.name:
-            n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
-            nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
-                        n_to_nodes*n_from_nodes +
-                        kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
-        elif "resample_by_picking" in program.default_entrypoint.name:
-            # Double check this
-            if "rhs" not in program.default_entrypoint.name:
-                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
-                        + kwargs["to_element_indices"].shape[0])*8
+            nbytes = 0
+            # Could probably just use program.default_entrypoint.args but maybe all
+            # parameters are not set
+            if "resample_by_mat" in program.default_entrypoint.name:
+                n_to_nodes, n_from_nodes = kwargs["resample_mat"].shape
+                nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
+                            n_to_nodes*n_from_nodes +
+                            kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
+            elif "resample_by_picking" in program.default_entrypoint.name:
+                # Double check this
+                if "rhs" not in program.default_entrypoint.name:
+                    nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
+                            + kwargs["to_element_indices"].shape[0])*8
+                else:
+                    nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
             else:
-                nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
-
-        else:
-            #print(program.default_entrypoint.name)
-            #print(kwargs.keys())
-            for key, val in kwargs.items():
-                # output may be a list of pyopenclarrays or it could be a 
-                # pyopenclarray. This prevents double counting (allowing
-                # other for-loop to count the bytes in the former case)
-                if key not in result.keys(): 
-                    try: 
+                # This won't work because not all kernels have dimensions specified
+                #for arg in program.default_entrypoint.args:
+                #    nbytes += arg.dtype.dtype.itemsize*np.prod(arg.shape)
+                for key, val in kwargs.items():
+                    # output may be a list of pyopenclarrays or it could be a 
+                    # pyopenclarray. This prevents double counting (allowing
+                    # other for-loop to count the bytes in the former case)
+                    if key not in result.keys(): 
+                        try: 
+                            nbytes += np.prod(val.shape)*8
+                        except AttributeError:
+                            nbytes += 0 # Or maybe 1*8 if this is a scalar
+                for val in result.values():
+                    try:
                         nbytes += np.prod(val.shape)*8
-                        #print(val.shape)
                     except AttributeError:
-                        nbytes += 0 # Or maybe 1*8 if this is a scalar
-            #print("Output")
-            #print(result.keys())
-            for val in result.values():
-                try:
-                    nbytes += np.prod(val.shape)*8
-                    #print(val.shape)
-                except AttributeError:
-                    nbytes += 0 # Or maybe this is a scalar?
+                        nbytes += 0 # Or maybe this is a scalar?
+            bw = nbytes / dt / 1e9
 
-        bw = nbytes / dt / 1e9
+            print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
 
-        print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
+        except cl._cl.RuntimeError as e:
+            pass 
 
         return result
-
 
 
 class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
@@ -342,6 +393,22 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
             cl_a = out
         return cl_a
 
+
+    def transform_loopy_program(self, program):
+        program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
+        program = set_memory_layout(program)
+
+        # This should probably be a separate function
+        for arg in program.default_entrypoint.args:
+            for tag in arg.tags:
+                if isinstance(tag, ParameterValue):
+                    program = lp.fix_parameters(program, **{arg.name: tag.value})
+
+        # PyOpenCLArrayContext default transformations can't handle fortran ordering
+        #program = super().transform_loopy_program(program)
+        return program
+
+
 # This class could be used for some set of default transformations
 class GrudgeArrayContext(FortranOrderedArrayContext):
 
@@ -349,24 +416,79 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
     def transform_loopy_program(self, program):
         #print(program.default_entrypoint.name)
 
-        # Should probably move into a separate function
-        #for arg in program.default_entrypoint.args:
-        #    for tag in arg.tags:
-        #        if isinstance(tag, ParameterValue):
-        #            program = lp.fix_parameters(program, **{arg.name: tag.value})
+        #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
 
-        program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
-
-        # Set no_numpy and return_dict options here?
-        program = set_memory_layout(program)
         
-        device_id = "NVIDIA Titan V"
-        transform_id = get_transformation_id(device_id)
+        #device_id = "NVIDIA Titan V"
+        #transform_id = get_transformation_id(device_id)
 
-        # Should just have another array context that only changes the data layout. The transform code can
-        # go in an array context that inherits from it
-        #return super().transform_loopy_program(program)
-        
+        # Static (non-autotuned) transformations for the GPU
+        if "resample_by_picking" in program.default_entrypoint.name:
+            for arg in program.default_entrypoint.args:
+                print(arg.name, arg.tags)
+                if arg.name == "n_to_nodes":
+                    # Assumes this has has a single ParameterValue tag
+                    n_to_nodes = arg.tags[0].value
+
+            l0 = ((1024 // n_to_nodes) // 32) * 32
+            if l0 == 0:
+                l0 = 16
+            if n_to_nodes*16 > 1024:
+                l0 = 8
+
+            outer = max(l0, 32)
+
+            #program = set_memory_layout(program)
+            program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
+                                        slabs=(0, 1))
+            program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
+                                        inner_tag="l.0")
+            program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 0))
+
+        elif "actx_special" in program.default_entrypoint.name: # Fixed
+            #program = set_memory_layout(program)
+            # Sometimes sqrt is called on single values.
+            if "i0" in program.default_entrypoint.inames:
+                program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
+                                        inner_tag="l.0", slabs=(0, 1))
+            #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
+            #                           slabs=(0,1))
+            #program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
+            #                           inner_tag="l.0")
+            #program = lp.split_iname(program, "i1", 20, outer_tag="g.1",
+            #                           inner_tag="l.1", slabs=(0,0))
+            #program2 = lp.join_inames(program, ("i1", "i0"), "i")
+            #from islpy import BasicMap
+            #m = BasicMap("[x,y] -> {[n0,n1]->[i]:}")
+            #program2 = lp.map_domain(program, m)
+            #print(program2)
+            #exit()
+
+            #program = super().transform_loopy_program(program)
+            #print(program)
+            #print(lp.generate_code_v2(program).device_code())
+
+        # Not really certain how to do grudge_assign, done for flatten
+        elif "flatten" in program.default_entrypoint.name: 
+
+            #program = set_memory_layout(program)
+            # This is hardcoded. Need to move this to separate transformation file
+            #program = lp.set_options(program, "write_cl")
+            program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
+                                        slabs=(0, 1))
+            program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
+                                        inner_tag="l.0")
+            program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 0))
+
+        #else:
+            #print(program)
+            #print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
+            #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
+        program = super().transform_loopy_program(program)
+
+       
         '''
         if "diff_" in program.default_entrypoint.name: #and "diff_2" not in program.default_entrypoint.name:
             #program = lp.set_options(program, "write_cl")
@@ -535,16 +657,8 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             program = super().transform_loopy_program(program)
         '''
 
-        #program = super().transform_loopy_program(program)
-        #print(program.default_entrypoint.name)
-        #print(program)
-        #exit()
-
         return program
 
-def convert(o):
-    if isinstance(o, np.generic): return o.item()
-    raise TypeError
 
 # Could be problematic if code generation is not deterministic.
 def unique_program_id(program):
@@ -553,26 +667,34 @@ def unique_program_id(program):
     identifier = h.hexdigest()
     return identifier
 
+
+def convert(o):
+    if isinstance(o, np.generic): return o.item()
+    raise TypeError
+
 class AutotuningArrayContext(GrudgeArrayContext):
 
     @memoize_method
     def transform_loopy_program(self, program):
 
+        # Really just need to add metadata to the hjson file
+        # Could convert the kernel itself to base 64 and store it
+        # in the hjson file
+        # TODO: Dynamically determine device id,
         device_id = "NVIDIA Titan V"
-        transform_id = get_transformation_id(device_id)
 
         print(program.default_entrypoint.name)
         print(program)
 
         # These are the most compute intensive kernels
-        to_optimize = {}#{"smooth_comp"}
+        to_optimize = {}
         if program.default_entrypoint.name in to_optimize:
             print(program)
             for arg in program.default_entrypoint.args:
                 print(arg.tags)
             exit()
 
-        # Kernels to autotune
+        # Meshmode and Grudge kernels to autotune
         autotuned_kernels = {"einsum3to2_kernel",
                              "einsum4to2_kernel", 
                              "einsum5to3_kernel", 
@@ -580,58 +702,15 @@ class AutotuningArrayContext(GrudgeArrayContext):
                              "diff", 
                              "lp_nodes",
                              "grudge_elementwise_sum_knl"}
-        if program.default_entrypoint.name in autotuned_kernels:
-           #"diff" in program.default_entrypoint.name or \
-           #"einsum3to2_kernel" == program.default_entrypoint.name:# or \
-           #"nodes" == program.default_entrypoint.name or \
-           #"face_mass" == program.default_entrypoint.name or \
-           #"elwise_linear" == program.default_entrypoint.name or \
-           #"resample_by_mat" in program.default_entrypoint.name: # The lack of known array sizes breaks this
 
+        if program.default_entrypoint.name in autotuned_kernels:
             # Set no_numpy and return_dict options here?
+            program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
             program = set_memory_layout(program)
             pid = unique_program_id(program)
             print(pid)
-
-            #program = lp.set_options(program, "write_cl")
-            # TODO: Dynamically determine device id,
-            # Rename this file
-
-            # This can be removed since we're now using the hash of the program code to specify the file.
-            # Kernels with different dimensions will have different files.
-            fp_format = None
-            ndofs = None # The value doesn't matter now
-            for arg in program.default_entrypoint.args:
-                if IsOpArray() in arg.tags:
-                    dim = 1
-                    ndofs = arg.shape[0]
-                    fp_format = arg.dtype.numpy_dtype
-                    break
-                elif IsSepVecOpArray() in arg.tags or IsVecOpArray() in arg.tags:
-                    ndofs = arg.shape[1]
-                    fp_format = arg.dtype.numpy_dtype
-                    break
-                elif IsFaceMassOpArray() in arg.tags:
-                    ndofs = arg.shape[0]
-                    fp_format = arg.dtype.numpy_dtype
-                    break
-                elif IsDOFArray() in arg.tags:
-                    ndofs = arg.shape[1]
-                    fp_format = arg.dtype.numpy_dtype
-                    break 
-
-            if fp_format is None:
-                print("Unknown fp_format")
-                exit()                
-            if ndofs is None:
-                print("Unknown ndofs")
-                exit()
-
-            # FP format is very specific. Could have integer arrays?
-            # What about mixed data types?
-            fp_string = get_fp_string(fp_format)
-
             hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
+
             try:
                 # Attempt to read from a transformation file in the current directory first,
                 # then try to read from the package files - this is not currently implemented
@@ -639,15 +718,58 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
                 hjson_file = open(hjson_file_str, "rt")
 
-                # Probably need to generalize this
-                indices = [transform_id, fp_string, str(ndofs)]
-                transformations = dgk.load_transformations_from_file(hjson_file,
-                    indices)
+                try: # New hjson structure
+                    transformations = dgk.load_transformations_from_file(hjson_file,
+                        ["transformations"])
+                except KeyError as e:
+                    # This can eventually be removed since we're now using the hash of the program code to specify the file.
+                    # Kernels with different dimensions will have different files.
+                    hjson_file.seek(0,0) # Move read location back to beginning
+
+                    fp_format = None
+                    ndofs = None # The value doesn't matter now
+                    transform_id = get_transformation_id(device_id)
+
+                    for arg in program.default_entrypoint.args:
+                        if IsOpArray() in arg.tags:
+                            dim = 1
+                            ndofs = arg.shape[0]
+                            fp_format = arg.dtype.numpy_dtype
+                            break
+                        elif IsSepVecOpArray() in arg.tags or IsVecOpArray() in arg.tags:
+                            ndofs = arg.shape[1]
+                            fp_format = arg.dtype.numpy_dtype
+                            break
+                        elif IsFaceMassOpArray() in arg.tags:
+                            ndofs = arg.shape[0]
+                            fp_format = arg.dtype.numpy_dtype
+                            break
+                        elif IsDOFArray() in arg.tags:
+                            ndofs = arg.shape[1]
+                            fp_format = arg.dtype.numpy_dtype
+                            break 
+
+                    if fp_format is None:
+                        print("Unknown fp_format")
+                        exit()                
+                    if ndofs is None:
+                        print("Unknown ndofs")
+                        exit()
+
+                    fp_string = get_fp_string(fp_format)
+                    indices = [transform_id, fp_string, str(ndofs)]
+                    transformations = dgk.load_transformations_from_file(hjson_file,
+                        indices)
+
                 hjson_file.close()
 
-            except (KeyError, FileNotFoundError) as e:
+            #except (KeyError, FileNotFoundError) as e:
+            # There shouldn't be any more key errors now that PIDs are used
+            except FileNotFoundError as e:
                 
                 search_fn = exhaustive_search_v2#random_search
+
+                # Maybe the generators should be classes so we can use inheritance.
                 if program.default_entrypoint.name == "einsum3to2_kernel":
                     from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_tlist_generator as tlist_generator
                     from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_pspace_generator as pspace_generator
@@ -667,136 +789,146 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     from grudge.loopy_dg_kernels.generators import gen_autotune_list as pspace_generator
                     from grudge.loopy_dg_kernels.generators import mxm_trans_list_generator as tlist_generator
 
-                avg_time, transformations, data = search_fn(self.queue, program, generic_test, 
+                try:
+                    avg_time, transformations, data = search_fn(self.queue, program, generic_test, 
                                                 pspace_generator, tlist_generator, time_limit=np.inf)
+                except cl._cl.RuntimeError as e:
+                    print(e)
+                    print("Profiling is not enabled and the PID does not match any transformation file. Turn on profiling and run again.")
+
                 #transformations = search_fn(self.queue, program, generic_test, time_limit=60)
                 #transformations = dgk.generate_transformation_list(*transformations) 
                 
                 # Write the new transformations back to local file
-                if isinstance(e, KeyError):
-                    hjson_file = open(hjson_file_str, "rt")
-                    # Need to figure out how to copy existing transformations 
-                    od = hjson.load(hjson_file)
-                    hjson_file.close()
-                    od[transform_id][fp_string][ndofs] = transformations
-                else:
-                    od = {transform_id: {fp_string: {str(ndofs): transformations} } }
+                #if isinstance(e, KeyError):
+                #    hjson_file = open(hjson_file_str, "rt")
+                #    # Need to figure out how to copy existing transformations 
+                #    od = hjson.load(hjson_file)
+                #    hjson_file.close()
+                #    od[transform_id][fp_string][ndofs] = transformations
+                #else:
+                #    od = {transform_id: {fp_string: {str(ndofs): transformations} } }
+                od = {"transformations": transformations}
                 
                 out_file = open(hjson_file_str, "wt+")
+
                 hjson.dump(od, out_file,default=convert)
                 out_file.close()
                 #from pprint import pprint
                 #pprint(od)
 
             program = dgk.apply_transformation_list(program, transformations)
-        # Kernels to not autotune. Should probably still load the transformation from a
-        # generator function.
 
-        # Maybe this should have an autotuner
-	    # There isn't much room for optimization due to the indirection
-        elif "resample_by_picking" in program.default_entrypoint.name:
-            for arg in program.default_entrypoint.args:
-                if arg.name == "n_to_nodes":
-                    # Assumes this has has a single ParameterValue tag
-                    n_to_nodes = arg.tags[0].value
+            """
+            # Kernels to not autotune. Should probably still load the transformation from a
+            # generator function. Should these be put in GrudgeArrayContext
 
-            l0 = ((1024 // n_to_nodes) // 32) * 32
-            if l0 == 0:
-                l0 = 16
-            if n_to_nodes*16 > 1024:
-                l0 = 8
+            # Maybe this should have an autotuner
+            # There isn't much room for optimization due to the indirection
+            elif "resample_by_picking" in program.default_entrypoint.name:
+                for arg in program.default_entrypoint.args:
+                    if arg.name == "n_to_nodes":
+                        # Assumes this has has a single ParameterValue tag
+                        n_to_nodes = arg.tags[0].value
 
-            outer = max(l0, 32)
+                l0 = ((1024 // n_to_nodes) // 32) * 32
+                if l0 == 0:
+                    l0 = 16
+                if n_to_nodes*16 > 1024:
+                    l0 = 8
 
-            program = set_memory_layout(program)
-            program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
-                                        slabs=(0, 1))
-            program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
-                                        inner_tag="l.0")
-            program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+                outer = max(l0, 32)
 
-        elif "actx_special" in program.default_entrypoint.name: # Fixed
-            program = set_memory_layout(program)
-            # Sometimes sqrt is called on single values.
-            if "i0" in program.default_entrypoint.inames:
-                program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
-                                        inner_tag="l.0", slabs=(0, 1))
-            #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
-            #                           slabs=(0,1))
-            #program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
-            #                           inner_tag="l.0")
-            #program = lp.split_iname(program, "i1", 20, outer_tag="g.1",
-            #                           inner_tag="l.1", slabs=(0,0))
-            #program2 = lp.join_inames(program, ("i1", "i0"), "i")
-            #from islpy import BasicMap
-            #m = BasicMap("[x,y] -> {[n0,n1]->[i]:}")
-            #program2 = lp.map_domain(program, m)
-            #print(program2)
-            #exit()
+                program = set_memory_layout(program)
+                program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
+                                            slabs=(0, 1))
+                program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
+                                            inner_tag="l.0")
+                program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
+                                            inner_tag="l.1", slabs=(0, 0))
 
-            #program = super().transform_loopy_program(program)
-            #print(program)
-            #print(lp.generate_code_v2(program).device_code())
+            elif "actx_special" in program.default_entrypoint.name: # Fixed
+                program = set_memory_layout(program)
+                # Sometimes sqrt is called on single values.
+                if "i0" in program.default_entrypoint.inames:
+                    program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
+                                            inner_tag="l.0", slabs=(0, 1))
+                #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
+                #                           slabs=(0,1))
+                #program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
+                #                           inner_tag="l.0")
+                #program = lp.split_iname(program, "i1", 20, outer_tag="g.1",
+                #                           inner_tag="l.1", slabs=(0,0))
+                #program2 = lp.join_inames(program, ("i1", "i0"), "i")
+                #from islpy import BasicMap
+                #m = BasicMap("[x,y] -> {[n0,n1]->[i]:}")
+                #program2 = lp.map_domain(program, m)
+                #print(program2)
+                #exit()
 
-        # Not really certain how to do grudge_assign, done for flatten
-        elif "flatten" in program.default_entrypoint.name: 
+                #program = super().transform_loopy_program(program)
+                #print(program)
+                #print(lp.generate_code_v2(program).device_code())
 
-            program = set_memory_layout(program)
-            # This is hardcoded. Need to move this to separate transformation file
-            #program = lp.set_options(program, "write_cl")
-            program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
-                                        slabs=(0, 1))
-            program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
-                                        inner_tag="l.0")
-            program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+            # Not really certain how to do grudge_assign, done for flatten
+            elif "flatten" in program.default_entrypoint.name: 
 
-        else:
-            #print(program)
-            print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
-            #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
-            program = super().transform_loopy_program(program)
-
-        '''       
-        # These still depend on the polynomial order = 3
-        # Never called?
-        # This is going away anyway probably
-        elif "resample_by_mat" in program.default_entrypoint.name:
-            hjson_file = pkg_resources.open_text(dgk, f"{program.default_entrypoint.name}.hjson")
-    
-            # Order 3: 10 x 10
-            # Order 4: 15 x 35
+                program = set_memory_layout(program)
+                # This is hardcoded. Need to move this to separate transformation file
+                #program = lp.set_options(program, "write_cl")
+                program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
+                                            slabs=(0, 1))
+                program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
+                                            inner_tag="l.0")
+                program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
+                                            inner_tag="l.1", slabs=(0, 0))
             
-            #print(program)
-            #exit()
-            pn = 3 # This needs to  be not fixed
-            fp_string = "FP64"
-            
-            indices = [transform_id, fp_string, str(pn)]
-            transformations = dgk.load_transformations_from_file(hjson_file,
-                indices)
-            hjson_file.close()
-            print(transformations)
-            program = dgk.apply_transformation_list(program, transformations)
+            else:
+                #print(program)
+                #print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
+                #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
+               program = super().transform_loopy_program(program)
 
-        # Not really certain how to do grudge_assign, done for flatten
-        elif "grudge_assign" in program.default_entrypoint.name or "flatten" in program.default_entrypoint.name: 
-            # This is hardcoded. Need to move this to separate transformation file
-            #program = lp.set_options(program, "write_cl")
-            program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
-                                        slabs=(0, 1))
-            program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
-                                        inner_tag="l.0")
-            program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+            '''       
+            # These still depend on the polynomial order = 3
+            # Never called?
+            # This is going away anyway probably
+            elif "resample_by_mat" in program.default_entrypoint.name:
+                hjson_file = pkg_resources.open_text(dgk, f"{program.default_entrypoint.name}.hjson")
         
+                # Order 3: 10 x 10
+                # Order 4: 15 x 35
+                
+                #print(program)
+                #exit()
+                pn = 3 # This needs to  be not fixed
+                fp_string = "FP64"
+                
+                indices = [transform_id, fp_string, str(pn)]
+                transformations = dgk.load_transformations_from_file(hjson_file,
+                    indices)
+                hjson_file.close()
+                print(transformations)
+                program = dgk.apply_transformation_list(program, transformations)
+
+            # Not really certain how to do grudge_assign, done for flatten
+            elif "grudge_assign" in program.default_entrypoint.name or "flatten" in program.default_entrypoint.name: 
+                # This is hardcoded. Need to move this to separate transformation file
+                #program = lp.set_options(program, "write_cl")
+                program = lp.split_iname(program, "iel", 128, outer_tag="g.0",
+                                            slabs=(0, 1))
+                program = lp.split_iname(program, "iel_inner", 32, outer_tag="ilp",
+                                            inner_tag="l.0")
+                program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
+                                            inner_tag="l.1", slabs=(0, 0))
+            
+
+            '''
+            """
         else:
-            print("USING FALLBACK TRANSFORMATIONS FOR " + program.default_entrypoint.name)
+            # print("USING FALLBACK TRANSFORMATIONS FOR " + program.default_entrypoint.name)
             program = super().transform_loopy_program(program)
-        '''
 
         return program
    
-
 # vim: foldmethod=marker
