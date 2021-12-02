@@ -4,7 +4,7 @@ from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray,
     IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray)
 
 def k_inner_inner_options(start_val=None):
-    options = [8, 16, 4, 32] #For AMD GPU
+    options = [8, 16, 4, 32]
     #options = [32, 16, 8]
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
@@ -12,18 +12,19 @@ def k_inner_inner_options(start_val=None):
 
 
 def k_inner_outer_options(n_in, k_inner_inner, sm_size,
-                            fp_bytes=4, start_val=None):
-    # Possibilities limited by size of global memory
-    options = np.arange(1, (sm_size // (fp_bytes*k_inner_inner*n_in)) + 1)
-    #Arbitrarily limit to at max 12 inline to limit search space
-    #options = k_inner_inner*options[options <= 12]
-    options = list(k_inner_inner*options[options <= 6])
+                            fp_bytes=8, start_val=None, nelem=None):
+    ilp_limit = min(nelem // k_inner_inner, 6) if nelem is not None else 6
+    # Possibilities limited by size of local memory
+    # Use sm_size - 1 because CUDA errors when all of local memory is used
+    options = np.arange(1, ((sm_size - 1) // (fp_bytes*k_inner_inner*n_in)) + 1)
+    #Arbitrarily limit to at max 6 inline to limit search space
+    options = list(k_inner_inner*options[options <= ilp_limit])
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
     return options
 
 def i_inner_inner_options(n_out, k_inner_inner, max_work_group_size=1024, start_val=None):
-    factors = np.arange(2, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
+    factors = np.arange(1, n_out+1)[(n_out % np.arange(1, n_out+1)) == 0]
     # Fix for AMD
     #factors = np.arange(3, n_out+1)[(n_out % np.arange(2, n_out+1)) == 0]
     # Ensure total number of workitems is less than maximum
@@ -37,7 +38,10 @@ def i_inner_outer_options(n_out, i_inner_inner, start_val=None):
     # Select a number of inline blocks such that n_out % outer*inner == 0
     # Bumping up the start of the range could reduce autotune time, but an empty
     # autotune set might be returned if i < start value
-    inline = np.arange(1, (n_out // i_inner_inner) + 1)
+    
+    # Loopy confused about the number of dimensions when 
+    # i_outer, i_inner_outer, and i_inner_inner are all 1
+    inline = [1] if n_out == 1 else np.arange(2, (n_out // i_inner_inner) + 1)
     options = list(i_inner_inner*inline[n_out % (inline*i_inner_inner) == 0])
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
@@ -62,6 +66,7 @@ def gen_autotune_list(queue, knl, start_param=None):
     max_work_group_size = queue.device.max_work_group_size    
     nfaces = 1
 
+    n_in = None
     for arg in knl.default_entrypoint.args:
         if "resample_by_mat" not in knl.default_entrypoint.name:
             if IsDOFArray() in arg.tags:
@@ -77,6 +82,9 @@ def gen_autotune_list(queue, knl, start_param=None):
             if IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
+
+    if n_in is None:
+        n_in = n_out
 
     n_in = n_in * nfaces #Prevents shared memory from overflowing in face mass kernel   
 
@@ -265,7 +273,8 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
     parameter_list = []
     for kii in k_inner_inner_options(start_val=kii_s):
         # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
-        for kio in k_inner_outer_options(n_in, kii, local_mem_size // 2, fp_bytes=fp_bytes,start_val=kio_s):
+        for kio in k_inner_outer_options(n_in, kii, local_mem_size // 2,
+                    fp_bytes=fp_bytes,start_val=kio_s,nelem=n_elem):
             kio_s = None # Set to None so will form the full set the next time around
             for iii in i_inner_inner_options(n_out, kii,
                     max_work_group_size=max_work_group_size, start_val=iii_s):
@@ -293,9 +302,10 @@ def einsum2to2_kernel_tlist_generator(params, **kwargs):
         {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
     # Should the i loop have (0,1) slabs for both?
 
-    trans_list.append(["add_prefetch", ["arg1", "i_inner_outer,i_inner_inner,e_inner_outer,e_inner_inner"],
-        {"temporary_name":"arg1f", "default_tag":"l.auto"}])
-    trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
+    # Prefetching probably matters not for this kernel
+    #trans_list.append(["add_prefetch", ["arg1", "e_inner_outer,e_inner_inner,i_inner_outer,i_inner_inner"],
+    #    {"temporary_name":"arg1f", "default_tag":"l.auto"}])
+    #trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
 
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
     return trans_list 

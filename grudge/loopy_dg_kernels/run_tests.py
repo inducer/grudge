@@ -337,15 +337,11 @@ def analyze_knl_bandwidth(knl, avg_time):
 
 def analyze_FLOPS(knl, avg_time, max_gflops=None):
 
-    # Will need to make compatible with the other kernels.
-    # This gives a wildly different number than the straightforward calculation
     op_map = lp.get_op_map(knl, count_within_subscripts=False, subgroup_size=1)
     #print(op_map)
     map_flops = 0
     for val in op_map.values():
         map_flops += val.eval_with_dict({})
-    # This is precisely 1.5x higher than the hand calculated rate
-    # Actually, that is probably accurate because there is a 'jac' matrix
     gflop_rate = map_flops / avg_time / 1e9
 
     """
@@ -552,9 +548,8 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
     knl_base = knl.copy()
 
     params_list = pspace_generator(queue, knl, start_param=start_param)
-    print(knl)
-    print("HERE")
-    print(len(params_list))
+    #print(knl)
+    #print(len(params_list))
     
     result_list = []
     start = time.time()
@@ -563,6 +558,7 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
     # If serial run this otherwise, run the parallel autotuner
     # Should probably make separate function for each.
     for params in params_list:
+        print(f"Currently testing: {params}")
         trans_list = tlist_generator(params, knl=knl)
         knl = apply_transformation_list(knl_base, trans_list)
         dev_arrays, avg_time = test_fn(queue, knl)
@@ -1209,6 +1205,10 @@ if __name__ == "__main__":
     #"""
     # Test autotuner
     knl = diff_prg(3, 1000000, 10, np.float64)
+    print(knl)
+    print(knl.default_entrypoint.domains)
+    print(knl.default_entrypoint.instructions)
+    exit()
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     #dofs = 84

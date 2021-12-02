@@ -336,8 +336,7 @@ def gen_diff_knl(n_elem, n_in, n_out, k_inner_outer,k_inner_inner,i_inner_outer,
 
 
 def load_transformations_from_file(hjson_file, indices): 
-    hjson_text = hjson_file.read()
-    od = hjson.loads(hjson_text)
+    od = hjson.loads(hjson_file.read())
     for index in indices:
         od = od[index]
     return od
