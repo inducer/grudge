@@ -331,7 +331,7 @@ def flux_chandrashekar(dcoll, gamma, q_ll, q_rr):
         return actx.np.where(
             actx.np.less(f2, epsilon),
             (x + y) / (2 + f2*2/3 + f2*f2*2/5 + f2*f2*f2*2/7),
-            (y - x) / actx.np.log(y/ x)
+            (y - x) / actx.np.log(y / x)
         )
 
     rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
@@ -343,7 +343,7 @@ def flux_chandrashekar(dcoll, gamma, q_ll, q_rr):
     specific_kin_rr = 0.5 * sum(v**2 for v in u_rr)
 
     rho_avg = 0.5 * (rho_ll + rho_rr)
-    rho_mean  = ln_mean(rho_ll,  rho_rr)
+    rho_mean = ln_mean(rho_ll,  rho_rr)
     beta_mean = ln_mean(beta_ll, beta_rr)
     beta_avg = 0.5 * (beta_ll + beta_rr)
     u_avg = 0.5 * (u_ll + u_rr)
