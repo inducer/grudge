@@ -38,6 +38,54 @@ class LSRKCoefficients:
     C: np.ndarray
 
 
+LSRK144NiegemannDiehlBuschCoefs = LSRKCoefficients(
+    A=np.array([
+        0.,
+        -0.7188012108672410,
+        -0.7785331173421570,
+        -0.0053282796654044,
+        -0.8552979934029281,
+        -3.9564138245774565,
+        -1.5780575380587385,
+        -2.0837094552574054,
+        -0.7483334182761610,
+        -0.7032861106563359,
+        0.0013917096117681,
+        -0.0932075369637460,
+        -0.9514200470875948,
+        -7.1151571693922548]),
+    B=np.array([
+        0.0367762454319673,
+        0.3136296607553959,
+        0.1531848691869027,
+        0.0030097086818182,
+        0.3326293790646110,
+        0.2440251405350864,
+        0.3718879239592277,
+        0.6204126221582444,
+        0.1524043173028741,
+        0.0760894927419266,
+        0.0077604214040978,
+        0.0024647284755382,
+        0.0780348340049386,
+        5.5059777270269628]),
+    C=np.array([
+        0.,
+        0.0367762454319673,
+        0.1249685262725025,
+        0.2446177702277698,
+        0.2476149531070420,
+        0.2969311120382472,
+        0.3978149645802642,
+        0.5270854589440328,
+        0.6981269994175695,
+        0.8190890835352128,
+        0.8527059887098624,
+        0.8604711817462826,
+        0.8627060376969976,
+        0.8734213127600976]))
+
+
 LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
     A=np.array([
         0.,
@@ -59,15 +107,38 @@ LSRK54CarpenterKennedyCoefs = LSRKCoefficients(
         2802321613138/2924317926251]))
 
 
-def lsrk54_step(state, t, dt, rhs):
+EulerCoefs = LSRKCoefficients(
+    A=np.array([0.]),
+    B=np.array([1.]),
+    C=np.array([0.]))
+
+
+def lsrk_step(coefs, state, t, dt, rhs):
     """Take one step using a low-storage Runge-Kutta method."""
     k = 0.0 * state
-    coefs = LSRK54CarpenterKennedyCoefs
     for i in range(len(coefs.A)):
         k = coefs.A[i]*k + dt*rhs(t + coefs.C[i]*dt, state)
         state += coefs.B[i]*k
-
     return state
+
+
+def lsrk144_step(state, t, dt, rhs):
+    """Take one step using an explicit 14-stage, 4th-order, LSRK method.
+
+    This method is derived by Niegemann, Diehl, and Busch (2012), with
+    an optimal stability region for advection-dominated flows.
+    """
+    return lsrk_step(LSRK144NiegemannDiehlBuschCoefs, state, t, dt, rhs)
+
+
+def lsrk54_step(state, t, dt, rhs):
+    """Take one step using an explicit 5-stage, 4th-order, LSRK method."""
+    return lsrk_step(LSRK54CarpenterKennedyCoefs, state, t, dt, rhs)
+
+
+def euler_step(state, t, dt, rhs):
+    """Take one step using the explicit, 1st-order accurate, Euler method."""
+    return lsrk_step(EulerCoefs, state, t, dt, rhs)
 
 
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0):
