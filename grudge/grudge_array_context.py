@@ -340,15 +340,18 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return cla.zeros(self.queue, shape=shape, dtype=dtype,
                 allocator=self.allocator, order="F")
 
+    """
     def thaw(self, array):
         thawed = super().thaw(array)
-        if type(getattr(array, "tags", None)) == IsDOFArray:
-            cq = thawed.queue
+        if type(getattr(array, "tags", None)) == IsDOFArray and \
+                array.c_contiguous:
+            print("THAWING")
             # Should this be run through the array context
-            #evt, out = self.call_loopy(ctof_knl, **{input: thawed})
-            _, (out,) = ctof_knl(cq, input=thawed)
-            thawed = out
+            result = self.call_loopy(ctof_knl, **{input: thawed})
+            #_, (out,) = ctof_knl(thawed.queue, input=thawed)
+            thawed = result["out"]
         return thawed
+    """
 
     def einsum(self, spec, *args, arg_names=None, tagged=()):
         """Computes the result of Einstein summation following the
