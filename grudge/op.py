@@ -157,6 +157,88 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 # }}}
 
 
+# {{{ common derivative "helpers"
+
+def _div_helper(dcoll, diff_func, *args):
+    if len(args) == 1:
+        vecs, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vecs = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    if not isinstance(vecs, np.ndarray):
+        # vecs is not an object array -> treat as array container
+        return map_array_container(partial(_div_helper, dcoll, diff_func), vecs)
+
+    assert vecs.dtype == object
+
+    if vecs.size:
+        sample_vec = vecs[(0,)*vecs.ndim]
+
+        if isinstance(sample_vec, np.ndarray):
+            assert sample_vec.dtype == object
+            # vecs is an object array containing further object arrays
+            # -> treat as array container
+            return map_array_container(partial(_div_helper, dcoll, diff_func), vecs)
+
+    if vecs.shape[-1] != dcoll.ambient_dim:
+        raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
+                "ambient dimension")
+
+    div_result_shape = vecs.shape[:-1]
+
+    if len(div_result_shape) == 0:
+        return sum(diff_func(dd, i, vec_i) for i, vec_i in enumerate(vecs))
+    else:
+        result = np.zeros(div_result_shape, dtype=object)
+        for idx in np.ndindex(div_result_shape):
+            result[idx] = sum(
+                    diff_func(dd, i, vec_i) for i, vec_i in enumerate(vecs[idx]))
+        return result
+
+
+def _grad_helper(dcoll, scalar_grad, *args, nested):
+    if len(args) == 1:
+        vec, = args
+        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd_in, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    if isinstance(vec, np.ndarray):
+        # Occasionally, data structures coming from *mirgecom* will
+        # contain empty object arrays as placeholders for fields.
+        # For example, species mass fractions is an empty object array when
+        # running in a single-species configuration.
+        # This hack here ensures that these empty arrays, at the very least,
+        # have their shape updated when applying the gradient operator
+        if vec.size == 0:
+            return vec.reshape(vec.shape + (dcoll.ambient_dim,))
+
+        # For containers with ndarray data (such as momentum/velocity),
+        # the gradient is matrix-valued, so we compute the gradient for
+        # each component. If requested (via 'not nested'), return a matrix of
+        # derivatives by stacking the results.
+        grad = obj_array_vectorize(
+            lambda el: _grad_helper(
+                dcoll, scalar_grad, dd_in, el, nested=nested), vec)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
+
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_grad_helper, scalar_grad, dcoll, dd_in, nested=nested), vec)
+
+    return scalar_grad(dcoll, dd_in, vec)
+
+# }}}
+
+
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
@@ -180,6 +262,21 @@ def _reference_derivative_matrices(actx: ArrayContext,
     return get_ref_derivative_mats(out_element_group)
 
 
+def _strong_scalar_grad(dcoll, dd_in, vec):
+    assert dd_in == dof_desc.as_dofdesc(dof_desc.DD_VOLUME)
+
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    actx = vec.array_context
+
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    return _gradient_kernel(actx, discr, discr,
+            _reference_derivative_matrices, inverse_jac_mat, vec,
+            metric_in_matvec=False)
+
+
 def local_grad(
         dcoll: DiscretizationCollection, vec, *, nested=False) -> ArrayOrContainerT:
     r"""Return the element-local gradient of a function :math:`f` represented
@@ -198,41 +295,8 @@ def local_grad(
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-    if isinstance(vec, np.ndarray):
-        # FIXME: Occasionally, data structures coming from *mirgecom* will
-        # contain empty object arrays as placeholders for fields.
-        # For example, species mass fractions is an empty object array when
-        # running in a single-species configuration.
-        # This hack here ensures that these empty arrays, at the very least,
-        # have their shape updated when applying the gradient operator
-        if vec.size == 0:
-            return vec.reshape((0, dcoll.ambient_dim))
 
-        # For containers with ndarray data (such as momentum/velocity),
-        # the gradient is matrix-valued, so we compute the gradient for
-        # each component and return a matrix of derivatives by stacking
-        # the results
-        grad = obj_array_vectorize(
-            lambda el: local_grad(dcoll, el, nested=nested), vec)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
-
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(local_grad, dcoll, nested=nested), vec)
-
-    from grudge.geometry import inverse_surface_metric_derivative_mat
-
-    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    actx = vec.array_context
-
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    return _gradient_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
-            metric_in_matvec=False)
+    return _grad_helper(dcoll, _strong_scalar_grad, vec, nested=nested)
 
 
 def local_d_dx(
@@ -267,34 +331,6 @@ def local_d_dx(
         metric_in_matvec=False)
 
 
-def _div_helper(dcoll, diff_func, vecs):
-    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
-        raise TypeError("argument must be an object array")
-
-    if vecs.size == 0:
-        # FIXME: Need to handle the special case where *mirgecom* passes in
-        # an empty object array to denote that there are no multiple species
-        # in the state.
-        return np.empty(shape=(0,), dtype=vecs.dtype)
-
-    if isinstance(vecs[(0,)*vecs.ndim], np.ndarray):
-        div_shape = vecs.shape
-    else:
-        if vecs.shape[-1] != dcoll.ambient_dim:
-            raise ValueError("last dimension of *vecs* argument doesn't match "
-                    "ambient dimension")
-        div_shape = vecs.shape[:-1]
-
-    if len(div_shape) == 0:
-        return sum(diff_func(i, vec_i) for i, vec_i in enumerate(vecs))
-    else:
-        result = np.zeros(div_shape, dtype=object)
-        for idx in np.ndindex(div_shape):
-            result[idx] = sum(
-                    diff_func(i, vec_i) for i, vec_i in enumerate(vecs[idx]))
-        return result
-
-
 def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     r"""Return the element-local divergence of the vector function
     :math:`\mathbf{f}` represented by *vecs*:
@@ -311,14 +347,10 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
-    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
-        return map_array_container(partial(local_div, dcoll), vecs)
-
     return _div_helper(
         dcoll,
-        lambda i, subvec: local_d_dx(dcoll, i, subvec),
-        vecs
-    )
+        lambda dd, i, subvec: local_d_dx(dcoll, i, subvec),
+        vecs)
 
 # }}}
 
@@ -370,6 +402,22 @@ def _reference_stiffness_transpose_matrix(
                                            in_element_group)
 
 
+def _weak_scalar_grad(dcoll, dd_in, vec):
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+
+    actx = vec.array_context
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _gradient_kernel(actx, out_discr, in_discr,
+            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+            metric_in_matvec=True)
+
+
 def weak_local_grad(
         dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainerT:
     r"""Return the element-local weak gradient of the volume function
@@ -393,52 +441,7 @@ def weak_local_grad(
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-    if len(args) == 1:
-        vec, = args
-        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd_in, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    if isinstance(vec, np.ndarray):
-        # FIXME: Occasionally, data structures coming from *mirgecom* will
-        # contain empty object arrays as placeholders for fields.
-        # For example, species mass fractions is an empty object array when
-        # running in a single-species configuration.
-        # This hack here ensures that these empty arrays, at the very least,
-        # have their shape updated when applying the gradient operator
-        if vec.size == 0:
-            return vec.reshape((0, dcoll.ambient_dim))
-
-        # For containers with ndarray data (such as momentum/velocity),
-        # the gradient is matrix-valued, so we compute the gradient for
-        # each component and return a matrix of derivatives by stacking
-        # the results
-        grad = obj_array_vectorize(
-            lambda el: weak_local_grad(dcoll, dd_in, el, nested=nested), vec)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
-
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(weak_local_grad, dcoll, dd_in, nested=nested), vec)
-
-    from grudge.geometry import inverse_surface_metric_derivative_mat
-
-    in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-
-    actx = vec.array_context
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
-            times_area_element=True,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-
-    return _gradient_kernel(actx, out_discr, in_discr,
-            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
-            metric_in_matvec=True)
+    return _grad_helper(dcoll, _weak_scalar_grad, *args, nested=nested)
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
@@ -530,21 +533,10 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
-    if len(args) == 1:
-        vecs, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    elif len(args) == 2:
-        dd, vecs = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    if not (isinstance(vecs, np.ndarray) and vecs.dtype == object):
-        return map_array_container(partial(weak_local_div, dcoll, dd), vecs)
-
     return _div_helper(
         dcoll,
-        lambda i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
-        vecs
+        lambda dd, i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
+        *args
     )
 
 # }}}
