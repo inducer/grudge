@@ -32,37 +32,41 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
+from functools import partial
+
+from arraycontext import map_array_container
+from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
+from meshmode.dof_array import DOFArray
+
 from numbers import Number
 
-from pytools.obj_array import obj_array_vectorize
 
-
-def project(dcoll: DiscretizationCollection, src, tgt, vec):
+def project(
+        dcoll: DiscretizationCollection, src, tgt, vec) -> ArrayOrContainerT:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
 
     :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or a
-        :class:`~arraycontext.ArrayContainer`.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
 
-    if src == tgt:
+    if isinstance(vec, Number) or src == tgt:
         return vec
 
-    if isinstance(vec, np.ndarray):
-        return obj_array_vectorize(
-                lambda el: project(dcoll, src, tgt, el), vec)
-
-    if isinstance(vec, Number):
-        return vec
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(project, dcoll, src, tgt), vec
+        )
 
     return dcoll.connection_from_dds(src, tgt)(vec)
