@@ -38,6 +38,11 @@ from arraycontext.pytest import (
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyCompilingFunctionCaller
 
+try:
+    from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
+except ImportError:
+    pass
+
 if TYPE_CHECKING:
     import pytato as pt
     from pytato.partition import PartId
@@ -167,6 +172,11 @@ class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
         return type(self)(self.mpi_communicator, self.queue)
 
 
+try:
+    class MPISingleGridWorkBalancingPytatoArrayContext(MPIPytatoPyOpenCLArrayContext, SingleGridWorkBalancingPytatoArrayContext):
+        pass
+except NameError:
+    pass
 # }}}
 
 
