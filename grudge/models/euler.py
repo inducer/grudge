@@ -327,8 +327,6 @@ def limiter_zhang_shu(
         for conservation laws: survey and new developments
         [DOI](https://doi.org/10.1098/rspa.2011.0153)
 
-    This limiter is currently only applied to the ``mass'' component of the state.
-
     :quad_tag: A quadrature tag denoting the volume quadrature discretization.
     :state: A :class:`EulerContainer` containing the state with components
         ``mass'', ``energy'', and ``momentum.''

@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 def ssprk43_step(y, t, h, f, limiter=None):
+    actx = y.array_context
 
     def f_update(t, y):
         return y + h*f(t, y)
@@ -55,18 +56,22 @@ def ssprk43_step(y, t, h, f, limiter=None):
     y1 = 1/2*y + 1/2*f_update(t, y)
     if limiter is not None:
         y1 = limiter(y1)
+        y1 = thaw(freeze(y1, actx), actx)
 
     y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
     if limiter is not None:
         y2 = limiter(y2)
+        y2 = thaw(freeze(y2, actx), actx)
 
     y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
     if limiter is not None:
         y3 = limiter(y3)
+        y3 = thaw(freeze(y3, actx), actx)
 
     result = 1/2*y3 + 1/2*f_update(t + h/2, y3)
     if limiter is not None:
         result = limiter(result)
+        result = thaw(freeze(result, actx), actx)
 
     return result
 
