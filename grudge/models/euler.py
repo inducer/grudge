@@ -30,7 +30,8 @@ from dataclasses import dataclass
 from arraycontext import (
     thaw,
     dataclass_array_container,
-    with_container_arithmetic
+    with_container_arithmetic,
+    map_array_container
 )
 
 from meshmode.dof_array import DOFArray
@@ -333,41 +334,46 @@ def limiter_zhang_shu(
         ``mass'', ``energy'', and ``momentum.''
     :returns: A :class:`EulerContainer` containing the limited state.
     """
-    actx = state.array_context
-
-    # Interpolate state to quadrature grid and
-    # compute nodal and elementwise max/mins
-    dd_base = as_dofdesc("vol")
-    dd_quad = dd_base.with_discr_tag(quad_tag)
-    mass = op.project(dcoll, "vol", dd_quad, state.mass)
-    _mmax = op.nodal_max(dcoll, dd_quad, mass)
-    _mmin = op.nodal_min(dcoll, dd_quad, mass)
-    _mmax_i = op.elementwise_max(dcoll, mass)
-    _mmin_i = op.elementwise_min(dcoll, mass)
-
-    # Compute cell averages of the state
     from grudge.geometry import area_element
 
-    inv_area_elements = 1./area_element(
-        actx, dcoll,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    mass_cell_avgs = \
-        inv_area_elements * op.elementwise_integral(dcoll, state.mass)
+    actx = state.array_context
+    dd_base = as_dofdesc("vol")
+    dd_quad = dd_base.with_discr_tag(quad_tag)
 
-    # Compute minmod factor
-    theta = actx.np.minimum(
-        1,
-        actx.np.minimum(
-            abs((_mmax - mass_cell_avgs)/(_mmax_i - mass_cell_avgs)),
-            abs((_mmin - mass_cell_avgs)/(_mmin_i - mass_cell_avgs))
+    def compute_limited_field(field):
+        if not isinstance(field, DOFArray):
+            # vecs is not a DOFArray -> treat as array container
+            return map_array_container(compute_limited_field, field)
+
+        # Interpolate state to quadrature grid and
+        # compute nodal and elementwise max/mins
+        field_quad = op.project(dcoll, "vol", dd_quad, field)
+        _mmax = op.nodal_max(dcoll, dd_quad, field_quad)
+        _mmin = op.nodal_min(dcoll, dd_quad, field_quad)
+        _mmax_i = op.elementwise_max(dcoll, field_quad)
+        _mmin_i = op.elementwise_min(dcoll, field_quad)
+
+        # Compute cell averages of the state
+        inv_area_elements = 1./area_element(
+            actx, dcoll,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+        cell_avgs = \
+            inv_area_elements * op.elementwise_integral(dcoll, field)
+
+        # Compute minmod factor
+        theta = actx.np.minimum(
+            1,
+            actx.np.minimum(
+                abs((_mmax - cell_avgs)/(_mmax_i - cell_avgs)),
+                abs((_mmin - cell_avgs)/(_mmin_i - cell_avgs))
+            )
         )
-    )
+        return theta*(field - cell_avgs) + cell_avgs
 
     return EulerContainer(
-        # Limit only mass
-        mass=theta*(state.mass - mass_cell_avgs) + mass_cell_avgs,
-        energy=state.energy,
-        momentum=state.momentum
+        mass=compute_limited_field(state.mass),
+        energy=compute_limited_field(state.energy),
+        momentum=compute_limited_field(state.momentum)
     )
 
 # }}}
