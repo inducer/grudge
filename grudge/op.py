@@ -170,7 +170,8 @@ def _div_helper(dcoll, diff_func, *args):
 
     if not isinstance(vecs, np.ndarray):
         # vecs is not an object array -> treat as array container
-        return map_array_container(partial(_div_helper, dcoll, diff_func), vecs)
+        return map_array_container(
+            partial(_div_helper, dcoll, diff_func, dd), vecs)
 
     assert vecs.dtype == object
 
@@ -181,7 +182,8 @@ def _div_helper(dcoll, diff_func, *args):
             assert sample_vec.dtype == object
             # vecs is an object array containing further object arrays
             # -> treat as array container
-            return map_array_container(partial(_div_helper, dcoll, diff_func), vecs)
+            return map_array_container(
+                partial(_div_helper, dcoll, diff_func, dd), vecs)
 
     if vecs.shape[-1] != dcoll.ambient_dim:
         raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
