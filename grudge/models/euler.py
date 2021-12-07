@@ -36,7 +36,7 @@ from arraycontext import (
 from functools import partial
 
 from meshmode.dof_array import DOFArray
-from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
+from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, as_dofdesc
 
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
@@ -132,66 +132,60 @@ def euler_flux(dcoll, cv_state, gamma=1.4):
     )
 
 
-def euler_numerical_flux(
-        dcoll, tpair, gamma=1.4, lf_stabilization=False):
+def euler_numerical_flux(dcoll, tpair, gamma=1.4, lf_stabilization=False):
     """todo.
     """
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
-    q_int = tpair.int
-    q_ext = tpair.ext
-    actx = q_int.array_context
+    q_ll = tpair.int
+    q_rr = tpair.ext
+    actx = q_ll.array_context
 
+    flux_tpair = TracePair(tpair.dd,
+                           interior=euler_flux(dcoll, q_ll, gamma=gamma),
+                           exterior=euler_flux(dcoll, q_rr, gamma=gamma))
+    num_flux = flux_tpair.avg
     normal = thaw(dcoll.normal(dd_intfaces), actx)
-    num_flux = 0.5 * (euler_flux(dcoll, q_int, gamma=gamma)
-                      + euler_flux(dcoll, q_ext, gamma=gamma)) @ normal
 
     if lf_stabilization:
-        rho_int = q_int.mass
-        rhoe_int = q_int.energy
-        rhou_int = q_int.momentum
+        from arraycontext import outer
 
-        rho_ext = q_ext.mass
-        rhoe_ext = q_ext.energy
-        rhou_ext = q_ext.momentum
+        rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
+        rho_rr, u_rr, p_rr = conservative_to_primitive_vars(q_rr, gamma=gamma)
 
-        v_int = rhou_int / rho_int
-        v_ext = rhou_ext / rho_ext
+        def compute_wavespeed(rho, u, p):
+            return (
+                actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
+            )
 
-        p_int = (gamma - 1) * (rhoe_int - 0.5 * sum(rhou_int * v_int))
-        p_ext = (gamma - 1) * (rhoe_ext - 0.5 * sum(rhou_ext * v_ext))
+        # Compute jump penalization parameter
+        lam = actx.np.maximum(compute_wavespeed(rho_ll, u_ll, p_ll),
+                              compute_wavespeed(rho_rr, u_rr, p_rr))
+        num_flux -= lam*outer(tpair.diff, normal)/2
 
-        # compute jump penalization parameter
-        lam = actx.np.maximum(
-            actx.np.sqrt(gamma * (p_int / rho_int))
-            + actx.np.sqrt(np.dot(v_int, v_int)),
-            actx.np.sqrt(gamma * (p_ext / rho_ext))
-            + actx.np.sqrt(np.dot(v_ext, v_ext))
-        )
-        num_flux -= 0.5 * lam * (q_ext - q_int)
-
-    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux)
+    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux @ normal)
 
 
 class EulerOperator(HyperbolicOperator):
 
     def __init__(self, dcoll, bdry_conditions=None,
-                 flux_type="lf", gamma=1.4, gas_const=287.1):
+                 flux_type="lf", gamma=1.4, gas_const=287.1,
+                 quadrature_tag=None):
         self.dcoll = dcoll
         self.bdry_conditions = bdry_conditions
         self.flux_type = flux_type
         self.gamma = gamma
         self.gas_const = gas_const
         self.lf_stabilization = flux_type == "lf"
+        self.qtag = quadrature_tag
 
     def operator(self, t, q):
         dcoll = self.dcoll
         gamma = self.gamma
-        dim = q.dim
-
-        dq = DOFDesc("vol", DISCR_TAG_QUAD)
-        df = DOFDesc("all_faces", DISCR_TAG_QUAD)
-        df_int = DOFDesc("int_faces", DISCR_TAG_QUAD)
+        qtag = self.qtag
+        dq = DOFDesc("vol", qtag)
+        df = DOFDesc("all_faces", qtag)
+        df_int = DOFDesc("int_faces", qtag)
 
         def to_quad_vol(u):
             return op.project(dcoll, "vol", dq, u)
@@ -225,38 +219,25 @@ class EulerOperator(HyperbolicOperator):
             )
             euler_flux_faces = euler_flux_faces + bc_fluxes
 
-        vol_div = make_eulerstate(
-            dim=dim,
-            q=op.weak_local_div(
-                dcoll, dq, to_quad_vol(euler_flux(dcoll, q, gamma=gamma)).join()
-            )
-        )
-
         return op.inverse_mass(
             dcoll,
-            vol_div - op.face_mass(dcoll, df, euler_flux_faces),
+            op.weak_local_div(
+                dcoll, dq, to_quad_vol(euler_flux(dcoll, q, gamma=gamma))
+            ) - op.face_mass(dcoll, df, euler_flux_faces),
             dd_quad=dq
         )
 
     def max_characteristic_velocity(self, actx, **kwargs):
-        q = kwargs["state"]
-        rho = q.mass
-        rhoe = q.energy
-        rhov = q.momentum
-        v = rhov / rho
+        state = kwargs["state"]
         gamma = self.gamma
-        p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
+        rho, u, p = conservative_to_primitive_vars(state, gamma=gamma)
 
-        return actx.np.sqrt(np.dot(v, v)) + actx.np.sqrt(gamma * (p / rho))
+        return actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
 
     def state_to_mathematical_entropy(self, state):
         actx = state.array_context
         gamma = self.gamma
-        rho = state.mass
-        rhoe = state.energy
-        rhov = state.momentum
-        v = rhov / rho
-        p = (gamma - 1) * (rhoe - 0.5 * sum(rhov * v))
+        rho, _, p = conservative_to_primitive_vars(state, gamma=gamma)
         s = actx.np.log(p) - gamma*actx.np.log(rho)
 
         return -rho * s / (gamma - 1)
@@ -377,8 +358,6 @@ def entropy_stable_numerical_flux_chandrashekar(
     actx = q_ll.array_context
 
     num_flux = flux_chandrashekar(dcoll, gamma, q_ll, q_rr)
-    # FIXME: Because of the affineness of the geometry, this normal technically
-    # does not need to be interpolated to the quadrature grid.
     normal = thaw(dcoll.normal(dd_intfaces), actx)
 
     if lf_stabilization:
@@ -408,8 +387,9 @@ class EntropyStableEulerOperator(EulerOperator):
             volume_and_surface_quadrature_interpolation
 
         gamma = self.gamma
-        dq = DOFDesc("vol", DISCR_TAG_QUAD)
-        df = DOFDesc("all_faces", DISCR_TAG_QUAD)
+        qtag = self.qtag
+        dq = DOFDesc("vol", qtag)
+        df = DOFDesc("all_faces", qtag)
 
         dcoll = self.dcoll
         actx = q.array_context
@@ -445,7 +425,7 @@ class EntropyStableEulerOperator(EulerOperator):
 
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
-            dd_intfaces_quad = dd_intfaces.with_discr_tag(DISCR_TAG_QUAD)
+            dd_intfaces_quad = dd_intfaces.with_discr_tag(qtag)
             # Interpolate entropy variables to the surface quadrature grid
             vtilde_tpair = \
                 op.project(dcoll, dd_intfaces, dd_intfaces_quad, tpair)
@@ -547,11 +527,11 @@ class AdiabaticSlipBC(BCObject):
 
 # {{{ Limiter
 
-def positivity_preserving_limiter(dcoll, state):
+def positivity_preserving_limiter(dcoll, quad_tag, state):
     actx = state.array_context
 
     # Interpolate state to quadrature grid
-    dd_quad = as_dofdesc("vol").with_discr_tag(DISCR_TAG_QUAD)
+    dd_quad = as_dofdesc("vol").with_discr_tag(quad_tag)
     density = op.project(dcoll, "vol", dd_quad, state.mass)
 
     # Compute nodal and elementwise max/mins
