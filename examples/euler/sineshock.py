@@ -24,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
@@ -55,13 +56,14 @@ def sine_shock_initial_condition(nodes, t=0):
     x = nodes[0]
     actx = x.array_context
     zeros = 0*x
+    epsilon = 0.2
 
     _x0 = -4
     _rhoin = 3.857143
-    _rhoout = 1 + .2*actx.np.sin(5*x)
+    _rhoout = 1 + epsilon*actx.np.sin(5*x)
     _uin = 2.629369
     _uout = 0.0
-    _pin = 10.3333
+    _pin = 10.33333
     _pout = 1
 
     rhoin = zeros + _rhoin
@@ -92,6 +94,7 @@ def run_sine_shock_problem(actx,
                            order=4,
                            resolution=40,
                            final_time=1.8,
+                           overintegration=False,
                            nodal_dg=False,
                            visualize=False):
 
@@ -122,6 +125,19 @@ def run_sine_shock_problem(actx,
         (default_simplex_group_factory,
          QuadratureSimplexGroupFactory)
 
+    if nodal_dg:
+        operator_cls = EulerOperator
+        exp_name = f"fld-sine-shock-N{order}-K{resolution}"
+    else:
+        operator_cls = EntropyStableEulerOperator
+        exp_name = f"fld-esdg-sine-shock-N{order}-K{resolution}"
+
+    if overintegration:
+        exp_name += "-overintegrated"
+        quad_tag = DISCR_TAG_QUAD
+    else:
+        quad_tag = None
+
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
@@ -140,19 +156,13 @@ def run_sine_shock_problem(actx,
                      prescribed_state=sine_shock_initial_condition)
     ]
 
-    if nodal_dg:
-        operator_cls = EulerOperator
-        exp_name = f"fld-sine-shock-1d-N{order}-K{resolution}"
-    else:
-        operator_cls = EntropyStableEulerOperator
-        exp_name = f"fld-esdg-sine-shock-1d-N{order}-K{resolution}"
-
     euler_operator = operator_cls(
         dcoll,
         bdry_conditions=bcs,
         flux_type="lf",
         gamma=gamma,
         gas_const=gas_const,
+        quadrature_tag=quad_tag
     )
 
     def rhs(t, q):
@@ -178,6 +188,8 @@ def run_sine_shock_problem(actx,
 
     # {{{ time stepping
 
+    from grudge.models.euler import conservative_to_primitive_vars
+
     step = 0
     t = 0.0
     while t < final_time:
@@ -185,12 +197,16 @@ def run_sine_shock_problem(actx,
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
+                _, velocity, pressure = \
+                    conservative_to_primitive_vars(fields, gamma=gamma)
                 vis.write_vtk_file(
                     f"{exp_name}-{step:04d}.vtu",
                     [
                         ("rho", fields.mass),
                         ("energy", fields.energy),
-                        ("momentum", fields.momentum)
+                        ("momentum", fields.momentum),
+                        ("velocity", velocity),
+                        ("pressure", pressure)
                     ]
                 )
             assert norm_q < 10000
@@ -204,7 +220,7 @@ def run_sine_shock_problem(actx,
 
 
 def main(ctx_factory, order=4, final_time=1.8, resolution=40,
-         nodal_dg=False, visualize=False):
+         overintegration=False, nodal_dg=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -215,6 +231,7 @@ def main(ctx_factory, order=4, final_time=1.8, resolution=40,
     run_sine_shock_problem(
         actx, order=order, resolution=resolution,
         final_time=final_time,
+        overintegration=overintegration,
         nodal_dg=nodal_dg,
         visualize=visualize)
 
@@ -226,6 +243,7 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--tfinal", default=1.8, type=float)
     parser.add_argument("--resolution", default=40, type=int)
+    parser.add_argument("--oi", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--nodaldg", action="store_true")
     args = parser.parse_args()
@@ -235,5 +253,6 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         overintegration=args.oi,
          nodal_dg=args.nodaldg,
          visualize=args.visualize)

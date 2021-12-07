@@ -43,6 +43,7 @@ from grudge.models.euler import (
     EntropyStableEulerOperator,
     AdiabaticSlipBC
 )
+from grudge.shortcuts import lsrk54_step
 
 from meshmode.mesh import BTAG_ALL
 
@@ -52,18 +53,6 @@ import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-def ssprk43_step(y, t, h, f):
-
-    def f_update(t, y):
-        return y + h*f(t, y)
-
-    y1 = 1/2*y + 1/2*f_update(t, y)
-    y2 = 1/2*y1 + 1/2*f_update(t + h/2, y1)
-    y3 = 2/3*y + 1/6*y2 + 1/6*f_update(t + h, y2)
-
-    return 1/2*y3 + 1/2*f_update(t + h/2, y3)
 
 
 def gaussian_profile(
@@ -125,7 +114,7 @@ def acoustic_pulse_condition(x_vec, t=0):
 def run_acoustic_pulse(actx,
                        order=3,
                        resolution=16,
-                       final_time=0.1,
+                       final_time=1,
                        nodal_dg=False,
                        visualize=False):
 
@@ -182,6 +171,7 @@ def run_acoustic_pulse(actx,
         flux_type="lf",
         gamma=gamma,
         gas_const=gas_const,
+        quadrature_tag=DISCR_TAG_QUAD
     )
 
     def rhs(t, q):
@@ -189,9 +179,13 @@ def run_acoustic_pulse(actx,
 
     compiled_rhs = actx.compile(rhs)
 
+    from grudge.dt_utils import h_min_from_volume
+
+    cfl = 0.125
+    cn = 0.5*(order + 1)**2
+    dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
+
     fields = acoustic_pulse_condition(thaw(dcoll.nodes(), actx))
-    dt = actx.to_numpy(
-        1/3 * euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
 
     logger.info("Timestep size: %g", dt)
 
@@ -206,9 +200,6 @@ def run_acoustic_pulse(actx,
     step = 0
     t = 0.0
     while t < final_time:
-        fields = thaw(freeze(fields, actx), actx)
-        fields = ssprk43_step(fields, t, dt, compiled_rhs)
-
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
@@ -223,13 +214,15 @@ def run_acoustic_pulse(actx,
                 )
             assert norm_q < 10000
 
+        fields = thaw(freeze(fields, actx), actx)
+        fields = lsrk54_step(fields, t, dt, compiled_rhs)
         t += dt
         step += 1
 
     # }}}
 
 
-def main(ctx_factory, order=3, final_time=0.1, resolution=16,
+def main(ctx_factory, order=3, final_time=1, resolution=16,
          nodal_dg=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
@@ -250,7 +243,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=3, type=int)
-    parser.add_argument("--tfinal", default=0.1, type=float)
+    parser.add_argument("--tfinal", default=1, type=float)
     parser.add_argument("--resolution", default=16, type=int)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--nodaldg", action="store_true")

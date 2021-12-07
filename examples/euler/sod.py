@@ -81,6 +81,7 @@ def run_sod_shock_tube(actx,
                        order=4,
                        resolution=32,
                        final_time=0.2,
+                       overintegration=False,
                        nodal_dg=False,
                        visualize=False):
 
@@ -111,6 +112,19 @@ def run_sod_shock_tube(actx,
         (default_simplex_group_factory,
          QuadratureSimplexGroupFactory)
 
+    if nodal_dg:
+        operator_cls = EulerOperator
+        exp_name = f"fld-sod-1d-N{order}-K{resolution}"
+    else:
+        operator_cls = EntropyStableEulerOperator
+        exp_name = f"fld-esdg-sod-1d-N{order}-K{resolution}"
+
+    if overintegration:
+        exp_name += "-overintegrated"
+        quad_tag = DISCR_TAG_QUAD
+    else:
+        quad_tag = None
+
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
@@ -125,16 +139,9 @@ def run_sod_shock_tube(actx,
 
     dd_prescribe = DTAG_BOUNDARY("prescribed")
     bcs = [
-        PrescribedBC(dd=as_dofdesc(dd_prescribe).with_discr_tag(DISCR_TAG_QUAD),
+        PrescribedBC(dd=as_dofdesc(dd_prescribe).with_discr_tag(quad_tag),
                      prescribed_state=sod_shock_initial_condition)
     ]
-
-    if nodal_dg:
-        operator_cls = EulerOperator
-        exp_name = f"fld-sod-1d-N{order}-K{resolution}"
-    else:
-        operator_cls = EntropyStableEulerOperator
-        exp_name = f"fld-esdg-sod-1d-N{order}-K{resolution}"
 
     euler_operator = operator_cls(
         dcoll,
@@ -142,6 +149,7 @@ def run_sod_shock_tube(actx,
         flux_type="lf",
         gamma=gamma,
         gas_const=gas_const,
+        quadrature_tag=quad_tag
     )
 
     def rhs(t, q):
@@ -153,7 +161,7 @@ def run_sod_shock_tube(actx,
 
     from grudge.dt_utils import h_min_from_volume
 
-    cfl = 0.125
+    cfl = 0.01
     cn = 0.5*(order + 1)**2
     dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
@@ -167,6 +175,8 @@ def run_sod_shock_tube(actx,
 
     # {{{ time stepping
 
+    from grudge.models.euler import conservative_to_primitive_vars
+
     step = 0
     t = 0.0
     while t < final_time:
@@ -174,12 +184,16 @@ def run_sod_shock_tube(actx,
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
             logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
             if visualize:
+                _, velocity, pressure = \
+                    conservative_to_primitive_vars(fields, gamma=gamma)
                 vis.write_vtk_file(
                     f"{exp_name}-{step:04d}.vtu",
                     [
                         ("rho", fields.mass),
                         ("energy", fields.energy),
-                        ("momentum", fields.momentum)
+                        ("momentum", fields.momentum),
+                        ("velocity", velocity),
+                        ("pressure", pressure)
                     ]
                 )
             assert norm_q < 10000
@@ -193,7 +207,7 @@ def run_sod_shock_tube(actx,
 
 
 def main(ctx_factory, order=4, final_time=0.2, resolution=32,
-         nodal_dg=False, visualize=False):
+         overintegration=False, nodal_dg=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -205,6 +219,7 @@ def main(ctx_factory, order=4, final_time=0.2, resolution=32,
         actx, order=order, resolution=resolution,
         final_time=final_time,
         nodal_dg=nodal_dg,
+        overintegration=overintegration,
         visualize=visualize)
 
 
@@ -215,6 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--tfinal", default=0.2, type=float)
     parser.add_argument("--resolution", default=32, type=int)
+    parser.add_argument("--oi", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--nodaldg", action="store_true")
     args = parser.parse_args()
@@ -224,5 +240,6 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         overintegration=args.oi,
          nodal_dg=args.nodaldg,
          visualize=args.visualize)

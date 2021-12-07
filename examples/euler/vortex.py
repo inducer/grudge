@@ -78,6 +78,7 @@ def vortex_initial_condition(x_vec, t=0):
 
 
 def run_vortex(actx, order=3, resolution=8, final_time=5,
+               overintegration=False,
                nodal_dg=False,
                flux_type="central",
                visualize=False):
@@ -89,10 +90,12 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
         final_time: %s\n
         nodal_dg: %s\n
         resolution: %s\n
+        overintegration: %s\n
         flux_type: %s\n
         visualize: %s
         """,
-        order, final_time, nodal_dg, resolution, flux_type, visualize
+        order, final_time, nodal_dg, resolution,
+        overintegration, flux_type, visualize
     )
 
     # eos-related parameters
@@ -114,6 +117,19 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     from meshmode.discretization.poly_element import \
         (PolynomialWarpAndBlend2DRestrictingGroupFactory,
          QuadratureSimplexGroupFactory)
+
+    if nodal_dg:
+        operator_cls = EulerOperator
+        exp_name = f"fld-vortex-N{order}-K{resolution}"
+    else:
+        operator_cls = EntropyStableEulerOperator
+        exp_name = f"fld-esdg-vortex-N{order}-K{resolution}"
+
+    if overintegration:
+        exp_name += "-overintegrated"
+        quad_tag = DISCR_TAG_QUAD
+    else:
+        quad_tag = None
 
     dcoll = DiscretizationCollection(
         actx, mesh,
@@ -139,6 +155,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
         flux_type=flux_type,
         gamma=gamma,
         gas_const=gas_const,
+        quadrature_tag=quad_tag
     )
 
     def rhs(t, q):
@@ -226,6 +243,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
 
 def run_convergence_test_vortex(
         actx, order=3, final_time=5,
+        overintegration=False,
         nodal_dg=False,
         flux_type="central"):
 
@@ -234,10 +252,11 @@ def run_convergence_test_vortex(
         Isentropic vortex convergence test parameters:\n
         order: %s\n
         final_time: %s\n
+        overintegration: %s\n
         nodal_dg: %s\n
         flux_type: %s
         """,
-        order, final_time, nodal_dg, flux_type
+        order, final_time, overintegration, nodal_dg, flux_type
     )
 
     # eos-related parameters
@@ -255,6 +274,11 @@ def run_convergence_test_vortex(
     from grudge.dt_utils import h_max_from_volume
 
     eoc_rec = EOCRecorder()
+
+    if overintegration:
+        quad_tag = DISCR_TAG_QUAD
+    else:
+        quad_tag = None
 
     for resolution in [8, 16, 32, 64]:
 
@@ -290,6 +314,7 @@ def run_convergence_test_vortex(
             flux_type=flux_type,
             gamma=gamma,
             gas_const=gas_const,
+            quadrature_tag=quad_tag
         )
 
         def rhs(t, q):
@@ -337,6 +362,7 @@ def run_convergence_test_vortex(
 
 
 def main(ctx_factory, order=3, final_time=5, resolution=8,
+         overintegration=False,
          nodal_dg=False,
          lf_stabilization=False,
          visualize=False,
@@ -357,12 +383,14 @@ def main(ctx_factory, order=3, final_time=5, resolution=8,
         run_convergence_test_vortex(
             actx, order=order,
             final_time=5,
+            overintegration=overintegration,
             nodal_dg=nodal_dg,
             flux_type=flux_type)
     else:
         run_vortex(
             actx, order=order, resolution=resolution,
             final_time=final_time,
+            overintegration=overintegration,
             nodal_dg=nodal_dg,
             flux_type=flux_type,
             visualize=visualize)
@@ -375,6 +403,7 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=5, type=float)
     parser.add_argument("--resolution", default=8, type=int)
+    parser.add_argument("--oi", action="store_true")
     parser.add_argument("--nodaldg", action="store_true")
     parser.add_argument("--lfflux", action="store_true")
     parser.add_argument("--visualize", action="store_true")
@@ -386,6 +415,7 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         overintegration=args.oi,
          nodal_dg=args.nodaldg,
          lf_stabilization=args.lfflux,
          visualize=args.visualize,

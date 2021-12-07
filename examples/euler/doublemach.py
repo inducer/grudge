@@ -221,6 +221,7 @@ def run_doublemach_reflection(
         flux_type="lf",
         gamma=gamma,
         gas_const=gas_const,
+        quadrature_tag=DISCR_TAG_QUAD
     )
 
     def rhs(t, q):
@@ -248,7 +249,7 @@ def run_doublemach_reflection(
     from grudge.models.euler import positivity_preserving_limiter
     from functools import partial
 
-    limiter = partial(positivity_preserving_limiter, dcoll)
+    limiter = partial(positivity_preserving_limiter, dcoll, DISCR_TAG_QUAD)
 
     while t < final_time:
         if step % 10 == 0:
