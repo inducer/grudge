@@ -65,6 +65,8 @@ jobs:
                 run_examples
 
                 python wave/wave-op-mpi.py --lazy
+                python euler/acoustic_pulse.py --lazy
+                python euler/vortex.py --oi --lazy
 
     docs:
         name: Documentation
