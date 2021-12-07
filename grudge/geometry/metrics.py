@@ -114,7 +114,11 @@ def forward_metric_nth_derivative(
     if dd is None:
         dd = DD_VOLUME
 
-    inner_dd = dd.with_discr_tag(DISCR_TAG_BASE)
+    if dd.discretization_tag is not DISCR_TAG_BASE:
+        raise ValueError(
+            "The DOF descriptor associated with computing metric derivatives "
+            "must have `DISCR_TAG_BASE` as a discretization tag."
+        )
 
     if isinstance(ref_axes, int):
         ref_axes = ((ref_axes, 1),)
@@ -128,21 +132,15 @@ def forward_metric_nth_derivative(
     if len(set(ref_axes)) != len(ref_axes):
         raise ValueError("ref_axes must not contain an axis more than once")
 
-    from pytools import flatten
-    flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
-
     from meshmode.discretization import num_reference_derivative
 
-    vec = num_reference_derivative(
-        dcoll.discr_from_dd(inner_dd),
-        flat_ref_axes,
-        thaw(dcoll.discr_from_dd(inner_dd).nodes(), actx)[xyz_axis]
+    return num_reference_derivative(
+        dcoll.discr_from_dd(dd),
+        [rst_axis
+         for rst_axis, n in ref_axes
+         for _ in range(n)],
+        thaw(dcoll.discr_from_dd(dd).nodes(), actx)[xyz_axis]
     )
-
-    if dd.uses_quadrature():
-        vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
-
-    return vec
 
 
 def forward_metric_derivative_vector(
@@ -408,20 +406,24 @@ def inverse_surface_metric_derivative(
     if dd is None:
         dd = DD_VOLUME
     dd = dof_desc.as_dofdesc(dd)
+    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
 
     if ambient_dim == dim:
         result = inverse_metric_derivative(
-            actx, dcoll, rst_axis, xyz_axis, dd=dd
+            actx, dcoll, rst_axis, xyz_axis, dd=dd_base
         )
     else:
-        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
+        inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd_base)
         result = sum(
             inv_form1[rst_axis, d]*forward_metric_nth_derivative(
-                actx, dcoll, xyz_axis, d, dd=dd
+                actx, dcoll, xyz_axis, d, dd=dd_base
             ) for d in range(dim))
 
     if _use_geoderiv_connection:
-        result = dcoll._base_to_geoderiv_connection(dd)(result)
+        result = dcoll._base_to_geoderiv_connection(dd_base)(result)
+    else:
+        if dd.uses_quadrature():
+            result = dcoll.connection_from_dds(dd_base, dd)(result)
 
     return result
 
@@ -450,6 +452,9 @@ def inverse_surface_metric_derivative_mat(
         inverse metric derivatives in per-group arrays of shape
         ``(xyz_dimension, rst_dimension, nelements, ndof)``.
     """
+    if dd is None:
+        dd = DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
         times_area_element, _use_geoderiv_connection))
@@ -567,14 +572,19 @@ def area_element(
     """
     if dd is None:
         dd = DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
 
     @memoize_in(dcoll, (area_element, dd, _use_geoderiv_connection))
     def _area_elements():
+        dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
         result = actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dd=dd).norm_squared())
+            pseudoscalar(actx, dcoll, dd=dd_base).norm_squared())
 
         if _use_geoderiv_connection:
-            result = dcoll._base_to_geoderiv_connection(dd)(result)
+            result = dcoll._base_to_geoderiv_connection(dd_base)(result)
+        else:
+            if dd.uses_quadrature():
+                result = dcoll.connection_from_dds(dd_base, dd)(result)
 
         return freeze(result, actx)
 
@@ -638,6 +648,7 @@ def mv_normal(
     def _normal():
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
+        dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
 
         if dim == ambient_dim:
             raise ValueError("may only request normals on domains whose topological "
@@ -645,7 +656,7 @@ def mv_normal(
                     f"their ambient dimension ({ambient_dim})")
 
         if dim == ambient_dim - 1:
-            result = rel_mv_normal(actx, dcoll, dd=dd)
+            result = rel_mv_normal(actx, dcoll, dd=dd_base)
         else:
             # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
             # enough information on the face to decide what an "exterior face normal"
@@ -660,20 +671,23 @@ def mv_normal(
             from grudge.op import project
 
             volm_normal = MultiVector(
-                project(dcoll, dof_desc.DD_VOLUME, dd,
+                project(dcoll, dof_desc.DD_VOLUME, dd_base,
                         rel_mv_normal(
                             actx, dcoll,
                             dd=dof_desc.DD_VOLUME
                         ).as_vector(dtype=object))
             )
-            pder = pseudoscalar(actx, dcoll, dd=dd)
+            pder = pseudoscalar(actx, dcoll, dd=dd_base)
 
             mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
         if _use_geoderiv_connection:
-            result = dcoll._base_to_geoderiv_connection(dd)(result)
+            result = dcoll._base_to_geoderiv_connection(dd_base)(result)
+        else:
+            if dd.uses_quadrature():
+                result = dcoll.connection_from_dds(dd_base, dd)(result)
 
         return freeze(result, actx)
 
@@ -776,11 +790,18 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :returns: a rank-2 object array describing the shape operator.
     """
+    if dd is None:
+        dd = DD_VOLUME
+    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
 
-    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
-    form2 = second_fundamental_form(actx, dcoll, dd=dd)
+    inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd_base)
+    form2 = second_fundamental_form(actx, dcoll, dd=dd_base)
+    result = -form2.dot(inv_form1)
 
-    return -form2.dot(inv_form1)
+    if dd.uses_quadrature():
+        result = dcoll.connection_from_dds(dd_base, dd)(result)
+
+    return result
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
