@@ -238,6 +238,16 @@ def euler_numerical_flux(
 
 
 class EulerOperator(HyperbolicOperator):
+    r"""This operator discretizes the Euler equations:
+
+    .. math::
+
+        \partial_t \mathbf{Q} + \nabla\cdot\mathbf{F} = 0,
+
+    where $\mathbf{Q}$ is the state vector containing density, momentum, and
+    total energy, and $\mathbf{F}$ is the vector of inviscid fluxes
+    (see :func:`euler_volume_flux`)
+    """
 
     def __init__(self, dcoll: DiscretizationCollection,
                  bdry_conditions=None,
