@@ -316,4 +316,61 @@ class EulerOperator(HyperbolicOperator):
 # }}}
 
 
+# {{{ Limiter
+
+def limiter_zhang_shu(
+        dcoll: DiscretizationCollection, quad_tag, state):
+    """Implements the positivity-preserving limiter of
+    - Zhang, Shu (2011)
+        Maximum-principle-satisfying and positivity-preserving high-order schemes
+        for conservation laws: survey and new developments
+        [DOI](https://doi.org/10.1098/rspa.2011.0153)
+
+    This limiter is currently only applied to the ``mass'' component of the state.
+
+    :quad_tag: A quadrature tag denoting the volume quadrature discretization.
+    :state: A :class:`EulerContainer` containing the state with components
+        ``mass'', ``energy'', and ``momentum.''
+    :returns: A :class:`EulerContainer` containing the limited state.
+    """
+    actx = state.array_context
+
+    # Interpolate state to quadrature grid and
+    # compute nodal and elementwise max/mins
+    dd_base = as_dofdesc("vol")
+    dd_quad = dd_base.with_discr_tag(quad_tag)
+    mass = op.project(dcoll, "vol", dd_quad, state.mass)
+    _mmax = op.nodal_max(dcoll, dd_quad, mass)
+    _mmin = op.nodal_min(dcoll, dd_quad, mass)
+    _mmax_i = op.elementwise_max(dcoll, mass)
+    _mmin_i = op.elementwise_min(dcoll, mass)
+
+    # Compute cell averages of the state
+    from grudge.geometry import area_element
+
+    inv_area_elements = 1./area_element(
+        actx, dcoll,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    mass_cell_avgs = \
+        inv_area_elements * op.elementwise_integral(dcoll, state.mass)
+
+    # Compute minmod factor
+    theta = actx.np.minimum(
+        1,
+        actx.np.minimum(
+            abs((_mmax - mass_cell_avgs)/(_mmax_i - mass_cell_avgs)),
+            abs((_mmin - mass_cell_avgs)/(_mmin_i - mass_cell_avgs))
+        )
+    )
+
+    return EulerContainer(
+        # Limit only mass
+        mass=theta*(state.mass - mass_cell_avgs) + mass_cell_avgs,
+        energy=state.energy,
+        momentum=state.momentum
+    )
+
+# }}}
+
+
 # vim: foldmethod=marker
