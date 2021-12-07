@@ -275,7 +275,7 @@ def _apply_elementwise_reduction(
 
     Note that for array contexts which support nonscalar broadcasting
     (e.g. :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`),
-    the size of each component vector will be of shape `(nelements, 1)`.
+    the size of each component vector will be of shape ``(nelements, 1)``.
     Otherwise, the scalar value of the reduction will be repeated for each
     degree of freedom.
 
