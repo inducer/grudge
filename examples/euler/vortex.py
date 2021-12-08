@@ -35,7 +35,8 @@ from arraycontext import thaw, freeze
 from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 from grudge.models.euler import (
     primitive_to_conservative_vars,
-    EulerOperator
+    EulerOperator,
+    EntropyStableEulerOperator
 )
 
 from pytools.obj_array import make_obj_array
@@ -84,6 +85,7 @@ def vortex_initial_condition(x_vec, t=0):
 
 
 def run_vortex(actx, order=3, resolution=8, final_time=5,
+               esdg=False,
                overintegration=False,
                flux_type="central",
                visualize=False):
@@ -94,11 +96,12 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
         order: %s\n
         final_time: %s\n
         resolution: %s\n
+        entropy stable: %s\n
         overintegration: %s\n
         flux_type: %s\n
         visualize: %s
         """,
-        order, final_time, resolution,
+        order, final_time, resolution, esdg,
         overintegration, flux_type, visualize
     )
 
@@ -120,7 +123,14 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     from meshmode.discretization.poly_element import \
         default_simplex_group_factory, QuadratureSimplexGroupFactory
 
-    exp_name = f"fld-vortex-N{order}-K{resolution}-{flux_type}"
+    if esdg:
+        case = "esdg-vortex"
+        operator_cls = EntropyStableEulerOperator
+    else:
+        case = "vortex"
+        operator_cls = EulerOperator
+
+    exp_name = f"fld-{case}-N{order}-K{resolution}-{flux_type}"
 
     if overintegration:
         exp_name += "-overintegrated"
@@ -141,7 +151,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
 
     # {{{ Euler operator
 
-    euler_operator = EulerOperator(
+    euler_operator = operator_cls(
         dcoll,
         flux_type=flux_type,
         gamma=gamma,
@@ -198,6 +208,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
 
 
 def main(ctx_factory, order=3, final_time=5, resolution=8,
+         esdg=False,
          overintegration=False,
          lf_stabilization=False,
          visualize=False,
@@ -217,6 +228,12 @@ def main(ctx_factory, order=3, final_time=5, resolution=8,
             force_device_scalars=True,
         )
 
+    if not actx.supports_nonscalar_broadcasting and esdg is True:
+        raise RuntimeError(
+            "Cannot use ESDG with an array context that cannot perform "
+            "nonscalar broadcasting. Run with --lazy instead."
+        )
+
     if lf_stabilization:
         flux_type = "lf"
     else:
@@ -227,6 +244,7 @@ def main(ctx_factory, order=3, final_time=5, resolution=8,
         order=order,
         resolution=resolution,
         final_time=final_time,
+        esdg=esdg,
         overintegration=overintegration,
         flux_type=flux_type,
         visualize=visualize
@@ -240,6 +258,8 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=0.015, type=float)
     parser.add_argument("--resolution", default=8, type=int)
+    parser.add_argument("--esdg", action="store_true",
+                        help="use entropy stable dg")
     parser.add_argument("--oi", action="store_true",
                         help="use overintegration")
     parser.add_argument("--lf", action="store_true",
@@ -255,6 +275,7 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
+         esdg=args.esdg,
          overintegration=args.oi,
          lf_stabilization=args.lf,
          visualize=args.visualize,
