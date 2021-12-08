@@ -277,46 +277,33 @@ def dt_geometric_factors(
         )
     )
 
-    if actx.supports_nonscalar_broadcasting:
-        # Sum the areas of each face to get the total surface area
-        surface_areas = DOFArray(
-            actx,
-            data=tuple(
-                actx.einsum(
-                    "fej->e",
-                    face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces,
-                        vgrp.nelements,
-                        1
-                    ),
-                    tagged=(FirstAxisIsElementsTag(),))
+    # Sum the areas of each face to get the total surface area
+    surface_areas = DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum(
+                "fej->e",
+                face_ae_i.reshape(
+                    vgrp.mesh_el_group.nfaces,
+                    vgrp.nelements,
+                    -1
+                ),
+                tagged=(FirstAxisIsElementsTag(),)) / (
+                    # NOTE: Whenever the array context can't perform nonscalar
+                    # broadcasting, elementwise reductions
+                    # (like `elementwise_integral`) repeat the scalar value of
+                    # the reduction at each degree of freedom. To get a single
+                    # value for the total surface area of a cell,
+                    # we sum over all nodes and average.
+                    1 if actx.supports_nonscalar_broadcasting
+                    else afgrp.nunit_dofs
+                )
 
-                for vgrp, face_ae_i in zip(volm_discr.groups, surface_areas)
-            )
+            for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
+                                              face_discr.groups,
+                                              surface_areas)
         )
-    else:
-        # Whenever the array context can't perform nonscalar broadcasting,
-        # elementwise reductions (like `elementwise_integral`) repeat the
-        # scalar value of the reduction at each degree of freedom.
-        # To get a single value for the total surface area of a cell,
-        # we take the sum over the averaged face areas on each face.
-        surface_areas = DOFArray(
-            actx,
-            data=tuple(
-                actx.einsum(
-                    "fej->e",
-                    face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces,
-                        vgrp.nelements,
-                        afgrp.nunit_dofs
-                    ),
-                    tagged=(FirstAxisIsElementsTag(),)) / afgrp.nunit_dofs
-
-                for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
-                                                  face_discr.groups,
-                                                  surface_areas)
-            )
-        )
+    )
 
     return freeze(DOFArray(
         actx,
