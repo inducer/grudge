@@ -28,7 +28,10 @@ THE SOFTWARE.
 
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
-        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
+        # FIXME: PytatoPyOpenCLArrayContext is literally unusable when
+        # using flux-differencing
+        # TODO: Get SingleGridWorkBalancingPytatoArrayContext merged into main
+        SingleGridWorkBalancingPytatoArrayContext as _PytatoPyOpenCLArrayContextBase,
         )
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
