@@ -32,15 +32,20 @@ THE SOFTWARE.
 """
 
 
+import numpy as np
+
 from functools import partial
 
-from arraycontext import map_array_container
+from arraycontext import ArrayContext, map_array_container
 from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 
 from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import FirstAxisIsElementsTag
+
+from pytools import keyed_memoize_in
 
 from numbers import Number
 
@@ -70,3 +75,66 @@ def project(
         )
 
     return dcoll.connection_from_dds(src, tgt)(vec)
+
+
+# {{{ Projection matrices
+
+def volume_quadrature_l2_projection_matrix(
+        actx: ArrayContext, base_element_group, vol_quad_element_group):
+    """todo.
+    """
+    @keyed_memoize_in(
+        actx, volume_quadrature_l2_projection_matrix,
+        lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
+                                        vol_quad_grp.discretization_key()))
+    def get_ref_l2_proj_mat(base_grp, vol_quad_grp):
+        from grudge.interpolation import volume_quadrature_interpolation_matrix
+
+        vdm_q = actx.to_numpy(
+            volume_quadrature_interpolation_matrix(
+                actx, base_grp, vol_quad_grp
+            )
+        )
+        weights = vol_quad_grp.quadrature_rule().weights
+        inv_mass_mat = np.linalg.inv(weights * vdm_q.T @ vdm_q)
+        return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T * weights)))
+
+    return get_ref_l2_proj_mat(base_element_group, vol_quad_element_group)
+
+# }}}
+
+
+def volume_quadrature_project(dcoll: DiscretizationCollection, dd_q, vec):
+    """todo.
+    """
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(volume_quadrature_project, dcoll, dd_q), vec
+        )
+
+    actx = vec.array_context
+    discr = dcoll.discr_from_dd("vol")
+    quad_discr = dcoll.discr_from_dd(dd_q)
+
+    return DOFArray(
+        actx,
+        data=tuple(
+            actx.einsum("ij,ej->ei",
+                        volume_quadrature_l2_projection_matrix(
+                            actx,
+                            base_element_group=bgrp,
+                            vol_quad_element_group=qgrp
+                        ),
+                        vec_i,
+                        arg_names=("Pq_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for bgrp, qgrp, vec_i in zip(
+                discr.groups,
+                quad_discr.groups,
+                vec
+            )
+        )
+    )
+
+# vim: foldmethod=marker
