@@ -1,5 +1,3 @@
-"""Minimal example of a grudge driver."""
-
 __copyright__ = """
 Copyright (C) 2020 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
