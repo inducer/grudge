@@ -53,7 +53,7 @@ import grudge.op as op
                            rel_comparison=True)
 @dataclass_array_container
 @dataclass(frozen=True)
-class EulerContainer:
+class EulerField:
     mass: DOFArray
     energy: DOFArray
     momentum: np.ndarray
@@ -108,7 +108,7 @@ def conservative_to_primitive_vars(cv_state, gamma=1.4):
     """Converts from conserved variables (density, momentum, total energy)
     into primitive variables (density, velocity, pressure).
 
-    :arg cv_state: A :class:`EulerContainer` containing the conserved
+    :arg cv_state: A :class:`EulerField` containing the conserved
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
@@ -132,7 +132,7 @@ def primitive_to_conservative_vars(prim_vars, gamma=1.4):
         (density, velocity, pressure).
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
-    :returns: A :class:`EulerContainer` containing the conserved
+    :returns: A :class:`EulerField` containing the conserved
         variables.
     """
     rho, u, p = prim_vars
@@ -140,13 +140,13 @@ def primitive_to_conservative_vars(prim_vars, gamma=1.4):
     rhou = rho * u
     rhoe = p * inv_gamma_minus_one + 0.5 * sum(rhou * u)
 
-    return EulerContainer(mass=rho, energy=rhoe, momentum=rhou)
+    return EulerField(mass=rho, energy=rhoe, momentum=rhou)
 
 
 def compute_wavespeed(cv_state, gamma=1.4):
     """Computes the total translational wavespeed.
 
-    :arg cv_state: A :class:`EulerContainer` containing the conserved
+    :arg cv_state: A :class:`EulerField` containing the conserved
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
@@ -198,7 +198,7 @@ class InviscidWallBC(InviscidBCObject):
         return TracePair(
             dd_bc,
             interior=interior,
-            exterior=EulerContainer(
+            exterior=EulerField(
                 mass=interior.mass,
                 energy=interior.energy,
                 momentum=(
@@ -217,17 +217,17 @@ def euler_volume_flux(
     """Computes the (non-linear) volume flux for the
     Euler operator.
 
-    :arg cv_state: A :class:`EulerContainer` containing the conserved
+    :arg cv_state: A :class:`EulerField` containing the conserved
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
-    :returns: A :class:`EulerContainer` containing the volume fluxes.
+    :returns: A :class:`EulerField` containing the volume fluxes.
     """
     from arraycontext import outer
 
     rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
 
-    return EulerContainer(
+    return EulerField(
         mass=cv_state.momentum,
         energy=u * (cv_state.energy + p),
         momentum=rho * outer(u, u) + np.eye(dcoll.dim) * p
@@ -245,7 +245,7 @@ def euler_numerical_flux(
         (default set to 1.4).
     :arg lf_stabilization: A boolean denoting whether to apply Lax-Friedrichs
         dissipation.
-    :returns: A :class:`EulerContainer` containing the interface fluxes.
+    :returns: A :class:`EulerField` containing the interface fluxes.
     """
     dd_intfaces = tpair.dd
     dd_allfaces = dd_intfaces.with_dtag("all_faces")
