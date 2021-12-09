@@ -54,7 +54,7 @@ def tg_vortex_initial_condition(x_vec, t=0):
     gamma = 1.4
     v0 = 1.
     p0 = 1.
-    rho0 = gamma * M ** 2
+    rho0 = gamma * (M ** 2)
 
     x, y, z = x_vec
     actx = x.array_context
@@ -71,20 +71,30 @@ def tg_vortex_initial_condition(x_vec, t=0):
     return primitive_to_conservative_vars((rho, velocity, p), gamma=gamma)
 
 
-def run_tg_vortex(actx, order=3, resolution=16, dtscaling=1, final_time=20,
+def run_tg_vortex(actx,
+                  order=3,
+                  resolution=16,
+                  cfl=1.0,
+                  final_time=20,
                   dumpfreq=50,
                   overintegration=False,
-                  timestepper="lsrk54", visualize=False):
+                  timestepper="lsrk54",
+                  visualize=False):
+
     logger.info(
         """
         Taylor-Green vortex parameters:\n
-        order: %s, resolution: %s, dt scaling factor: %s, \n
-        final time: %s, \n
-        dumpfreq: %s,
-        timestepper: %s, visualize: %s
+        order: %s\n
+        final_time: %s\n
+        resolution: %s\n
+        cfl: %s\n
+        dumpfreq: %s\n
+        overintegration: %s\n
+        timestepper: %s\n
+        visualize: %s
         """,
-        order, resolution, dtscaling,
-        final_time, dumpfreq, timestepper, visualize
+        order, final_time, resolution, cfl,
+        dumpfreq, overintegration, timestepper, visualize
     )
 
     # eos-related parameters
@@ -109,7 +119,7 @@ def run_tg_vortex(actx, order=3, resolution=16, dtscaling=1, final_time=20,
         (default_simplex_group_factory,
          QuadratureSimplexGroupFactory)
 
-    exp_name = f"fld-esdg-taylorgreen-N{order}-K{resolution}"
+    exp_name = f"fld-esdg-taylorgreen-N{order}-K{resolution}-cfl{cfl}"
 
     if overintegration:
         exp_name += "-overintegrated"
@@ -149,8 +159,10 @@ def run_tg_vortex(actx, order=3, resolution=16, dtscaling=1, final_time=20,
         assert timestepper == "lsrk144"
         stepper = lsrk144_step
 
-    dt = dtscaling * actx.to_numpy(
-        euler_operator.estimate_rk4_timestep(actx, dcoll, state=fields))
+    from grudge.dt_utils import h_min_from_volume
+
+    cn = 0.5*(order + 1)**2
+    dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
     logger.info("Timestep size: %g", dt)
 
@@ -181,6 +193,7 @@ def run_tg_vortex(actx, order=3, resolution=16, dtscaling=1, final_time=20,
                         ("pressure", pressure)
                     ]
                 )
+            assert norm_q < 10000
 
         fields = thaw(freeze(fields, actx), actx)
         fields = stepper(fields, t, dt, compiled_rhs)
@@ -191,7 +204,7 @@ def run_tg_vortex(actx, order=3, resolution=16, dtscaling=1, final_time=20,
 
 
 def main(ctx_factory, order=3, final_time=20,
-         resolution=16, dtscaling=1,
+         resolution=16, cfl=1,
          dumpfreq=50, overintegration=False,
          timestepper="lsrk54", visualize=False):
     cl_ctx = ctx_factory()
@@ -204,7 +217,7 @@ def main(ctx_factory, order=3, final_time=20,
         actx,
         order=order,
         resolution=resolution,
-        dtscaling=dtscaling,
+        cfl=cfl,
         final_time=final_time,
         dumpfreq=dumpfreq,
         overintegration=overintegration,
@@ -218,14 +231,21 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--order", default=3, type=int)
-    parser.add_argument("--tfinal", default=20., type=float)
-    parser.add_argument("--resolution", default=8, type=int)
-    parser.add_argument("--dumpfreq", default=50, type=int)
-    parser.add_argument("--dtscaling", default=1., type=float)
-    parser.add_argument("--oi", action="store_true")
-    parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--tfinal", default=20., type=float,
+                        help="specify final time for the simulation")
+    parser.add_argument("--resolution", default=8, type=int,
+                        help="resolution in each spatial direction")
+    parser.add_argument("--dumpfreq", default=50, type=int,
+                        help="step frequency for writing output or logging info")
+    parser.add_argument("--cfl", default=1., type=float,
+                        help="specify cfl value to use in dt computation")
+    parser.add_argument("--oi", action="store_true",
+                        help="use overintegration")
+    parser.add_argument("--visualize", action="store_true",
+                        help="write out vtk output")
     parser.add_argument("--timestepper", default="lsrk54",
-                        choices=['lsrk54', 'lsrk144'])
+                        choices=['lsrk54', 'lsrk144'],
+                        help="specify timestepper method")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -233,7 +253,7 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
-         dtscaling=args.dtscaling,
+         cfl=args.cfl,
          dumpfreq=args.dumpfreq,
          overintegration=args.oi,
          timestepper=args.timestepper,
