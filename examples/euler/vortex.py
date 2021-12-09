@@ -23,8 +23,6 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
@@ -32,46 +30,15 @@ from arraycontext import thaw, freeze
 
 from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 from grudge.models.euler import (
-    primitive_to_conservative_vars,
+    vortex_initial_condition,
     EulerOperator
 )
 from grudge.shortcuts import rk4_step
-
-from pytools.obj_array import make_obj_array
 
 import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-def vortex_initial_condition(x_vec, t=0):
-    """Initial condition adapted from Section 2 (equation 2) of:
-
-    - K. Mattsson, M. Sv\"{a}rd, M. Carpenter, and J. Nordstr\"{o}m (2006).
-    High-order accurate computations for unsteady aerodynamics.
-    [DOI](https://doi.org/10.1016/j.compfluid.2006.02.004).
-    """
-    mach = 0.5    # Mach number
-    _x0 = 5
-    epsilon = 1   # vortex strength
-    gamma = 1.4
-    x, y = x_vec
-    actx = x.array_context
-
-    fxyt = 1 - (((x - _x0) - t)**2 + y**2)
-    expterm = actx.np.exp(fxyt/2)
-
-    u = 1 - (epsilon*y/(2*np.pi)) * expterm
-    v = ((epsilon*(x - _x0) - t)/(2*np.pi)) * expterm
-
-    velocity = make_obj_array([u, v])
-    mass = (
-        1 - ((epsilon**2 * (gamma - 1) * mach**2)/(8*np.pi**2)) * actx.np.exp(fxyt)
-    ) ** (1 / (gamma - 1))
-    p = (mass ** gamma)/(gamma * mach**2)
-
-    return primitive_to_conservative_vars((mass, velocity, p), gamma=gamma)
 
 
 def run_vortex(actx, order=3, resolution=8, final_time=5,
