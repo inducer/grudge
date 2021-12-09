@@ -48,7 +48,7 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
 from grudge.trace_pair import TracePair
 from grudge.discretization import DiscretizationCollection
-from grudge.shortcuts import make_visualizer
+from grudge.shortcuts import make_visualizer, rk4_step
 
 import grudge.op as op
 
@@ -147,14 +147,6 @@ def wave_operator(dcoll, c, w, quad_tag=None):
     )
 
 # }}}
-
-
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def estimate_rk4_timestep(actx, dcoll, c):

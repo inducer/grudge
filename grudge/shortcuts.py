@@ -23,6 +23,14 @@ THE SOFTWARE.
 """
 
 
+def rk4_step(y, t, h, f):
+    k1 = f(t, y)
+    k2 = f(t+h/2, y + h/2*k1)
+    k3 = f(t+h/2, y + h/2*k2)
+    k4 = f(t+h, y + h*k3)
+    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+
+
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0.0):
     from leap.rk import LSRK4MethodBuilder
     from dagrt.codegen import PythonCodeGenerator
