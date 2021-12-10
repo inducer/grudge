@@ -231,7 +231,6 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     t_final = 3
     istep = 0
     while t < t_final:
-        start = time.time()
         if lazy:
             fields = thaw(freeze(fields, actx), actx)
 
