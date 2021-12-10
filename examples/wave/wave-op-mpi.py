@@ -201,10 +201,14 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     if comm.rank == 0:
         logger.info("dt = %g", dt)
 
+    import time
+    start = time.time()
+
     t = 0
     t_final = 3
     istep = 0
     while t < t_final:
+        start = time.time()
         if lazy:
             fields = thaw(freeze(fields, actx), actx)
 
@@ -213,6 +217,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
         l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
 
         if istep % 10 == 0:
+            stop = time.time()
             linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
             nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
             nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
@@ -221,7 +226,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
                             f"L2: {l2norm} "
                             f"Linf: {linfnorm} "
                             f"sol max: {nodalmax} "
-                            f"sol min: {nodalmin}")
+                            f"sol min: {nodalmin} "
+                            f"wall: {stop-start} ")
             if visualize:
                 vis.write_parallel_vtk_file(
                     comm,
@@ -231,6 +237,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
                         ("v", fields[1:]),
                     ]
                 )
+            start = stop
 
         t += dt
         istep += 1
