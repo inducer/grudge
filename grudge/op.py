@@ -234,7 +234,7 @@ def _grad_helper(dcoll, scalar_grad, *args, nested):
 
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_grad_helper, scalar_grad, dcoll, dd_in, nested=nested), vec)
+            partial(_grad_helper, dcoll, scalar_grad, dd_in, nested=nested), vec)
 
     return scalar_grad(dcoll, dd_in, vec)
 
