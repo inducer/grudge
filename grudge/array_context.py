@@ -173,9 +173,9 @@ class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
 
 
 try:
-    class MPISingleGridWorkBalancingPytatoArrayContex(
-          SingleGridWorkBalancingPytatoArrayContext,
-          MPIPytatoPyOpenCLArrayContext):
+    class MPISingleGridWorkBalancingPytatoArrayContext(
+            SingleGridWorkBalancingPytatoArrayContext,
+            MPIPytatoPyOpenCLArrayContext):
         pass
 except NameError:
     pass
