@@ -4,8 +4,8 @@ from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray,
     IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray)
 
 def k_inner_inner_options(start_val=None):
-    options = [8, 16, 4, 32]
-    #options = [32, 16, 8]
+    #options = [8, 16, 4, 32]
+    options = [32, 16, 8]
     start_ind = 0 if start_val is None else options.index(start_val)
     options = options[start_ind:]
     return options
