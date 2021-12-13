@@ -32,7 +32,7 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw, freeze
-from grudge.array_context import MPIPytatoPyOpenCLArrayContext, PyOpenCLArrayContext
+from grudge.array_context import MPISingleGridWorkBalancingPytatoArrayContext, PyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
 
@@ -149,7 +149,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     num_parts = comm.Get_size()
 
     if lazy:
-        actx = MPIPytatoPyOpenCLArrayContext(comm, queue)
+        actx = MPISingleGridWorkBalancingPytatoArrayContext(comm, queue)
     else:
         actx = PyOpenCLArrayContext(
             queue,
