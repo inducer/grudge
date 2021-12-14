@@ -17,6 +17,7 @@ Interior and cross-rank trace functions
 ---------------------------------------
 
 .. autofunction:: interior_trace_pairs
+.. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
 """
 
@@ -48,19 +49,23 @@ THE SOFTWARE.
 from arraycontext import (
     ArrayContainer,
     with_container_arithmetic,
-    dataclass_array_container
+    dataclass_array_container,
+    get_container_context_recursively,
+    flatten, to_numpy,
+    unflatten, from_numpy
 )
+from arraycontext.container import ArrayOrContainerT
 
 from dataclasses import dataclass
 
 from numbers import Number
 
 from pytools import memoize_on_first_arg
-from pytools.obj_array import obj_array_vectorize, make_obj_array
+from pytools.obj_array import obj_array_vectorize
 
 from grudge.discretization import DiscretizationCollection
+from grudge.projection import project
 
-from meshmode.dof_array import flatten, unflatten
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
@@ -133,7 +138,7 @@ class TracePair:
 
     @property
     def int(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         interior value to be used for the flux.
         """
@@ -141,7 +146,7 @@ class TracePair:
 
     @property
     def ext(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         exterior value to be used for the flux.
         """
@@ -149,7 +154,7 @@ class TracePair:
 
     @property
     def avg(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         average of the interior and exterior values.
         """
@@ -157,7 +162,7 @@ class TracePair:
 
     @property
     def diff(self):
-        """A class:`~meshmode.dof_array.DOFArray` or
+        """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         difference (exterior - interior) of the pair values.
         """
@@ -172,13 +177,18 @@ def bdry_trace_pair(
         dcoll: DiscretizationCollection, dd, interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
+    If the input arguments *interior* and *exterior* are
+    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
-    :arg interior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them that contains data
         already on the boundary representing the interior value to be used
         for the flux.
-    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -192,39 +202,50 @@ def bv_trace_pair(
     argument is assumed to be defined on the volume discretization, and will
     therefore be restricted to the boundary *dd* prior to creating a
     :class:`TracePair`.
+    If the input arguments *interior* and *exterior* are
+    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
-    :arg interior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         defined in the volume, which will be restricted to the boundary denoted
         by *dd*. The result will be used as the interior value
         for the flux.
-    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` that contains data
+    :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
     """
-    from grudge.op import project
-
-    interior = project(dcoll, "vol", dd, interior)
-    return bdry_trace_pair(dcoll, dd, interior, exterior)
+    return bdry_trace_pair(
+        dcoll, dd, project(dcoll, "vol", dd, interior), exterior
+    )
 
 # }}}
 
 
 # {{{ Interior trace pairs
 
-def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     r"""Return a :class:`TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s.
+
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
+
+    For certain applications, it may be useful to distinguish between
+    rank-local and cross-rank trace pairs. For example, avoiding unnecessary
+    communication of derived quantities (i.e. temperature) on partition
+    boundaries by computing them directly. Having the ability for
+    user applications to distinguish between rank-local and cross-rank
+    contributions can also help enable overlapping communication with
+    computation.
     :returns: a :class:`TracePair` object.
     """
-    from grudge.op import project
-
     i = project(dcoll, "vol", "int_faces", vec)
 
     def get_opposite_face(el):
@@ -238,28 +259,32 @@ def _interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return TracePair("int_faces", interior=i, exterior=e)
 
 
+def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+    from warnings import warn
+    warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
+         "in version 2022.x. Use `local_interior_trace_pair` "
+         "instead, or `interior_trace_pairs` which also includes contributions "
+         "from different MPI ranks.",
+         DeprecationWarning, stacklevel=2)
+    return local_interior_trace_pair(dcoll, vec)
+
+
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
 
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or object array of
-        :class:`~meshmode.dof_array.DOFArray`\ s.
+    Note that :func:`local_interior_trace_pair` provides the rank-local contributions
+    if those are needed in isolation. Similarly, :func:`cross_rank_trace_pairs`
+    provides only the trace pairs defined on cross-rank boundaries.
+
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
-        [_interior_trace_pair(dcoll, vec)]
-        + cross_rank_trace_pairs(dcoll, vec)
+        [local_interior_trace_pair(dcoll, vec)] + cross_rank_trace_pairs(dcoll, vec)
     )
-
-
-def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
-    from warnings import warn
-    warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
-         "in version 2022.x. Use `grudge.trace_pair.interior_trace_pairs` "
-         "instead, which includes contributions from different MPI ranks.",
-         DeprecationWarning, stacklevel=2)
-    return _interior_trace_pair(dcoll, vec)
 
 # }}}
 
@@ -275,47 +300,77 @@ def connected_ranks(dcoll: DiscretizationCollection):
 class _RankBoundaryCommunication:
     base_tag = 1273
 
-    def __init__(self, dcoll: DiscretizationCollection,
-                 remote_rank, vol_field, tag=None):
+    def __init__(self,
+                 dcoll: DiscretizationCollection,
+                 array_container: ArrayOrContainerT,
+                 remote_rank, tag=None):
+        actx = get_container_context_recursively(array_container)
+        btag = BTAG_PARTITION(remote_rank)
+
+        local_bdry_data = project(dcoll, "vol", btag, array_container)
+        comm = dcoll.mpi_communicator
+
+        self.dcoll = dcoll
+        self.array_context = actx
+        self.remote_btag = btag
+        self.bdry_discr = dcoll.discr_from_dd(btag)
+        self.local_bdry_data = local_bdry_data
+        self.local_bdry_data_np = \
+            to_numpy(flatten(self.local_bdry_data, actx), actx)
+
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
 
-        self.dcoll = dcoll
-        self.array_context = vol_field.array_context
-        self.remote_btag = BTAG_PARTITION(remote_rank)
-        self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
-
-        from grudge.op import project
-
-        self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
-
-        local_data = self.array_context.to_numpy(flatten(self.local_dof_array))
-        comm = self.dcoll.mpi_communicator
-
-        self.send_req = comm.Isend(local_data, remote_rank, tag=self.tag)
-        self.remote_data_host = np.empty_like(local_data)
-        self.recv_req = comm.Irecv(self.remote_data_host, remote_rank, self.tag)
+        # Here, we initialize both send and recieve operations through
+        # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
+        # and comm.Irecv (MPI_Irecv) respectively. These initiate non-blocking
+        # point-to-point communication requests and require explicit management
+        # via the use of wait (MPI_Wait, MPI_Waitall, MPI_Waitany, MPI_Waitsome),
+        # test (MPI_Test, MPI_Testall, MPI_Testany, MPI_Testsome), and cancel
+        # (MPI_Cancel). The rank-local data `self.local_bdry_data_np` will have its
+        # associated memory buffer sent across connected ranks and must not be
+        # modified at the Python level during this process. Completion of the
+        # requests is handled in :meth:`finish`.
+        #
+        # For more details on the mpi4py semantics, see:
+        # https://mpi4py.readthedocs.io/en/stable/overview.html#nonblocking-communications
+        #
+        # NOTE: mpi4py currently (2021-11-03) holds a reference to the send
+        # memory buffer for (i.e. `self.local_bdry_data_np`) until the send
+        # requests is complete, however it is not clear that this is documented
+        # behavior. We hold on to the buffer (via the instance attribute)
+        # as well, just in case.
+        self.send_req = comm.Isend(self.local_bdry_data_np,
+                                   remote_rank,
+                                   tag=self.tag)
+        self.remote_data_host_numpy = np.empty_like(self.local_bdry_data_np)
+        self.recv_req = comm.Irecv(self.remote_data_host_numpy,
+                                   remote_rank,
+                                   tag=self.tag)
 
     def finish(self):
+        # Wait for the nonblocking receive request to complete before
+        # accessing the data
         self.recv_req.Wait()
 
+        # Nonblocking receive is complete, we can now access the data and apply
+        # the boundary-swap connection
         actx = self.array_context
-        remote_dof_array = unflatten(
-            self.array_context, self.bdry_discr,
-            actx.from_numpy(self.remote_data_host)
-        )
-
+        remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
+        remote_bdry_data = unflatten(self.local_bdry_data,
+                                     remote_bdry_data_flat, actx)
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag))
-        )
-        swapped_remote_dof_array = bdry_conn(remote_dof_array)
+            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
+        swapped_remote_bdry_data = bdry_conn(remote_bdry_data)
 
+        # Complete the nonblocking send request associated with communicating
+        # `self.local_bdry_data_np`
         self.send_req.Wait()
 
         return TracePair(self.remote_btag,
-                         interior=self.local_dof_array,
-                         exterior=swapped_remote_dof_array)
+                         interior=self.local_bdry_data,
+                         exterior=swapped_remote_bdry_data)
 
 
 from pytato import make_distributed_recv, staple_distributed_send
@@ -387,9 +442,13 @@ def cross_rank_trace_pairs(
     components, respectively. Each of the TracePair components are structured
     like *ary*.
 
-    :arg ary: a single :class:`~meshmode.dof_array.DOFArray`, or an object
-        array of :class:`~meshmode.dof_array.DOFArray`\ s
-        of arbitrary shape.
+    If *ary* is a number, rather than a
+    :class:`~meshmode.dof_array.DOFArray` or an
+    :class:`~arraycontext.container.ArrayContainer` of them, it is assumed
+    that the same number is being communicated on every rank.
+
+    :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     if tag is None:
