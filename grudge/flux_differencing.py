@@ -35,6 +35,8 @@ from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
 
+import grudge.dof_desc as dof_desc
+
 from meshmode.dof_array import DOFArray
 
 from pytools import memoize_in, keyed_memoize_in
@@ -216,27 +218,38 @@ def _single_axis_hybridized_sbp_derivative_kernel(
     )
 
 
-def _apply_skew_symmetric_hybrid_diff_operator(
-        dcoll: DiscretizationCollection, dq, df, flux_matrices):
-    # flux matrices for each component are a vector of matrices (as DOFArrays)
-    # for each spatial dimension
-    if not (isinstance(flux_matrices, np.ndarray) and flux_matrices.dtype == "O"):
+def _flux_differencing_helper(dcoll, diff_func, mats):
+    if not isinstance(mats, np.ndarray):
+        # mats is not an object array -> treat as array container
         return map_array_container(
-            partial(_apply_skew_symmetric_hybrid_diff_operator, dcoll, dq, df),
-            flux_matrices
-        )
+            partial(_flux_differencing_helper, dcoll, diff_func), mats)
 
-    def _sbp_hybrid_diff_helper(diff_func, mats):
-        if not isinstance(mats, np.ndarray):
-            raise TypeError("argument must be an object array")
-        assert mats.dtype == object
+    assert mats.dtype == object
+
+    if mats.size:
+        sample_mat = mats[(0,)*mats.ndim]
+        if isinstance(sample_mat, np.ndarray):
+            assert sample_mat.dtype == object
+            # mats is an object array containing further object arrays
+            # -> treat as array container
+            return map_array_container(
+                partial(_flux_differencing_helper, dcoll, diff_func), mats)
+
+    if mats.shape[-1] != dcoll.ambient_dim:
+        raise ValueError(
+            "last/innermost dimension of *mats* argument doesn't match "
+            "ambient dimension")
+
+    div_result_shape = mats.shape[:-1]
+
+    if len(div_result_shape) == 0:
         return sum(diff_func(i, mat_i) for i, mat_i in enumerate(mats))
-
-    return _sbp_hybrid_diff_helper(
-        lambda i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
-            dcoll, dq, df, i, flux_mat_i),
-        flux_matrices
-    )
+    else:
+        result = np.zeros(div_result_shape, dtype=object)
+        for idx in np.ndindex(div_result_shape):
+            result[idx] = sum(
+                    diff_func(i, mat_i) for i, mat_i in enumerate(mats[idx]))
+        return result
 
 
 def volume_flux_differencing(
@@ -245,9 +258,9 @@ def volume_flux_differencing(
         dq, df, vec: ArrayOrContainerT) -> ArrayOrContainerT:
     """todo.
     """
-    def _reshape_to_numpy(shape, ary):
+    def _reshape(shape, ary):
         if not isinstance(ary, DOFArray):
-            return map_array_container(partial(_reshape_to_numpy, shape), ary)
+            return map_array_container(partial(_reshape, shape), ary)
 
         actx = ary.array_context
         return DOFArray(
@@ -261,11 +274,11 @@ def volume_flux_differencing(
             )
         )
 
-    return _apply_skew_symmetric_hybrid_diff_operator(
+    return _flux_differencing_helper(
         dcoll,
-        dq, df,
-        flux(_reshape_to_numpy((1, -1), vec),
-             _reshape_to_numpy((-1, 1), vec))
+        lambda i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
+            dcoll, dq, df, i, flux_mat_i),
+        flux(_reshape((1, -1), vec), _reshape((-1, 1), vec))
     )
 
 
