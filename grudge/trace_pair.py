@@ -442,9 +442,17 @@ def cross_rank_trace_pairs(
         return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
                 for remote_rank in connected_ranks(dcoll)]
 
+    actx = get_container_context_recursively(ary)
+
+    from grudge.array_context import MPIPytatoPyOpenCLArrayContext
+    if isinstance(actx, MPIPytatoPyOpenCLArrayContext):
+        rbc = _RankBoundaryCommunicationLazy
+    else:
+        rbc = _RankBoundaryCommunication
+
     # Initialize and post all sends/receives
     rank_bdry_communcators = [
-        _RankBoundaryCommunicationLazy(dcoll, ary, remote_rank, tag=tag)
+        rbc(dcoll, ary, remote_rank, tag=tag)
         for remote_rank in connected_ranks(dcoll)
     ]
 
