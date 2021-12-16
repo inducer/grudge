@@ -386,6 +386,7 @@ class _RankBoundaryCommunicationLazy:
         self.tag = self.base_tag
         if tag is not None:
             self.tag += tag
+
         self.dcoll = dcoll
         self.array_context = get_container_context_recursively(array_container)
         self.remote_btag = BTAG_PARTITION(remote_rank)
