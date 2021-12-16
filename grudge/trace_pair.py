@@ -377,54 +377,40 @@ from pytato import make_distributed_recv, staple_distributed_send
 
 
 class _RankBoundaryCommunicationLazy:
+    base_tag = 1273
 
-    def __init__(self, dcoll: DiscretizationCollection, remote_rank,
-                 vol_field, tag):
+    def __init__(self,
+                 dcoll: DiscretizationCollection,
+                 array_container: ArrayOrContainerT,
+                 remote_rank, tag):
+        self.tag = self.base_tag
+        if tag is not None:
+            self.tag += tag
         self.dcoll = dcoll
-        self.array_context = vol_field.array_context
+        self.array_context = get_container_context_recursively(array_container)
         self.remote_btag = BTAG_PARTITION(remote_rank)
         self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
 
-        from grudge.op import project
+        self.local_bdry_data = project(dcoll, "vol", self.remote_btag, array_container)
 
-        self.local_dof_array = project(dcoll, "vol", self.remote_btag, vol_field)
-
-        # FIXME: Support more than one group array
-        local_group_array, = self.local_dof_array
+        loc = flatten(self.local_bdry_data, self.array_context)
 
         self.remote_data = staple_distributed_send(
-                local_group_array, dest_rank=remote_rank, comm_tag=tag,
+                loc, dest_rank=remote_rank, comm_tag=self.tag,
                 stapled_to=make_distributed_recv(
-                    src_rank=remote_rank, comm_tag=tag,
-                    shape=local_group_array.shape, dtype=local_group_array.dtype))
+                    src_rank=remote_rank, comm_tag=self.tag,
+                    shape=loc.shape, dtype=loc.dtype))
 
     def finish(self):
-        from meshmode.dof_array import DOFArray
-        remote_dof_array = DOFArray(self.array_context, (self.remote_data,))
+        remote_bdry_data = unflatten(self.local_bdry_data,
+                                     self.remote_data, self.array_context)
 
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
 
         return TracePair(self.remote_btag,
-                         interior=self.local_dof_array,
-                         exterior=bdry_conn(remote_dof_array))
-
-
-def _cross_rank_trace_pairs_scalar_field(
-        dcoll: DiscretizationCollection, vec, tag) -> list:
-    if isinstance(vec, Number):
-        return [TracePair(BTAG_PARTITION(remote_rank), interior=vec, exterior=vec)
-                for remote_rank in connected_ranks(dcoll)]
-    else:
-        from grudge.array_context import MPIPytatoPyOpenCLArrayContext
-        if (hasattr(vec, "array_context")
-                and isinstance(vec.array_context, MPIPytatoPyOpenCLArrayContext)):
-            rbc = _RankBoundaryCommunicationLazy
-        else:
-            rbc = _RankBoundaryCommunication
-        rbcomms = [rbc(dcoll, remote_rank, vec, tag=tag)
-                   for remote_rank in connected_ranks(dcoll)]
-        return [rbcomm.finish() for rbcomm in rbcomms]
+                         interior=self.local_bdry_data,
+                         exterior=bdry_conn(remote_bdry_data))
 
 
 def cross_rank_trace_pairs(
@@ -451,40 +437,19 @@ def cross_rank_trace_pairs(
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
-    if tag is None:
-        tag = 1237
+    if isinstance(ary, Number):
+        # NOTE: Assumed that the same number is passed on every rank
+        return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
+                for remote_rank in connected_ranks(dcoll)]
 
-    if isinstance(ary, np.ndarray):
-        oshape = ary.shape
-        comm_vec = ary.flatten()
+    # Initialize and post all sends/receives
+    rank_bdry_communcators = [
+        _RankBoundaryCommunicationLazy(dcoll, ary, remote_rank, tag=tag)
+        for remote_rank in connected_ranks(dcoll)
+    ]
 
-        n, = comm_vec.shape
-        result = {}
-        # FIXME: Batch this communication rather than
-        # doing it in sequence.
-        for ivec in range(n):
-            # FIXME: tag+ivec is problematic:
-            # - it may clash with different tags supplied by the user
-            # - it doesn't support artbitrary, recursively nested array
-            #   containers
-            for rank_tpair in _cross_rank_trace_pairs_scalar_field(
-                    dcoll, comm_vec[ivec], tag+ivec):
-                assert isinstance(rank_tpair.dd.domain_tag, dof_desc.DTAG_BOUNDARY)
-                assert isinstance(rank_tpair.dd.domain_tag.tag, BTAG_PARTITION)
-                result[rank_tpair.dd.domain_tag.tag.part_nr, ivec] = rank_tpair
-
-        return [
-            TracePair(
-                dd=dof_desc.as_dofdesc(
-                    dof_desc.DTAG_BOUNDARY(BTAG_PARTITION(remote_rank))),
-                interior=make_obj_array([
-                    result[remote_rank, i].int for i in range(n)]).reshape(oshape),
-                exterior=make_obj_array([
-                    result[remote_rank, i].ext for i in range(n)]).reshape(oshape)
-            ) for remote_rank in connected_ranks(dcoll)
-        ]
-    else:
-        return _cross_rank_trace_pairs_scalar_field(dcoll, ary, tag=tag)
+    # Complete send/receives and return communicated data
+    return [rc.finish() for rc in rank_bdry_communcators]
 
 # }}}
 
