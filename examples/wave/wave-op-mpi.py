@@ -36,7 +36,8 @@ from arraycontext import (
     with_container_arithmetic,
     dataclass_array_container
 )
-from grudge.array_context import MPISingleGridWorkBalancingPytatoArrayContext, PyOpenCLArrayContext
+from grudge.array_context import (
+    MPISingleGridWorkBalancingPytatoArrayContext, PyOpenCLArrayContext)
 
 from dataclasses import dataclass
 

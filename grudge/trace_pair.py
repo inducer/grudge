@@ -391,7 +391,8 @@ class _RankBoundaryCommunicationLazy:
         self.remote_btag = BTAG_PARTITION(remote_rank)
         self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
 
-        self.local_bdry_data = project(dcoll, "vol", self.remote_btag, array_container)
+        self.local_bdry_data = project(
+            dcoll, "vol", self.remote_btag, array_container)
 
         loc = flatten(self.local_bdry_data, self.array_context)
 
