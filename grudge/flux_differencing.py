@@ -254,31 +254,14 @@ def _flux_differencing_helper(dcoll, diff_func, mats):
 
 def volume_flux_differencing(
         dcoll: DiscretizationCollection,
-        flux: Callable[[ArrayOrContainerT, ArrayOrContainerT], ArrayOrContainerT],
-        dq, df, vec: ArrayOrContainerT) -> ArrayOrContainerT:
+        dq, df, flux_matrices: ArrayOrContainerT) -> ArrayOrContainerT:
     """todo.
     """
-    def _reshape(shape, ary):
-        if not isinstance(ary, DOFArray):
-            return map_array_container(partial(_reshape, shape), ary)
-
-        actx = ary.array_context
-        return DOFArray(
-            actx,
-            data=tuple(
-                subary.reshape(grp.nelements, *shape)
-                for grp, subary in zip(
-                    dcoll.discr_from_dd("vol").groups,
-                    ary
-                )
-            )
-        )
-
     return _flux_differencing_helper(
         dcoll,
         lambda i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
             dcoll, dq, df, i, flux_mat_i),
-        flux(_reshape((1, -1), vec), _reshape((-1, 1), vec))
+        flux_matrices
     )
 
 

@@ -27,10 +27,14 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 
 from dataclasses import dataclass
+
+from functools import partial
+
 from arraycontext import (
     thaw,
     dataclass_array_container,
-    with_container_arithmetic
+    with_container_arithmetic,
+    map_array_container
 )
 
 from meshmode.dof_array import DOFArray
@@ -509,12 +513,21 @@ class EntropyStableEulerOperator(EulerOperator):
         from functools import partial
         from grudge.flux_differencing import volume_flux_differencing
 
-        flux_diff = volume_flux_differencing(
-            dcoll,
-            partial(flux_chandrashekar, dcoll, gamma=gamma),
-            dq, df,
-            qtilde_allquad
-        )
+        def _reshape(shape, ary):
+            if not isinstance(ary, DOFArray):
+                return map_array_container(partial(_reshape, shape), ary)
+
+            return DOFArray(ary.array_context, data=tuple(
+                subary.reshape(grp.nelements, *shape)
+                # Just need group for determining the number of elements
+                for grp, subary in zip(dcoll.discr_from_dd("vol").groups, ary)))
+
+        flux_matrices = flux_chandrashekar(dcoll,
+                                           _reshape((1, -1), qtilde_allquad),
+                                           _reshape((-1, 1), qtilde_allquad),
+                                           gamma=gamma)
+
+        flux_diff = volume_flux_differencing(dcoll, dq, df, flux_matrices)
 
         def entropy_tpair(tpair):
             dd_intfaces = tpair.dd
