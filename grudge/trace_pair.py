@@ -383,7 +383,9 @@ class _RankBoundaryCommunicationLazy:
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
                  remote_rank, tag):
-        self.tag = self.base_tag
+        import random
+        random.seed()
+        self.tag = random.randrange(100000)
         if tag is not None:
             self.tag += tag
 
@@ -396,6 +398,8 @@ class _RankBoundaryCommunicationLazy:
             dcoll, "vol", self.remote_btag, array_container)
 
         loc = flatten(self.local_bdry_data, self.array_context)
+
+        print(f"XXXXXXX {self.tag}")
 
         self.remote_data = staple_distributed_send(
                 loc, dest_rank=remote_rank, comm_tag=self.tag,
