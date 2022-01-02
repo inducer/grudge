@@ -33,6 +33,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 from arraycontext.container.traversal import thaw
 
+from meshmode import _acf           # noqa: F401
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
@@ -509,7 +510,7 @@ def test_2d_gauss_theorem(actx_factory):
     assert abs(int_1 - int_2) < 1e-13
 
 
-@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
+@pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "2-1-spheroid"])
 def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     r"""Check the surface divergence theorem.
 
@@ -531,9 +532,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     if mesh_name == "2-1-ellipse":
         from mesh_data import EllipseMeshBuilder
         builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
-    elif mesh_name == "spheroid":
+    elif mesh_name == "2-1-spheroid":
         from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        builder = SpheroidMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "circle":
         from mesh_data import EllipseMeshBuilder
         builder = EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
@@ -627,17 +628,17 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         op_global = op.nodal_sum(dcoll, dd, stiff - (stiff_t + kterm))
         op_local = op.elementwise_sum(dcoll, dd, stiff - (stiff_t + kterm + flux))
 
-        err_global = abs(op_global)
-        err_local = op.norm(dcoll, op_local, np.inf)
-        logger.info("errors: global %.5e local %.5e", err_global, err_local)
-
         # compute max element size
         from grudge.dt_utils import h_max_from_volume
 
-        h_max = h_max_from_volume(dcoll)
+        h_max = actx.to_numpy(h_max_from_volume(dcoll))
+        err_global = actx.to_numpy(abs(op_global))
+        err_local = actx.to_numpy(op.norm(dcoll, op_local, np.inf))
+        logger.info("errors: h_max %.5e global %.5e local %.5e",
+                h_max, err_global, err_local)
 
-        eoc_global.add_data_point(actx.to_numpy(h_max), actx.to_numpy(err_global))
-        eoc_local.add_data_point(actx.to_numpy(h_max), actx.to_numpy(err_local))
+        eoc_global.add_data_point(h_max, err_global)
+        eoc_local.add_data_point(h_max, err_local)
 
         if visualize:
             from grudge.shortcuts import make_visualizer
@@ -651,8 +652,8 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     # }}}
 
     order = min(builder.order, builder.mesh_order) - 0.5
-    logger.info("\n%s", str(eoc_global))
-    logger.info("\n%s", str(eoc_local))
+    logger.info("eoc_global:\n%s", str(eoc_global))
+    logger.info("eoc_local:\n%s", str(eoc_local))
 
     assert eoc_global.max_error() < 1.0e-12 \
             or eoc_global.order_estimate() > order - 0.5

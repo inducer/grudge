@@ -61,8 +61,8 @@ class SphereMeshBuilder(MeshBuilder):
     radius = 1.0
 
     def get_mesh(self, resolution, mesh_order):
-        from meshmode.mesh.generation import generate_icosphere
-        return generate_icosphere(self.radius, order=mesh_order,
+        from meshmode.mesh.generation import generate_sphere
+        return generate_sphere(self.radius, order=mesh_order,
                 uniform_refinement_rounds=resolution)
 
 
@@ -70,41 +70,18 @@ class SpheroidMeshBuilder(MeshBuilder):
     ambient_dim = 3
 
     mesh_order = 4
-    resolutions = [1.0, 0.11, 0.05]
-    # resolutions = [1.0, 0.11, 0.05, 0.03, 0.015]
+    resolutions = [0, 1, 2, 3]
 
-    @property
-    def radius(self):
-        return 0.25
-
-    @property
-    def diameter(self):
-        return 2.0 * self.radius
-
-    @property
-    def aspect_ratio(self):
-        return 2.0
+    radius = 1.0
+    aspect_ratio = 2.0
 
     def get_mesh(self, resolution, mesh_order):
-        from meshmode.mesh.io import ScriptSource
-        source = ScriptSource("""
-            SetFactory("OpenCASCADE");
-            Sphere(1) = {{0, 0, 0, {r}}};
-            Dilate {{ {{0, 0, 0}}, {{ {r}, {r}, {rr} }} }} {{ Volume{{1}}; }}
-            """.format(r=self.diameter, rr=self.aspect_ratio * self.diameter),
-            "geo"
-        )
+        from meshmode.mesh.generation import generate_sphere
+        mesh = generate_sphere(self.radius, order=mesh_order,
+                uniform_refinement_rounds=resolution)
 
-        from meshmode.mesh.io import generate_gmsh
-        mesh = generate_gmsh(source, 2, order=mesh_order,
-                other_options=[
-                    "-optimize_ho",
-                    "-string", "Mesh.CharacteristicLengthMax = %g;" % resolution
-                    ],
-                target_unit="MM")
-
-        from meshmode.mesh.processing import perform_flips
-        return perform_flips(mesh, np.ones(mesh.nelements))
+        from meshmode.mesh.processing import affine_map
+        return affine_map(mesh, A=np.diag([1.0, 1.0, self.aspect_ratio]))
 
 
 class BoxMeshBuilder(MeshBuilder):
