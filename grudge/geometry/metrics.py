@@ -60,7 +60,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw, freeze, ArrayContext
+from arraycontext import thaw, freeze, ArrayContext, map_array_container
 from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
@@ -78,6 +78,13 @@ from pytools import memoize_in
 
 from arraycontext import register_multivector_as_array_container
 register_multivector_as_array_container()
+
+
+def _reshape_to_single_scalar_per_element(vec):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(_reshape_to_single_scalar_per_element, vec)
+    return DOFArray(vec.array_context,
+                    data=tuple(vec_i.reshape(-1, 1) for vec_i in vec))
 
 
 # {{{ Metric computations
@@ -421,7 +428,7 @@ def inverse_surface_metric_derivative(
             ) for d in range(dim))
 
     if _use_geoderiv_connection:
-        result = dcoll._base_to_geoderiv_connection(dd)(result)
+        result = _reshape_to_single_scalar_per_element(result)
 
     return result
 
@@ -578,12 +585,8 @@ def area_element(
         result = actx.np.sqrt(
             pseudoscalar(actx, dcoll, dd=dd).norm_squared())
 
-        # NOTE: Don't interpolate 0-dim geometric factors to the
-        # "geometry discretization"
-        # (the metrics are just single scalars for facets in 1-D)
-        if dcoll.discr_from_dd(dd).dim != 0:
-            if _use_geoderiv_connection:
-                result = dcoll._base_to_geoderiv_connection(dd)(result)
+        if _use_geoderiv_connection:
+            result = _reshape_to_single_scalar_per_element(result)
 
         return freeze(result, actx)
 
@@ -681,11 +684,8 @@ def mv_normal(
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
-        # NOTE: Don't interpolate normals to the "geometry discretization"
-        # in 1-D (just a single value for every facet: +1 or -1)
-        if dim != 0:
-            if _use_geoderiv_connection:
-                result = dcoll._base_to_geoderiv_connection(dd)(result)
+        if _use_geoderiv_connection:
+            result = _reshape_to_single_scalar_per_element(result)
 
         return freeze(result, actx)
 
