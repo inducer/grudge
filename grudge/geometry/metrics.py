@@ -388,7 +388,7 @@ def inverse_metric_derivative(
 def inverse_surface_metric_derivative(
         actx: ArrayContext, dcoll: DiscretizationCollection,
         rst_axis, xyz_axis, dd=None,
-        *, _use_geoderiv_connection=False):
+        *, _use_affine_storage=False):
     r"""Computes the inverse surface metric derivative of the physical
     coordinate enumerated by *xyz_axis* with respect to the
     reference axis *rst_axis*. These geometric terms are used in the
@@ -400,12 +400,12 @@ def inverse_surface_metric_derivative(
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays. (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_affine_storage: If *True*, the returned
+        :class:`~meshmode.dof_array.DOFArray`\ s will contain a single-value
+        per element. This should be set based on whether the code using the
+        result of this function is able to make use of these arrays.
+        (This is an internal argument and not intended for use
+        outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivative at each nodal coordinate.
     """
@@ -427,7 +427,7 @@ def inverse_surface_metric_derivative(
                 actx, dcoll, xyz_axis, d, dd=dd
             ) for d in range(dim))
 
-    if _use_geoderiv_connection:
+    if _use_affine_storage:
         result = _reshape_to_single_scalar_per_element(result)
 
     return result
@@ -435,7 +435,7 @@ def inverse_surface_metric_derivative(
 
 def inverse_surface_metric_derivative_mat(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
-        *, times_area_element=False, _use_geoderiv_connection=False):
+        *, times_area_element=False, _use_affine_storage=False):
     r"""Computes the matrix of inverse surface metric derivatives, indexed by
     ``(xyz_axis, rst_axis)``. It returns all values of
     :func:`inverse_surface_metric_derivative_mat` in cached matrix form.
@@ -447,23 +447,23 @@ def inverse_surface_metric_derivative_mat(
     :arg times_area_element: If *True*, each entry of the matrix is premultiplied
         with the value of :func:`area_element`, reflecting the typical use
         of the matrix in integrals evaluating weak derivatives.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays.  (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_affine_storage: If *True*, the returned
+        :class:`~meshmode.dof_array.DOFArray`\ s will contain a single-value
+        per element. This should be set based on whether the code using the
+        result of this function is able to make use of these arrays.
+        (This is an internal argument and not intended for use
+        outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivatives in per-group arrays of shape
         ``(xyz_dimension, rst_dimension, nelements, ndof)``.
     """
 
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
-        times_area_element, _use_geoderiv_connection))
+        times_area_element, _use_affine_storage))
     def _inv_surf_metric_deriv():
         if times_area_element:
             multiplier = area_element(actx, dcoll, dd=dd,
-                    _use_geoderiv_connection=_use_geoderiv_connection)
+                    _use_affine_storage=_use_affine_storage)
         else:
             multiplier = 1
 
@@ -472,7 +472,7 @@ def inverse_surface_metric_derivative_mat(
                     multiplier
                     * inverse_surface_metric_derivative(actx, dcoll,
                         rst_axis, xyz_axis, dd=dd,
-                        _use_geoderiv_connection=_use_geoderiv_connection)
+                        _use_affine_storage=_use_affine_storage)
                     for rst_axis in range(dcoll.dim)])
                 for xyz_axis in range(dcoll.ambient_dim)])
 
@@ -559,7 +559,7 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 def area_element(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
-        *, _use_geoderiv_connection=False
+        *, _use_affine_storage=False
         ) -> DOFArray:
     r"""Computes the scale factor used to transform integrals from reference
     to global space.
@@ -568,24 +568,24 @@ def area_element(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays.  (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_affine_storage: If *True*, the returned
+        :class:`~meshmode.dof_array.DOFArray`\ s will contain a single-value
+        per element. This should be set based on whether the code using the
+        result of this function is able to make use of these arrays.
+        (This is an internal argument and not intended for use
+        outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
         volumes for each element.
     """
     if dd is None:
         dd = DD_VOLUME
 
-    @memoize_in(dcoll, (area_element, dd, _use_geoderiv_connection))
+    @memoize_in(dcoll, (area_element, dd, _use_affine_storage))
     def _area_elements():
         result = actx.np.sqrt(
             pseudoscalar(actx, dcoll, dd=dd).norm_squared())
 
-        if _use_geoderiv_connection:
+        if _use_affine_storage:
             result = _reshape_to_single_scalar_per_element(result)
 
         return freeze(result, actx)
@@ -619,7 +619,7 @@ def rel_mv_normal(
 
 def mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd,
-        *, _use_geoderiv_connection=False
+        *, _use_affine_storage=False
         ) -> MultiVector:
     r"""Exterior unit normal as a :class:`~pymbolic.geometric_algebra.MultiVector`.
     This supports both volume discretizations
@@ -631,22 +631,24 @@ def mv_normal(
     This function caches its results.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays.  The default value agrees
-        with ``actx.supports_nonscalar_broadcasting``.  (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_affine_storage: If *True*, the returned
+        :class:`~meshmode.dof_array.DOFArray`\ s will contain a single-value
+        per element. This should be set based on whether the code using the
+        result of this function is able to make use of these arrays.
+        (This is an internal argument and not intended for use
+        outside :mod:`grudge`.)
     :returns: a :class:`~pymbolic.geometric_algebra.MultiVector`
         containing the unit normals.
     """
     dd = dof_desc.as_dofdesc(dd)
 
-    if _use_geoderiv_connection is None:
-        _use_geoderiv_connection = actx.supports_nonscalar_broadcasting
+    if _use_affine_storage is None:
+        # Only use affine storage if the underlying array context can actually
+        # make use of the new arrays
+        _use_affine_storage = \
+            actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
 
-    @memoize_in(dcoll, (mv_normal, dd, _use_geoderiv_connection))
+    @memoize_in(dcoll, (mv_normal, dd, _use_affine_storage))
     def _normal():
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
@@ -684,7 +686,7 @@ def mv_normal(
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
-        if _use_geoderiv_connection:
+        if _use_affine_storage:
             result = _reshape_to_single_scalar_per_element(result)
 
         return freeze(result, actx)
@@ -694,7 +696,7 @@ def mv_normal(
 
 
 def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd,
-        *, _use_geoderiv_connection=None):
+        *, _use_affine_storage=None):
     """Get the unit normal to the specified surface discretization, *dd*.
     This supports both volume discretizations
     (where ambient == topological dimension) and surface discretizations
@@ -705,7 +707,7 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd,
     This function may be treated as if it caches its results.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-    :arg _use_geoderiv_connection: See :func:`mv_normal` for a full description.
+    :arg _use_affine_storage: See :func:`mv_normal` for a full description.
         (This is an internal argument and not intended for use outside
         :mod:`grudge`.)
 
@@ -714,7 +716,7 @@ def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd,
     """
     return mv_normal(
             actx, dcoll, dd,
-            _use_geoderiv_connection=_use_geoderiv_connection
+            _use_affine_storage=_use_affine_storage
             ).as_vector(dtype=object)
 
 # }}}

@@ -272,8 +272,12 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
     discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     actx = vec.array_context
 
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
     return _gradient_kernel(actx, discr, discr,
             _reference_derivative_matrices, inverse_jac_mat, vec,
             metric_in_matvec=False)
@@ -324,8 +328,13 @@ def local_d_dx(
     actx = vec.array_context
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
 
     return _single_axis_derivative_kernel(
         actx, discr, discr,
@@ -411,9 +420,14 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
 
     return _gradient_kernel(actx, out_discr, in_discr,
             _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
@@ -496,9 +510,14 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
     actx = vec.array_context
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
 
     return _single_axis_derivative_kernel(
             actx, out_discr, in_discr, _reference_stiffness_transpose_matrix,
@@ -596,8 +615,13 @@ def _apply_mass_operator(
     out_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
     return DOFArray(
         actx,
         data=tuple(
@@ -697,8 +721,13 @@ def _apply_inverse_mass_operator(
 
     actx = vec.array_context
     discr = dcoll.discr_from_dd(dd_in)
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
     group_data = []
     for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
 
@@ -863,8 +892,13 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
     actx = vec.array_context
 
     assert len(face_discr.groups) == len(volm_discr.groups)
+
+    # Only use affine storage if the underlying array context can actually
+    # make use of the new arrays
+    _use_affine_storage = \
+        actx.supports_nonscalar_broadcasting and dcoll._has_affine_groups()
     surf_area_elements = area_element(actx, dcoll, dd=dd,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_affine_storage=_use_affine_storage)
 
     return DOFArray(
         actx,
