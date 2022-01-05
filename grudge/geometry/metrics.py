@@ -84,7 +84,7 @@ def _reshape_to_single_scalar_per_element(vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(_reshape_to_single_scalar_per_element, vec)
     return DOFArray(vec.array_context,
-                    data=tuple(vec_i.reshape(-1, 1) for vec_i in vec))
+                    data=tuple(vec_i[:, 0].reshape(-1, 1) for vec_i in vec))
 
 
 # {{{ Metric computations
