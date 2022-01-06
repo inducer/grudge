@@ -4,7 +4,7 @@ channels:
 - nodefaults
 dependencies:
 - git
-- numpy
+- numpy=1.21
 - libhwloc=2
 - pocl
 - islpy
