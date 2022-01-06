@@ -9,7 +9,7 @@ dependencies:
 - pocl
 - islpy
 - pyopencl
-- python=3
+- python=3.9
 - gmsh
 
 # test scripts use ompi-specific arguments
