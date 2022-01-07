@@ -383,7 +383,9 @@ class _RankBoundaryCommunicationLazy:
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
                  remote_rank, tag):
-        self.tag = self.base_tag
+        import random
+        random.seed()
+        self.tag = random.randrange(100000)
         if tag is not None:
             self.tag += tag
 
