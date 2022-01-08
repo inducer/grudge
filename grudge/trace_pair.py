@@ -375,17 +375,16 @@ class _RankBoundaryCommunication:
 
 from pytato import make_distributed_recv, staple_distributed_send
 
+base_tag = 12730
 
 class _RankBoundaryCommunicationLazy:
-    base_tag = 1273
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
                  remote_rank, tag):
-        import random
-        random.seed()
-        self.tag = random.randrange(100000)
+        global base_tag
+        self.tag = base_tag
         if tag is not None:
             self.tag += tag
 
@@ -406,6 +405,8 @@ class _RankBoundaryCommunicationLazy:
                 stapled_to=make_distributed_recv(
                     src_rank=remote_rank, comm_tag=self.tag,
                     shape=loc.shape, dtype=loc.dtype))
+
+        base_tag += 1
 
     def finish(self):
         remote_bdry_data = unflatten(self.local_bdry_data,
