@@ -101,7 +101,7 @@ def simple_mpi_communication_entrypoint():
               for tpair in op.cross_rank_trace_pairs(dcoll, myfunc))
     ) - (all_faces_func - bdry_faces_func)
 
-    error = flat_norm(hopefully_zero, ord=np.inf)
+    error = actx.to_numpy(flat_norm(hopefully_zero, ord=np.inf))
 
     print(__file__)
     with np.printoptions(threshold=100000000, suppress=True):
