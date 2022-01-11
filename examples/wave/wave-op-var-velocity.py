@@ -32,7 +32,7 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 
 from pytools.obj_array import flat_obj_array
 
@@ -158,14 +158,21 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
             / width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False):
+def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+
+    if lazy:
+        actx = PytatoPyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        )
+    else:
+        actx = PyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
 
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh
@@ -183,7 +190,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order + 1),
         }
     )
 
@@ -245,12 +252,15 @@ if __name__ == "__main__":
     parser.add_argument("--dim", default=2, type=int)
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--lazy", action="store_true",
+                        help="switch to a lazy computation mode")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)
 
 # vim: foldmethod=marker
