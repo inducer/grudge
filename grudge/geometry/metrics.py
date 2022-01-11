@@ -80,6 +80,26 @@ from arraycontext import register_multivector_as_array_container
 register_multivector_as_array_container()
 
 
+def _geometry_to_quad_if_requested(dcoll, inner_dd, dd, vec):
+    if not dd.uses_quadrature():
+        return vec
+
+    all_quad_vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
+
+    def assert_single_dof(ary):
+        nelements, ndofs = ary.shape
+        assert ndofs == 1
+        return ary
+
+    return DOFArray(
+            vec.array_context,
+            tuple(
+                assert_single_dof(vec_i) if megrp.is_affine else all_quad_vec_i
+                for megrp, vec_i, all_quad_vec_i in zip(
+                    dcoll.discr_from_dd(inner_dd).mesh.groups,
+                    vec, all_quad_vec)))
+
+
 # {{{ Metric computations
 
 def forward_metric_nth_derivative(
@@ -139,8 +159,7 @@ def forward_metric_nth_derivative(
         thaw(dcoll.discr_from_dd(inner_dd).nodes(), actx)[xyz_axis]
     )
 
-    if dd.uses_quadrature():
-        vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
+    vec = _geometry_to_quad_if_requested(dcoll, inner_dd, dd, vec)
 
     return vec
 
@@ -329,7 +348,8 @@ def inverse_first_fundamental_form(
 
 
 def inverse_metric_derivative(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, xyz_axis, dd
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, xyz_axis, dd,
+        *, _use_geoderiv_connection=False
         ) -> DOFArray:
     r"""Computes the inverse metric derivative of the physical
     coordinate enumerated by *xyz_axis* with respect to the
@@ -339,6 +359,12 @@ def inverse_metric_derivative(
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays. (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivative at each nodal coordinate.
     """
@@ -350,8 +376,11 @@ def inverse_metric_derivative(
             "the derivative matrix is not square!"
         )
 
-    par_vecs = [forward_metric_derivative_mv(actx, dcoll, rst, dd)
-                for rst in range(dim)]
+    par_vecs = [
+            forward_metric_derivative_mv(
+                actx, dcoll, rst, dd,
+                _use_geoderiv_connection=_use_geoderiv_connection)
+            for rst in range(dim)]
 
     # Yay Cramer's rule!
     from functools import reduce, partial
