@@ -400,7 +400,7 @@ class _RankBoundaryCommunicationLazy:
 
         comm = dcoll.mpi_communicator
 
-        print(f"NEW TRACEPAIR with {self.tag} on rank {comm.Get_rank()} and rank {remote_rank}")
+        print(f"NEW TRACEPAIR with tag {self.tag} on rank {comm.Get_rank()} and rank {remote_rank}")
 
         self.remote_data = staple_distributed_send(
                 loc, dest_rank=remote_rank, comm_tag=self.tag,
