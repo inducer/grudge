@@ -282,6 +282,7 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
             evt = result["evt"]
             evt.wait()
             dt = evt.profile.end - evt.profile.start
+            print("Clock ticks:", dt)
             dt = dt / 1e9
 
             nbytes = 0

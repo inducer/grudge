@@ -1,5 +1,5 @@
 from pytools.tag import Tag, UniqueTag
-from arraycontext import IsDOFArray, IsOpArray, ParameterValue, KernelDataTag
+from meshmode.array_context import IsDOFArray, IsOpArray, ParameterValue, KernelDataTag
 
 class IsVecDOFArray(Tag):
     pass
