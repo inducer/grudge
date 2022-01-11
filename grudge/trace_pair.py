@@ -269,7 +269,7 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return local_interior_trace_pair(dcoll, vec)
 
 
-def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
+def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *, tag=None) -> list:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
@@ -283,7 +283,8 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec) -> list:
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
-        [local_interior_trace_pair(dcoll, vec)] + cross_rank_trace_pairs(dcoll, vec)
+        [local_interior_trace_pair(dcoll, vec)]
+        + cross_rank_trace_pairs(dcoll, vec, tag)
     )
 
 # }}}
@@ -375,18 +376,14 @@ class _RankBoundaryCommunication:
 
 from pytato import make_distributed_recv, staple_distributed_send
 
-base_tag = 12730
 
 class _RankBoundaryCommunicationLazy:
-
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
                  remote_rank, tag):
-        global base_tag
-        self.tag = base_tag
-        if tag is not None:
-            self.tag += tag
+        if tag is None:
+            raise ValueError("lazy communication requires 'tag' to be supplied")
 
         self.dcoll = dcoll
         self.array_context = get_container_context_recursively(array_container)
@@ -396,30 +393,25 @@ class _RankBoundaryCommunicationLazy:
         self.local_bdry_data = project(
             dcoll, "vol", self.remote_btag, array_container)
 
-        loc = flatten(self.local_bdry_data, self.array_context)
+        def communicate_single_array(key, local_bdry_ary):
+            ary_tag = (tag, key)
+            return staple_distributed_send(
+                    local_bdry_ary, dest_rank=remote_rank, comm_tag=ary_tag,
+                    stapled_to=make_distributed_recv(
+                        src_rank=remote_rank, comm_tag=ary_tag,
+                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype))
 
-        comm = dcoll.mpi_communicator
-
-        print(f"NEW TRACEPAIR with tag {self.tag} on rank {comm.Get_rank()} and remote rank {remote_rank}")
-
-        self.remote_data = staple_distributed_send(
-                loc, dest_rank=remote_rank, comm_tag=self.tag,
-                stapled_to=make_distributed_recv(
-                    src_rank=remote_rank, comm_tag=self.tag,
-                    shape=loc.shape, dtype=loc.dtype))
-
-        base_tag += 1
+        from arraycontext.container.traversal import rec_keyed_map_array_container
+        self.remote_data = rec_keyed_map_array_container(
+                communicate_single_array, self.local_bdry_data)
 
     def finish(self):
-        remote_bdry_data = unflatten(self.local_bdry_data,
-                                     self.remote_data, self.array_context)
-
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
             dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
 
         return TracePair(self.remote_btag,
                          interior=self.local_bdry_data,
-                         exterior=bdry_conn(remote_bdry_data))
+                         exterior=bdry_conn(self.remote_data))
 
 
 def cross_rank_trace_pairs(

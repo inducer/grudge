@@ -95,6 +95,10 @@ def wave_flux(dcoll, c, w_tpair):
     return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
+class _WaveStateTag:
+    pass
+
+
 def wave_operator(dcoll, c, w):
     u = w.u
     v = w.v
@@ -122,7 +126,8 @@ def wave_operator(dcoll, c, w):
                                                exterior=dir_bc)
                 ) + sum(
                     wave_flux(dcoll, c=c, w_tpair=tpair)
-                    for tpair in op.interior_trace_pairs(dcoll, w)
+                    for tpair in op.interior_trace_pairs(
+                        dcoll, w, tag=_WaveStateTag)
                 )
             )
         )
