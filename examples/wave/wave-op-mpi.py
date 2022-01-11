@@ -178,7 +178,8 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     num_parts = comm.Get_size()
 
     if lazy:
-        actx = MPISingleGridWorkBalancingPytatoArrayContext(comm, queue)
+        actx = MPISingleGridWorkBalancingPytatoArrayContext(comm, queue,
+                mpi_base_tag=12345)
     else:
         actx = PyOpenCLArrayContext(
             queue,

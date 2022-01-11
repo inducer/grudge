@@ -76,6 +76,22 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
         from pytato import find_distributed_partition
         distributed_partition = find_distributed_partition(dict_of_named_arrays)
 
+        # {{{ turn symbolic tags into globally agreed-upon integers
+
+        from pytato.distributed import number_distributed_tags
+        prev_mpi_base_tag = self.actx.mpi_base_tag
+        distributed_partition, _new_mpi_base_tag = number_distributed_tags(
+                self.actx.mpi_communicator,
+                distributed_partition,
+                base_tag=prev_mpi_base_tag)
+
+        assert prev_mpi_base_tag == self.actx.mpi_base_tag
+        # FIXME: Updating stuff inside the array context from here is *cough*
+        # not super pretty.
+        self.actx.mpi_base_tag = _new_mpi_base_tag
+
+        # }}}
+
         part_id_to_prg = {}
 
         from pytato import DictOfNamedArrays
@@ -158,10 +174,12 @@ class _DistributedCompiledFunction:
 
 
 class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
-    def __init__(self, mpi_communicator, queue, *, allocator=None):
+    def __init__(self, mpi_communicator, queue, *,
+            mpi_base_tag, allocator=None):
         super().__init__(queue, allocator)
 
         self.mpi_communicator = mpi_communicator
+        self.mpi_base_tag = mpi_base_tag
 
     # FIXME: implement distributed-aware freeze
 
@@ -169,7 +187,9 @@ class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
         return _DistributedLazilyCompilingFunctionCaller(self, f)
 
     def clone(self):
-        return type(self)(self.mpi_communicator, self.queue)
+        return type(self)(self.mpi_communicator, self.queue,
+                mpi_base_tag=self.mpi_base_tag,
+                allocator=self.allocator)
 
 
 try:
