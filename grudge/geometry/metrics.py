@@ -83,7 +83,12 @@ register_multivector_as_array_container()
 def _geometry_to_quad_if_requested(
         dcoll, inner_dd, dd, vec, _use_geoderiv_connection):
 
-    all_quad_vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
+    def to_quad(vec):
+        if not dd.uses_quadrature():
+            return vec
+        return dcoll.connection_from_dds(inner_dd, dd)(vec)
+
+    all_quad_vec = to_quad(vec)
 
     if not _use_geoderiv_connection:
         return all_quad_vec
