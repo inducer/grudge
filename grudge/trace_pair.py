@@ -70,6 +70,7 @@ from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
 import grudge.dof_desc as dof_desc
+from typing import Any
 
 
 # {{{ Trace pair container class
@@ -381,7 +382,7 @@ class _RankBoundaryCommunicationLazy:
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
-                 remote_rank, tag):
+                 remote_rank: int, tag: Any):
         if tag is None:
             raise ValueError("lazy communication requires 'tag' to be supplied")
 
