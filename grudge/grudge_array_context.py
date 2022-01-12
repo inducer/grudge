@@ -279,7 +279,14 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
         result = super().call_loopy(program, **kwargs)
 
         try: # Only if profiling is enabled
-            evt = result["evt"]
+            evt = None
+            for val in result.values():
+                if isinstance(val, cla.Array):
+                    if val.events is not None and len(val.events) > 0:
+                        evt = val.events[0]                    
+                        break
+
+            #evt = result["evt"]
             evt.wait()
             dt = evt.profile.end - evt.profile.start
             print("Clock ticks:", dt)
