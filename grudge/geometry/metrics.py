@@ -80,31 +80,30 @@ from arraycontext import register_multivector_as_array_container
 register_multivector_as_array_container()
 
 
-def _geometry_to_quad_if_requested(dcoll, inner_dd, dd, vec):
-    if not dd.uses_quadrature():
-        return vec
+def _geometry_to_quad_if_requested(
+        dcoll, inner_dd, dd, vec, _use_geoderiv_connection):
 
     all_quad_vec = dcoll.connection_from_dds(inner_dd, dd)(vec)
 
-    def assert_single_dof(ary):
-        nelements, ndofs = ary.shape
-        assert ndofs == 1
-        return ary
+    if not _use_geoderiv_connection:
+        return all_quad_vec
 
     return DOFArray(
             vec.array_context,
             tuple(
-                assert_single_dof(vec_i) if megrp.is_affine else all_quad_vec_i
-                for megrp, vec_i, all_quad_vec_i in zip(
+                geoderiv_vec_i if megrp.is_affine else all_quad_vec_i
+                for megrp, geoderiv_vec_i, all_quad_vec_i in zip(
                     dcoll.discr_from_dd(inner_dd).mesh.groups,
-                    vec, all_quad_vec)))
+                    dcoll._base_to_geoderiv_connection(inner_dd)(vec),
+                    all_quad_vec)))
 
 
 # {{{ Metric computations
 
 def forward_metric_nth_derivative(
         actx: ArrayContext, dcoll: DiscretizationCollection,
-        xyz_axis, ref_axes, dd=None) -> DOFArray:
+        xyz_axis, ref_axes, dd=None,
+        *, _use_geoderiv_connection=False) -> DOFArray:
     r"""Pointwise metric derivatives representing repeated derivatives of the
     physical coordinate enumerated by *xyz_axis*: :math:`x_{\mathrm{xyz\_axis}}`
     with respect to the coordiantes on the reference element :math:`\xi_i`:
@@ -159,14 +158,13 @@ def forward_metric_nth_derivative(
         thaw(dcoll.discr_from_dd(inner_dd).nodes(), actx)[xyz_axis]
     )
 
-    vec = _geometry_to_quad_if_requested(dcoll, inner_dd, dd, vec)
-
-    return vec
+    return _geometry_to_quad_if_requested(
+        dcoll, inner_dd, dd, vec, _use_geoderiv_connection)
 
 
 def forward_metric_derivative_vector(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None
-        ) -> np.ndarray:
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None,
+        *, _use_geoderiv_connection=False) -> np.ndarray:
     r"""Computes an object array containing the forward metric derivatives
     of each physical coordinate.
 
@@ -179,15 +177,17 @@ def forward_metric_derivative_vector(
         containing the pointwise metric derivatives at each nodal coordinate.
     """
     return make_obj_array([
-        forward_metric_nth_derivative(actx, dcoll, i, rst_axis, dd=dd)
+        forward_metric_nth_derivative(
+            actx, dcoll, i, rst_axis, dd=dd,
+            _use_geoderiv_connection=_use_geoderiv_connection)
         for i in range(dcoll.ambient_dim)
         ]
     )
 
 
 def forward_metric_derivative_mv(
-        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None
-        ) -> MultiVector:
+        actx: ArrayContext, dcoll: DiscretizationCollection, rst_axis, dd=None,
+        *, _use_geoderiv_connection=False) -> MultiVector:
     r"""Computes a :class:`pymbolic.geometric_algebra.MultiVector` containing
     the forward metric derivatives of each physical coordinate.
 
@@ -200,13 +200,15 @@ def forward_metric_derivative_mv(
         the forward metric derivatives in each physical coordinate.
     """
     return MultiVector(
-        forward_metric_derivative_vector(actx, dcoll, rst_axis, dd=dd)
+        forward_metric_derivative_vector(
+            actx, dcoll, rst_axis, dd=dd,
+            _use_geoderiv_connection=_use_geoderiv_connection)
     )
 
 
 def forward_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
-        ) -> np.ndarray:
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, _use_geoderiv_connection=False) -> np.ndarray:
     r"""Computes the forward metric derivative matrix, also commonly
     called the Jacobian matrix, with entries defined as the
     forward metric derivatives:
@@ -236,13 +238,15 @@ def forward_metric_derivative_mat(
 
     result = np.zeros((ambient_dim, dim), dtype=object)
     for j in range(dim):
-        result[:, j] = forward_metric_derivative_vector(actx, dcoll, j, dd=dd)
+        result[:, j] = forward_metric_derivative_vector(
+            actx, dcoll, j, dd=dd,
+            _use_geoderiv_connection=_use_geoderiv_connection)
 
     return result
 
 
 def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dd=None) -> np.ndarray:
+        dd=None, *, _use_geoderiv_connection=False) -> np.ndarray:
     r"""Computes the first fundamental form using the Jacobian matrix:
 
     .. math::
@@ -268,14 +272,15 @@ def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
     if dd is None:
         dd = DD_VOLUME
 
-    mder = forward_metric_derivative_mat(actx, dcoll, dd=dd)
+    mder = forward_metric_derivative_mat(
+        actx, dcoll, dd=dd, _use_geoderiv_connection=_use_geoderiv_connection)
 
     return mder.T.dot(mder)
 
 
 def inverse_metric_derivative_mat(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
-        ) -> np.ndarray:
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, _use_geoderiv_connection=False) -> np.ndarray:
     r"""Computes the inverse metric derivative matrix, which is
     the inverse of the Jacobian (forward metric derivative) matrix.
 
@@ -294,15 +299,16 @@ def inverse_metric_derivative_mat(
     for i in range(dim):
         for j in range(ambient_dim):
             result[i, j] = inverse_metric_derivative(
-                actx, dcoll, i, j, dd=dd
+                actx, dcoll, i, j, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection
             )
 
     return result
 
 
 def inverse_first_fundamental_form(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None
-        ) -> np.ndarray:
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, _use_geoderiv_connection=False) -> np.ndarray:
     r"""Computes the inverse of the first fundamental form:
 
     .. math::
@@ -328,10 +334,12 @@ def inverse_first_fundamental_form(
     dim = dcoll.discr_from_dd(dd).dim
 
     if dcoll.ambient_dim == dim:
-        inv_mder = inverse_metric_derivative_mat(actx, dcoll, dd=dd)
+        inv_mder = inverse_metric_derivative_mat(
+            actx, dcoll, dd=dd, _use_geoderiv_connection=_use_geoderiv_connection)
         inv_form1 = inv_mder.dot(inv_mder.T)
     else:
-        form1 = first_fundamental_form(actx, dcoll, dd=dd)
+        form1 = first_fundamental_form(
+            actx, dcoll, dd=dd, _use_geoderiv_connection=_use_geoderiv_connection)
 
         if dim == 1:
             inv_form1 = 1.0 / form1
@@ -397,7 +405,9 @@ def inverse_metric_derivative(
         return outerprod(vecs)
 
     volume_pseudoscalar_inv = outerprod(
-        forward_metric_derivative_mv(actx, dcoll, rst_axis, dd)
+        forward_metric_derivative_mv(
+            actx, dcoll, rst_axis, dd,
+            _use_geoderiv_connection=_use_geoderiv_connection)
         for rst_axis in range(dim)
     ).inv()
 
@@ -440,17 +450,16 @@ def inverse_surface_metric_derivative(
 
     if ambient_dim == dim:
         result = inverse_metric_derivative(
-            actx, dcoll, rst_axis, xyz_axis, dd=dd
+            actx, dcoll, rst_axis, xyz_axis, dd=dd,
+            _use_geoderiv_connection=_use_geoderiv_connection
         )
     else:
         inv_form1 = inverse_first_fundamental_form(actx, dcoll, dd=dd)
         result = sum(
             inv_form1[rst_axis, d]*forward_metric_nth_derivative(
-                actx, dcoll, xyz_axis, d, dd=dd
+                actx, dcoll, xyz_axis, d, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection
             ) for d in range(dim))
-
-    if _use_geoderiv_connection:
-        result = dcoll._base_to_geoderiv_connection(dd)(result)
 
     return result
 
@@ -514,13 +523,13 @@ def _signed_face_ones(
     all_faces_conn = dcoll.connection_from_dds(
         DD_VOLUME, DOFDesc(dd.domain_tag)
     )
-    signed_face_ones = dcoll.discr_from_dd(dd).zeros(
+    signed_ones = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE)).zeros(
         actx, dtype=dcoll.real_dtype
     ) + 1
 
     from arraycontext import to_numpy, from_numpy, thaw
 
-    _signed_face_ones_numpy = to_numpy(signed_face_ones, actx)
+    _signed_face_ones_numpy = to_numpy(signed_ones, actx)
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
@@ -533,8 +542,8 @@ def _signed_face_ones(
 
 
 def parametrization_derivative(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd
-        ) -> MultiVector:
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd,
+        *, _use_geoderiv_connection=False) -> MultiVector:
     r"""Computes the product of forward metric derivatives spanning the
     tangent space with topological dimension *dim*.
 
@@ -558,13 +567,15 @@ def parametrization_derivative(
     from pytools import product
 
     return product(
-        forward_metric_derivative_mv(actx, dcoll, rst_axis, dd)
+        forward_metric_derivative_mv(
+            actx, dcoll, rst_axis, dd,
+            _use_geoderiv_connection=_use_geoderiv_connection)
         for rst_axis in range(dim)
     )
 
 
 def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dd=None) -> MultiVector:
+        dd=None, *, _use_geoderiv_connection=False) -> MultiVector:
     r"""Computes the field of pseudoscalars for the domain/discretization
     identified by *dd*.
 
@@ -576,7 +587,9 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
     if dd is None:
         dd = DD_VOLUME
 
-    return parametrization_derivative(actx, dcoll, dd).project_max_grade()
+    return parametrization_derivative(
+        actx, dcoll, dd,
+        _use_geoderiv_connection=_use_geoderiv_connection).project_max_grade()
 
 
 def area_element(
@@ -605,14 +618,9 @@ def area_element(
     @memoize_in(dcoll, (area_element, dd, _use_geoderiv_connection))
     def _area_elements():
         result = actx.np.sqrt(
-            pseudoscalar(actx, dcoll, dd=dd).norm_squared())
-
-        # NOTE: Don't interpolate 0-dim geometric factors to the
-        # "geometry discretization"
-        # (the metrics are just single scalars for facets in 1-D)
-        if dcoll.discr_from_dd(dd).dim != 0:
-            if _use_geoderiv_connection:
-                result = dcoll._base_to_geoderiv_connection(dd)(result)
+            pseudoscalar(
+                actx, dcoll, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection).norm_squared())
 
         return freeze(result, actx)
 
@@ -624,7 +632,8 @@ def area_element(
 # {{{ Surface normal vectors
 
 def rel_mv_normal(
-        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None) -> MultiVector:
+        actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
+        *, _use_geoderiv_connection=False) -> MultiVector:
     r"""Computes surface normals at each nodal location as a
     :class:`~pymbolic.geometric_algebra.MultiVector` relative to the
     pseudoscalar of the discretization described by *dd*.
@@ -637,7 +646,12 @@ def rel_mv_normal(
     # NOTE: Don't be tempted to add a sign here. As it is, it produces
     # exterior normals for positively oriented curves.
 
-    pder = pseudoscalar(actx, dcoll, dd=dd) / area_element(actx, dcoll, dd=dd)
+    pder = pseudoscalar(
+        actx, dcoll, dd=dd,
+        _use_geoderiv_connection=_use_geoderiv_connection) \
+            / area_element(
+                actx, dcoll, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection)
 
     # Dorst Section 3.7.2
     return pder << pder.I.inv()
@@ -683,7 +697,9 @@ def mv_normal(
                     f"their ambient dimension ({ambient_dim})")
 
         if dim == ambient_dim - 1:
-            result = rel_mv_normal(actx, dcoll, dd=dd)
+            result = rel_mv_normal(
+                actx, dcoll, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection)
         else:
             # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
             # enough information on the face to decide what an "exterior face normal"
@@ -701,20 +717,17 @@ def mv_normal(
                 project(dcoll, dof_desc.DD_VOLUME, dd,
                         rel_mv_normal(
                             actx, dcoll,
-                            dd=dof_desc.DD_VOLUME
+                            dd=dof_desc.DD_VOLUME,
+                            _use_geoderiv_connection=_use_geoderiv_connection
                         ).as_vector(dtype=object))
             )
-            pder = pseudoscalar(actx, dcoll, dd=dd)
+            pder = pseudoscalar(
+                actx, dcoll, dd=dd,
+                _use_geoderiv_connection=_use_geoderiv_connection)
 
             mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
             result = mv / actx.np.sqrt(mv.norm_squared())
-
-        # NOTE: Don't interpolate normals to the "geometry discretization"
-        # in 1-D (just a single value for every facet: +1 or -1)
-        if dim != 0:
-            if _use_geoderiv_connection:
-                result = dcoll._base_to_geoderiv_connection(dd)(result)
 
         return freeze(result, actx)
 
