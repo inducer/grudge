@@ -50,11 +50,13 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("nonaffine", [False, True])
-def test_inverse_metric(actx_factory, dim, nonaffine):
+@pytest.mark.parametrize("use_quad", [False, True])
+def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
     actx = actx_factory()
 
+    order = 3
     mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(6,)*dim, order=4)
+            nelements_per_axis=(6,)*dim, order=order)
 
     if nonaffine:
         def m(x):
@@ -72,16 +74,31 @@ def test_inverse_metric(actx_factory, dim, nonaffine):
         from meshmode.mesh.processing import map_mesh
         mesh = map_mesh(mesh, m)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from meshmode.discretization.poly_element import \
+            QuadratureSimplexGroupFactory, \
+            default_simplex_group_factory
+
+    dcoll = DiscretizationCollection(
+        actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order + 1),
+        }
+    )
 
     from grudge.geometry import \
         forward_metric_derivative_mat, inverse_metric_derivative_mat
 
+    dd = as_dofdesc("vol")
+    if use_quad:
+        dd = dd.with_discr_tag(DISCR_TAG_QUAD)
+
     mat = forward_metric_derivative_mat(
-        actx, dcoll,
+        actx, dcoll, dd,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting).dot(
         inverse_metric_derivative_mat(
-            actx, dcoll,
+            actx, dcoll, dd,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting))
 
     for i in range(mesh.dim):
