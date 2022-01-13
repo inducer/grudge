@@ -271,16 +271,24 @@ def dt_geometric_factors(
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
 
+    # To get a single value for the total surface area of a cell, we
+    # take the sum over the averaged face areas on each face.
+    # NOTE: The face areas are the *same* at each face nodal location.
+    # This assumes there are the *same* number of face nodes on each face.
     surface_areas = abs(
         op.elementwise_integral(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
         )
     )
-
-    # Sum the areas of each face to get the total surface area
     surface_areas = DOFArray(
         actx,
         data=tuple(
+            # NOTE: Whenever the array context can't perform nonscalar
+            # broadcasting, elementwise reductions
+            # (like `elementwise_integral`) repeat the *same* scalar value of
+            # the reduction at each degree of freedom. To get a single
+            # value for the face area (per face),
+            # we simply average over the nodes, which gives the desired result.
             actx.einsum(
                 "fej->e",
                 face_ae_i.reshape(
@@ -289,12 +297,8 @@ def dt_geometric_factors(
                     -1
                 ),
                 tagged=(FirstAxisIsElementsTag(),)) / (
-                    # NOTE: Whenever the array context can't perform nonscalar
-                    # broadcasting, elementwise reductions
-                    # (like `elementwise_integral`) repeat the scalar value of
-                    # the reduction at each degree of freedom. To get a single
-                    # value for the total surface area of a cell,
-                    # we sum over all nodes and average.
+                    # NOTE: This assumes there are the *same* number of
+                    # face nodes on each face.
                     1 if actx.supports_nonscalar_broadcasting
                     else afgrp.nunit_dofs
                 )
