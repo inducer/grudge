@@ -26,10 +26,14 @@ import numpy as np
 
 from arraycontext import thaw
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    PytestPytatoPyOpenCLArrayContextFactory
+)
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+         PytestPytatoPyOpenCLArrayContextFactory])
 
 from grudge import DiscretizationCollection
 
