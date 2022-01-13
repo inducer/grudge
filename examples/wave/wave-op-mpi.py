@@ -183,7 +183,8 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False, use_quad=False):
+def main(ctx_factory, dim=2, order=3,
+         visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -205,11 +206,20 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False, use_quad=Fals
     nel_1d = 16
 
     if mesh_dist.is_mananger_rank():
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(
-                a=(-0.5,)*dim,
-                b=(0.5,)*dim,
-                nelements_per_axis=(nel_1d,)*dim)
+        if use_nonaffine_mesh:
+            from meshmode.mesh.generation import generate_warped_rect_mesh
+            # FIXME: *generate_warped_rect_mesh* in meshmode warps a
+            # rectangle domain with hard-coded vertices at (-0.5,)*dim
+            # and (0.5,)*dim. Should extend the function interface to allow
+            # for specifying the end points directly.
+            mesh = generate_warped_rect_mesh(dim=dim, order=order,
+                                             nelements_side=nel_1d)
+        else:
+            from meshmode.mesh.generation import generate_regular_rect_mesh
+            mesh = generate_regular_rect_mesh(
+                    a=(-0.5,)*dim,
+                    b=(0.5,)*dim,
+                    nelements_per_axis=(nel_1d,)*dim)
 
         logger.info("%d elements", mesh.nelements)
 
@@ -229,7 +239,9 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False, use_quad=Fals
         actx, local_mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order + 1),
+            # High-order quadrature to integrate inner products of polynomials
+            # on warped geometry exactly (metric terms are also polynomial)
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
         }
     )
 
@@ -311,6 +323,7 @@ if __name__ == "__main__":
     parser.add_argument("--lazy", action="store_true",
                         help="switch to a lazy computation mode")
     parser.add_argument("--quad", action="store_true")
+    parser.add_argument("--nonaffine", action="store_true")
 
     args = parser.parse_args()
 
@@ -320,6 +333,7 @@ if __name__ == "__main__":
          order=args.order,
          visualize=args.visualize,
          lazy=args.lazy,
-         use_quad=args.quad)
+         use_quad=args.quad,
+         use_nonaffine_mesh=args.nonaffine)
 
 # vim: foldmethod=marker
