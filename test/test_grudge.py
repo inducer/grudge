@@ -33,6 +33,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 from arraycontext.container.traversal import thaw
 
+from meshmode import _acf           # noqa: F401
+
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
