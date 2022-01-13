@@ -88,6 +88,9 @@ def _geometry_to_quad_if_requested(
             return vec
         return dcoll.connection_from_dds(inner_dd, dd)(vec)
 
+    # FIXME: At least for eager evaluation, this is somewhat inefficient, as
+    # all element groups vectors are upsampled to the quadrature grid, but then
+    # only the data for the non-affinely-mapped ones is used.
     all_quad_vec = to_quad(vec)
 
     if not _use_geoderiv_connection:
