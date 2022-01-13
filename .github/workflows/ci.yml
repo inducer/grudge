@@ -65,7 +65,7 @@ jobs:
                 run_examples
 
                 python wave/wave-op-mpi.py --lazy
-                python wave/wave-op-mpi.py --quad --lazy
+                python wave/wave-op-mpi.py --lazy --quad --nonaffine
 
     docs:
         name: Documentation
