@@ -32,6 +32,7 @@ from meshmode.array_context import (
         )
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
+        _PytestPytatoPyOpenCLArrayContextFactory,
         register_pytest_array_context_factory)
 
 
@@ -56,6 +57,11 @@ class PytestPyOpenCLArrayContextFactory(
     actx_class = PyOpenCLArrayContext
 
 
+class PytestPytatoPyOpenCLArrayContextFactory(
+        _PytestPytatoPyOpenCLArrayContextFactory):
+    actx_class = PytatoPyOpenCLArrayContext
+
+
 # deprecated
 class PytestPyOpenCLArrayContextFactoryWithHostScalars(
         _PytestPyOpenCLArrayContextFactoryWithClass):
@@ -65,6 +71,8 @@ class PytestPyOpenCLArrayContextFactoryWithHostScalars(
 
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory("grudge.pytato-pyopencl",
+        PytestPytatoPyOpenCLArrayContextFactory)
 
 # }}}
 

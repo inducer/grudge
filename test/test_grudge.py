@@ -34,6 +34,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 from arraycontext.container.traversal import thaw
 
 from meshmode import _acf           # noqa: F401
+
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
@@ -50,49 +51,6 @@ import pytest
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-# {{{ inverse metric
-
-@pytest.mark.parametrize("dim", [2, 3])
-def test_inverse_metric(actx_factory, dim):
-    actx = actx_factory()
-
-    mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(6,)*dim, order=4)
-
-    def m(x):
-        result = np.empty_like(x)
-        result[0] = (
-                1.5*x[0] + np.cos(x[0])
-                + 0.1*np.sin(10*x[1]))
-        result[1] = (
-                0.05*np.cos(10*x[0])
-                + 1.3*x[1] + np.sin(x[1]))
-        if len(x) == 3:
-            result[2] = x[2]
-        return result
-
-    from meshmode.mesh.processing import map_mesh
-    mesh = map_mesh(mesh, m)
-
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
-
-    from grudge.geometry import \
-        forward_metric_derivative_mat, inverse_metric_derivative_mat
-
-    mat = forward_metric_derivative_mat(actx, dcoll).dot(
-        inverse_metric_derivative_mat(actx, dcoll))
-
-    for i in range(mesh.dim):
-        for j in range(mesh.dim):
-            tgt = 1 if i == j else 0
-
-            err = flat_norm(mat[i, j] - tgt, ord=np.inf)
-            logger.info("error[%d, %d]: %.5e", i, j, err)
-            assert err < 1.0e-12, (i, j, err)
-
-# }}}
 
 
 # {{{ mass operator trig integration
