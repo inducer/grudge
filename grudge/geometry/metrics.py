@@ -135,6 +135,12 @@ def forward_metric_nth_derivative(
         by the axis index.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: If *True*, process returned
+        :class:`~meshmode.dof_array.DOFArray`\ s through
+        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
+        This should be set based on whether the code using the result of this
+        function is able to make use of these arrays. (This is an internal
+        argument and not intended for use outside :mod:`grudge`.)
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the pointwise
         metric derivative at each nodal coordinate.
     """
@@ -181,6 +187,8 @@ def forward_metric_derivative_vector(
         which will be taken.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: an object array of :class:`~meshmode.dof_array.DOFArray`\ s
         containing the pointwise metric derivatives at each nodal coordinate.
     """
@@ -204,6 +212,8 @@ def forward_metric_derivative_mv(
         which will be taken.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`pymbolic.geometric_algebra.MultiVector` containing
         the forward metric derivatives in each physical coordinate.
     """
@@ -234,6 +244,8 @@ def forward_metric_derivative_mat(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a matrix containing the evaluated forward metric derivatives
         of each physical coordinate, with respect to each reference coordinate.
     """
@@ -274,6 +286,8 @@ def first_fundamental_form(actx: ArrayContext, dcoll: DiscretizationCollection,
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a matrix containing coefficients of the first fundamental
         form.
     """
@@ -294,6 +308,8 @@ def inverse_metric_derivative_mat(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a matrix containing the evaluated inverse metric derivatives.
     """
     ambient_dim = dcoll.ambient_dim
@@ -333,6 +349,8 @@ def inverse_first_fundamental_form(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a matrix containing coefficients of the inverse of the
         first fundamental form.
     """
@@ -375,12 +393,8 @@ def inverse_metric_derivative(
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays. (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivative at each nodal coordinate.
     """
@@ -440,12 +454,8 @@ def inverse_surface_metric_derivative(
     :arg xyz_axis: an integer denoting the physical coordinate axis.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays. (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivative at each nodal coordinate.
     """
@@ -486,12 +496,8 @@ def inverse_surface_metric_derivative_mat(
     :arg times_area_element: If *True*, each entry of the matrix is premultiplied
         with the value of :func:`area_element`, reflecting the typical use
         of the matrix in integrals evaluating weak derivatives.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays.  (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the
         inverse metric derivatives in per-group arrays of shape
         ``(xyz_dimension, rst_dimension, nelements, ndof)``.
@@ -557,6 +563,8 @@ def parametrization_derivative(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`pymbolic.geometric_algebra.MultiVector` containing
         the product of metric derivatives.
     """
@@ -589,6 +597,8 @@ def pseudoscalar(actx: ArrayContext, dcoll: DiscretizationCollection,
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: A :class:`~pymbolic.geometric_algebra.MultiVector` of
         :class:`~meshmode.dof_array.DOFArray`\ s.
     """
@@ -611,12 +621,8 @@ def area_element(
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization.
-    :arg _use_geoderiv_connection: If *True*, process returned
-        :class:`~meshmode.dof_array.DOFArray`\ s through
-        :meth:`~grudge.DiscretizationCollection._base_to_geoderiv_connection`.
-        This should be set based on whether the code using the result of this
-        function is able to make use of these arrays.  (This is an internal
-        argument and not intended for use outside :mod:`grudge`.)
+    :arg _use_geoderiv_connection: For internal use. See
+        :func:`forward_metric_nth_derivative` for an explanation.
     :returns: a :class:`~meshmode.dof_array.DOFArray` containing the transformed
         volumes for each element.
     """
