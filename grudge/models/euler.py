@@ -90,10 +90,13 @@ def vortex_initial_condition(
     v = ((epsilon*(x - center) - t)/(2*np.pi)) * expterm
 
     velocity = make_obj_array([u, v])
-    mass = (1 - c * actx.np.exp(fxyt)) ** (1 / (gamma - 1))
-    p = (mass ** gamma)/(gamma * mach_number**2)
+    rho = (1 - c * actx.np.exp(fxyt)) ** (1 / (gamma - 1))
+    p = (rho ** gamma)/(gamma * mach_number**2)
 
-    return primitive_to_conservative_vars((mass, velocity, p), gamma=gamma)
+    rhou = rho * velocity
+    rhoe = p * (1/(gamma - 1)) + 0.5 * sum(rhou * velocity)
+
+    return ConservedEulerField(mass=rho, energy=rhoe, momentum=rhou)
 
 # }}}
 
@@ -120,25 +123,6 @@ def conservative_to_primitive_vars(cv_state: ConservedEulerField, gamma=1.4):
     return rho, u, p
 
 
-def primitive_to_conservative_vars(prim_vars, gamma=1.4):
-    """Converts from primitive variables (density, velocity, pressure)
-    into conserved variables (density, momentum, total energy).
-
-    :arg prim_vars: A :class:`Tuple` containing the primitive variables:
-        (density, velocity, pressure).
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
-    :returns: A :class:`ConservedEulerField` containing the conserved
-        variables.
-    """
-    rho, u, p = prim_vars
-    inv_gamma_minus_one = 1/(gamma - 1)
-    rhou = rho * u
-    rhoe = p * inv_gamma_minus_one + 0.5 * sum(rhou * u)
-
-    return ConservedEulerField(mass=rho, energy=rhoe, momentum=rhou)
-
-
 def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
     """Computes the total translational wavespeed.
 
@@ -151,9 +135,7 @@ def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
     actx = cv_state.array_context
     rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
 
-    return (
-        actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
-    )
+    return actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
 
 # }}}
 
