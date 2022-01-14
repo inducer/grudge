@@ -71,31 +71,27 @@ class EulerField:
 
 # {{{ Predefined initial conditions for the Euler model
 
-def vortex_initial_condition(x_vec, t=0):
+def vortex_initial_condition(
+        x_vec, t=0, center=5, mach_number=0.5, epsilon=1, gamma=1.4):
     """Initial condition adapted from Section 2 (equation 2) of:
 
-    - K. Mattsson, M. Sv\"{a}rd, M. Carpenter, and J. Nordstr\"{o}m (2006).
+    - K. Mattsson, M. Svärd, M. Carpenter, and J. Nordström (2006).
     High-order accurate computations for unsteady aerodynamics.
-    [DOI](https://doi.org/10.1016/j.compfluid.2006.02.004).
+    `DOI <https://doi.org/10.1016/j.compfluid.2006.02.004>`__.
     """
-    mach = 0.5    # Mach number
-    _x0 = 5
-    epsilon = 1   # vortex strength
-    gamma = 1.4
     x, y = x_vec
     actx = x.array_context
 
-    fxyt = 1 - (((x - _x0) - t)**2 + y**2)
+    fxyt = 1 - (((x - center) - t)**2 + y**2)
     expterm = actx.np.exp(fxyt/2)
+    c = (epsilon**2 * (gamma - 1) * mach_number**2)/(8*np.pi**2)
 
     u = 1 - (epsilon*y/(2*np.pi)) * expterm
-    v = ((epsilon*(x - _x0) - t)/(2*np.pi)) * expterm
+    v = ((epsilon*(x - center) - t)/(2*np.pi)) * expterm
 
     velocity = make_obj_array([u, v])
-    mass = (
-        1 - ((epsilon**2 * (gamma - 1) * mach**2)/(8*np.pi**2)) * actx.np.exp(fxyt)
-    ) ** (1 / (gamma - 1))
-    p = (mass ** gamma)/(gamma * mach**2)
+    mass = (1 - c * actx.np.exp(fxyt)) ** (1 / (gamma - 1))
+    p = (mass ** gamma)/(gamma * mach_number**2)
 
     return primitive_to_conservative_vars((mass, velocity, p), gamma=gamma)
 
