@@ -153,11 +153,11 @@ def conservative_to_entropy_vars(cv_state, gamma=1.4):
     """Converts from conserved variables (density, momentum, total energy)
     into entropy variables.
 
-    :arg cv_state: A :class:`EulerContainer` containing the conserved
+    :arg cv_state: A :class:`EulerField` containing the conserved
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
-    :returns: A :class:`EulerContainer` containing the entropy variables.
+    :returns: A :class:`EulerField` containing the entropy variables.
     """
     actx = cv_state.array_context
     rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
@@ -177,11 +177,11 @@ def entropy_to_conservative_vars(ev_state, gamma=1.4):
     """Converts from entropy variables into conserved variables
     (density, momentum, total energy).
 
-    :arg ev_state: A :class:`EulerContainer` containing the entropy
+    :arg ev_state: A :class:`EulerField` containing the entropy
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
-    :returns: A :class:`EulerContainer` containing the conserved variables.
+    :returns: A :class:`EulerField` containing the conserved variables.
     """
     actx = ev_state.array_context
     # See Hughes, Franca, Mallet (1986) A new finite element
@@ -485,9 +485,9 @@ def flux_chandrashekar(dcoll: DiscretizationCollection, q_ll, q_rr, gamma=1.4):
         + np.dot(momentum_flux, u_avg)
     )
 
-    return EulerContainer(mass=mass_flux,
-                          energy=energy_flux,
-                          momentum=momentum_flux)
+    return ConservedEulerField(mass=mass_flux,
+                               energy=energy_flux,
+                               momentum=momentum_flux)
 
 
 def entropy_stable_numerical_flux_chandrashekar(
