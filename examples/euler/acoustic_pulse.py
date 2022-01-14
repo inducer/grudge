@@ -34,7 +34,7 @@ from grudge.array_context import (
     PytatoPyOpenCLArrayContext
 )
 from grudge.models.euler import (
-    EulerField,
+    ConservedEulerField,
     EulerOperator,
     InviscidWallBC
 )
@@ -74,7 +74,7 @@ def gaussian_profile(
     mom = velocity * mass
     energy = (p0 / (gamma - 1.0)) + np.dot(mom, mom) / (2.0 * mass)
 
-    return EulerField(mass=mass, energy=energy, momentum=mom)
+    return ConservedEulerField(mass=mass, energy=energy, momentum=mom)
 
 
 def make_pulse(amplitude, r0, w, r):
@@ -101,9 +101,11 @@ def acoustic_pulse_condition(x_vec, t=0):
     width = 0.1
     pulse = make_pulse(amplitude, orig, width, x_vec)
 
-    return EulerField(mass=uniform_gaussian.mass,
-                      energy=uniform_gaussian.energy + pulse,
-                      momentum=uniform_gaussian.momentum)
+    return ConservedEulerField(
+        mass=uniform_gaussian.mass,
+        energy=uniform_gaussian.energy + pulse,
+        momentum=uniform_gaussian.momentum
+    )
 
 
 def run_acoustic_pulse(actx,
