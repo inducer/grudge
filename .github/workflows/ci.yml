@@ -66,6 +66,8 @@ jobs:
 
                 python wave/wave-op-mpi.py --lazy
                 python wave/wave-op-mpi.py --lazy --quad --nonaffine
+                python euler/acoustic_pulse.py --lazy
+                python euler/vortex.py --oi --lazy
 
     docs:
         name: Documentation
