@@ -1,4 +1,26 @@
-"""Grudge operators modeling compressible, inviscid flows (Euler)"""
+"""Grudge operators modeling compressible, inviscid flows (Euler)
+
+Model definitions
+-----------------
+
+.. autoclass:: EulerOperator
+
+Predefined initial conditions
+-----------------------------
+
+.. autofunction:: vortex_initial_condition
+
+Helper routines and array containers
+------------------------------------
+
+.. autoclass:: ConservedEulerField
+
+.. autofunction:: conservative_to_primitive_vars
+.. autofunction:: compute_wavespeed
+
+.. autofunction:: euler_volume_flux
+.. autofunction:: euler_numerical_flux
+"""
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -75,7 +97,7 @@ def vortex_initial_condition(
         x_vec, t=0, center=5, mach_number=0.5, epsilon=1, gamma=1.4):
     """Initial condition adapted from Section 2 (equation 2) of:
 
-    - K. Mattsson, M. Svärd, M. Carpenter, and J. Nordström (2006).
+    K. Mattsson, M. Svärd, M. Carpenter, and J. Nordström (2006).
     High-order accurate computations for unsteady aerodynamics.
     `DOI <https://doi.org/10.1016/j.compfluid.2006.02.004>`__.
     """
@@ -130,7 +152,7 @@ def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
         variables.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
-    :returns: A :class:`DOFArray` containing local wavespeeds.
+    :returns: A :class:`~meshmode.dof_array.DOFArray` containing local wavespeeds.
     """
     actx = cv_state.array_context
     rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
@@ -229,7 +251,7 @@ def euler_numerical_flux(
         gamma=1.4, lf_stabilization=False):
     """Computes the interface numerical flux for the Euler operator.
 
-    :arg tpair: A :class:`TracePair` containing the conserved
+    :arg tpair: A :class:`grudge.trace_pair.TracePair` containing the conserved
         variables on the interior and exterior sides of element facets.
     :arg gamma: The isentropic expansion factor for a single-species gas
         (default set to 1.4).
@@ -269,8 +291,8 @@ class EulerOperator(HyperbolicOperator):
 
         \partial_t \mathbf{Q} + \nabla\cdot\mathbf{F} = 0,
 
-    where $\mathbf{Q}$ is the state vector containing density, momentum, and
-    total energy, and $\mathbf{F}$ is the vector of inviscid fluxes
+    where :math:`\mathbf{Q}` is the state vector containing density, momentum, and
+    total energy, and :math:`\mathbf{F}` is the vector of inviscid fluxes
     (see :func:`euler_volume_flux`)
     """
 
