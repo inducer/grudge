@@ -29,15 +29,13 @@ from arraycontext import (
     freeze
 )
 from arraycontext.container import ArrayOrContainerT
-from typing import Callable
+
 from functools import partial
+
 from meshmode.transform_metadata import FirstAxisIsElementsTag
+from meshmode.dof_array import DOFArray
 
 from grudge.discretization import DiscretizationCollection
-
-import grudge.dof_desc as dof_desc
-
-from meshmode.dof_array import DOFArray
 
 from pytools import memoize_in, keyed_memoize_in
 

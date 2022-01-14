@@ -1,5 +1,3 @@
-"""Minimal example of a grudge driver."""
-
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -29,17 +27,14 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw, freeze
-from meshmode.array_context import (
-    SingleGridWorkBalancingPytatoArrayContext as PytatoPyOpenCLArrayContext
-)
+from grudge.array_context import PytatoPyOpenCLArrayContext
 from grudge.models.euler import (
     EntropyStableEulerOperator,
-    EulerContainer,
+    ConservedEulerField,
     PrescribedBC,
     conservative_to_primitive_vars,
-    primitive_to_conservative_vars
 )
-from grudge.shortcuts import lsrk54_step
+from grudge.shortcuts import rk4_step
 
 from pytools.obj_array import make_obj_array
 
@@ -48,31 +43,6 @@ import grudge.op as op
 import logging
 logger = logging.getLogger(__name__)
 
-
-# def sod_shock_initial_condition(nodes, t=0):
-#     gamma = 1.4
-#     dim = len(nodes)
-#     x = nodes[0]
-#     actx = x.array_context
-#     zeros = 0*x
-
-#     _x0 = 0.5
-#     _rhoin = 1.0
-#     _rhoout = 0.125
-#     _pin = 1.0
-#     _pout = 0.1
-#     rhoin = zeros + _rhoin
-#     rhoout = zeros + _rhoout
-
-#     x0 = zeros + _x0
-#     sigma = 1e-13
-#     weight = 0.5 * (1.0 - actx.np.tanh(1.0/sigma * (x - x0)))
-
-#     rho = rhoout + (rhoin - rhoout)*weight
-#     p = _pout + (_pin - _pout)*weight
-#     u = make_obj_array([zeros for _ in range(dim)])
-
-#     return primitive_to_conservative_vars((rho, u, p), gamma=gamma)
 
 def sod_shock_initial_condition(nodes, t=0):
     gamma = 1.4
@@ -100,15 +70,11 @@ def sod_shock_initial_condition(nodes, t=0):
     energy = energyout + (energyin - energyout)*weight
     momentum = make_obj_array([zeros for _ in range(dim)])
 
-    return EulerContainer(mass=mass, energy=energy, momentum=momentum)
+    return ConservedEulerField(mass=mass, energy=energy, momentum=momentum)
 
 
-def run_sod_shock_tube(actx,
-                       order=4,
-                       resolution=32,
-                       final_time=0.2,
-                       overintegration=False,
-                       visualize=False):
+def run_sod_shock_tube(
+        actx, order=4, resolution=32, final_time=0.2, visualize=False):
 
     logger.info(
         """
@@ -116,11 +82,9 @@ def run_sod_shock_tube(actx,
         order: %s\n
         final_time: %s\n
         resolution: %s\n
-        overintegration: %s\n
         visualize: %s
         """,
-        order, final_time, resolution,
-        overintegration, visualize
+        order, final_time, resolution, visualize
     )
 
     # eos-related parameters
@@ -150,12 +114,7 @@ def run_sod_shock_tube(actx,
          QuadratureSimplexGroupFactory)
 
     exp_name = f"fld-sod-1d-N{order}-K{resolution}"
-
-    if overintegration:
-        exp_name += "-overintegrated"
-        quad_tag = DISCR_TAG_QUAD
-    else:
-        quad_tag = None
+    quad_tag = DISCR_TAG_QUAD
 
     dcoll = DiscretizationCollection(
         actx, mesh,
@@ -227,15 +186,14 @@ def run_sod_shock_tube(actx,
             assert norm_q < 10000
 
         fields = thaw(freeze(fields, actx), actx)
-        fields = lsrk54_step(fields, t, dt, compiled_rhs)
+        fields = rk4_step(fields, t, dt, compiled_rhs)
         t += dt
         step += 1
 
     # }}}
 
 
-def main(ctx_factory, order=4, final_time=0.2, resolution=32,
-         overintegration=False, visualize=False):
+def main(ctx_factory, order=4, final_time=0.2, resolution=32, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
     actx = PytatoPyOpenCLArrayContext(
@@ -247,7 +205,6 @@ def main(ctx_factory, order=4, final_time=0.2, resolution=32,
         actx, order=order,
         resolution=resolution,
         final_time=final_time,
-        overintegration=overintegration,
         visualize=visualize)
 
 
@@ -258,7 +215,6 @@ if __name__ == "__main__":
     parser.add_argument("--order", default=4, type=int)
     parser.add_argument("--tfinal", default=0.2, type=float)
     parser.add_argument("--resolution", default=32, type=int)
-    parser.add_argument("--oi", action="store_true")
     parser.add_argument("--visualize", action="store_true")
     args = parser.parse_args()
 
@@ -267,5 +223,4 @@ if __name__ == "__main__":
          order=args.order,
          final_time=args.tfinal,
          resolution=args.resolution,
-         overintegration=args.oi,
          visualize=args.visualize)

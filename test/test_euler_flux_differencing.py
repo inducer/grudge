@@ -24,24 +24,21 @@ THE SOFTWARE.
 
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestPytatoPyOpenCLArrayContextFactory
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
     thaw, freeze
 )
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPytatoPyOpenCLArrayContextFactory])
 
 import grudge.op as op
-
-import numpy as np
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.parametrize("order", [1, 2, 3])
-def test_euler_vortex_convergence(actx_factory, order):
+def test_euler_esdg_vortex_convergence(actx_factory):
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
@@ -50,7 +47,7 @@ def test_euler_vortex_convergence(actx_factory, order):
     from grudge.dt_utils import h_max_from_volume
     from grudge.models.euler import (
         vortex_initial_condition,
-        EulerOperator
+        EntropyStableEulerOperator
     )
     from grudge.shortcuts import rk4_step
 
@@ -63,6 +60,7 @@ def test_euler_vortex_convergence(actx_factory, order):
     actx = actx_factory()
     eoc_rec = EOCRecorder()
     quad_tag = DISCR_TAG_QUAD
+    order = 2
 
     for resolution in [8, 16, 32]:
 
@@ -88,7 +86,7 @@ def test_euler_vortex_convergence(actx_factory, order):
 
         # }}}
 
-        euler_operator = EulerOperator(
+        euler_operator = EntropyStableEulerOperator(
             dcoll,
             flux_type="lf",
             gamma=1.4,
@@ -141,54 +139,6 @@ def test_euler_vortex_convergence(actx_factory, order):
     assert (
         eoc_rec.order_estimate() >= order + 0.5
     )
-
-
-def test_entropy_variable_transformations(actx_factory):
-    from grudge.models.euler import (
-        entropy_to_conservative_vars,
-        conservative_to_entropy_vars,
-        vortex_initial_condition
-    )
-
-    actx = actx_factory()
-    gamma = 1.4  # Adiabatic expansion factor for single-gas Euler model
-
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-
-    dim = 2
-    res = 5
-    mesh = generate_regular_rect_mesh(
-        a=(0, -5),
-        b=(20, 5),
-        nelements_per_axis=(2*res, res),
-        periodic=(True, True))
-
-    from meshmode.discretization.poly_element import \
-        default_simplex_group_factory
-    from grudge import DiscretizationCollection
-    from grudge.dof_desc import DISCR_TAG_BASE
-
-    order = 3
-    dcoll = DiscretizationCollection(
-        actx, mesh,
-        discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(dim, order)
-        }
-    )
-
-    # Fields in conserved variables
-    fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
-
-    # Map back and forth between entropy and conserved vars
-    fields_ev = conservative_to_entropy_vars(fields, gamma=gamma)
-    ev_fields_to_cons = entropy_to_conservative_vars(fields_ev, gamma=gamma)
-
-    assert op.norm(
-        dcoll, ev_fields_to_cons.mass - fields.mass, np.inf) < 1e-13
-    assert op.norm(
-        dcoll, ev_fields_to_cons.energy - fields.energy, np.inf) < 1e-13
-    assert op.norm(
-        dcoll, ev_fields_to_cons.momentum - fields.momentum, np.inf) < 1e-13
 
 
 # You can test individual routines by typing
