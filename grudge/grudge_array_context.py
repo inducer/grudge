@@ -334,6 +334,7 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
 
         return result
 
+   
 
 class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
 
@@ -361,6 +362,17 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return thawed
     """
 
+    @memoize_method
+    def _wrap_get_einsum_prg(spec, argnames, tagged): 
+        prg = self._get_einsum_prg(spec, arg_names, tagged)
+        for tag in tagged:
+            if isinstance(tag, KernelDataTag):
+                ep = prg.default_entrypoint
+                # Is there a better way to apply the kernel data besides making a new tunit object?
+                prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
+        return prg
+
+
     def einsum(self, spec, *args, arg_names=None, tagged=()):
         """Computes the result of Einstein summation following the
         convention in :func:`numpy.einsum`.
@@ -383,13 +395,14 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         if arg_names is None:
             arg_names = tuple("arg%d" % i for i in range(len(args)))
 
-        prg = self._get_einsum_prg(spec, arg_names, tagged)
-        
-        for tag in tagged:
-            if isinstance(tag, KernelDataTag):
-                ep = prg.default_entrypoint
-                # Is there a better way to apply the kernel data besides making a new tunit object?
-                prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
+        #prg = self._get_einsum_prg(spec, arg_names, tagged)
+        prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
+
+        #for tag in tagged:
+        #    if isinstance(tag, KernelDataTag):
+        #        ep = prg.default_entrypoint
+        #        # Is there a better way to apply the kernel data besides making a new tunit object?
+        #        prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
 
         return self.call_loopy(
             prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
