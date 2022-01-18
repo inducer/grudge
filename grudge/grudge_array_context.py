@@ -1,5 +1,5 @@
 from meshmode.array_context import PyOpenCLArrayContext
-from pytools import memoize_method, memoize_in
+from pytools import memoize_method, memoize_in, memoize
 import loopy as lp
 import pyopencl as cl
 import pyopencl.array as cla
@@ -362,13 +362,13 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return thawed
     """
 
-    @memoize_method
-    def _wrap_get_einsum_prg(spec, argnames, tagged): 
+    #@memoize_method # Somehow causes a shape mismatch
+    def _wrap_get_einsum_prg(self, spec, arg_names, tagged): 
+
         prg = self._get_einsum_prg(spec, arg_names, tagged)
         for tag in tagged:
             if isinstance(tag, KernelDataTag):
                 ep = prg.default_entrypoint
-                # Is there a better way to apply the kernel data besides making a new tunit object?
                 prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
         return prg
 
@@ -396,6 +396,16 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
             arg_names = tuple("arg%d" % i for i in range(len(args)))
 
         #prg = self._get_einsum_prg(spec, arg_names, tagged)
+
+    	#@memoize_in(self, einsum)
+        #def _wrap_get_einsum_prg(spec, arg_names, tagged): 
+        #    prg = self._get_einsum_prg(spec, arg_names, tagged)
+        #    for tag in tagged:
+        #        if isinstance(tag, KernelDataTag):
+        #            ep = prg.default_entrypoint
+        #            prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
+        #    return prg
+
         prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
 
         #for tag in tagged:
