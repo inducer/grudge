@@ -451,6 +451,10 @@ def cross_rank_trace_pairs(
         rbc = _RankBoundaryCommunicationLazy
     else:
         rbc = _RankBoundaryCommunication
+        if tag is not None and tag is not isinstance(tag, Number):
+            tag = None
+            from warnings import warn
+            warn("Eager communication only supports numeric tags.")
 
     # Initialize and post all sends/receives
     rank_bdry_communcators = [
