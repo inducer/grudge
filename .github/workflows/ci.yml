@@ -65,6 +65,9 @@ jobs:
                 run_examples
 
                 python wave/wave-op-mpi.py --lazy
+                python wave/wave-op-mpi.py --lazy --quad --nonaffine
+                python euler/acoustic_pulse.py --lazy
+                python euler/vortex.py --oi --lazy
 
     docs:
         name: Documentation
@@ -115,6 +118,9 @@ jobs:
                     # can't turn off MPI in mirgecom
                     export CONDA_ENVIRONMENT=conda-env.yml
                     echo "- mpi4py" >> "$CONDA_ENVIRONMENT"
+                    
+                    # https://github.com/inducer/grudge/issues/211
+                    export CISUPPORT_PARALLEL_PYTEST=no
                 else
                     sed -i "/mpi4py/ d" requirements.txt
                 fi

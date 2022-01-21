@@ -1,5 +1,3 @@
-"""Minimal example of a grudge driver."""
-
 __copyright__ = """
 Copyright (C) 2020 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -46,8 +44,10 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
+from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
+from grudge.trace_pair import TracePair
 from grudge.discretization import DiscretizationCollection
-from grudge.shortcuts import make_visualizer
+from grudge.shortcuts import make_visualizer, rk4_step
 
 import grudge.op as op
 
@@ -77,8 +77,9 @@ class WaveState:
 def wave_flux(dcoll, c, w_tpair):
     u = w_tpair.u
     v = w_tpair.v
+    dd = w_tpair.dd
 
-    normal = thaw(dcoll.normal(w_tpair.dd), u.int.array_context)
+    normal = thaw(dcoll.normal(dd), u.int.array_context)
 
     flux_weak = WaveState(
         u=v.avg @ normal,
@@ -92,18 +93,33 @@ def wave_flux(dcoll, c, w_tpair):
         v=0.5 * v_jump * normal,
     )
 
-    return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
+    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c*flux_weak)
 
 
 class _WaveStateTag:
     pass
 
 
-def wave_operator(dcoll, c, w):
-    u = w.u
-    v = w.v
+def wave_operator(dcoll, c, w, quad_tag=None):
+    dd_base = as_dofdesc("vol")
+    dd_vol = DOFDesc("vol", quad_tag)
+    dd_faces = DOFDesc("all_faces", quad_tag)
+    dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(quad_tag)
 
-    dir_w = op.project(dcoll, "vol", BTAG_ALL, w)
+    def interp_to_surf_quad(utpair):
+        local_dd = utpair.dd
+        local_dd_quad = local_dd.with_discr_tag(quad_tag)
+        return TracePair(
+            local_dd_quad,
+            interior=op.project(dcoll, local_dd, local_dd_quad, utpair.int),
+            exterior=op.project(dcoll, local_dd, local_dd_quad, utpair.ext)
+        )
+
+    w_quad = op.project(dcoll, dd_base, dd_vol, w)
+    u = w_quad.u
+    v = w_quad.v
+
+    dir_w = op.project(dcoll, dd_base, dd_btag, w)
     dir_u = dir_w.u
     dir_v = dir_w.v
     dir_bval = WaveState(u=dir_u, v=dir_v)
@@ -113,35 +129,27 @@ def wave_operator(dcoll, c, w):
         op.inverse_mass(
             dcoll,
             WaveState(
-                u=-c*op.weak_local_div(dcoll, v),
-                v=-c*op.weak_local_grad(dcoll, u)
+                u=-c*op.weak_local_div(dcoll, dd_vol, v),
+                v=-c*op.weak_local_grad(dcoll, dd_vol, u)
             )
             + op.face_mass(
                 dcoll,
+                dd_faces,
                 wave_flux(
                     dcoll, c=c,
                     w_tpair=op.bdry_trace_pair(dcoll,
-                                               BTAG_ALL,
+                                               dd_btag,
                                                interior=dir_bval,
                                                exterior=dir_bc)
                 ) + sum(
-                    wave_flux(dcoll, c=c, w_tpair=tpair)
-                    for tpair in op.interior_trace_pairs(
-                        dcoll, w, tag=_WaveStateTag)
+                    wave_flux(dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
+                    for tpair in op.interior_trace_pairs(dcoll, w, tag=_WaveStateTag)
                 )
             )
         )
     )
 
 # }}}
-
-
-def rk4_step(y, t, h, f):
-    k1 = f(t, y)
-    k2 = f(t+h/2, y + h/2*k1)
-    k3 = f(t+h/2, y + h/2*k2)
-    k4 = f(t+h, y + h*k3)
-    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def estimate_rk4_timestep(actx, dcoll, c):
@@ -170,7 +178,8 @@ def bump(actx, dcoll, t=0):
             / source_width**2))
 
 
-def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
+def main(ctx_factory, dim=2, order=3,
+         visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -193,11 +202,20 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     nel_1d = 16
 
     if mesh_dist.is_mananger_rank():
-        from meshmode.mesh.generation import generate_regular_rect_mesh
-        mesh = generate_regular_rect_mesh(
-                a=(-0.5,)*dim,
-                b=(0.5,)*dim,
-                nelements_per_axis=(nel_1d,)*dim)
+        if use_nonaffine_mesh:
+            from meshmode.mesh.generation import generate_warped_rect_mesh
+            # FIXME: *generate_warped_rect_mesh* in meshmode warps a
+            # rectangle domain with hard-coded vertices at (-0.5,)*dim
+            # and (0.5,)*dim. Should extend the function interface to allow
+            # for specifying the end points directly.
+            mesh = generate_warped_rect_mesh(dim=dim, order=order,
+                                             nelements_side=nel_1d)
+        else:
+            from meshmode.mesh.generation import generate_regular_rect_mesh
+            mesh = generate_regular_rect_mesh(
+                    a=(-0.5,)*dim,
+                    b=(0.5,)*dim,
+                    nelements_per_axis=(nel_1d,)*dim)
 
         logger.info("%d elements", mesh.nelements)
 
@@ -210,8 +228,23 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-                    mpi_communicator=comm)
+    from meshmode.discretization.poly_element import \
+            QuadratureSimplexGroupFactory, \
+            default_simplex_group_factory
+    dcoll = DiscretizationCollection(
+        actx, local_mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
+            # High-order quadrature to integrate inner products of polynomials
+            # on warped geometry exactly (metric terms are also polynomial)
+            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
+        }
+    )
+
+    if use_quad:
+        quad_tag = DISCR_TAG_QUAD
+    else:
+        quad_tag = None
 
     fields = WaveState(
         u=bump(actx, dcoll),
@@ -224,7 +257,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False, lazy=False):
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(dcoll, c=c, w=w)
+        return wave_operator(dcoll, c=c, w=w, quad_tag=quad_tag)
 
     compiled_rhs = actx.compile(rhs)
 
@@ -286,6 +319,8 @@ if __name__ == "__main__":
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--lazy", action="store_true",
                         help="switch to a lazy computation mode")
+    parser.add_argument("--quad", action="store_true")
+    parser.add_argument("--nonaffine", action="store_true")
 
     args = parser.parse_args()
 
@@ -294,6 +329,8 @@ if __name__ == "__main__":
          dim=args.dim,
          order=args.order,
          visualize=args.visualize,
-         lazy=args.lazy)
+         lazy=args.lazy,
+         use_quad=args.quad,
+         use_nonaffine_mesh=args.nonaffine)
 
 # vim: foldmethod=marker
