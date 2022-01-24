@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
+        SingleGridWorkBalancingPytatoArrayContext
         )
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
@@ -38,11 +39,6 @@ from arraycontext.pytest import (
         register_pytest_array_context_factory)
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyCompilingFunctionCaller
-
-try:
-    from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
-except ImportError:
-    pass
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -174,7 +170,7 @@ class _DistributedCompiledFunction:
                                              self.output_template)
 
 
-class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
+class MPIPytatoPyOpenCLArrayContext(SingleGridWorkBalancingPytatoArrayContext):
     def __init__(self, mpi_communicator, queue, *,
             mpi_base_tag, allocator=None):
         super().__init__(queue, allocator)
@@ -192,14 +188,6 @@ class MPIPytatoPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
                 mpi_base_tag=self.mpi_base_tag,
                 allocator=self.allocator)
 
-
-try:
-    class MPISingleGridWorkBalancingPytatoArrayContext(
-            SingleGridWorkBalancingPytatoArrayContext,
-            MPIPytatoPyOpenCLArrayContext):
-        pass
-except NameError:
-    pass
 # }}}
 
 
