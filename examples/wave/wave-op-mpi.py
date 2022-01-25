@@ -238,7 +238,7 @@ def main(ctx_factory, dim=2, order=3,
             # High-order quadrature to integrate inner products of polynomials
             # on warped geometry exactly (metric terms are also polynomial)
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-        }
+        }, mpi_communicator=comm
     )
 
     if use_quad:
