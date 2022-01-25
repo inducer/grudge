@@ -34,7 +34,7 @@ import loopy as lp
 import pyopencl.array  # noqa
 
 from meshmode.dof_array import DOFArray, thaw, flatten, unflatten
-from meshmode.array_context import ArrayContext, make_loopy_program, IsDOFArray
+from meshmode.array_context import ArrayContext, make_loopy_program
 
 import grudge.symbolic.mappers as mappers
 from grudge.symbolic.compiler import DiffBatchAssign
@@ -44,7 +44,7 @@ from grudge.function_registry import base_function_registry
 
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_array_context import GrudgeArrayContext
-from grudge.grudge_tags import (IsSepVecDOFArray,
+from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray,
     IsFaceDOFArray, IsSepVecOpArray, IsOpArray, ParameterValue, IsFaceMassOpArray)
 
 import logging

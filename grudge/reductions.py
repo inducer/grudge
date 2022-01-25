@@ -314,7 +314,7 @@ def _apply_elementwise_reduction(
         def elementwise_prg(nelements, ndofs, fp_format):
             # FIXME: This computes the reduction value redundantly for each
             # output DOF.
-            from meshmode.array_context import IsDOFArray, ParameterValue
+            from grudge.grudge_tags import IsDOFArray, ParameterValue
             t_unit = make_loopy_program(
                 [
                     "{[iel]: 0 <= iel < nelements}",
