@@ -70,6 +70,10 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
     def _dag_to_compiled_func(self, dict_of_named_arrays,
             input_id_to_name_in_program, output_id_to_name_in_program,
             output_template):
+
+        from meshmode.array_context import deduplicate_data_wrappers
+        dict_of_named_arrays = deduplicate_data_wrappers(dict_of_named_arrays)
+
         from pytato import find_distributed_partition
         distributed_partition = find_distributed_partition(dict_of_named_arrays)
 
