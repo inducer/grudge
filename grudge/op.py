@@ -68,7 +68,7 @@ import numpy as np
 import grudge.dof_desc as dof_desc
 
 from grudge.interpolation import interp  # noqa: F401
-from grudge.projection import project  # noqa: F401
+from grudge.projection import project, volume_quadrature_project  # noqa: F401
 
 from grudge.reductions import (  # noqa: F401
     norm,

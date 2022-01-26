@@ -61,22 +61,20 @@ def skew_symmetric_hybridized_sbp_operators(
             base_grp, quad_vol_grp, face_quad_grp):
         from meshmode.discretization.poly_element import diff_matrices
         from modepy import faces_for_shape, face_normal
-        from grudge.projection import volume_quadrature_l2_projection_matrix
         from grudge.interpolation import (
             volume_quadrature_interpolation_matrix,
             surface_quadrature_interpolation_matrix
         )
+        from grudge.op import reference_inverse_mass_matrix
 
         # {{{ Volume operators
 
         weights = quad_vol_grp.quadrature_rule().weights
         vdm_q = actx.to_numpy(
-            volume_quadrature_interpolation_matrix(actx, base_grp, quad_vol_grp)
-        )
-        mass_mat = weights * vdm_q.T @ vdm_q
-        p_mat = actx.to_numpy(
-            volume_quadrature_l2_projection_matrix(actx, base_grp, quad_vol_grp)
-        )
+            volume_quadrature_interpolation_matrix(actx, base_grp, quad_vol_grp))
+        inv_mass_mat = actx.to_numpy(
+            reference_inverse_mass_matrix(actx, base_grp))
+        p_mat = inv_mass_mat @ (vdm_q.T * weights)
 
         # }}}
 
@@ -112,7 +110,7 @@ def skew_symmetric_hybridized_sbp_operators(
 
         # {{{ Hybridized (volume + surface) operators
 
-        q_mats = [p_mat.T @ mass_mat @ diff_mat @ p_mat
+        q_mats = [p_mat.T @ (weights * vdm_q.T @ vdm_q) @ diff_mat @ p_mat
                   for diff_mat in diff_matrices(base_grp)]
         e_mat = vf_mat @ p_mat
         q_skew_hybridized = np.asarray(

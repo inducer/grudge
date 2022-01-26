@@ -74,11 +74,11 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
 
     from meshmode.discretization.poly_element import diff_matrices
     from modepy import faces_for_shape, face_normal
-    from grudge.projection import volume_quadrature_l2_projection_matrix
     from grudge.interpolation import (
         volume_quadrature_interpolation_matrix,
         surface_quadrature_interpolation_matrix
     )
+    from grudge.op import reference_inverse_mass_matrix
 
     for vgrp, qgrp, qfgrp in zip(volm_discr.groups,
                                  quad_discr.groups,
@@ -93,18 +93,16 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
 
         weights = qgrp.quadrature_rule().weights
         vdm_q = actx.to_numpy(
-            volume_quadrature_interpolation_matrix(actx, vgrp, qgrp)
-        )
-        mass_mat = weights * vdm_q.T @ vdm_q
-        p_mat = actx.to_numpy(
-            volume_quadrature_l2_projection_matrix(actx, vgrp, qgrp)
-        )
+            volume_quadrature_interpolation_matrix(actx, vgrp, qgrp))
+        inv_mass_mat = actx.to_numpy(
+            reference_inverse_mass_matrix(actx, vgrp))
+        p_mat = inv_mass_mat @ (vdm_q.T * weights)
 
         # }}}
 
         # Checks Pq @ Vq = Minv @ Vq.T @ W @ Vq = I
         assert np.allclose(p_mat @ vdm_q,
-                           np.identity(len(mass_mat)), rtol=1e-15)
+                           np.identity(len(inv_mass_mat)), rtol=1e-15)
 
         # {{{ Surface operators
 
@@ -130,7 +128,7 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
 
         # {{{ Hybridized (volume + surface) operators
 
-        q_mats = [p_mat.T @ mass_mat @ diff_mat @ p_mat
+        q_mats = [p_mat.T @ (weights * vdm_q.T @ vdm_q) @ diff_mat @ p_mat
                   for diff_mat in diff_matrices(vgrp)]
         e_mat = vf_mat @ p_mat
         qtilde_mats = 0.5 * np.asarray(

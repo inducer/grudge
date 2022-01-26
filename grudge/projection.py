@@ -5,6 +5,7 @@ Projections
 -----------
 
 .. autofunction:: project
+.. autofunction:: volume_quadrature_project
 """
 
 __copyright__ = """
@@ -31,10 +32,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import numpy as np
 
 from functools import partial
 
-from arraycontext import ArrayContext, map_array_container
+from arraycontext import map_array_container
 from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
@@ -75,65 +77,59 @@ def project(
     return dcoll.connection_from_dds(src, tgt)(vec)
 
 
-# {{{ Projection matrices
+def volume_quadrature_project(
+        dcoll: DiscretizationCollection, dd_q, vec) -> ArrayOrContainerT:
+    """Projects a field on the quadrature discreization, described by *dd_q*,
+    into the polynomial space described by the volume discretization.
 
-def volume_quadrature_l2_projection_matrix(
-        actx: ArrayContext, base_element_group, vol_quad_element_group):
-    """todo.
-    """
-    @keyed_memoize_in(
-        actx, volume_quadrature_l2_projection_matrix,
-        lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
-                                        vol_quad_grp.discretization_key()))
-    def get_ref_l2_proj_mat(base_grp, vol_quad_grp):
-        from grudge.interpolation import volume_quadrature_interpolation_matrix
-        from grudge.op import reference_inverse_mass_matrix
-
-        vdm_q = actx.to_numpy(
-            volume_quadrature_interpolation_matrix(
-                actx, base_grp, vol_quad_grp
-            )
-        )
-        weights = vol_quad_grp.quadrature_rule().weights
-        inv_mass_mat = actx.to_numpy(reference_inverse_mass_matrix(actx, base_grp))
-        return actx.freeze(actx.from_numpy(inv_mass_mat @ (vdm_q.T * weights)))
-
-    return get_ref_l2_proj_mat(base_element_group, vol_quad_element_group)
-
-# }}}
-
-
-def volume_quadrature_project(dcoll: DiscretizationCollection, dd_q, vec):
-    """todo.
+    :arg dd_q: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(volume_quadrature_project, dcoll, dd_q), vec
         )
 
+    from grudge.geometry import area_element
+    from grudge.interpolation import volume_quadrature_interpolation_matrix
+    from grudge.op import inverse_mass
+
     actx = vec.array_context
     discr = dcoll.discr_from_dd("vol")
     quad_discr = dcoll.discr_from_dd(dd_q)
+    jacobians = area_element(
+        actx, dcoll, dd=dd_q,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej->ei",
-                        volume_quadrature_l2_projection_matrix(
-                            actx,
-                            base_element_group=bgrp,
-                            vol_quad_element_group=qgrp
-                        ),
-                        vec_i,
-                        arg_names=("Pq_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
+    @keyed_memoize_in(
+        actx, volume_quadrature_project,
+        lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
+                                        vol_quad_grp.discretization_key()))
+    def get_mat(base_grp, vol_quad_grp):
+        vdm_q = actx.to_numpy(
+            volume_quadrature_interpolation_matrix(
+                actx, base_grp, vol_quad_grp
+            )
+        )
+        weights = np.diag(vol_quad_grp.quadrature_rule().weights)
+        return actx.freeze(actx.from_numpy(vdm_q.T @ weights))
 
-            for bgrp, qgrp, vec_i in zip(
-                discr.groups,
-                quad_discr.groups,
-                vec
+    return inverse_mass(
+        dcoll,
+        DOFArray(
+            actx,
+            data=tuple(
+                actx.einsum("ij,ej,ej->ei",
+                            get_mat(bgrp, qgrp),
+                            jac_i,
+                            vec_i,
+                            arg_names=("vqw_t", "jac", "vec"),
+                            tagged=(FirstAxisIsElementsTag(),))
+                for bgrp, qgrp, vec_i, jac_i in zip(
+                    discr.groups, quad_discr.groups, vec, jacobians)
             )
         )
     )
-
-# vim: foldmethod=marker
