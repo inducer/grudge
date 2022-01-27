@@ -234,7 +234,7 @@ class InviscidBCObject(metaclass=ABCMeta):
             self,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
-            state: ConservedEulerField, t=0):
+            restricted_state: ConservedEulerField, t=0):
         pass
 
 
@@ -244,13 +244,12 @@ class PrescribedBC(InviscidBCObject):
             self,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
-            state: ConservedEulerField, t=0):
-        actx = state.array_context
-        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+            restricted_state: ConservedEulerField, t=0):
+        actx = restricted_state.array_context
 
         return TracePair(
             dd_bc,
-            interior=op.project(dcoll, dd_base, dd_bc, state),
+            interior=restricted_state,
             exterior=self.prescribed_state(thaw(dcoll.nodes(dd_bc), actx), t=t)
         )
 
@@ -261,11 +260,10 @@ class InviscidWallBC(InviscidBCObject):
             self,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
-            state: ConservedEulerField, t=0):
-        actx = state.array_context
-        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+            restricted_state: ConservedEulerField, t=0):
+        actx = restricted_state.array_context
         nhat = thaw(dcoll.normal(dd_bc), actx)
-        interior = op.project(dcoll, dd_base, dd_bc, state)
+        interior = restricted_state
 
         return TracePair(
             dd_bc,
@@ -376,12 +374,11 @@ class EulerOperator(HyperbolicOperator):
         dcoll = self.dcoll
         gamma = self.gamma
         qtag = self.qtag
+
+        dd_base = DOFDesc("vol", DISCR_TAG_BASE)
         dq = DOFDesc("vol", qtag)
         df = DOFDesc("all_faces", qtag)
         df_int = DOFDesc("int_faces", qtag)
-
-        def interp_to_quad(u):
-            return op.project(dcoll, "vol", dq, u)
 
         def interp_to_quad_surf(u):
             return TracePair(
@@ -393,7 +390,8 @@ class EulerOperator(HyperbolicOperator):
         # Compute volume fluxes
         volume_fluxes = op.weak_local_div(
             dcoll, dq,
-            interp_to_quad(euler_volume_flux(dcoll, q, gamma=gamma))
+            euler_volume_flux(
+                dcoll, op.project(dcoll, dd_base, dq, q), gamma=gamma)
         )
 
         # Compute interior interface fluxes
@@ -410,20 +408,21 @@ class EulerOperator(HyperbolicOperator):
 
         # Compute boundary fluxes
         if self.bdry_conditions is not None:
-            bc_fluxes = sum(
-                euler_numerical_flux(
+            for btag in self.bdry_conditions:
+                boundary_condition = self.bdry_conditions[btag]
+                dd_bc = as_dofdesc(btag).with_discr_tag(qtag)
+                bc_flux = euler_numerical_flux(
                     dcoll,
-                    self.bdry_conditions[btag].boundary_tpair(
-                        dcoll,
-                        as_dofdesc(btag).with_discr_tag(qtag),
-                        q,
+                    boundary_condition.boundary_tpair(
+                        dcoll=dcoll,
+                        dd_bc=dd_bc,
+                        restricted_state=op.project(dcoll, dd_base, dd_bc, q),
                         t=t
                     ),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
-                ) for btag in self.bdry_conditions
-            )
-            interface_fluxes = interface_fluxes + bc_fluxes
+                )
+                interface_fluxes = interface_fluxes + bc_flux
 
         return op.inverse_mass(
             dcoll,
@@ -535,13 +534,15 @@ class EntropyStableEulerOperator(EulerOperator):
 
         gamma = self.gamma
         qtag = self.qtag
+
+        dd_base = DOFDesc("vol", DISCR_TAG_BASE)
         dq = DOFDesc("vol", qtag)
         df = DOFDesc("all_faces", qtag)
 
         dcoll = self.dcoll
 
         # Interpolate cv_state to vol quad grid: u_q = V_q u
-        q_quad = op.project(dcoll, "vol", dq, q)
+        q_quad = op.project(dcoll, dd_base, dq, q)
 
         # Convert to projected entropy variables: v_q = V_h P_q v(u_q)
         entropy_vars = conservative_to_entropy_vars(q_quad, gamma=gamma)
@@ -569,7 +570,7 @@ class EntropyStableEulerOperator(EulerOperator):
             return DOFArray(ary.array_context, data=tuple(
                 subary.reshape(grp.nelements, *shape)
                 # Just need group for determining the number of elements
-                for grp, subary in zip(dcoll.discr_from_dd("vol").groups, ary)))
+                for grp, subary in zip(dcoll.discr_from_dd(dd_base).groups, ary)))
 
         flux_matrices = flux_chandrashekar(dcoll,
                                            _reshape((1, -1), qtilde_allquad),
@@ -579,20 +580,15 @@ class EntropyStableEulerOperator(EulerOperator):
         flux_diff = volume_flux_differencing(dcoll, dq, df, flux_matrices)
 
         def entropy_tpair(tpair):
-            dd_intfaces = tpair.dd
-            dd_intfaces_quad = dd_intfaces.with_discr_tag(qtag)
+            dd = tpair.dd
+            dd_quad = dd.with_discr_tag(qtag)
             # Interpolate entropy variables to the surface quadrature grid
-            vtilde_tpair = \
-                op.project(dcoll, dd_intfaces, dd_intfaces_quad, tpair)
+            ev_tpair = op.project(dcoll, dd, dd_quad, tpair)
             return TracePair(
-                dd_intfaces_quad,
+                dd_quad,
                 # Convert interior and exterior states to conserved variables
-                interior=entropy_to_conservative_vars(
-                    vtilde_tpair.int, gamma=gamma
-                ),
-                exterior=entropy_to_conservative_vars(
-                    vtilde_tpair.ext, gamma=gamma
-                )
+                interior=entropy_to_conservative_vars(ev_tpair.int, gamma=gamma),
+                exterior=entropy_to_conservative_vars(ev_tpair.ext, gamma=gamma)
             )
 
         # Computing interface numerical fluxes
@@ -612,20 +608,27 @@ class EntropyStableEulerOperator(EulerOperator):
 
         # Compute boundary fluxes
         if self.bdry_conditions is not None:
-            bc_fluxes = sum(
-                entropy_stable_numerical_flux_chandrashekar(
+            for btag in self.bdry_conditions:
+                boundary_condition = self.bdry_conditions[btag]
+                dd_bc = as_dofdesc(btag).with_discr_tag(qtag)
+                bc_flux = entropy_stable_numerical_flux_chandrashekar(
                     dcoll,
-                    self.bdry_conditions[btag].boundary_tpair(
-                        dcoll,
-                        as_dofdesc(btag).with_discr_tag(qtag),
-                        q,
+                    boundary_condition.boundary_tpair(
+                        dcoll=dcoll,
+                        dd_bc=dd_bc,
+                        # Pass modified conserved state to be used as
+                        # the "interior" state for computing the boundary
+                        # trace pair
+                        restricted_state=entropy_to_conservative_vars(
+                            op.project(dcoll, dd_base, dd_bc, proj_entropy_vars),
+                            gamma=gamma
+                        ),
                         t=t
                     ),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
-                ) for btag in self.bdry_conditions
-            )
-            interface_fluxes = interface_fluxes + bc_fluxes
+                )
+                interface_fluxes = interface_fluxes + bc_flux
 
         return op.inverse_mass(
             dcoll,
