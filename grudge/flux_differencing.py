@@ -36,28 +36,25 @@ from meshmode.transform_metadata import FirstAxisIsElementsTag
 from meshmode.dof_array import DOFArray
 
 from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DOFDesc
 
 from pytools import memoize_in, keyed_memoize_in
 
 import numpy as np
 
 
-def skew_symmetric_hybridized_sbp_operators(
+def _reference_skew_symmetric_hybridized_sbp_operators(
         actx: ArrayContext,
         base_element_group,
         vol_quad_element_group,
         face_quad_element_group, dtype):
-    """todo.
-    """
     @keyed_memoize_in(
-        actx, skew_symmetric_hybridized_sbp_operators,
+        actx, _reference_skew_symmetric_hybridized_sbp_operators,
         lambda base_grp, quad_vol_grp, face_quad_grp: (
             base_grp.discretization_key(),
             quad_vol_grp.discretization_key(),
-            face_quad_grp.discretization_key()
-        )
-    )
-    def get_skew_symetric_hybridized_diff_mats(
+            face_quad_grp.discretization_key()))
+    def get_reference_skew_symetric_hybridized_diff_mats(
             base_grp, quad_vol_grp, face_quad_grp):
         from meshmode.discretization.poly_element import diff_matrices
         from modepy import faces_for_shape, face_normal
@@ -100,9 +97,7 @@ def skew_symmetric_hybridized_sbp_operators(
                 actx,
                 base_element_group=base_grp,
                 face_quad_element_group=face_quad_grp,
-                dtype=dtype
-            )
-        )
+                dtype=dtype))
         zero_mat = np.zeros((nfaces*nnods_per_face, nfaces*nnods_per_face),
                             dtype=dtype)
 
@@ -127,19 +122,22 @@ def skew_symmetric_hybridized_sbp_operators(
 
         return actx.freeze(actx.from_numpy(q_skew_hybridized))
 
-    return get_skew_symetric_hybridized_diff_mats(
+    return get_reference_skew_symetric_hybridized_diff_mats(
         base_element_group,
         vol_quad_element_group,
         face_quad_element_group
     )
 
 
-def _single_axis_hybridized_sbp_derivative_kernel(
-        dcoll, dq, df, xyz_axis, flux_matrix):
+def _single_axis_hybridized_derivative_kernel(
+        dcoll, dd_quad, dd_face_quad, xyz_axis, flux_matrix):
+    if not dcoll._has_affine_groups():
+        raise NotImplementedError("Not implemented for non-affine elements yet.")
+
     if not isinstance(flux_matrix, DOFArray):
         return map_array_container(
-            partial(_single_axis_hybridized_sbp_derivative_kernel,
-                    dcoll, dq, df, xyz_axis),
+            partial(_single_axis_hybridized_derivative_kernel,
+                    dcoll, dd_quad, dd_face_quad, xyz_axis),
             flux_matrix
         )
 
@@ -150,35 +148,35 @@ def _single_axis_hybridized_sbp_derivative_kernel(
         volume_and_surface_quadrature_interpolation
     )
 
+    actx = flux_matrix.array_context
+
     # FIXME: This is kinda meh
     def inverse_jac_matrix():
-        @memoize_in(dcoll, (_single_axis_hybridized_sbp_derivative_kernel, dq, df))
+        @memoize_in(
+            dcoll,
+            (_single_axis_hybridized_derivative_kernel, dd_quad, dd_face_quad))
         def _inv_surf_metric_deriv():
-            mat = actx.np.stack(
-                [
-                    actx.np.stack(
-                        [
-                            volume_and_surface_quadrature_interpolation(
-                                dcoll, dq, df,
-                                area_element(actx, dcoll)
-                                * inverse_surface_metric_derivative(
-                                    actx, dcoll,
-                                    rst_ax, xyz_ax
-                                )
-                            ) for rst_ax in range(dcoll.dim)
-                        ]
-                    ) for xyz_ax in range(dcoll.ambient_dim)
-                ]
+            return freeze(
+                actx.np.stack(
+                    [
+                        actx.np.stack(
+                            [
+                                volume_and_surface_quadrature_interpolation(
+                                    dcoll, dd_quad, dd_face_quad,
+                                    area_element(actx, dcoll)
+                                    * inverse_surface_metric_derivative(
+                                        actx, dcoll,
+                                        rst_ax, xyz_axis
+                                    )
+                                ) for rst_ax in range(dcoll.dim)
+                            ]
+                        ) for xyz_axis in range(dcoll.ambient_dim)
+                    ]
+                ),
+                actx
             )
-            return freeze(mat, actx)
         return _inv_surf_metric_deriv()
 
-    actx = flux_matrix.array_context
-    discr = dcoll.discr_from_dd("vol")
-    quad_volm_discr = dcoll.discr_from_dd(dq)
-    quad_face_discr = dcoll.discr_from_dd(df)
-
-    # FIXME: This assumes affine-geometry
     return DOFArray(
         actx,
         data=tuple(
@@ -192,7 +190,7 @@ def _single_axis_hybridized_sbp_derivative_kernel(
                             dtype=fmat_i.dtype
                         ),
                         ijm_i[xyz_axis],
-                        skew_symmetric_hybridized_sbp_operators(
+                        _reference_skew_symmetric_hybridized_sbp_operators(
                             actx,
                             bgrp,
                             qvgrp,
@@ -200,13 +198,13 @@ def _single_axis_hybridized_sbp_derivative_kernel(
                             fmat_i.dtype
                         ),
                         fmat_i,
-                        arg_names=("Vh_mat_t", "inv_jac_t", "ref_Q_mat", "F_mat"),
+                        arg_names=("Vh_mat_t", "inv_jac_t", "Q_mat", "F_mat"),
                         tagged=(FirstAxisIsElementsTag(),))
 
             for bgrp, qvgrp, qafgrp, fmat_i, ijm_i in zip(
-                discr.groups,
-                quad_volm_discr.groups,
-                quad_face_discr.groups,
+                dcoll.discr_from_dd("vol").groups,
+                dcoll.discr_from_dd(dd_quad).groups,
+                dcoll.discr_from_dd(dd_face_quad).groups,
                 flux_matrix,
                 inverse_jac_matrix()
             )
@@ -216,15 +214,17 @@ def _single_axis_hybridized_sbp_derivative_kernel(
 
 def volume_flux_differencing(
         dcoll: DiscretizationCollection,
-        dq, df, flux_matrices: ArrayOrContainerT) -> ArrayOrContainerT:
+        dd_quad: DOFDesc,
+        dd_face_quad: DOFDesc,
+        flux_matrices: ArrayOrContainerT) -> ArrayOrContainerT:
     """todo.
     """
     from grudge.op import _div_helper
 
     return _div_helper(
         dcoll,
-        lambda _, i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
-            dcoll, dq, df, i, flux_mat_i),
+        lambda _, i, flux_mat_i: _single_axis_hybridized_derivative_kernel(
+            dcoll, dd_quad, dd_face_quad, i, flux_mat_i),
         flux_matrices
     )
 
