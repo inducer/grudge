@@ -214,48 +214,16 @@ def _single_axis_hybridized_sbp_derivative_kernel(
     )
 
 
-def _flux_differencing_helper(dcoll, diff_func, mats):
-    if not isinstance(mats, np.ndarray):
-        # mats is not an object array -> treat as array container
-        return map_array_container(
-            partial(_flux_differencing_helper, dcoll, diff_func), mats)
-
-    assert mats.dtype == object
-
-    if mats.size:
-        sample_mat = mats[(0,)*mats.ndim]
-        if isinstance(sample_mat, np.ndarray):
-            assert sample_mat.dtype == object
-            # mats is an object array containing further object arrays
-            # -> treat as array container
-            return map_array_container(
-                partial(_flux_differencing_helper, dcoll, diff_func), mats)
-
-    if mats.shape[-1] != dcoll.ambient_dim:
-        raise ValueError(
-            "last/innermost dimension of *mats* argument doesn't match "
-            "ambient dimension")
-
-    div_result_shape = mats.shape[:-1]
-
-    if len(div_result_shape) == 0:
-        return sum(diff_func(i, mat_i) for i, mat_i in enumerate(mats))
-    else:
-        result = np.zeros(div_result_shape, dtype=object)
-        for idx in np.ndindex(div_result_shape):
-            result[idx] = sum(
-                    diff_func(i, mat_i) for i, mat_i in enumerate(mats[idx]))
-        return result
-
-
 def volume_flux_differencing(
         dcoll: DiscretizationCollection,
         dq, df, flux_matrices: ArrayOrContainerT) -> ArrayOrContainerT:
     """todo.
     """
-    return _flux_differencing_helper(
+    from grudge.op import _div_helper
+
+    return _div_helper(
         dcoll,
-        lambda i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
+        lambda _, i, flux_mat_i: _single_axis_hybridized_sbp_derivative_kernel(
             dcoll, dq, df, i, flux_mat_i),
         flux_matrices
     )
