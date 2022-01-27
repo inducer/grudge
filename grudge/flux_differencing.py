@@ -96,8 +96,7 @@ def _reference_skew_symmetric_hybridized_sbp_operators(
             surface_quadrature_interpolation_matrix(
                 actx,
                 base_element_group=base_grp,
-                face_quad_element_group=face_quad_grp,
-                dtype=dtype))
+                face_quad_element_group=face_quad_grp))
         zero_mat = np.zeros((nfaces*nnods_per_face, nfaces*nnods_per_face),
                             dtype=dtype)
 
@@ -186,8 +185,7 @@ def _single_axis_hybridized_derivative_kernel(
                             actx,
                             base_element_group=bgrp,
                             vol_quad_element_group=qvgrp,
-                            face_quad_element_group=qafgrp,
-                            dtype=fmat_i.dtype
+                            face_quad_element_group=qafgrp
                         ),
                         ijm_i[xyz_axis],
                         _reference_skew_symmetric_hybridized_sbp_operators(

@@ -70,7 +70,6 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
     volm_discr = dcoll.discr_from_dd("vol")
     quad_discr = dcoll.discr_from_dd(dd_q)
     quad_face_discr = dcoll.discr_from_dd(dd_f)
-    dtype = volm_discr.zeros(actx).entry_dtype
 
     from meshmode.discretization.poly_element import diff_matrices
     from modepy import faces_for_shape, face_normal
@@ -119,8 +118,7 @@ def test_reference_element_sbp_operators(actx_factory, dim, order):
             surface_quadrature_interpolation_matrix(
                 actx,
                 base_element_group=vgrp,
-                face_quad_element_group=qfgrp,
-                dtype=dtype
+                face_quad_element_group=qfgrp
             )
         )
 

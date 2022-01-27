@@ -36,13 +36,16 @@ import numpy as np
 
 from arraycontext import (
     ArrayContext,
-    map_array_container,
-    thaw
+    map_array_container
 )
+from arraycontext.container import ArrayOrContainerT
+
 from functools import partial
+
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DOFDesc
 
 from meshmode.dof_array import DOFArray
 
@@ -66,8 +69,6 @@ def interp(dcoll: DiscretizationCollection, src, tgt, vec):
 
 def volume_quadrature_interpolation_matrix(
         actx: ArrayContext, base_element_group, vol_quad_element_group):
-    """todo.
-    """
     @keyed_memoize_in(
         actx, volume_quadrature_interpolation_matrix,
         lambda base_grp, vol_quad_grp: (base_grp.discretization_key(),
@@ -85,10 +86,7 @@ def volume_quadrature_interpolation_matrix(
 
 
 def surface_quadrature_interpolation_matrix(
-        actx: ArrayContext,
-        base_element_group, face_quad_element_group, dtype):
-    """todo.
-    """
+        actx: ArrayContext, base_element_group, face_quad_element_group):
     @keyed_memoize_in(
         actx, surface_quadrature_interpolation_matrix,
         lambda base_grp, face_quad_grp: (base_grp.discretization_key(),
@@ -121,11 +119,7 @@ def surface_quadrature_interpolation_matrix(
 
 def volume_and_surface_interpolation_matrix(
         actx: ArrayContext,
-        base_element_group,
-        vol_quad_element_group,
-        face_quad_element_group, dtype):
-    """todo.
-    """
+        base_element_group, vol_quad_element_group, face_quad_element_group):
     @keyed_memoize_in(
         actx, volume_and_surface_interpolation_matrix,
         lambda base_grp, vol_quad_grp, face_quad_grp: (
@@ -134,21 +128,15 @@ def volume_and_surface_interpolation_matrix(
             face_quad_grp.discretization_key()))
     def get_vol_surf_interpolation_matrix(base_grp, vol_quad_grp, face_quad_grp):
         vq_mat = actx.to_numpy(
-            thaw(
-                volume_quadrature_interpolation_matrix(
-                    actx, base_grp, vol_quad_grp
-                ),
-                actx
-            )
-        )
+            volume_quadrature_interpolation_matrix(
+                actx,
+                base_element_group=base_grp,
+                vol_quad_element_group=vol_quad_grp))
         vf_mat = actx.to_numpy(
-            thaw(
-                surface_quadrature_interpolation_matrix(
-                    actx, base_grp, face_quad_grp, dtype
-                ),
-                actx
-            )
-        )
+            surface_quadrature_interpolation_matrix(
+                actx,
+                base_element_group=base_grp,
+                face_quad_element_group=face_quad_grp))
         return actx.freeze(actx.from_numpy(np.block([[vq_mat], [vf_mat]])))
 
     return get_vol_surf_interpolation_matrix(
@@ -158,49 +146,23 @@ def volume_and_surface_interpolation_matrix(
 # }}}
 
 
-def volume_quadrature_interpolation(dcoll: DiscretizationCollection, dq, vec):
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(volume_quadrature_interpolation, dcoll, dq), vec
-        )
-
-    actx = vec.array_context
-    discr = dcoll.discr_from_dd("vol")
-    quad_discr = dcoll.discr_from_dd(dq)
-
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej->ei",
-                        volume_quadrature_interpolation_matrix(
-                            actx,
-                            base_element_group=bgrp,
-                            vol_quad_element_group=qgrp
-                        ),
-                        vec_i,
-                        arg_names=("Vq_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
-
-            for bgrp, qgrp, vec_i in zip(discr.groups, quad_discr.groups, vec)
-        )
-    )
-
-
 def volume_and_surface_quadrature_interpolation(
-        dcoll: DiscretizationCollection, dq, df, vec):
+        dcoll: DiscretizationCollection,
+        dd_quad: DOFDesc,
+        dd_face_quad: DOFDesc,
+        vec: ArrayOrContainerT) -> ArrayOrContainerT:
     """todo.
     """
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(volume_and_surface_quadrature_interpolation,
-                    dcoll, dq, df), vec
+                    dcoll, dd_quad, dd_face_quad), vec
         )
 
     actx = vec.array_context
-    dtype = vec.entry_dtype
     discr = dcoll.discr_from_dd("vol")
-    quad_volm_discr = dcoll.discr_from_dd(dq)
-    quad_face_discr = dcoll.discr_from_dd(df)
+    quad_volm_discr = dcoll.discr_from_dd(dd_quad)
+    quad_face_discr = dcoll.discr_from_dd(dd_face_quad)
 
     return DOFArray(
         actx,
@@ -210,8 +172,7 @@ def volume_and_surface_quadrature_interpolation(
                             actx,
                             base_element_group=bgrp,
                             vol_quad_element_group=qvgrp,
-                            face_quad_element_group=qfgrp,
-                            dtype=dtype
+                            face_quad_element_group=qfgrp
                         ),
                         vec_i,
                         arg_names=("Vh_mat", "vec"),
