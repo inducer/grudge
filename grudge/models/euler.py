@@ -54,7 +54,8 @@ from arraycontext import (
     thaw,
     dataclass_array_container,
     with_container_arithmetic,
-    map_array_container
+    map_array_container,
+    outer
 )
 
 from meshmode.dof_array import DOFArray
@@ -127,14 +128,13 @@ def vortex_initial_condition(
 
 # {{{ Variable transformation and helper routines
 
-def conservative_to_primitive_vars(cv_state: ConservedEulerField, gamma=1.4):
+def conservative_to_primitive_vars(cv_state: ConservedEulerField, gamma: float):
     """Converts from conserved variables (density, momentum, total energy)
     into primitive variables (density, velocity, pressure).
 
     :arg cv_state: A :class:`ConservedEulerField` containing the conserved
         variables.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
+    :arg gamma: The isentropic expansion factor.
     :returns: A :class:`Tuple` containing the primitive variables:
         (density, velocity, pressure).
     """
@@ -147,7 +147,7 @@ def conservative_to_primitive_vars(cv_state: ConservedEulerField, gamma=1.4):
     return (rho, u, p)
 
 
-def conservative_to_entropy_vars(cv_state, gamma=1.4):
+def conservative_to_entropy_vars(cv_state: ConservedEulerField, gamma: float):
     """Converts from conserved variables (density, momentum, total energy)
     into entropy variables.
 
@@ -158,7 +158,7 @@ def conservative_to_entropy_vars(cv_state, gamma=1.4):
     :returns: A :class:`ConservedEulerField` containing the entropy variables.
     """
     actx = cv_state.array_context
-    rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
+    rho, u, p = conservative_to_primitive_vars(cv_state, gamma)
 
     u_square = sum(v ** 2 for v in u)
     s = actx.np.log(p) - gamma*actx.np.log(rho)
@@ -171,14 +171,13 @@ def conservative_to_entropy_vars(cv_state, gamma=1.4):
     )
 
 
-def entropy_to_conservative_vars(ev_state, gamma=1.4):
+def entropy_to_conservative_vars(ev_state: ConservedEulerField, gamma: float):
     """Converts from entropy variables into conserved variables
     (density, momentum, total energy).
 
     :arg ev_state: A :class:`ConservedEulerField` containing the entropy
         variables.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
+    :arg gamma: The isentropic expansion factor.
     :returns: A :class:`ConservedEulerField` containing the conserved variables.
     """
     actx = ev_state.array_context
@@ -205,17 +204,16 @@ def entropy_to_conservative_vars(ev_state, gamma=1.4):
     )
 
 
-def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
+def compute_wavespeed(cv_state: ConservedEulerField, gamma: float):
     """Computes the total translational wavespeed.
 
     :arg cv_state: A :class:`ConservedEulerField` containing the conserved
         variables.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
+    :arg gamma: The isentropic expansion factor.
     :returns: A :class:`~meshmode.dof_array.DOFArray` containing local wavespeeds.
     """
     actx = cv_state.array_context
-    rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
+    rho, u, p = conservative_to_primitive_vars(cv_state, gamma)
 
     return actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
 
@@ -283,19 +281,17 @@ class InviscidWallBC(InviscidBCObject):
 # {{{ Euler operator
 
 def euler_volume_flux(
-        dcoll: DiscretizationCollection, cv_state: ConservedEulerField, gamma=1.4):
+        dcoll: DiscretizationCollection,
+        cv_state: ConservedEulerField, gamma: float):
     """Computes the (non-linear) volume flux for the
     Euler operator.
 
     :arg cv_state: A :class:`ConservedEulerField` containing the conserved
         variables.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
+    :arg gamma: The isentropic expansion factor.
     :returns: A :class:`ConservedEulerField` containing the volume fluxes.
     """
-    from arraycontext import outer
-
-    rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
+    rho, u, p = conservative_to_primitive_vars(cv_state, gamma)
 
     return ConservedEulerField(
         mass=cv_state.momentum,
@@ -306,40 +302,35 @@ def euler_volume_flux(
 
 def euler_numerical_flux(
         dcoll: DiscretizationCollection, tpair: TracePair,
-        gamma=1.4, lf_stabilization=False):
+        gamma: float, dissipation=False):
     """Computes the interface numerical flux for the Euler operator.
 
     :arg tpair: A :class:`grudge.trace_pair.TracePair` containing the conserved
         variables on the interior and exterior sides of element facets.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
-    :arg lf_stabilization: A boolean denoting whether to apply Lax-Friedrichs
+    :arg gamma: The isentropic expansion factor.
+    :arg dissipation: A boolean denoting whether to apply Lax-Friedrichs
         dissipation.
     :returns: A :class:`ConservedEulerField` containing the interface fluxes.
     """
-    dd_intfaces = tpair.dd
-    dd_allfaces = dd_intfaces.with_dtag("all_faces")
     q_ll = tpair.int
     q_rr = tpair.ext
     actx = q_ll.array_context
 
     flux_tpair = TracePair(
         tpair.dd,
-        interior=euler_volume_flux(dcoll, q_ll, gamma=gamma),
-        exterior=euler_volume_flux(dcoll, q_rr, gamma=gamma)
+        interior=euler_volume_flux(dcoll, q_ll, gamma),
+        exterior=euler_volume_flux(dcoll, q_rr, gamma)
     )
     num_flux = flux_tpair.avg
-    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    normal = thaw(dcoll.normal(tpair.dd), actx)
 
-    if lf_stabilization:
-        from arraycontext import outer
-
+    if dissipation:
         # Compute jump penalization parameter
-        lam = actx.np.maximum(compute_wavespeed(q_ll, gamma=gamma),
-                              compute_wavespeed(q_rr, gamma=gamma))
+        lam = actx.np.maximum(compute_wavespeed(q_ll, gamma),
+                              compute_wavespeed(q_rr, gamma))
         num_flux -= lam*outer(tpair.diff, normal)/2
 
-    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux @ normal)
+    return num_flux @ normal
 
 
 class EulerOperator(HyperbolicOperator):
@@ -368,41 +359,46 @@ class EulerOperator(HyperbolicOperator):
 
     def max_characteristic_velocity(self, actx, **kwargs):
         state = kwargs["state"]
-        return compute_wavespeed(state, gamma=self.gamma)
+        return compute_wavespeed(state, self.gamma)
 
     def operator(self, t, q):
         dcoll = self.dcoll
         gamma = self.gamma
         qtag = self.qtag
+        dissipation = self.lf_stabilization
 
         dd_base = DOFDesc("vol", DISCR_TAG_BASE)
-        dq = DOFDesc("vol", qtag)
-        df = DOFDesc("all_faces", qtag)
-        df_int = DOFDesc("int_faces", qtag)
+        dd_vol_quad = DOFDesc("vol", qtag)
+        dd_face_quad = DOFDesc("all_faces", qtag)
 
-        def interp_to_quad_surf(u):
+        def interp_to_quad_surf(tpair):
+            dd = tpair.dd
+            dd_quad = dd.with_discr_tag(qtag)
             return TracePair(
-                df_int,
-                interior=op.project(dcoll, "int_faces", df_int, u.int),
-                exterior=op.project(dcoll, "int_faces", df_int, u.ext)
+                dd_quad,
+                interior=op.project(dcoll, dd, dd_quad, tpair.int),
+                exterior=op.project(dcoll, dd, dd_quad, tpair.ext)
             )
 
-        # Compute volume fluxes
-        volume_fluxes = op.weak_local_div(
-            dcoll, dq,
+        interior_trace_pairs = [
+            interp_to_quad_surf(tpair)
+            for tpair in op.interior_trace_pairs(dcoll, q)
+        ]
+
+        # Compute volume derivatives
+        volume_derivs = op.weak_local_div(
+            dcoll, dd_vol_quad,
             euler_volume_flux(
-                dcoll, op.project(dcoll, dd_base, dq, q), gamma=gamma)
+                dcoll, op.project(dcoll, dd_base, dd_vol_quad, q), gamma)
         )
 
         # Compute interior interface fluxes
         interface_fluxes = (
             sum(
-                euler_numerical_flux(
-                    dcoll,
-                    interp_to_quad_surf(tpair),
-                    gamma=gamma,
-                    lf_stabilization=self.lf_stabilization
-                ) for tpair in op.interior_trace_pairs(dcoll, q)
+                op.project(dcoll, qtpair.dd, dd_face_quad,
+                           euler_numerical_flux(dcoll, qtpair, gamma,
+                                                dissipation=dissipation))
+                for qtpair in interior_trace_pairs
             )
         )
 
@@ -411,22 +407,27 @@ class EulerOperator(HyperbolicOperator):
             for btag in self.bdry_conditions:
                 boundary_condition = self.bdry_conditions[btag]
                 dd_bc = as_dofdesc(btag).with_discr_tag(qtag)
-                bc_flux = euler_numerical_flux(
+                bc_flux = op.project(
                     dcoll,
-                    boundary_condition.boundary_tpair(
-                        dcoll=dcoll,
-                        dd_bc=dd_bc,
-                        restricted_state=op.project(dcoll, dd_base, dd_bc, q),
-                        t=t
-                    ),
-                    gamma=gamma,
-                    lf_stabilization=self.lf_stabilization
+                    dd_bc,
+                    dd_face_quad,
+                    euler_numerical_flux(
+                        dcoll,
+                        boundary_condition.boundary_tpair(
+                            dcoll=dcoll,
+                            dd_bc=dd_bc,
+                            restricted_state=op.project(dcoll, dd_base, dd_bc, q),
+                            t=t
+                        ),
+                        gamma,
+                        dissipation=dissipation
+                    )
                 )
                 interface_fluxes = interface_fluxes + bc_flux
 
         return op.inverse_mass(
             dcoll,
-            volume_fluxes - op.face_mass(dcoll, df, interface_fluxes)
+            volume_derivs - op.face_mass(dcoll, dd_face_quad, interface_fluxes)
         )
 
 # }}}
@@ -434,21 +435,23 @@ class EulerOperator(HyperbolicOperator):
 
 # {{{ Entropy stable Euler operator
 
-def flux_chandrashekar(dcoll: DiscretizationCollection, q_ll, q_rr, gamma=1.4):
+def divergence_flux_chandrashekar(
+        dcoll: DiscretizationCollection,
+        q_left: ConservedEulerField,
+        q_right: ConservedEulerField, gamma: float):
     """Two-point volume flux based on the entropy conserving
     and kinetic energy preserving two-point flux in:
 
-    - Chandrashekar (2013) Kinetic Energy Preserving and Entropy Stable Finite
-    Volume Schemes for Compressible Euler and Navier-Stokes Equations
-    [DOI](https://doi.org/10.4208/cicp.170712.010313a)
+    Chandrashekar (2013) Kinetic Energy Preserving and Entropy Stable Finite
+    Volume Schemes for Compressible Euler and Navier-Stokes Equations:
+    `DOI <https://doi.org/10.4208/cicp.170712.010313a>`__.
 
-    :args q_ll: an array container for the "left" state.
-    :args q_rr: an array container for the "right" state.
-    :arg gamma: The isentropic expansion factor for a single-species gas
-        (default set to 1.4).
+    :args q_left: A :class:`ConservedEulerField` containing the "left" state.
+    :args q_right: A :class:`ConservedEulerField` containing the "right" state.
+    :arg gamma: The isentropic expansion factor.
     """
     dim = dcoll.dim
-    actx = q_ll.array_context
+    actx = q_left.array_context
 
     def ln_mean(x: DOFArray, y: DOFArray, epsilon=1e-4):
         f2 = (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y)
@@ -458,25 +461,25 @@ def flux_chandrashekar(dcoll: DiscretizationCollection, q_ll, q_rr, gamma=1.4):
             (y - x) / actx.np.log(y / x)
         )
 
-    rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
-    rho_rr, u_rr, p_rr = conservative_to_primitive_vars(q_rr, gamma=gamma)
+    rho_left, u_left, p_left = conservative_to_primitive_vars(q_left, gamma)
+    rho_right, u_right, p_right = conservative_to_primitive_vars(q_right, gamma)
 
-    beta_ll = 0.5 * rho_ll / p_ll
-    beta_rr = 0.5 * rho_rr / p_rr
-    specific_kin_ll = 0.5 * sum(v**2 for v in u_ll)
-    specific_kin_rr = 0.5 * sum(v**2 for v in u_rr)
+    beta_left = 0.5 * rho_left / p_left
+    beta_right = 0.5 * rho_right / p_right
+    specific_kin_left = 0.5 * sum(v**2 for v in u_left)
+    specific_kin_right = 0.5 * sum(v**2 for v in u_right)
 
-    rho_avg = 0.5 * (rho_ll + rho_rr)
-    rho_mean = ln_mean(rho_ll,  rho_rr)
-    beta_mean = ln_mean(beta_ll, beta_rr)
-    beta_avg = 0.5 * (beta_ll + beta_rr)
-    u_avg = 0.5 * (u_ll + u_rr)
+    rho_avg = 0.5 * (rho_left + rho_right)
+    rho_mean = ln_mean(rho_left,  rho_right)
+    beta_mean = ln_mean(beta_left, beta_right)
+    beta_avg = 0.5 * (beta_left + beta_right)
+    u_avg = 0.5 * (u_left + u_right)
     p_mean = 0.5 * rho_avg / beta_avg
 
-    velocity_square_avg = specific_kin_ll + specific_kin_rr
+    velocity_square_avg = specific_kin_left + specific_kin_right
 
     mass_flux = rho_mean * u_avg
-    momentum_flux = np.outer(mass_flux, u_avg) + np.eye(dim) * p_mean
+    momentum_flux = outer(mass_flux, u_avg) + np.eye(dim) * p_mean
     energy_flux = (
         mass_flux * 0.5 * (1/(gamma - 1)/beta_mean - velocity_square_avg)
         + np.dot(momentum_flux, u_avg)
@@ -489,40 +492,36 @@ def flux_chandrashekar(dcoll: DiscretizationCollection, q_ll, q_rr, gamma=1.4):
 
 def entropy_stable_numerical_flux_chandrashekar(
         dcoll: DiscretizationCollection, tpair: TracePair,
-        gamma=1.4, lf_stabilization=False):
+        gamma: float, dissipation=False):
     """Entropy stable numerical flux based on the entropy conserving
     and kinetic energy preserving two-point flux in:
 
-    - Chandrashekar (2013) Kinetic Energy Preserving and Entropy Stable Finite
+    Chandrashekar (2013) Kinetic Energy Preserving and Entropy Stable Finite
     Volume Schemes for Compressible Euler and Navier-Stokes Equations
-    [DOI](https://doi.org/10.4208/cicp.170712.010313a)
+    `DOI <https://doi.org/10.4208/cicp.170712.010313a>`__.
+
+    :arg tpair: A :class:`grudge.trace_pair.TracePair` containing the conserved
+        variables on the interior and exterior sides of element facets.
+    :arg gamma: The isentropic expansion factor.
+    :arg dissipation: A boolean denoting whether to apply Lax-Friedrichs
+        dissipation.
+    :returns: A :class:`ConservedEulerField` containing the interface fluxes.
     """
-    dd_intfaces = tpair.dd
-    dd_allfaces = dd_intfaces.with_dtag("all_faces")
-    q_ll = tpair.int
-    q_rr = tpair.ext
-    actx = q_ll.array_context
+    q_int = tpair.int
+    q_ext = tpair.ext
+    actx = q_int.array_context
 
-    num_flux = flux_chandrashekar(dcoll, q_ll, q_rr, gamma=gamma)
-    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    num_flux = divergence_flux_chandrashekar(
+        dcoll, q_left=q_int, q_right=q_ext, gamma=gamma)
+    normal = thaw(dcoll.normal(tpair.dd), actx)
 
-    if lf_stabilization:
-        from arraycontext import outer
-
-        rho_ll, u_ll, p_ll = conservative_to_primitive_vars(q_ll, gamma=gamma)
-        rho_rr, u_rr, p_rr = conservative_to_primitive_vars(q_rr, gamma=gamma)
-
-        def compute_wavespeed(rho, u, p):
-            return (
-                actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
-            )
-
+    if dissipation:
         # Compute jump penalization parameter
-        lam = actx.np.maximum(compute_wavespeed(rho_ll, u_ll, p_ll),
-                              compute_wavespeed(rho_rr, u_rr, p_rr))
+        lam = actx.np.maximum(compute_wavespeed(q_int, gamma),
+                              compute_wavespeed(q_ext, gamma))
         num_flux -= lam*outer(tpair.diff, normal)/2
 
-    return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux @ normal)
+    return num_flux @ normal
 
 
 class EntropyStableEulerOperator(EulerOperator):
@@ -532,34 +531,42 @@ class EntropyStableEulerOperator(EulerOperator):
         from grudge.interpolation import \
             volume_and_surface_quadrature_interpolation
 
+        dcoll = self.dcoll
         gamma = self.gamma
         qtag = self.qtag
+        dissipation = self.lf_stabilization
 
         dd_base = DOFDesc("vol", DISCR_TAG_BASE)
-        dq = DOFDesc("vol", qtag)
-        df = DOFDesc("all_faces", qtag)
+        dd_vol_quad = DOFDesc("vol", qtag)
+        dd_face_quad = DOFDesc("all_faces", qtag)
 
-        dcoll = self.dcoll
+        # Convert to projected entropy variables: v_q = P_q v(u_q)
+        proj_entropy_vars = \
+            volume_quadrature_project(
+                dcoll, dd_vol_quad,
+                conservative_to_entropy_vars(
+                    # Interpolate state to vol quad grid: u_q = V_q u
+                    op.project(dcoll, dd_base, dd_vol_quad, q), gamma))
 
-        # Interpolate cv_state to vol quad grid: u_q = V_q u
-        q_quad = op.project(dcoll, dd_base, dq, q)
+        def modified_conserved_vars_tpair(tpair):
+            dd = tpair.dd
+            dd_quad = dd.with_discr_tag(qtag)
+            # Interpolate entropy variables to the surface quadrature grid
+            ev_tpair = op.project(dcoll, dd, dd_quad, tpair)
+            return TracePair(
+                dd_quad,
+                # Convert interior and exterior states to conserved variables
+                interior=entropy_to_conservative_vars(ev_tpair.int, gamma),
+                exterior=entropy_to_conservative_vars(ev_tpair.ext, gamma)
+            )
 
-        # Convert to projected entropy variables: v_q = V_h P_q v(u_q)
-        entropy_vars = conservative_to_entropy_vars(q_quad, gamma=gamma)
-        proj_entropy_vars = volume_quadrature_project(dcoll, dq, entropy_vars)
+        # Compute interior trace pairs containing the modified conserved
+        # variables (in terms of projected entropy variables)
+        interior_trace_pairs = [
+            modified_conserved_vars_tpair(tpair)
+            for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
+        ]
 
-        # Compute conserved state in terms of the (interpolated)
-        # projected entropy variables on the quad grid
-        qtilde_allquad = \
-            entropy_to_conservative_vars(
-                # Interpolate projected entropy variables to
-                # volume + surface quadrature grids
-                volume_and_surface_quadrature_interpolation(
-                    dcoll, dq, df, proj_entropy_vars
-                ),
-                gamma=gamma)
-
-        # Compute volume derivatives using flux differencing
         from functools import partial
         from grudge.flux_differencing import volume_flux_differencing
 
@@ -572,37 +579,35 @@ class EntropyStableEulerOperator(EulerOperator):
                 # Just need group for determining the number of elements
                 for grp, subary in zip(dcoll.discr_from_dd(dd_base).groups, ary)))
 
-        flux_matrices = flux_chandrashekar(dcoll,
-                                           _reshape((1, -1), qtilde_allquad),
-                                           _reshape((-1, 1), qtilde_allquad),
-                                           gamma=gamma)
+        # Compute the (modified) conserved state in terms of the projected
+        # entropy variables on both the volume and surface nodes
+        qtilde_vol_and_surf = \
+            entropy_to_conservative_vars(
+                # Interpolate projected entropy variables to
+                # volume + surface quadrature grids
+                volume_and_surface_quadrature_interpolation(
+                    dcoll, dd_vol_quad, dd_face_quad, proj_entropy_vars), gamma)
 
-        flux_diff = volume_flux_differencing(dcoll, dq, df, flux_matrices)
+        # FIXME: These matrices are actually symmetric. Could make use
+        # of that to avoid redundant computation.
+        flux_matrices = divergence_flux_chandrashekar(
+            dcoll,
+            _reshape((1, -1), qtilde_vol_and_surf),
+            _reshape((-1, 1), qtilde_vol_and_surf),
+            gamma
+        )
 
-        def entropy_tpair(tpair):
-            dd = tpair.dd
-            dd_quad = dd.with_discr_tag(qtag)
-            # Interpolate entropy variables to the surface quadrature grid
-            ev_tpair = op.project(dcoll, dd, dd_quad, tpair)
-            return TracePair(
-                dd_quad,
-                # Convert interior and exterior states to conserved variables
-                interior=entropy_to_conservative_vars(ev_tpair.int, gamma=gamma),
-                exterior=entropy_to_conservative_vars(ev_tpair.ext, gamma=gamma)
-            )
+        # Compute volume derivatives using flux differencing
+        volume_derivs = -volume_flux_differencing(
+            dcoll, dd_vol_quad, dd_face_quad, flux_matrices)
 
         # Computing interface numerical fluxes
         interface_fluxes = (
             sum(
-                entropy_stable_numerical_flux_chandrashekar(
-                    dcoll,
-                    entropy_tpair(tpair),
-                    gamma=gamma,
-                    lf_stabilization=self.lf_stabilization
-                    # NOTE: Trace pairs consist of the projected entropy variables
-                    # which will be converted to conserved variables in
-                    # *entropy_tpair*
-                ) for tpair in op.interior_trace_pairs(dcoll, proj_entropy_vars)
+                op.project(dcoll, qtpair.dd, dd_face_quad,
+                           entropy_stable_numerical_flux_chandrashekar(
+                               dcoll, qtpair, gamma, dissipation=dissipation))
+                for qtpair in interior_trace_pairs
             )
         )
 
@@ -611,28 +616,34 @@ class EntropyStableEulerOperator(EulerOperator):
             for btag in self.bdry_conditions:
                 boundary_condition = self.bdry_conditions[btag]
                 dd_bc = as_dofdesc(btag).with_discr_tag(qtag)
-                bc_flux = entropy_stable_numerical_flux_chandrashekar(
+                bc_flux = op.project(
                     dcoll,
-                    boundary_condition.boundary_tpair(
-                        dcoll=dcoll,
-                        dd_bc=dd_bc,
-                        # Pass modified conserved state to be used as
-                        # the "interior" state for computing the boundary
-                        # trace pair
-                        restricted_state=entropy_to_conservative_vars(
-                            op.project(dcoll, dd_base, dd_bc, proj_entropy_vars),
-                            gamma=gamma
+                    dd_bc,
+                    dd_face_quad,
+                    entropy_stable_numerical_flux_chandrashekar(
+                        dcoll,
+                        boundary_condition.boundary_tpair(
+                            dcoll=dcoll,
+                            dd_bc=dd_bc,
+                            # Pass modified conserved state to be used as
+                            # the "interior" state for computing the boundary
+                            # trace pair
+                            restricted_state=entropy_to_conservative_vars(
+                                op.project(
+                                    dcoll, dd_base, dd_bc, proj_entropy_vars),
+                                gamma
+                            ),
+                            t=t
                         ),
-                        t=t
-                    ),
-                    gamma=gamma,
-                    lf_stabilization=self.lf_stabilization
+                        gamma,
+                        dissipation=dissipation
+                    )
                 )
                 interface_fluxes = interface_fluxes + bc_flux
 
         return op.inverse_mass(
             dcoll,
-            -flux_diff - op.face_mass(dcoll, df, interface_fluxes)
+            volume_derivs - op.face_mass(dcoll, dd_face_quad, interface_fluxes)
         )
 
 # }}}
