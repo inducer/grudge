@@ -4,6 +4,7 @@ Model definitions
 -----------------
 
 .. autoclass:: EulerOperator
+.. autoclass:: EntropyStableEulerOperator
 
 Predefined initial conditions
 -----------------------------
@@ -20,6 +21,9 @@ Helper routines and array containers
 
 .. autofunction:: euler_volume_flux
 .. autofunction:: euler_numerical_flux
+
+.. autofunction:: divergence_flux_chandrashekar
+.. autofunction:: entropy_stable_numerical_flux_chandrashekar
 """
 
 __copyright__ = """
@@ -525,6 +529,10 @@ def entropy_stable_numerical_flux_chandrashekar(
 
 
 class EntropyStableEulerOperator(EulerOperator):
+    """Discretizes the Euler equations using an entropy-stable
+    discontinuous Galerkin discretization as outlined in (15)
+    of `this paper <https://arxiv.org/pdf/1902.01828.pdf>`__.
+    """
 
     def operator(self, t, q):
         from grudge.projection import volume_quadrature_project

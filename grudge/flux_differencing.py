@@ -1,3 +1,11 @@
+"""Grudge module for flux-differencing in entropy-stable DG methods
+
+Flux-differencing
+-----------------
+
+.. autofunction:: volume_flux_differencing
+"""
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -215,7 +223,34 @@ def volume_flux_differencing(
         dd_quad: DOFDesc,
         dd_face_quad: DOFDesc,
         flux_matrices: ArrayOrContainerT) -> ArrayOrContainerT:
-    """todo.
+    r"""Computes the volume contribution of the DG divergence operator using
+    flux-differencing:
+
+    .. math::
+
+       \mathrm{VOL} = \sum_{i=1}^{d}
+        \begin{bmatrix}
+            \mathbf{V}_q \\ \mathbf{V}_f
+        \end{bmatrix}^T
+        \left(
+            \left( \mathbf{Q}_{i} - \mathbf{Q}^T_{i} \right)
+            \circ \mathbf{F}_{i}
+        \right)\mathbf{1}
+
+    where :math:`\circ` denotes the
+    `Hadamard product <https://en.wikipedia.org/wiki/Hadamard_product_(matrices)>`__,
+    :math:`\mathbf{F}_{i}` are matrices whose entries are computed
+    as the evaluation of an entropy-conserving two-point flux function
+    (e.g. :func:`grudge.models.euler.divergence_flux_chandrashekar`)
+    and :math:`\mathbf{Q}_{i} - \mathbf{Q}^T_{i}` are the skew-symmetric
+    hybridized differentiation operators defined in (15) of
+    `this paper <https://arxiv.org/pdf/1902.01828.pdf>`__.
+
+    :arg flux_matrices: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them containing
+        evaluations of two-point flux.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.container.ArrayContainer` of them.
     """
     from grudge.op import _div_helper
 
