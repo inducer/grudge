@@ -24,13 +24,15 @@ THE SOFTWARE.
 
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import \
+    PytestPyOpenCLArrayContextFactory, PytestPytatoPyOpenCLArrayContextFactory
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
     thaw, freeze
 )
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+         PytestPytatoPyOpenCLArrayContextFactory])
 
 import grudge.op as op
 
@@ -41,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
-def test_euler_vortex_convergence(actx_factory, order):
-
+@pytest.mark.parametrize("esdg", [False, True])
+def test_euler_vortex_convergence(actx_factory, order, esdg):
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
     from grudge import DiscretizationCollection
@@ -50,7 +52,8 @@ def test_euler_vortex_convergence(actx_factory, order):
     from grudge.dt_utils import h_max_from_volume
     from grudge.models.euler import (
         vortex_initial_condition,
-        EulerOperator
+        EulerOperator,
+        EntropyStableEulerOperator
     )
     from grudge.shortcuts import rk4_step
 
@@ -63,6 +66,16 @@ def test_euler_vortex_convergence(actx_factory, order):
     actx = actx_factory()
     eoc_rec = EOCRecorder()
     quad_tag = DISCR_TAG_QUAD
+    if esdg:
+        operator_cls = EntropyStableEulerOperator
+    else:
+        operator_cls = EulerOperator
+
+    if esdg and not actx.supports_nonscalar_broadcasting:
+        pytest.xfail(
+            "Flux-differencing computations requires an array context "
+            "that supports non-scalar broadcasting"
+        )
 
     for resolution in [8, 16, 32]:
 
@@ -88,7 +101,7 @@ def test_euler_vortex_convergence(actx_factory, order):
 
         # }}}
 
-        euler_operator = EulerOperator(
+        euler_operator = operator_cls(
             dcoll,
             flux_type="lf",
             gamma=1.4,
@@ -138,12 +151,10 @@ def test_euler_vortex_convergence(actx_factory, order):
 
     logger.info("\n%s", eoc_rec.pretty_print(abscissa_label="h",
                                              error_label="L2 Error"))
-    assert (
-        eoc_rec.order_estimate() >= order + 0.5
-    )
+    assert eoc_rec.order_estimate() >= order + 0.5
 
 
-def test_entropy_variable_transformations(actx_factory):
+def test_entropy_variable_roundtrip(actx_factory):
     from grudge.models.euler import (
         entropy_to_conservative_vars,
         conservative_to_entropy_vars,
@@ -180,15 +191,16 @@ def test_entropy_variable_transformations(actx_factory):
     fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
 
     # Map back and forth between entropy and conserved vars
-    fields_ev = conservative_to_entropy_vars(fields, gamma=gamma)
-    ev_fields_to_cons = entropy_to_conservative_vars(fields_ev, gamma=gamma)
+    fields_ev = conservative_to_entropy_vars(fields, gamma)
+    ev_fields_to_cons = entropy_to_conservative_vars(fields_ev, gamma)
+    residual = ev_fields_to_cons - fields
 
-    assert op.norm(
-        dcoll, ev_fields_to_cons.mass - fields.mass, np.inf) < 1e-13
-    assert op.norm(
-        dcoll, ev_fields_to_cons.energy - fields.energy, np.inf) < 1e-13
-    assert op.norm(
-        dcoll, ev_fields_to_cons.momentum - fields.momentum, np.inf) < 1e-13
+    assert actx.to_numpy(op.norm(dcoll, residual.mass, np.inf)) < 1e-13
+    assert actx.to_numpy(op.norm(dcoll, residual.energy, np.inf)) < 1e-13
+    assert (
+        actx.to_numpy(op.norm(dcoll, residual.momentum[i], np.inf)) < 1e-13
+        for i in range(dim)
+    )
 
 
 # You can test individual routines by typing
