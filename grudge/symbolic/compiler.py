@@ -34,7 +34,7 @@ from sys import intern
 from functools import reduce
 from loopy import ScalarCallable
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from meshmode.array_context import IsDOFArray, ParameterValue
+from grudge.grudge_tags import IsDOFArray, ParameterValue
 
 # {{{ instructions
 
