@@ -8,7 +8,7 @@ import numpy as np
 import grudge.loopy_dg_kernels as dgk
 from grudge.grudge_tags import (IsDOFArray, IsSepVecDOFArray, IsFaceDOFArray, 
     IsOpArray, IsSepVecOpArray, ParameterValue, IsFaceMassOpArray, KernelDataTag,
-    IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray)
+    IsVecDOFArray, IsVecOpArray, IsFourAxisDOFArray, EinsumArgsTags)
 
 from arraycontext.impl.pyopencl.fake_numpy import (PyOpenCLFakeNumpyNamespace)
 from arraycontext.container.traversal import (rec_map_array_container,
@@ -395,18 +395,36 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         if arg_names is None:
             arg_names = tuple("arg%d" % i for i in range(len(args)))
 
-        #prg = self._get_einsum_prg(spec, arg_names, tagged)
+        td = None
+        for tag in tagged:
+            if isinstance(tag, EinsumArgsTags):
+                td = tag.tags_dict
+        
+        if td is not None:
+            prg = self._get_einsum_prg(spec, arg_names, tagged)
 
-    	#@memoize_in(self, einsum)
-        #def _wrap_get_einsum_prg(spec, arg_names, tagged): 
-        #    prg = self._get_einsum_prg(spec, arg_names, tagged)
-        #    for tag in tagged:
-        #        if isinstance(tag, KernelDataTag):
-        #            ep = prg.default_entrypoint
-        #            prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
-        #    return prg
+            arg_spec, out_spec = spec.split("->")
+            dim_dict = {}
+            kernel_data = []
 
-        prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
+            # Are there always as many arg_specs as there are args?            
+            for index_chars, arg, name, in zip(arg_spec.split(","), args, arg_names):
+                dim_dict.update(dict(zip(index_chars, arg.shape)))
+                kd = lp.GlobalArg(name, arg.dtype, shape=arg.shape, offset=lp.auto, tags=td.get(name))
+                kernel_data.append(kd)
+            out_shape = tuple([dim_dict[index_char] for index_char in out_spec])
+            # TODO: More robust way to find output dtype
+            kd = lp.GlobalArg("out", args[-1].dtype, shape=out_shape, 
+                    offset=lp.auto, tags=td.get("out"), is_output=True)
+            kernel_data.append(kd)
+            for key, value in dim_dict.items():
+                kernel_data.append(lp.ValueArg(f"N{key}", tags=[ParameterValue(value)]))
+            kernel_data.append(...)
+
+            ep = prg.default_entrypoint
+            prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=kernel_data, name=ep.name)
+        else:
+            prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
 
         #for tag in tagged:
         #    if isinstance(tag, KernelDataTag):
