@@ -115,6 +115,12 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
 
 class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
 
+    def reshape(self, a, newshape, order="F"):
+        print("================CALLING RESHAPE================")
+        return rec_map_array_container(
+                lambda ary: ary.reshape(newshape, order="F"), # Need to override the default for now.
+                a)
+
     def ravel(self, a, order="C"):
         def _rec_ravel(a):
             if order == "C" and len(a.shape) == 2 and a.flags.f_contiguous:
@@ -276,6 +282,7 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
 
     def call_loopy(self, program, **kwargs):
 
+        #print(program)
         result = super().call_loopy(program, **kwargs)
 
         try: # Only if profiling is enabled
@@ -349,18 +356,20 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return cla.zeros(self.queue, shape=shape, dtype=dtype,
                 allocator=self.allocator, order="F")
 
-    """
     def thaw(self, array):
+        print("THAWING", array.shape)
         thawed = super().thaw(array)
-        if type(getattr(array, "tags", None)) == IsDOFArray and \
-                array.c_contiguous:
-            print("THAWING")
-            # Should this be run through the array context
-            result = self.call_loopy(ctof_knl, **{input: thawed})
-            #_, (out,) = ctof_knl(thawed.queue, input=thawed)
-            thawed = result["out"]
+        if len(thawed.shape) == 2 and array.flags.c_contiguous:
+            result = self.call_loopy(ctof_knl, **{"input": thawed})
+            print("CALLED CTOF")
+            thawed = result["output"]
+
+            #result = ctof_knl(thawed.queue, input=thawed)
+            #evt, (out,) = ctof_knl(thawed.queue, input=thawed)
+            #print("CALLED CTOF")
+            #thawed = out
+
         return thawed
-    """
 
     #@memoize_method # Somehow causes a shape mismatch
     def _wrap_get_einsum_prg(self, spec, arg_names, tagged): 
