@@ -115,8 +115,9 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
 
 class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
 
+    # ¿Debería este ser más inteligente?
     def reshape(self, a, newshape, order="F"):
-        print("================CALLING RESHAPE================")
+        #print("================CALLING RESHAPE================")
         return rec_map_array_container(
                 lambda ary: ary.reshape(newshape, order="F"), # Need to override the default for now.
                 a)
@@ -284,6 +285,20 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
 
         #print(program)
         result = super().call_loopy(program, **kwargs)
+        for val in result.values():
+            if isinstance(val, cla.Array):
+                # Could have some variable that tracks the
+                # sum of each call and the name of the kernel called
+                # so point of deviation may be found
+                try:
+                    sm = self.to_numpy(cla.sum(val))
+                    print("Array sum:", sm, program.default_entrypoint.name)
+                    if not np.isfinite(sm):
+                        print("Returned val is not finite", program.default_entrypoint.name)
+                        print(program)
+                        exit()
+                except:
+                    pass
 
         try: # Only if profiling is enabled
             evt = None
@@ -357,11 +372,11 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
                 allocator=self.allocator, order="F")
 
     def thaw(self, array):
-        print("THAWING", array.shape)
+        #print("THAWING", array.shape)
         thawed = super().thaw(array)
         if len(thawed.shape) == 2 and array.flags.c_contiguous:
             result = self.call_loopy(ctof_knl, **{"input": thawed})
-            print("CALLED CTOF")
+            #print("CALLED CTOF")
             thawed = result["output"]
 
             #result = ctof_knl(thawed.queue, input=thawed)
@@ -407,7 +422,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         td = None
         for tag in tagged:
             if isinstance(tag, EinsumArgsTags):
-                td = tag.tags_dict
+                td = tag.tags_map
         
         if td is not None:
             prg = self._get_einsum_prg(spec, arg_names, tagged)
