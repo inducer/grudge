@@ -1,7 +1,6 @@
 numpy
 mpi4py
 git+https://github.com/inducer/pytools.git#egg=pytools
-git+https://github.com/inducer/pytato.git@distributed-v3#egg=pytato
 git+https://github.com/inducer/pymbolic.git#egg=pymbolic
 git+https://github.com/inducer/islpy.git#egg=islpy
 git+https://github.com/inducer/pyopencl.git#egg=pyopencl
@@ -15,3 +14,4 @@ git+https://github.com/kaushikcfd/meshmode.git@pytato-array-context-transforms#e
 git+https://github.com/inducer/pyvisfile.git#egg=pyvisfile
 git+https://github.com/inducer/pymetis.git#egg=pymetis
 git+https://github.com/illinois-ceesd/logpyle.git#egg=logpyle
+git+https://github.com/inducer/pytato.git#egg=pytato
