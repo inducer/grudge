@@ -28,7 +28,7 @@ except ImportError:
     import importlib_resources as pkg_resources
 
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
-#ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
+ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
 def get_transformation_id(device_id):
     hjson_file = pkg_resources.open_text(dgk, "device_mappings.hjson") 
@@ -72,10 +72,11 @@ def set_memory_layout(program):
 
 # {{{ _get_scalar_func_loopy_program
 
-def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
+def _get_scalar_func_loopy_program(actx, c_name, nargs, axis_lengths):
     @memoize_in(actx, _get_scalar_func_loopy_program)
     def get(c_name, nargs, naxes):
         from pymbolic import var
+        naxes = len(axis_lengths)
 
         var_names = ["i%d" % i for i in range(naxes)]
         size_names = ["n%d" % i for i in range(naxes)]
@@ -88,10 +89,19 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
 
         domain_bset, = domain.get_basic_sets()
 
-        #import loopy as lp
-        #from .loopy import make_loopy_program
         from arraycontext.loopy import make_loopy_program
         from arraycontext.transform_metadata import ElementwiseMapKernelTag
+
+        tags = [IsDOFArray()] if naxes > 1 else []
+        kernel_data = [
+                lp.GlobalArg("inp%d" % i, None, shape=tuple(size_names), tags=tags)
+                for i in range(nargs)]
+        kernel_data.append(
+            lp.GlobalArg("out", None, shape=tuple(size_names), tags=tags))
+        #for name, val in zip(size_names, axis_lengths):
+        #    kernel_data.append(lp.ValueArg(name, tags=[ParameterValue(val)]))
+        kernel_data.append(...)
+
         prg = make_loopy_program(
                 [domain_bset],
                 [
@@ -100,15 +110,13 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
                         var(c_name)(*[
                             var("inp%d" % i)[subscript] for i in range(nargs)]))
                     ],
+                kernel_data=kernel_data,
                 name="actx_special_%s" % c_name,
                 tags=(ElementwiseMapKernelTag(),))
-        for arg in prg.default_entrypoint.args:
-            if isinstance(arg, lp.ArrayArg) and len(arg.shape) > 1:
-                arg.tags = [IsDOFArray()]
 
         return prg
 
-    return get(c_name, nargs, naxes)
+    return get(c_name, nargs, axis_lengths)
 
 # }}}
 
@@ -116,14 +124,22 @@ def _get_scalar_func_loopy_program(actx, c_name, nargs, naxes):
 class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
 
     # ¿Debería este ser más inteligente?
-    def reshape(self, a, newshape, order="F"):
+    # This function has no idea if `a` is in flattened C or F order. Should it be assumed to be in "C" layout?
+    def reshape(self, a, newshape, order="C"): # Order here is the input layout or output layout?
         #print("================CALLING RESHAPE================")
-        return rec_map_array_container(
-                lambda ary: ary.reshape(newshape, order="F"), # Need to override the default for now.
-                a)
+        #print(type(a))
+        #assert np.allclose(a.reshape(newshape, order="F").get(), a.reshape(newshape, order="C").get())
 
-    def ravel(self, a, order="C"):
+        return rec_map_array_container(
+                lambda ary: ctof_knl(self._array_context.queue, input=ary.reshape(newshape, order="C"))[1][0], a) 
+        # Need to override the default for now.
+    
+    # Could be problematic. Unflatten has no idea if the data has been changed from "F" layout to
+    # (flattened) "C" layout so when order="F" is specified data is moved around.
+    # Maybe some tags should be attached to the flattened arrays?
+    def ravel(self, a, order="C"): # Order here is the output layout
         def _rec_ravel(a):
+            # Couldn't this be accomplished with an ftoc kernel followed by an a.reshape?
             if order == "C" and len(a.shape) == 2 and a.flags.f_contiguous:
                 @memoize_in(self._array_context, (_rec_ravel, "flatten_grp_ary_prg"))
                 def prg():
@@ -142,7 +158,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
                             lp.GlobalArg("grp_ary", None,
                                          shape=("nelements", "ndofs_per_element"), tags=[IsDOFArray()]),
                             lp.ValueArg("nelements", np.int32),
-                            lp.ValueArg("ndofs_per_element", np.int32),
+                           lp.ValueArg("ndofs_per_element", np.int32),
                             "..."
                         ],
                         name="flatten_grp_ary"
@@ -247,10 +263,26 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
                          )(*args)
             actx = self._array_context
             prg = _get_scalar_func_loopy_program(actx,
-                    c_name, nargs=len(args), naxes=len(args[0].shape))
+                    c_name, nargs=len(args), axis_lengths=args[0].shape)
+            #for arg in args:
+            #    print("Input dtype:", arg.dtype)
+            #    print("Input shape:", arg.shape)
+            #    print("Input Sum:", cla.sum(arg))
+            #    print("Input Max:", cla.max(arg))
+            #    print("Input Min:", cla.min(arg))
+            #    print("Input numpy:", np.sum(np.abs(arg.get())))
+            #cargs = []
+            #for arg in args:
+            #    print(
+            #evt, (out,) = ftoc_knl(self._array_context.queue, input=arg)
+            #    cargs.append(out)
             outputs = actx.call_loopy(prg,
+                    #**{"inp%d" % i: cargs[i] for i, arg in enumerate(args)})
                     **{"inp%d" % i: arg for i, arg in enumerate(args)})
-            exit()
+            #print("PyOpenCL Output sum:", cla.sum(outputs["out"]))
+            #print("Output numpy:", np.sum(np.abs(outputs["out"].get())))
+            #1/0
+            #exit()
             return outputs["out"]
 
         if name in self._c_to_numpy_arc_functions:
@@ -409,9 +441,14 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
     def thaw(self, array):
         #print("THAWING", array.shape)
         thawed = super().thaw(array)
+        #print("Shape:", thawed.shape)
+        #print("C_contiguous:", array.flags.c_contiguous)
+        #print("F_contiguous:", array.flags.f_contiguous)
         if len(thawed.shape) == 2 and array.flags.c_contiguous:
             result = self.call_loopy(ctof_knl, **{"input": thawed})
-            #print("CALLED CTOF")
+            print("CALLED CTOF")
+            #assert cla.sum(thawed - result["output"]) == 0
+            #exit()
             thawed = result["output"]
 
             #result = ctof_knl(thawed.queue, input=thawed)
