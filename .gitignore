@@ -35,3 +35,7 @@ run-debug-*
 .pytest_cache
 
 *.json
+
+# pylint stuff
+.pylintrc.yml
+.run-pylint.py
