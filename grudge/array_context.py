@@ -30,9 +30,15 @@ from dataclasses import dataclass
 
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
-        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
-        SingleGridWorkBalancingPytatoArrayContext
-        )
+        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
+
+try:
+    from meshmode.array_context import (
+        SingleGridWorkBalancingPytatoArrayContext as _MPIBaseArrayContext)
+except ImportError:
+    from meshmode.array_context import (
+        PytatoPyOpenCLArrayContext as _MPIBaseArrayContext)
+
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
         _PytestPytatoPyOpenCLArrayContextFactory,
@@ -174,10 +180,15 @@ class _DistributedCompiledFunction:
                                              self.output_template)
 
 
-class MPIPytatoPyOpenCLArrayContext(SingleGridWorkBalancingPytatoArrayContext):
+class MPIPytatoPyOpenCLArrayContext(_MPIBaseArrayContext):
     def __init__(self, mpi_communicator, queue, *,
             mpi_base_tag, allocator=None):
         super().__init__(queue, allocator)
+
+        if isinstance(self, _PytatoPyOpenCLArrayContextBase):
+            from warnings import warn
+            warn("Using the sequential-lazy PytatoPyOpenCLArrayContext as base "
+                 "class. This will result in slow execution.")
 
         self.mpi_communicator = mpi_communicator
         self.mpi_base_tag = mpi_base_tag
