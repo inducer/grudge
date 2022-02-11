@@ -33,11 +33,11 @@ from meshmode.array_context import (
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
 
 try:
-    from meshmode.array_context import (
-        SingleGridWorkBalancingPytatoArrayContext as _MPIBaseArrayContext)
+    # FIXME: temporary workaround while SingleGridWorkBalancingPytatoArrayContext
+    # is not available in meshmode's main branch
+    from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
 except ImportError:
-    from meshmode.array_context import (
-        PytatoPyOpenCLArrayContext as _MPIBaseArrayContext)
+    pass
 
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
@@ -70,7 +70,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 # }}}
 
 
-# {{{ mpi + pytato
+# {{{ distributed-lazy functionality
 
 class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
     def _dag_to_compiled_func(self, dict_of_named_arrays,
@@ -148,7 +148,7 @@ class _DistributedCompiledFunction:
        type of the callable.
     """
 
-    actx: "MPIPytatoPyOpenCLArrayContext"
+    actx: "MPISingleGridWorkBalancingPytatoArrayContext"
     distributed_partition: "DistributedGraphPartition"
     part_id_to_prg: "Mapping[PartId, pt.target.BoundProgram]"
     input_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
@@ -180,28 +180,27 @@ class _DistributedCompiledFunction:
                                              self.output_template)
 
 
-class MPIPytatoPyOpenCLArrayContext(_MPIBaseArrayContext):
-    def __init__(self, mpi_communicator, queue, *,
-            mpi_base_tag, allocator=None):
-        super().__init__(queue, allocator)
+try:
+    class MPISingleGridWorkBalancingPytatoArrayContext(
+            SingleGridWorkBalancingPytatoArrayContext):
+        def __init__(self, mpi_communicator, queue, *,
+                mpi_base_tag, allocator=None) -> None:
+            super().__init__(queue, allocator)
 
-        if isinstance(self, _PytatoPyOpenCLArrayContextBase):
-            from warnings import warn
-            warn("Using the sequential-lazy PytatoPyOpenCLArrayContext as base "
-                 "class. This will result in slow execution.")
+            self.mpi_communicator = mpi_communicator
+            self.mpi_base_tag = mpi_base_tag
 
-        self.mpi_communicator = mpi_communicator
-        self.mpi_base_tag = mpi_base_tag
+        # FIXME: implement distributed-aware freeze
 
-    # FIXME: implement distributed-aware freeze
+        def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
+            return _DistributedLazilyCompilingFunctionCaller(self, f)
 
-    def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
-        return _DistributedLazilyCompilingFunctionCaller(self, f)
-
-    def clone(self):
-        return type(self)(self.mpi_communicator, self.queue,
-                mpi_base_tag=self.mpi_base_tag,
-                allocator=self.allocator)
+        def clone(self):
+            return type(self)(self.mpi_communicator, self.queue,
+                    mpi_base_tag=self.mpi_base_tag,
+                    allocator=self.allocator)
+except NameError:
+    pass
 
 # }}}
 

@@ -446,8 +446,8 @@ def cross_rank_trace_pairs(
 
     actx = get_container_context_recursively(ary)
 
-    from grudge.array_context import MPIPytatoPyOpenCLArrayContext
-    if isinstance(actx, MPIPytatoPyOpenCLArrayContext):
+    from grudge.array_context import MPISingleGridWorkBalancingPytatoArrayContext
+    if isinstance(actx, MPISingleGridWorkBalancingPytatoArrayContext):
         rbc = _RankBoundaryCommunicationLazy
     else:
         rbc = _RankBoundaryCommunication

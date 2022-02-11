@@ -35,7 +35,7 @@ from arraycontext import (
     dataclass_array_container
 )
 from grudge.array_context import (
-    MPIPytatoPyOpenCLArrayContext, PyOpenCLArrayContext)
+    MPISingleGridWorkBalancingPytatoArrayContext, PyOpenCLArrayContext)
 
 from dataclasses import dataclass
 
@@ -187,7 +187,7 @@ def main(ctx_factory, dim=2, order=3,
     num_parts = comm.Get_size()
 
     if lazy:
-        actx = MPIPytatoPyOpenCLArrayContext(comm, queue,
+        actx = MPISingleGridWorkBalancingPytatoArrayContext(comm, queue,
                 mpi_base_tag=12345)
     else:
         actx = PyOpenCLArrayContext(
