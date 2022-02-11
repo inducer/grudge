@@ -446,15 +446,23 @@ def cross_rank_trace_pairs(
 
     actx = get_container_context_recursively(ary)
 
-    from grudge.array_context import MPISingleGridWorkBalancingPytatoArrayContext
-    if isinstance(actx, MPISingleGridWorkBalancingPytatoArrayContext):
-        rbc = _RankBoundaryCommunicationLazy
-    else:
+    try:
+        from grudge.array_context import MPISingleGridWorkBalancingPytatoArrayContext
+    except ImportError:
         rbc = _RankBoundaryCommunication
         if tag is not None and tag is not isinstance(tag, Number):
             tag = None
             from warnings import warn
             warn("Eager communication only supports numeric tags.")
+    else:
+        if isinstance(actx, MPISingleGridWorkBalancingPytatoArrayContext):
+            rbc = _RankBoundaryCommunicationLazy
+        else:
+            rbc = _RankBoundaryCommunication
+            if tag is not None and tag is not isinstance(tag, Number):
+                tag = None
+                from warnings import warn
+                warn("Eager communication only supports numeric tags.")
 
     # Initialize and post all sends/receives
     rank_bdry_communcators = [
