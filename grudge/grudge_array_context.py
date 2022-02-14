@@ -28,7 +28,7 @@ except ImportError:
     import importlib_resources as pkg_resources
 
 ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
-ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
+#ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
 def get_transformation_id(device_id):
     hjson_file = pkg_resources.open_text(dgk, "device_mappings.hjson") 
@@ -352,20 +352,20 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
 
         #print(program)
         result = super().call_loopy(program, **kwargs)
-        for val in result.values():
-            if isinstance(val, cla.Array):
-                # Could have some variable that tracks the
-                # sum of each call and the name of the kernel called
-                # so point of deviation may be found
-                try:
-                    sm = self.to_numpy(cla.sum(val))
-                    print("Array sum:", sm, program.default_entrypoint.name)
-                    if not np.isfinite(sm):
-                        print("Returned val is not finite", program.default_entrypoint.name)
-                        print(program)
-                        exit()
-                except:
-                    pass
+        #for val in result.values():
+        #    if isinstance(val, cla.Array):
+        #        # Could have some variable that tracks the
+        #        # sum of each call and the name of the kernel called
+        #        # so point of deviation may be found
+        #        try:
+        #            sm = self.to_numpy(cla.sum(val))
+        #            print("Array sum:", sm, program.default_entrypoint.name)
+        #            if not np.isfinite(sm):
+        #                print("Returned val is not finite", program.default_entrypoint.name)
+        #                print(program)
+        #                exit()
+        #        except:
+        #            pass
 
         try: # Only if profiling is enabled
             evt = None
@@ -537,6 +537,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         tags = getattr(np_array, "tags", None)
         if tags is not None and IsDOFArray() in tags:
             # Should this call go through the array context?
+            print("CHANGING LAYOUT OF INPUT NUMPY ARRAY In from_numpy")
             evt, (out,) = ctof_knl(self.queue, input=cl_a)
             cl_a = out
         return cl_a
@@ -629,6 +630,20 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                                         inner_tag="l.0")
             program = lp.split_iname(program, "idof", 20, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
+        # ctof kernel
+        elif "loopy_kernel" in program.default_entrypoint.name: 
+
+            #program = set_memory_layout(program)
+            # This is hardcoded. Need to move this to separate transformation file
+            #program = lp.set_options(program, "write_cl")
+            print("TRANSFORMING CTOF KERNEL")
+            program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
+                                        slabs=(0, 1))
+            program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
+                                        inner_tag="l.0")
+            program = lp.split_iname(program, "i1", 32, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=(0, 0))
+
 
         #else:
             #print(program)
@@ -864,6 +879,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 # then try to read from the package files - this is not currently implemented
                 # Maybe should have ability to search in arbitrary specified directories.
 
+                print("Opening file:", hjson_file_str)
                 hjson_file = open(hjson_file_str, "rt")
 
                 try: # New hjson structure
