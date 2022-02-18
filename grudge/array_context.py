@@ -108,7 +108,7 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
                         {var_name: distributed_partition.var_name_to_result[var_name]
                             for var_name in part.output_names
                          })
-            part_id_to_prg[part.pid] = self._dag_to_transformed_loopy_prg(d)
+            part_id_to_prg[part.pid], _, _ = self._dag_to_transformed_loopy_prg(d)
 
         return _DistributedCompiledFunction(
                 actx=self.actx,
