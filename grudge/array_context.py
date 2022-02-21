@@ -181,9 +181,13 @@ class _DistributedCompiledFunction:
                                              self.output_template)
 
 
+class DistributedLazyArrayContext:
+    pass
+
+
 try:
     class MPISingleGridWorkBalancingPytatoArrayContext(
-            SingleGridWorkBalancingPytatoArrayContext):
+            SingleGridWorkBalancingPytatoArrayContext, DistributedLazyArrayContext):
         def __init__(self, mpi_communicator, queue, *,
                 mpi_base_tag, allocator=None) -> None:
             super().__init__(queue, allocator)
@@ -201,7 +205,14 @@ try:
                     mpi_base_tag=self.mpi_base_tag,
                     allocator=self.allocator)
 except NameError:
-    pass
+    class MPISingleGridWorkBalancingPytatoArrayContext(PyOpenCLArrayContext):
+        def __init__(self, queue,
+                     allocator=None, wait_event_queue_length=None,
+                     force_device_scalars: bool = False) -> None:
+            super().__init__(
+                queue, allocator, wait_event_queue_length, force_device_scalars)
+            from warnings import warn
+            warn("Using an eager MPISingleGridWorkBalancingPytatoArrayContext.")
 
 # }}}
 
