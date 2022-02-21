@@ -416,7 +416,7 @@ class _RankBoundaryCommunicationLazy:
 
 
 def cross_rank_trace_pairs(
-        dcoll: DiscretizationCollection, ary, tag=None) -> list:
+        dcoll: DiscretizationCollection, ary, tag: Any = None) -> list:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
@@ -437,6 +437,9 @@ def cross_rank_trace_pairs(
 
     :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+
+    :arg tag: an arbitrary object used determine tags for MPI send/receive
+        operations. Required for lazy communication.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     if isinstance(ary, Number):
