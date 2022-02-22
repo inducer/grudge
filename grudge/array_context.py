@@ -92,6 +92,9 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
 
         from pytato.distributed import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
+
+        # type-ignore-reason: 'PytatoPyOpenCLArrayContext' has no 'mpi_communicator'
+        # pylint: disable=no-member
         distributed_partition, _new_mpi_base_tag = number_distributed_tags(
                 self.actx.mpi_communicator,
                 distributed_partition,
@@ -199,6 +202,8 @@ class DistributedLazyArrayContext:
         return _DistributedLazilyCompilingFunctionCaller(self, f)
 
     def clone(self):
+        # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
+        # pylint: disable=no-member
         return type(self)(self.mpi_communicator, self.queue,
                 mpi_base_tag=self.mpi_base_tag,
                 allocator=self.allocator)
