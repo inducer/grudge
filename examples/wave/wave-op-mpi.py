@@ -36,8 +36,7 @@ from arraycontext import (
 )
 from grudge.array_context import PyOpenCLArrayContext
 
-from grudge.array_context import (MPISingleGridWorkBalancingPytatoArrayContext,
-                                  DistributedLazyArrayContext)
+from grudge.array_context import MPIPytatoArrayContext
 
 from dataclasses import dataclass
 
@@ -189,16 +188,7 @@ def main(ctx_factory, dim=2, order=3,
     num_parts = comm.Get_size()
 
     if lazy:
-        if issubclass(MPISingleGridWorkBalancingPytatoArrayContext,
-                        DistributedLazyArrayContext):
-            actx = MPISingleGridWorkBalancingPytatoArrayContext(
-                    comm, queue, mpi_base_tag=15000)
-        else:
-            actx = MPISingleGridWorkBalancingPytatoArrayContext(
-                queue,
-                allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-                force_device_scalars=True,
-                )
+        actx = MPIPytatoArrayContext(comm, queue, mpi_base_tag=15000)
     else:
         actx = PyOpenCLArrayContext(
             queue,

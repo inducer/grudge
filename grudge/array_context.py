@@ -25,6 +25,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+# {{{ imports
+
 from typing import TYPE_CHECKING, Mapping, Tuple, Any, Callable
 from dataclasses import dataclass
 
@@ -36,8 +38,9 @@ try:
     # FIXME: temporary workaround while SingleGridWorkBalancingPytatoArrayContext
     # is not available in meshmode's main branch
     from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
+    _HAVE_SINGLE_GRID_WORK_BALANCING = True
 except ImportError:
-    pass
+    _HAVE_SINGLE_GRID_WORK_BALANCING = False
 
 from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
@@ -58,6 +61,8 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     any, for now.)
     """
 
+# }}}
+
 
 # {{{ pytato
 
@@ -70,15 +75,14 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 # }}}
 
 
-# {{{ distributed-lazy functionality
+# {{{ base distributed array context functionality
 
 class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
     def _dag_to_compiled_func(self, dict_of_named_arrays,
             input_id_to_name_in_program, output_id_to_name_in_program,
             output_template):
 
-        from meshmode.array_context import \
-            deduplicate_data_wrappers  # pylint: disable=no-name-in-module
+        from pytato.transform import deduplicate_data_wrappers
         dict_of_named_arrays = deduplicate_data_wrappers(dict_of_named_arrays)
 
         from pytato import find_distributed_partition
@@ -88,6 +92,9 @@ class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
 
         from pytato.distributed import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
+
+        # type-ignore-reason: 'PytatoPyOpenCLArrayContext' has no 'mpi_communicator'
+        # pylint: disable=no-member
         distributed_partition, _new_mpi_base_tag = number_distributed_tags(
                 self.actx.mpi_communicator,
                 distributed_partition,
@@ -182,37 +189,43 @@ class _DistributedCompiledFunction:
 
 
 class DistributedLazyArrayContext:
+    def __init__(self, mpi_communicator, queue, *,
+            mpi_base_tag, allocator=None) -> None:
+        super().__init__(queue, allocator)
+
+        self.mpi_communicator = mpi_communicator
+        self.mpi_base_tag = mpi_base_tag
+
+    # FIXME: implement distributed-aware freeze
+
+    def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
+        return _DistributedLazilyCompilingFunctionCaller(self, f)
+
+    def clone(self):
+        # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
+        # pylint: disable=no-member
+        return type(self)(self.mpi_communicator, self.queue,
+                mpi_base_tag=self.mpi_base_tag,
+                allocator=self.allocator)
+
+# }}}
+
+
+# {{{ distributed + pytato array context subclasses
+
+class MPIBasePytatoPyOpenCLArrayContext(
+        DistributedLazyArrayContext, PytatoPyOpenCLArrayContext):
     pass
 
 
-try:
+if _HAVE_SINGLE_GRID_WORK_BALANCING:
     class MPISingleGridWorkBalancingPytatoArrayContext(
-            SingleGridWorkBalancingPytatoArrayContext, DistributedLazyArrayContext):
-        def __init__(self, mpi_communicator, queue, *,
-                mpi_base_tag, allocator=None) -> None:
-            super().__init__(queue, allocator)
+            DistributedLazyArrayContext, SingleGridWorkBalancingPytatoArrayContext):
+        pass
 
-            self.mpi_communicator = mpi_communicator
-            self.mpi_base_tag = mpi_base_tag
-
-        # FIXME: implement distributed-aware freeze
-
-        def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
-            return _DistributedLazilyCompilingFunctionCaller(self, f)
-
-        def clone(self):
-            return type(self)(self.mpi_communicator, self.queue,
-                    mpi_base_tag=self.mpi_base_tag,
-                    allocator=self.allocator)
-except NameError:
-    class MPISingleGridWorkBalancingPytatoArrayContext(PyOpenCLArrayContext):
-        def __init__(self, queue,
-                     allocator=None, wait_event_queue_length=None,
-                     force_device_scalars: bool = False) -> None:
-            super().__init__(
-                queue, allocator, wait_event_queue_length, force_device_scalars)
-            from warnings import warn
-            warn("Using an eager MPISingleGridWorkBalancingPytatoArrayContext.")
+    MPIPytatoArrayContext = MPISingleGridWorkBalancingPytatoArrayContext
+else:
+    MPIPytatoArrayContext = MPIBasePytatoPyOpenCLArrayContext
 
 # }}}
 
