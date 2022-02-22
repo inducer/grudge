@@ -390,7 +390,7 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
                             n_to_nodes*n_from_nodes +
                             kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
             elif "resample_by_picking" in program.default_entrypoint.name:
-                # Double check this
+                # Double check this - this may underestimate the number of bytes transferred
                 if "rhs" not in program.default_entrypoint.name:
                     nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                             + kwargs["to_element_indices"].shape[0])*8
@@ -579,20 +579,21 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     # Assumes this has has a single ParameterValue tag
                     n_to_nodes = arg.tags[0].value
 
-            l0 = ((1024 // n_to_nodes) // 32) * 32
-            if l0 == 0:
-                l0 = 16
-            if n_to_nodes*16 > 1024:
-                l0 = 8
+            l1 = min(n_to_nodes, 32)
+            l0 = 32#((1024 // n_to_nodes) // 32) * 32 # Closest multiple of 32 to 1024 // n_to_nodes
+            #if l0 == 0:
+            #    l0 = 16
+            #if n_to_nodes*16 > 1024:
+            #    l0 = 8
 
-            outer = max(l0, 32)
+            outer = 128#max(l0, 32)
 
             #program = set_memory_layout(program)
             program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
                                         slabs=(0, 1))
             program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
                                         inner_tag="l.0")
-            program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
+            program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
