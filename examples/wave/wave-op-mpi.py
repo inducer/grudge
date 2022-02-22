@@ -34,9 +34,6 @@ from arraycontext import (
     with_container_arithmetic,
     dataclass_array_container
 )
-from grudge.array_context import PyOpenCLArrayContext
-
-from grudge.array_context import MPIPytatoArrayContext
 
 from dataclasses import dataclass
 
@@ -187,10 +184,13 @@ def main(ctx_factory, dim=2, order=3,
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
 
+    from grudge.array_context import get_reasonable_array_context_class
     if lazy:
-        actx = MPIPytatoArrayContext(comm, queue, mpi_base_tag=15000)
+        actx_class = get_reasonable_array_context_class(lazy=True, distributed=True)
+        actx = actx_class(comm, queue, mpi_base_tag=15000)
     else:
-        actx = PyOpenCLArrayContext(
+        actx_class = get_reasonable_array_context_class(lazy=False)
+        actx = actx_class(
             queue,
             allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
             force_device_scalars=True,

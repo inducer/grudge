@@ -257,4 +257,28 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 # }}}
 
 
+# {{{ actx selection
+
+def get_reasonable_array_context_class(
+        lazy: bool = True, distributed: bool = True) -> PyOpenCLArrayContext:
+    # eager actx is distributed as well
+    if not lazy:
+        return PyOpenCLArrayContext
+
+    # lazy, non-distributed
+    if not distributed:
+        if _HAVE_SINGLE_GRID_WORK_BALANCING:
+            return SingleGridWorkBalancingPytatoArrayContext
+        else:
+            return PytatoPyOpenCLArrayContext
+
+    # distributed+lazy:
+    if _HAVE_SINGLE_GRID_WORK_BALANCING:
+        return MPISingleGridWorkBalancingPytatoArrayContext
+    else:
+        return MPIBasePytatoPyOpenCLArrayContext
+
+# }}}
+
+
 # vim: foldmethod=marker
