@@ -38,7 +38,6 @@ from meshmode.transform_metadata import IsDOFArray, ParameterValue
 
 # {{{ instructions
 
-
 class Instruction(Record):
     priority = 0
     neglect_for_dofdesc_inference = False
@@ -1039,6 +1038,7 @@ class ToLoopyInstructionMapper:
                     no_numpy=True,
                     )
                 )
+        # Check if this is still needed
         for arg in knl.default_entrypoint.args:
             if isinstance(arg, lp.ArrayArg):
                 arg.tags = IsDOFArray()
@@ -1327,7 +1327,6 @@ class OperatorCompiler(mappers.IdentityMapper):
                     for diff in self.diff_ops
                     if diff.op.equal_except_for_axis(expr.op)
                     and diff.field == expr.field]
-             
 
             names = [self.name_gen("expr") for d in all_diffs]
 
