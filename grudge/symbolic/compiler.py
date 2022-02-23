@@ -34,9 +34,10 @@ from sys import intern
 from functools import reduce
 from loopy import ScalarCallable
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from meshmode.transform_metadata import IsDOFArray, ParameterValue
+from meshmode.transform_metadata import IsDOFArray
 
 # {{{ instructions
+
 
 class Instruction(Record):
     priority = 0
