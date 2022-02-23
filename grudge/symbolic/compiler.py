@@ -1040,6 +1040,7 @@ class ToLoopyInstructionMapper:
                     )
                 )
         # Check if this is still needed
+        # Change this so kernels aren't modifed directly
         for arg in knl.default_entrypoint.args:
             if isinstance(arg, lp.ArrayArg):
                 arg.tags = IsDOFArray()
