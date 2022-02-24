@@ -323,9 +323,11 @@ def _apply_elementwise_reduction(
                 """
                     result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
-                kernel_data = [
-                    lp.GlobalArg("result", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),
-                    lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs), tags=[IsDOFArray()]),       
+                kernel_data=[
+                    lp.GlobalArg("result", fp_format, shape=(nelements, ndofs),
+                        tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs),
+                        tags=[IsDOFArray()]),
                     lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
                     lp.ValueArg("nelements", tags=[ParameterValue(nelements)])
                 ],
@@ -341,8 +343,9 @@ def _apply_elementwise_reduction(
         for vec_i in vec:
             iel, jdof = vec_i.shape
             fp_format = vec_i.dtype
-            data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format), operand=vec_i)["result"])
-            
+            data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format),
+                            operand=vec_i)["result"])
+
         return DOFArray(actx, data=tuple(data))
 
 
