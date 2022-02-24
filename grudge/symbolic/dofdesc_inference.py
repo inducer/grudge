@@ -193,6 +193,9 @@ class DOFDescInferenceMapper(RecursiveMapper, CSECachingMapperMixin):
                 self.function_registry[expr.function.name]
                 .get_result_dofdesc(arg_dds))
 
+    def map_common_subexpression_uncached(self, expr):
+        return self.rec(expr.child)
+
     # }}}
 
     # {{{ instruction mappings
