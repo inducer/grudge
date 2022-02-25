@@ -1,6 +1,7 @@
 """
 .. autoclass:: PyOpenCLArrayContext
 .. autoclass:: PytatoPyOpenCLArrayContext
+.. autofunction:: get_reasonable_array_context_class
 """
 
 __copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
