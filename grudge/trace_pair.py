@@ -281,6 +281,8 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *, tag=None) -> l
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+    :arg tag: an arbitrary object used determine tags for MPI send/receive
+        operations. Required for lazy communication.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
     return (
