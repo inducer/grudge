@@ -31,7 +31,7 @@ import pyopencl as cl
 import logging
 import sys
 
-from grudge.array_context import PyOpenCLArrayContext, MPIBasePytatoPyOpenCLArrayContext
+from grudge.array_context import PyOpenCLArrayContext, MPIPytatoArrayContext
 from arraycontext import thaw
 
 logger = logging.getLogger(__name__)
@@ -46,21 +46,6 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
-
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-# from arraycontext import pytest_generate_tests_for_array_contexts
-# pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-#         [PytestPyOpenCLArrayContextFactory])
-
-# from meshmode.array_context import (  # noqa
-#     pytest_generate_tests_for_pyopencl_array_context
-#     as pytest_generate_tests)
-
-from arraycontext import (
-    pytest_generate_tests_for_array_contexts)
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
 
 
 # {{{ mpi test infrastructure
@@ -86,22 +71,30 @@ def run_test_with_mpi(num_ranks, f, *args):
 def run_test_with_mpi_inner():
     from pickle import loads
     from base64 import b64decode
-    f, args = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
+    f, (actx_class, *args) = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
 
-    f(pytest_generate_tests, *args)
+    cl_context = cl.create_some_context()
+    queue = cl.CommandQueue(cl_context)
+
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+
+    if actx_class is MPIPytatoArrayContext:
+        actx = actx_class(comm, queue, mpi_base_tag=15000)
+    elif actx_class is PyOpenCLArrayContext:
+        actx = actx_class(queue, force_device_scalars=True)
+    else:
+        raise ValueError("unknown actx_class")
+
+    f(comm, actx, *args)
 
 # }}}
 
 
-
-def simple_mpi_communication_entrypoint(actx_factory):
-    actx = actx_factory()
-
+def simple_mpi_communication_entrypoint(comm, actx):
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
 
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
 
     mesh_dist = MPIMeshDistributor(comm)
@@ -154,11 +147,7 @@ def simple_mpi_communication_entrypoint(actx_factory):
     assert error < 1e-14
 
 
-def mpi_communication_entrypoint(actx_factory):
-    actx = actx_factory()
-
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
+def mpi_communication_entrypoint(comm, actx):
     i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
 
@@ -259,7 +248,7 @@ def mpi_communication_entrypoint(actx_factory):
             step += 1
             logger.info("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
                         step, event.t,
-                        norm(u=event.state_component[0]),
+                        actx.to_numpy(norm(u=event.state_component[0])),
                         time() - t_last_step)
 
             t_last_step = time()
@@ -273,14 +262,16 @@ def mpi_communication_entrypoint(actx_factory):
 
 # {{{ MPI test pytest entrypoint
 
+@pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
 @pytest.mark.parametrize("num_ranks", [2])
-def test_mpi(num_ranks):
-    run_test_with_mpi(2, mpi_communication_entrypoint)
+def test_mpi(actx_class, num_ranks):
+    run_test_with_mpi(2, mpi_communication_entrypoint, actx_class)
 
 
+@pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
 @pytest.mark.parametrize("num_ranks", [2])
-def test_simple_mpi(num_ranks):
-    run_test_with_mpi(2, simple_mpi_communication_entrypoint)
+def test_simple_mpi(actx_class, num_ranks):
+    run_test_with_mpi(2, simple_mpi_communication_entrypoint, actx_class)
 
 # }}}
 
