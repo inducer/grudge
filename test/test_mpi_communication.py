@@ -32,7 +32,7 @@ import logging
 import sys
 
 from grudge.array_context import PyOpenCLArrayContext, MPIBasePytatoPyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from arraycontext import thaw
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
@@ -46,6 +46,21 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+# from arraycontext import pytest_generate_tests_for_array_contexts
+# pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+#         [PytestPyOpenCLArrayContextFactory])
+
+# from meshmode.array_context import (  # noqa
+#     pytest_generate_tests_for_pyopencl_array_context
+#     as pytest_generate_tests)
+
+from arraycontext import (
+    pytest_generate_tests_for_array_contexts)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 
 # {{{ mpi test infrastructure
@@ -73,16 +88,14 @@ def run_test_with_mpi_inner():
     from base64 import b64decode
     f, args = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
 
-    f(cl.create_some_context, *args)
+    f(pytest_generate_tests, *args)
 
 # }}}
 
 
 
-def simple_mpi_communication_entrypoint(ctx_factory):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+def simple_mpi_communication_entrypoint(actx_factory):
+    actx = actx_factory()
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
@@ -141,10 +154,8 @@ def simple_mpi_communication_entrypoint(ctx_factory):
     assert error < 1e-14
 
 
-def mpi_communication_entrypoint(ctx_factory):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+def mpi_communication_entrypoint(actx_factory):
+    actx = actx_factory()
 
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
