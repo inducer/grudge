@@ -522,12 +522,6 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         else:
             prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
 
-        #for tag in tagged:
-        #    if isinstance(tag, KernelDataTag):
-        #        ep = prg.default_entrypoint
-        #        # Is there a better way to apply the kernel data besides making a new tunit object?
-        #        prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
-
         return self.call_loopy(
             prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
         )["out"]
@@ -543,16 +537,25 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return cl_a
 
 
+    @memoize_method
     def transform_loopy_program(self, program):
         program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
-        program = set_memory_layout(program)
 
+        """
         # This should probably be a separate function
+        print("HERE", program.default_entrypoint.name)
         for arg in program.default_entrypoint.args:
+            print("HERE1", arg.name)
             for tag in arg.tags:
+                print("HERE2")
+                print(type(tag))
                 if isinstance(tag, ParameterValue):
+                    print("HERE3")
+                    print("Setting", arg.name, "to", tag.value)
                     program = lp.fix_parameters(program, **{arg.name: tag.value})
+        """
 
+        program = set_memory_layout(program)
         # PyOpenCLArrayContext default transformations can't handle fortran ordering
         #program = super().transform_loopy_program(program)
         return program
@@ -565,6 +568,7 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
     def transform_loopy_program(self, program):
         #print(program.default_entrypoint.name)
 
+        program = super().transform_loopy_program(program)
         #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
 
         
@@ -573,27 +577,51 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
 
         # Static (non-autotuned) transformations for the GPU
         if "resample_by_picking" in program.default_entrypoint.name:
+            
+            program = lp.set_options(program, "write_cl")
             for arg in program.default_entrypoint.args:
-                print(arg.name, arg.tags)
-                if arg.name == "n_to_nodes":
-                    # Assumes this has has a single ParameterValue tag
-                    n_to_nodes = arg.tags[0].value
+                print(arg.name, arg.shape)
+                if arg.name == "pick_list":
+                    ndofs = arg.shape[0]
+                elif arg.name == "from_element_indices":
+                    nelements = arg.shape[0]
+            #exit()
+                #print(arg.name, arg.tags)
+                #if arg.name == "n_to_nodes":
+                #    # Assumes this has has a single ParameterValue tag
+                #    n_to_nodes = arg.tags[0].value
 
-            l0 = ((1024 // n_to_nodes) // 32) * 32
-            if l0 == 0:
-                l0 = 16
-            if n_to_nodes*16 > 1024:
-                l0 = 8
+            #if ndofs*nelements <= 1024:
+            #    outer = nelements
+            #    l0 = nelements
+            #    l1 = ndofs
+            #else:
+            l0 = min(nelements, 32)
+            outer = min(nelements, 128)#l0 #min(nelements // l0, 4)*l0
+            l1 = min(ndofs, 32)
 
-            outer = max(l0, 32)
+            #l1 = n_to_nodes
+            #l0 = ((1024 // l1) // 32) * 32
+            #if l0 == 0:
+            #    l0 = 16
+            #if n_to_nodes*16 > 1024:
+            #    l0 = 8
+
+            #outer = 32#128#max(l0, 32)
+            #l0 = 32
+            #l1 = 32            
 
             #program = set_memory_layout(program)
+            slabs = (0,1) if nelements > 128 else (0,0)
             program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
-                                        slabs=(0, 1))
+                                        slabs=slabs)
+            # Should there be slabs here?
             program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
-                                        inner_tag="l.0")
-            program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+                                        inner_tag="l.0", slabs=(0,0))
+
+            slabs = (0,1) if ndofs > 32 else (0,0)
+            program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
+                                        inner_tag="l.1", slabs=slabs)
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
@@ -649,7 +677,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             #print(program)
             #print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
             #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
-        program = super().transform_loopy_program(program)
 
        
         '''
