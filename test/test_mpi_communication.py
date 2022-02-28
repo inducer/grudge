@@ -91,6 +91,10 @@ def run_test_with_mpi_inner():
 # }}}
 
 
+class _SimpleTag:
+    pass
+
+
 def simple_mpi_communication_entrypoint(comm, actx):
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
@@ -134,7 +138,7 @@ def simple_mpi_communication_entrypoint(comm, actx):
             dcoll.opposite_face_connection()(int_faces_func)
         )
         + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.int)
-              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc))
+              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc, tag=_SimpleTag))
     ) - (all_faces_func - bdry_faces_func)
 
     error = actx.to_numpy(flat_norm(hopefully_zero, ord=np.inf))
@@ -248,7 +252,7 @@ def mpi_communication_entrypoint(comm, actx):
             assert event.component_id == "w"
 
             step += 1
-            logger.info("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
+            logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
                         step, event.t,
                         actx.to_numpy(norm(u=event.state_component[0])),
                         time() - t_last_step)
@@ -267,13 +271,13 @@ def mpi_communication_entrypoint(comm, actx):
 @pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
 @pytest.mark.parametrize("num_ranks", [2])
 def test_mpi(actx_class, num_ranks):
-    run_test_with_mpi(2, mpi_communication_entrypoint, actx_class)
+    run_test_with_mpi(num_ranks, mpi_communication_entrypoint, actx_class)
 
 
 @pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
 @pytest.mark.parametrize("num_ranks", [2])
 def test_simple_mpi(actx_class, num_ranks):
-    run_test_with_mpi(2, simple_mpi_communication_entrypoint, actx_class)
+    run_test_with_mpi(num_ranks, simple_mpi_communication_entrypoint, actx_class)
 
 # }}}
 
