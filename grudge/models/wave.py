@@ -41,6 +41,10 @@ import grudge.op as op
 
 # {{{ constant-velocity
 
+class _WaveOperatorCommTag:
+    pass
+
+
 class WeakWaveOperator(HyperbolicOperator):
     r"""This operator discretizes the wave equation
     :math:`\partial_t^2 u = c^2 \Delta u`.
@@ -64,7 +68,8 @@ class WeakWaveOperator(HyperbolicOperator):
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_NONE):
+            radiation_tag=BTAG_NONE,
+            comm_base_tag=None):
 
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
@@ -85,6 +90,10 @@ class WeakWaveOperator(HyperbolicOperator):
         self.dirichlet_bc_f = dirichlet_bc_f
 
         self.flux_type = flux_type
+
+        if comm_base_tag is None:
+            comm_base_tag = _WaveOperatorCommTag
+        self.comm_base_tag = comm_base_tag
 
     def flux(self, wtpair):
         u = wtpair[0]
@@ -156,7 +165,8 @@ class WeakWaveOperator(HyperbolicOperator):
                 )
                 - op.face_mass(
                     dcoll,
-                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(
+                        dcoll, w, tag=self.comm_base_tag))
                     + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
                     + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
                     + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))
