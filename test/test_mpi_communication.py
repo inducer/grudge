@@ -29,8 +29,9 @@ import os
 import numpy as np
 import pyopencl as cl
 import logging
+import sys
 
-from grudge.array_context import PyOpenCLArrayContext
+from grudge.array_context import PyOpenCLArrayContext, MPIBasePytatoPyOpenCLArrayContext
 from arraycontext.container.traversal import thaw
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,40 @@ from pytools.obj_array import flat_obj_array
 import grudge.op as op
 
 
-def simple_mpi_communication_entrypoint():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
+# {{{ mpi test infrastructure
+
+def run_test_with_mpi(num_ranks, f, *args):
+    import pytest
+    pytest.importorskip("mpi4py")
+
+    from pickle import dumps
+    from base64 import b64encode
+
+    invocation_info = b64encode(dumps((f, args))).decode()
+    from subprocess import check_call
+
+    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
+    check_call([
+        "mpiexec", "-np", str(num_ranks),
+        "-x", "RUN_WITHIN_MPI=1",
+        "-x", f"INVOCATION_INFO={invocation_info}",
+        sys.executable, __file__])
+
+
+def run_test_with_mpi_inner():
+    from pickle import loads
+    from base64 import b64decode
+    f, args = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
+
+    f(cl.create_some_context, *args)
+
+# }}}
+
+
+
+def simple_mpi_communication_entrypoint(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
     actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
@@ -109,9 +141,9 @@ def simple_mpi_communication_entrypoint():
     assert error < 1e-14
 
 
-def mpi_communication_entrypoint():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
+def mpi_communication_entrypoint(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
     actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     from mpi4py import MPI
@@ -230,52 +262,24 @@ def mpi_communication_entrypoint():
 
 # {{{ MPI test pytest entrypoint
 
-@pytest.mark.mpi
 @pytest.mark.parametrize("num_ranks", [2])
 def test_mpi(num_ranks):
-    pytest.importorskip("mpi4py")
-    pytest.importorskip("pymetis")
-
-    from subprocess import check_call
-    import sys
-    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
-    check_call([
-        "mpiexec", "-np", str(num_ranks),
-        "-x", "RUN_WITHIN_MPI=1",
-        "-x", "TEST_MPI_COMMUNICATION=1",
-        sys.executable, __file__])
+    run_test_with_mpi(2, mpi_communication_entrypoint)
 
 
-@pytest.mark.mpi
 @pytest.mark.parametrize("num_ranks", [2])
 def test_simple_mpi(num_ranks):
-    pytest.importorskip("mpi4py")
-    pytest.importorskip("pymetis")
-
-    from subprocess import check_call
-    import sys
-    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
-    check_call([
-        "mpiexec", "-np", str(num_ranks),
-        "-x", "RUN_WITHIN_MPI=1",
-        "-x", "TEST_SIMPLE_MPI_COMMUNICATION=1",
-        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
-        sys.executable, "-m", "mpi4py.run", __file__])
+    run_test_with_mpi(2, simple_mpi_communication_entrypoint)
 
 # }}}
 
 
 if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
-        if "TEST_MPI_COMMUNICATION" in os.environ:
-            mpi_communication_entrypoint()
-        elif "TEST_SIMPLE_MPI_COMMUNICATION" in os.environ:
-            simple_mpi_communication_entrypoint()
+        run_test_with_mpi_inner()
+    elif len(sys.argv) > 1:
+        exec(sys.argv[1])
     else:
-        import sys
-        if len(sys.argv) > 1:
-            exec(sys.argv[1])
-        else:
-            from pytest import main
-            main([__file__])
+        from pytest import main
+        main([__file__])
 # vim: fdm=marker
