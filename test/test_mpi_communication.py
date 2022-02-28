@@ -187,7 +187,7 @@ def mpi_communication_entrypoint(comm, actx):
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
-            np.sin(source_omega*t)
+            actx.np.sin(source_omega*t)
             * actx.np.exp(
                 -np.dot(source_center_dist, source_center_dist)
                 / source_width**2
