@@ -251,6 +251,8 @@ def mpi_communication_entrypoint(comm, actx):
         logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
                     step, t, norm, time() - t_last_step)
 
+        assert norm < 1
+
         t_last_step = time()
         logmgr.tick_after()
         logmgr.tick_before()
