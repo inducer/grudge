@@ -32,14 +32,14 @@ import logging
 import sys
 
 from grudge.array_context import PyOpenCLArrayContext, MPIPytatoArrayContext
-from arraycontext import thaw
+from arraycontext.container.traversal import thaw, freeze
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
 from grudge import DiscretizationCollection
-from grudge.shortcuts import set_up_rk4
+from grudge.shortcuts import rk4_step
 
 from meshmode.dof_array import flat_norm
 
@@ -232,34 +232,28 @@ def mpi_communication_entrypoint(comm, actx):
 
     compiled_rhs = actx.compile(rhs)
 
-    dt_stepper = set_up_rk4("w", dt, fields, compiled_rhs)
-
     final_t = 1
     nsteps = int(final_t/dt)
     logger.info("[%04d] dt %.5e nsteps %4d", i_local_rank, dt, nsteps)
 
     step = 0
 
-    def norm(u):
-        return op.norm(dcoll, u, 2)
-
     from time import time
     t_last_step = time()
 
     logmgr.tick_before()
-    for event in dt_stepper.run(t_end=final_t):
-        if isinstance(event, dt_stepper.StateComputed):
-            assert event.component_id == "w"
+    for step in range(nsteps):
+        t = step*dt
+        fields = rk4_step(fields, t=t, h=dt, f=compiled_rhs)
+        fields = thaw(freeze(fields, actx), actx)
 
-            step += 1
-            logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
-                        step, event.t,
-                        actx.to_numpy(norm(u=event.state_component[0])),
-                        time() - t_last_step)
+        norm = actx.to_numpy(op.norm(dcoll, fields, 2))
+        logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
+                    step, t, norm, time() - t_last_step)
 
-            t_last_step = time()
-            logmgr.tick_after()
-            logmgr.tick_before()
+        t_last_step = time()
+        logmgr.tick_after()
+        logmgr.tick_before()
 
     logmgr.tick_after()
     logmgr.close()
