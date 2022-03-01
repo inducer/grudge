@@ -29,6 +29,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Any, Optional
 from pytools import memoize_method
 
 from grudge.dof_desc import (
@@ -698,7 +699,7 @@ class DiscretizationCollection:
 
     # {{{ Discretization-specific geometric properties
 
-    def nodes(self, dd=None):
+    def nodes(self, dd=None, dtype: Optional[np.dtype[Any]] = None):
         r"""Return the nodes of a discretization specified by *dd*.
 
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -707,7 +708,7 @@ class DiscretizationCollection:
         """
         if dd is None:
             dd = DD_VOLUME
-        return self.discr_from_dd(dd).nodes()
+        return self.discr_from_dd(dd).nodes(dtype)
 
     def normal(self, dd):
         r"""Get the unit normal to the specified surface discretization, *dd*.

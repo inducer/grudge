@@ -49,6 +49,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Any
 
 from arraycontext import ArrayContext, map_array_container
 from arraycontext.container import ArrayOrContainerT
@@ -66,11 +67,12 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 import numpy as np
 
 import grudge.dof_desc as dof_desc
+from grudge.tools import to_real_dtype
 
-from grudge.interpolation import interp  # noqa: F401
-from grudge.projection import project  # noqa: F401
+from grudge.interpolation import interp
+from grudge.projection import project
 
-from grudge.reductions import (  # noqa: F401
+from grudge.reductions import (
     norm,
     nodal_sum,
     nodal_min,
@@ -85,7 +87,7 @@ from grudge.reductions import (  # noqa: F401
     elementwise_integral,
 )
 
-from grudge.trace_pair import (  # noqa: F401
+from grudge.trace_pair import (
     interior_trace_pair,
     interior_trace_pairs,
     connected_ranks,
@@ -93,6 +95,19 @@ from grudge.trace_pair import (  # noqa: F401
     bdry_trace_pair,
     bv_trace_pair
 )
+
+
+__all__ = (
+        "interp", "project",
+
+        "norm", "nodal_sum", "nodal_min", "nodal_max", "nodal_sum_loc",
+        "nodal_min_loc", "nodal_max_loc", "integral", "elementwise_sum",
+        "elementwise_max", "elementwise_min", "elementwise_integral",
+
+        "interior_trace_pair", "interior_trace_pairs",
+        "connected_ranks", "cross_rank_trace_pairs",
+        "bdry_trace_pair", "bv_trace_pair",
+        )
 
 
 # {{{ common derivative "kernels"
@@ -140,7 +155,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     get_diff_mat(
                         actx,
                         out_element_group=out_grp,
-                        in_element_group=in_grp
+                        in_element_group=in_grp,
+                        dtype=vec_i.dtype,
                     ),
                     vec_i,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
@@ -244,7 +260,7 @@ def _grad_helper(dcoll, scalar_grad, *args, nested):
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
-        out_element_group, in_element_group):
+        out_element_group, in_element_group, dtype: np.dtype[Any]):
     # We're accepting in_element_group for interface consistency with
     # _reference_stiffness_transpose_matrix.
     assert out_element_group is in_element_group
@@ -252,16 +268,17 @@ def _reference_derivative_matrices(actx: ArrayContext,
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
         lambda grp: grp.discretization_key())
-    def get_ref_derivative_mats(grp):
+    def get_ref_derivative_mats(grp, dtype: np.dtype[Any]):
         from meshmode.discretization.poly_element import diff_matrices
         return actx.freeze(
             actx.from_numpy(
                 np.asarray(
                     [dfmat for dfmat in diff_matrices(grp)]
-                )
+                ).astype(dtype)
             )
         )
-    return get_ref_derivative_mats(out_element_group)
+
+    return get_ref_derivative_mats(out_element_group, to_real_dtype(dtype))
 
 
 def _strong_scalar_grad(dcoll, dd_in, vec):
@@ -273,7 +290,8 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
     actx = vec.array_context
 
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+            dtype=vec.entry_dtype)
     return _gradient_kernel(actx, discr, discr,
             _reference_derivative_matrices, inverse_jac_mat, vec,
             metric_in_matvec=False)
@@ -360,12 +378,13 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
 # {{{ Weak derivative operators
 
 def _reference_stiffness_transpose_matrix(
-        actx: ArrayContext, out_element_group, in_element_group):
+        actx: ArrayContext, out_element_group, in_element_group,
+        dtype: np.dtype[Any]):
     @keyed_memoize_in(
         actx, _reference_stiffness_transpose_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
-    def get_ref_stiffness_transpose_mat(out_grp, in_grp):
+    def get_ref_stiffness_transpose_mat(out_grp, in_grp, dtype: np.dtype[Any]):
         if in_grp == out_grp:
             from meshmode.discretization.poly_element import \
                 mass_matrix, diff_matrices
@@ -397,11 +416,12 @@ def _reference_stiffness_transpose_matrix(
                     weights,
                     vand_inv_t,
                     grad_vand
-                ).copy()  # contigify the array
+                ).astype(dtype).copy()  # contigify the array
             )
         )
     return get_ref_stiffness_transpose_mat(out_element_group,
-                                           in_element_group)
+                                           in_element_group,
+                                           to_real_dtype(dtype))
 
 
 def _weak_scalar_grad(dcoll, dd_in, vec):
@@ -546,12 +566,13 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass operator
 
-def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
+def _reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group,
+        dtype: np.dtype[Any]):
     @keyed_memoize_in(
-        actx, reference_mass_matrix,
+        actx, _reference_mass_matrix,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
-    def get_ref_mass_mat(out_grp, in_grp):
+    def get_ref_mass_mat(out_grp, in_grp, dtype: np.dtype[Any]):
         if out_grp == in_grp:
             from meshmode.discretization.poly_element import mass_matrix
 
@@ -575,12 +596,15 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
             actx.from_numpy(
                 np.asarray(
                     np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
-                    order="C"
+                    order="C",
+                    dtype=dtype
                 )
             )
         )
 
-    return get_ref_mass_mat(out_element_group, in_element_group)
+    return get_ref_mass_mat(
+            out_element_group, in_element_group,
+            to_real_dtype(dtype))
 
 
 def _apply_mass_operator(
@@ -597,15 +621,17 @@ def _apply_mass_operator(
 
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+            dtype=vec.entry_dtype)
     return DOFArray(
         actx,
         data=tuple(
             actx.einsum("ij,ej,ej->ei",
-                        reference_mass_matrix(
+                        _reference_mass_matrix(
                             actx,
                             out_element_group=out_grp,
-                            in_element_group=in_grp
+                            in_element_group=in_grp,
+                            dtype=vec_i.dtype,
                         ),
                         ae_i,
                         vec_i,
@@ -659,11 +685,12 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
 # {{{ Mass inverse operator
 
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+def _reference_inverse_mass_matrix(actx: ArrayContext, element_group,
+        dtype: np.dtype[Any]):
     @keyed_memoize_in(
-        actx, reference_inverse_mass_matrix,
+        actx, _reference_inverse_mass_matrix,
         lambda grp: grp.discretization_key())
-    def get_ref_inv_mass_mat(grp):
+    def get_ref_inv_mass_mat(grp, dtype: np.dtype[Any]):
         from modepy import inverse_mass_matrix
         basis = grp.basis_obj()
 
@@ -671,12 +698,13 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
             actx.from_numpy(
                 np.asarray(
                     inverse_mass_matrix(basis.functions, grp.unit_nodes),
-                    order="C"
+                    order="C",
+                    dtype=dtype
                 )
             )
         )
 
-    return get_ref_inv_mass_mat(element_group)
+    return get_ref_inv_mass_mat(element_group, to_real_dtype(dtype))
 
 
 def _apply_inverse_mass_operator(
@@ -698,12 +726,14 @@ def _apply_inverse_mass_operator(
     actx = vec.array_context
     discr = dcoll.discr_from_dd(dd_in)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+            dtype=vec.entry_dtype)
     group_data = []
     for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
 
-        ref_mass_inverse = reference_inverse_mass_matrix(actx,
-                                                         element_group=grp)
+        ref_mass_inverse = _reference_inverse_mass_matrix(actx,
+                                                         element_group=grp,
+                                                         dtype=vec_i.entry_dtype)
 
         group_data.append(
             # Based on https://arxiv.org/pdf/1608.03836.pdf
@@ -763,13 +793,14 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
 
 # {{{ Face mass operator
 
-def reference_face_mass_matrix(
-        actx: ArrayContext, face_element_group, vol_element_group, dtype):
+def _reference_face_mass_matrix(
+        actx: ArrayContext, face_element_group, vol_element_group,
+        dtype: np.dtype[Any]):
     @keyed_memoize_in(
-        actx, reference_mass_matrix,
+        actx, _reference_mass_matrix,
         lambda face_grp, vol_grp: (face_grp.discretization_key(),
                                    vol_grp.discretization_key()))
-    def get_ref_face_mass_mat(face_grp, vol_grp):
+    def get_ref_face_mass_mat(face_grp, vol_grp, dtype: np.dtype[Any]):
         nfaces = vol_grp.mesh_el_group.nfaces
         assert face_grp.nelements == nfaces * vol_grp.nelements
 
@@ -846,7 +877,8 @@ def reference_face_mass_matrix(
 
         return actx.freeze(actx.from_numpy(matrix))
 
-    return get_ref_face_mass_mat(face_element_group, vol_element_group)
+    return get_ref_face_mass_mat(face_element_group, vol_element_group,
+            dtype=to_real_dtype(dtype))
 
 
 def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
@@ -864,13 +896,14 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
 
     assert len(face_discr.groups) == len(volm_discr.groups)
     surf_area_elements = area_element(actx, dcoll, dd=dd,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+            dtype=dtype)
 
     return DOFArray(
         actx,
         data=tuple(
             actx.einsum("ifj,fej,fej->ei",
-                        reference_face_mass_matrix(
+                        _reference_face_mass_matrix(
                                 actx,
                                 face_element_group=afgrp,
                                 vol_element_group=vgrp,
