@@ -232,7 +232,7 @@ def mpi_communication_entrypoint(comm, actx):
 
     compiled_rhs = actx.compile(rhs)
 
-    final_t = 1
+    final_t = 4
     nsteps = int(final_t/dt)
     logger.info("[%04d] dt %.5e nsteps %4d", i_local_rank, dt, nsteps)
 
