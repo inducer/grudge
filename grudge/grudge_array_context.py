@@ -16,6 +16,7 @@ from arraycontext.container.traversal import (rec_map_array_container,
 
 from hashlib import md5
 import hjson
+import os
 from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search, exhaustive_search_v2
 from arraycontext.container.traversal import rec_multimap_array_container
 
@@ -558,6 +559,34 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return program
 
 
+class KernelSavingArrayContext(FortranOrderedArrayContext):
+     def transform_loopy_program(self, program):
+
+        if program.default_entrypoint.name in autotuned_kernels:
+            import pickle
+            # Set no_numpy and return_dict options here?
+            program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
+            program = set_memory_layout(program)
+ 
+            filename = "./pickled_programs"
+            pid = unique_program_id(program)
+        
+            # Is there a way to obtain the current rank?
+            file_path = f"{filename}/{program.default_entrypoint.name}_{pid}.pickle"
+
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            print("Writing program to file")
+            out_file = open(file_path, "wb+")
+            pickle.dump(program, out_file)
+            out_file.close()
+        else:
+            program = super().transform_loopy_program(program)
+
+        return program
+
+   
+
+
 # This class could be used for some set of default transformations
 class GrudgeArrayContext(FortranOrderedArrayContext):
 
@@ -836,6 +865,17 @@ def convert(o):
     if isinstance(o, np.generic): return o.item()
     raise TypeError
 
+
+# Meshmode and Grudge kernels to autotune
+autotuned_kernels = {"einsum3to2_kernel",
+                     "einsum4to2_kernel", 
+                     "einsum5to3_kernel", 
+                     "einsum2to2_kernel",
+                     "diff", 
+                     "lp_nodes",
+                     "grudge_elementwise_sum_knl"}
+
+
 class AutotuningArrayContext(GrudgeArrayContext):
 
     @memoize_method
@@ -858,21 +898,13 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 print(arg.tags)
             exit()
 
-        # Meshmode and Grudge kernels to autotune
-        autotuned_kernels = {"einsum3to2_kernel",
-                             "einsum4to2_kernel", 
-                             "einsum5to3_kernel", 
-                             "einsum2to2_kernel",
-                             "diff", 
-                             "lp_nodes",
-                             "grudge_elementwise_sum_knl"}
-
         if program.default_entrypoint.name in autotuned_kernels:
             # Set no_numpy and return_dict options here?
             program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
             program = set_memory_layout(program)
             pid = unique_program_id(program)
             print(pid)
+            os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
             hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
 
             try:
