@@ -797,7 +797,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
             for name, ary in dof_array_kwargs.items():
                 kwargs[name] = ary[grp.index]
 
-            _, knl_result = self.inner_mapper.array_context.call_loopy(
+            knl_result = self.inner_mapper.array_context.call_loopy(
                     kdescr.loopy_kernel, **kwargs)
 
             for name, val in knl_result.items():
