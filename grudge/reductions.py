@@ -128,7 +128,9 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
 
     # NOTE: Don't move this
     from mpi4py import MPI
-    actx = vec.array_context
+
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
 
     return actx.from_numpy(
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
