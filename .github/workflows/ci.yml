@@ -126,13 +126,21 @@ jobs:
                 else
                     sed -i "/mpi4py/ d" requirements.txt
                 fi
+
                 build_py_project_in_conda_env
+                test_py_project
+                cd ..
 
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
                     # Test main branch
                     examples/run_examples.sh ./examples
+
+                    # Test production drivers
+                    source .ci_support/production_testing_env.sh
+                    source .ci_support/merge-install-production-branch.sh .
+                    source .ci_support/production-drivers-install.sh .
+                    source .ci_support/production-drivers-run.sh .
                 fi
 
-                test_py_project
 
 # vim: sw=4
