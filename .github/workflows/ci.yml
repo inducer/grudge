@@ -132,6 +132,13 @@ jobs:
                 build_py_project_in_conda_env
 
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
+                    # Test main branch
+                    examples/run_examples.sh ./examples
+                    
+                    # Test production branch
+                    curl -O -L https://raw.githubusercontent.com/illinois-ceesd/emirge/main/switch-mirgecom.sh
+                    chmod a+x switch-mirgecom.sh
+                    ./switch-mirgecom.sh prod
                     examples/run_examples.sh ./examples
                 fi
 
