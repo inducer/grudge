@@ -127,10 +127,11 @@ jobs:
                     sed -i "/mpi4py/ d" requirements.txt
                 fi
                 build_py_project_in_conda_env
-                test_py_project
 
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
                     examples/run_examples.sh ./examples
                 fi
+
+                test_py_project
 
 # vim: sw=4
