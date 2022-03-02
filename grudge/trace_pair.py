@@ -46,7 +46,9 @@ THE SOFTWARE.
 """
 
 
-from typing import List, Hashable, Optional
+from typing import List, Hashable, Optional, Type, Any
+
+from pytools.persistent_dict import KeyBuilder
 
 from arraycontext import (
     ArrayContainer,
@@ -432,6 +434,11 @@ class _RankBoundaryCommunicationLazy:
                          exterior=bdry_conn(self.remote_data))
 
 
+class _TagKeyBuilder(KeyBuilder):
+    def update_for_type(self, key_hash, key: Type[Any]):
+        self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
+
+
 def cross_rank_trace_pairs(
         dcoll: DiscretizationCollection, ary,
         comm_tag: Hashable = None,
@@ -499,7 +506,9 @@ def cross_rank_trace_pairs(
                 # - https://github.com/inducer/grudge/pull/222
                 from mpi4py import MPI
                 tag_ub = actx.mpi_communicator.Get_attr(MPI.TAG_UB)
-                num_tag = hash(comm_tag) % tag_ub
+                key_builder = _TagKeyBuilder()
+                digest = key_builder(comm_tag)
+                num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
 
                 from warnings import warn
                 warn("Encountered unknown symbolic tag "
