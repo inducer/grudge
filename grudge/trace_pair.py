@@ -498,7 +498,7 @@ def cross_rank_trace_pairs(
                 # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716  # noqa
                 # - https://github.com/inducer/grudge/pull/222
                 from mpi4py import MPI
-                tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+                tag_ub = actx.mpi_communicator.Get_attr(MPI.TAG_UB)
                 num_tag = hash(comm_tag) % tag_ub
 
                 from warnings import warn
