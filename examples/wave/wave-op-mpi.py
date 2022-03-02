@@ -141,7 +141,8 @@ def wave_operator(dcoll, c, w, quad_tag=None):
                                                exterior=dir_bc)
                 ) + sum(
                     wave_flux(dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
-                    for tpair in op.interior_trace_pairs(dcoll, w, tag=_WaveStateTag)
+                    for tpair in op.interior_trace_pairs(dcoll, w,
+                        comm_tag=_WaveStateTag)
                 )
             )
         )
@@ -185,16 +186,16 @@ def main(ctx_factory, dim=2, order=3,
     num_parts = comm.Get_size()
 
     from grudge.array_context import get_reasonable_array_context_class
+    actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
     if lazy:
-        actx_class = get_reasonable_array_context_class(lazy=True, distributed=True)
         actx = actx_class(comm, queue, mpi_base_tag=15000)
     else:
-        actx_class = get_reasonable_array_context_class(lazy=False)
-        actx = actx_class(
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
-        )
+        actx = actx_class(comm, queue,
+                allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+                force_device_scalars=True,
+                comm_tag_to_mpi_tag={
+                    _WaveStateTag: 1234,
+                    })
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
@@ -238,8 +239,7 @@ def main(ctx_factory, dim=2, order=3,
             # High-order quadrature to integrate inner products of polynomials
             # on warped geometry exactly (metric terms are also polynomial)
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-        }, mpi_communicator=comm
-    )
+        })
 
     if use_quad:
         quad_tag = DISCR_TAG_QUAD

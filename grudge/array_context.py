@@ -1,6 +1,9 @@
 """
 .. autoclass:: PyOpenCLArrayContext
 .. autoclass:: PytatoPyOpenCLArrayContext
+.. autoclass:: MPIBasedArrayContext
+.. autoclass:: MPIPyOpenCLArrayContext
+.. class:: MPIPytatoArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
 
@@ -28,7 +31,9 @@ THE SOFTWARE.
 
 # {{{ imports
 
-from typing import TYPE_CHECKING, Mapping, Tuple, Any, Callable
+from typing import (
+        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional,
+        Hashable, Type)
 from dataclasses import dataclass
 
 from meshmode.array_context import (
@@ -47,6 +52,7 @@ from arraycontext.pytest import (
         _PytestPyOpenCLArrayContextFactoryWithClass,
         _PytestPytatoPyOpenCLArrayContextFactory,
         register_pytest_array_context_factory)
+from arraycontext import ArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyCompilingFunctionCaller
 
@@ -54,6 +60,9 @@ if TYPE_CHECKING:
     import pytato as pt
     from pytato.partition import PartId
     from pytato.distributed import DistributedGraphPartition
+    import pyopencl
+    import pyopencl.tools
+    from mpi4py import MPI
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
@@ -76,7 +85,11 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 # }}}
 
 
-# {{{ base distributed array context functionality
+class MPIBasedArrayContext:
+    mpi_communicator: "MPI.Comm"
+
+
+# {{{ distributed + pytato
 
 class _DistributedLazilyCompilingFunctionCaller(LazilyCompilingFunctionCaller):
     def _dag_to_compiled_func(self, dict_of_named_arrays,
@@ -189,9 +202,10 @@ class _DistributedCompiledFunction:
                                              self.output_template)
 
 
-class DistributedLazyArrayContext:
-    def __init__(self, mpi_communicator, queue, *,
-            mpi_base_tag, allocator=None) -> None:
+class MPIPytatoArrayContextBase(MPIBasedArrayContext):
+    def __init__(
+            self, mpi_communicator, queue, *, mpi_base_tag, allocator=None
+            ) -> None:
         super().__init__(queue, allocator)
 
         self.mpi_communicator = mpi_communicator
@@ -212,17 +226,70 @@ class DistributedLazyArrayContext:
 # }}}
 
 
+# {{{ distributed + pyopencl
+
+class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`pyopencl`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self,
+            mpi_communicator,
+            queue: "pyopencl.CommandQueue",
+            *, allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
+            wait_event_queue_length: Optional[int] = None,
+            force_device_scalars: bool = False,
+            comm_tag_to_mpi_tag: Optional[Mapping[Hashable, int]] = None) -> None:
+        """
+        See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
+        arguments.
+
+        :arg comm_tag_to_mpi_tag: A mapping from symbolic tags used
+            in the *comm_tag* argument of
+            :func:`grudge.trace_pair.cross_rank_trace_pairs` to numeric values
+            to be used with MPI.
+        """
+        super().__init__(queue, allocator=allocator,
+                wait_event_queue_length=wait_event_queue_length,
+                force_device_scalars=force_device_scalars)
+
+        self.mpi_communicator = mpi_communicator
+
+        if comm_tag_to_mpi_tag is None:
+            comm_tag_to_mpi_tag = {}
+
+        self.comm_tag_to_mpi_tag = comm_tag_to_mpi_tag
+
+    def clone(self):
+        # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
+        # pylint: disable=no-member
+        return type(self)(self.mpi_communicator, self.queue,
+                allocator=self.allocator,
+                wait_event_queue_length=self._wait_event_queue_length,
+                force_device_scalars=self._force_device_scalars,
+                comm_tag_to_mpi_tag=self.comm_tag_to_mpi_tag)
+
+# }}}
+
+
 # {{{ distributed + pytato array context subclasses
 
 class MPIBasePytatoPyOpenCLArrayContext(
-        DistributedLazyArrayContext, PytatoPyOpenCLArrayContext):
+        MPIPytatoArrayContextBase, PytatoPyOpenCLArrayContext):
+    """
+    .. autofunction:: __init__
+    """
     pass
 
 
 if _HAVE_SINGLE_GRID_WORK_BALANCING:
     class MPISingleGridWorkBalancingPytatoArrayContext(
-            DistributedLazyArrayContext, SingleGridWorkBalancingPytatoArrayContext):
-        pass
+            MPIPytatoArrayContextBase, SingleGridWorkBalancingPytatoArrayContext):
+        """
+        .. autofunction:: __init__
+        """
 
     MPIPytatoArrayContext = MPISingleGridWorkBalancingPytatoArrayContext
 else:
@@ -261,23 +328,25 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 # {{{ actx selection
 
 def get_reasonable_array_context_class(
-        lazy: bool = True, distributed: bool = True) -> PyOpenCLArrayContext:
-    # eager actx is distributed as well
-    if not lazy:
-        return PyOpenCLArrayContext
-
-    # lazy, non-distributed
-    if not distributed:
+        lazy: bool = True, distributed: bool = True
+        ) -> Type[ArrayContext]:
+    if lazy:
+        # lazy, non-distributed
+        if not distributed:
+            if _HAVE_SINGLE_GRID_WORK_BALANCING:
+                return SingleGridWorkBalancingPytatoArrayContext
+            else:
+                return PytatoPyOpenCLArrayContext
+        # distributed+lazy:
         if _HAVE_SINGLE_GRID_WORK_BALANCING:
-            return SingleGridWorkBalancingPytatoArrayContext
+            return MPISingleGridWorkBalancingPytatoArrayContext
         else:
-            return PytatoPyOpenCLArrayContext
-
-    # distributed+lazy:
-    if _HAVE_SINGLE_GRID_WORK_BALANCING:
-        return MPISingleGridWorkBalancingPytatoArrayContext
+            return MPIBasePytatoPyOpenCLArrayContext
     else:
-        return MPIBasePytatoPyOpenCLArrayContext
+        if distributed:
+            return MPIPyOpenCLArrayContext
+        else:
+            return PyOpenCLArrayContext
 
 # }}}
 

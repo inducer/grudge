@@ -46,6 +46,8 @@ THE SOFTWARE.
 """
 
 
+from typing import List, Hashable, Optional
+
 from arraycontext import (
     ArrayContainer,
     with_container_arithmetic,
@@ -70,10 +72,9 @@ from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
 import grudge.dof_desc as dof_desc
-from typing import Any
 
 
-# {{{ Trace pair container class
+# {{{ trace pair container class
 
 @with_container_arithmetic(
     bcast_obj_array=False, eq_comparison=False, rel_comparison=False
@@ -172,7 +173,7 @@ class TracePair:
 # }}}
 
 
-# {{{ Boundary trace pairs
+# {{{ boundary trace pairs
 
 def bdry_trace_pair(
         dcoll: DiscretizationCollection, dd, interior, exterior) -> TracePair:
@@ -227,7 +228,7 @@ def bv_trace_pair(
 # }}}
 
 
-# {{{ Interior trace pairs
+# {{{ interior trace pairs
 
 def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     r"""Return a :class:`TracePair` for the interior faces of
@@ -270,7 +271,8 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return local_interior_trace_pair(dcoll, vec)
 
 
-def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *, tag=None) -> list:
+def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
+        comm_tag: Hashable = None, tag: Hashable = None) -> List[TracePair]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
@@ -281,19 +283,32 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *, tag=None) -> l
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
-    :arg tag: an arbitrary object used determine tags for MPI send/receive
-        operations. Required for lazy communication.
+    :arg comm_tag: a hashable object used to match sent and received data
+        across ranks. Communication will only match if both endpoints specify
+        objects that compare equal. A generalization of MPI communication
+        tags to arbitary, potentially composite objects.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
+
+    if tag is not None:
+        from warnings import warn
+        warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
+                "Specify 'comm_tag' instead.", DeprecationWarning, stacklevel=2)
+        if comm_tag is not None:
+            raise TypeError("may only specify one of 'tag' and 'comm_tag'")
+        else:
+            comm_tag = tag
+    del tag
+
     return (
         [local_interior_trace_pair(dcoll, vec)]
-        + cross_rank_trace_pairs(dcoll, vec, tag)
+        + cross_rank_trace_pairs(dcoll, vec, comm_tag=comm_tag)
     )
 
 # }}}
 
 
-# {{{ Distributed-memory functionality
+# {{{ distributed-memory functionality
 
 @memoize_on_first_arg
 def connected_ranks(dcoll: DiscretizationCollection):
@@ -302,12 +317,12 @@ def connected_ranks(dcoll: DiscretizationCollection):
 
 
 class _RankBoundaryCommunication:
-    base_tag = 1273
+    base_comm_tag = 1273
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
-                 remote_rank, tag=None):
+                 remote_rank, comm_tag: Optional[int] = None):
         actx = get_container_context_recursively(array_container)
         btag = BTAG_PARTITION(remote_rank)
 
@@ -322,9 +337,9 @@ class _RankBoundaryCommunication:
         self.local_bdry_data_np = \
             to_numpy(flatten(self.local_bdry_data, actx), actx)
 
-        self.tag = self.base_tag
-        if tag is not None:
-            self.tag += tag
+        self.comm_tag = self.base_comm_tag
+        if comm_tag is not None:
+            self.comm_tag += comm_tag
 
         # Here, we initialize both send and recieve operations through
         # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
@@ -347,11 +362,11 @@ class _RankBoundaryCommunication:
         # as well, just in case.
         self.send_req = comm.Isend(self.local_bdry_data_np,
                                    remote_rank,
-                                   tag=self.tag)
+                                   tag=self.comm_tag)
         self.remote_data_host_numpy = np.empty_like(self.local_bdry_data_np)
         self.recv_req = comm.Irecv(self.remote_data_host_numpy,
                                    remote_rank,
-                                   tag=self.tag)
+                                   tag=self.comm_tag)
 
     def finish(self):
         # Wait for the nonblocking receive request to complete before
@@ -384,8 +399,8 @@ class _RankBoundaryCommunicationLazy:
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainerT,
-                 remote_rank: int, tag: Any):
-        if tag is None:
+                 remote_rank: int, comm_tag: Hashable):
+        if comm_tag is None:
             raise ValueError("lazy communication requires 'tag' to be supplied")
 
         self.dcoll = dcoll
@@ -397,7 +412,7 @@ class _RankBoundaryCommunicationLazy:
             dcoll, "vol", self.remote_btag, array_container)
 
         def communicate_single_array(key, local_bdry_ary):
-            ary_tag = (tag, key)
+            ary_tag = (comm_tag, key)
             return staple_distributed_send(
                     local_bdry_ary, dest_rank=remote_rank, comm_tag=ary_tag,
                     stapled_to=make_distributed_recv(
@@ -418,7 +433,9 @@ class _RankBoundaryCommunicationLazy:
 
 
 def cross_rank_trace_pairs(
-        dcoll: DiscretizationCollection, ary, tag: Any = None) -> list:
+        dcoll: DiscretizationCollection, ary,
+        comm_tag: Hashable = None,
+        tag: Hashable = None) -> List[TracePair]:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
@@ -440,10 +457,23 @@ def cross_rank_trace_pairs(
     :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
 
-    :arg tag: an arbitrary object used determine tags for MPI send/receive
-        operations. Required for lazy communication.
+    :arg comm_tag: a hashable object used to match sent and received data
+        across ranks. Communication will only match if both endpoints specify
+        objects that compare equal. A generalization of MPI communication
+        tags to arbitary, potentially composite objects.
+
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
+    if tag is not None:
+        from warnings import warn
+        warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
+                "Specify 'comm_tag' instead.", DeprecationWarning, stacklevel=2)
+        if comm_tag is not None:
+            raise TypeError("may only specify one of 'tag' and 'comm_tag'")
+        else:
+            comm_tag = tag
+    del tag
+
     if isinstance(ary, Number):
         # NOTE: Assumed that the same number is passed on every rank
         return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
@@ -451,20 +481,33 @@ def cross_rank_trace_pairs(
 
     actx = get_container_context_recursively(ary)
 
-    from grudge.array_context import DistributedLazyArrayContext
+    from grudge.array_context import MPIPytatoArrayContextBase
 
-    if isinstance(actx, DistributedLazyArrayContext):
+    if isinstance(actx, MPIPytatoArrayContextBase):
         rbc = _RankBoundaryCommunicationLazy
     else:
         rbc = _RankBoundaryCommunication
-        if tag is not None and tag is not isinstance(tag, Number):
-            tag = None
-            from warnings import warn
-            warn("Eager communication only supports numeric tags.")
+        if comm_tag is not None:
+            num_tag: Optional[int] = None
+            if isinstance(comm_tag, int):
+                num_tag = comm_tag
+
+            from grudge.array_context import MPIPyOpenCLArrayContext
+            if isinstance(actx, MPIPyOpenCLArrayContext):
+                num_tag = actx.comm_tag_to_mpi_tag.get(comm_tag)
+
+            if num_tag is None:
+                raise ValueError("Encountered unknown symbolic tag "
+                        f"'{comm_tag}'. To make this symbolic tag work, "
+                        f"use 'grudge.array_context.MPIPyOpenCLArrayContext' and "
+                        "assign this tag a numerical value via its "
+                        "comm_tag_to_mpi_tag attribute.")
+
+            comm_tag = num_tag
 
     # Initialize and post all sends/receives
     rank_bdry_communcators = [
-        rbc(dcoll, ary, remote_rank, tag=tag)
+        rbc(dcoll, ary, remote_rank, comm_tag=comm_tag)
         for remote_rank in connected_ranks(dcoll)
     ]
 

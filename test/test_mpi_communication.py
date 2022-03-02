@@ -31,7 +31,7 @@ import pyopencl as cl
 import logging
 import sys
 
-from grudge.array_context import PyOpenCLArrayContext, MPIPytatoArrayContext
+from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
 from arraycontext.container.traversal import thaw, freeze
 
 logger = logging.getLogger(__name__)
@@ -46,9 +46,13 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+from testlib import SimpleTag
 
 
 # {{{ mpi test infrastructure
+
+DISTRIBUTED_ACTXS = [MPIPyOpenCLArrayContext, MPIPytatoArrayContext]
+
 
 def run_test_with_mpi(num_ranks, f, *args):
     import pytest
@@ -81,21 +85,34 @@ def run_test_with_mpi_inner():
 
     if actx_class is MPIPytatoArrayContext:
         actx = actx_class(comm, queue, mpi_base_tag=15000)
-    elif actx_class is PyOpenCLArrayContext:
-        actx = actx_class(queue, force_device_scalars=True)
+    elif actx_class is MPIPyOpenCLArrayContext:
+        actx = actx_class(comm, queue, force_device_scalars=True,
+                comm_tag_to_mpi_tag={SimpleTag: 15000})
     else:
         raise ValueError("unknown actx_class")
 
-    f(comm, actx, *args)
+    f(actx, *args)
 
 # }}}
 
 
-class _SimpleTag:
-    pass
+# {{{ func_comparison
+
+@pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
+@pytest.mark.parametrize("num_ranks", [2])
+def test_func_comparison_mpi(actx_class, num_ranks):
+    run_test_with_mpi(
+            num_ranks, _test_func_comparison_mpi_communication_entrypoint,
+            actx_class)
 
 
-def simple_mpi_communication_entrypoint(comm, actx):
+def _test_func_comparison_mpi_communication_entrypoint(actx):
+    """Discretize a function, communicate it, check that it matches the
+    function discretized by the other end.
+    """
+
+    comm = actx.mpi_communicator
+
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
 
@@ -115,8 +132,7 @@ def simple_mpi_communication_entrypoint(comm, actx):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=5,
-            mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=5)
 
     x = thaw(dcoll.nodes(), actx)
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
@@ -138,7 +154,8 @@ def simple_mpi_communication_entrypoint(comm, actx):
             dcoll.opposite_face_connection()(int_faces_func)
         )
         + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.int)
-              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc, tag=_SimpleTag))
+              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc,
+                  comm_tag=SimpleTag))
     ) - (all_faces_func - bdry_faces_func)
 
     error = actx.to_numpy(flat_norm(hopefully_zero, ord=np.inf))
@@ -151,7 +168,19 @@ def simple_mpi_communication_entrypoint(comm, actx):
     assert error < 1e-14
 
 
-def mpi_communication_entrypoint(comm, actx):
+# }}}
+
+
+# {{{ wave operator
+
+@pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
+@pytest.mark.parametrize("num_ranks", [2])
+def test_mpi_wave_op(actx_class, num_ranks):
+    run_test_with_mpi(num_ranks, _test_mpi_wave_op_entrypoint, actx_class)
+
+
+def _test_mpi_wave_op_entrypoint(actx):
+    comm = actx.mpi_communicator
     i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
 
@@ -175,8 +204,7 @@ def mpi_communication_entrypoint(comm, actx):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-                                     mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
@@ -204,7 +232,8 @@ def mpi_communication_entrypoint(comm, actx):
         dirichlet_tag=BTAG_NONE,
         neumann_tag=BTAG_NONE,
         radiation_tag=BTAG_ALL,
-        flux_type="upwind"
+        flux_type="upwind",
+        comm_tag=SimpleTag,
     )
 
     fields = flat_obj_array(
@@ -261,20 +290,6 @@ def mpi_communication_entrypoint(comm, actx):
     logmgr.close()
     logger.info("Rank %d exiting", i_local_rank)
 
-
-# {{{ MPI test pytest entrypoint
-
-@pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
-@pytest.mark.parametrize("num_ranks", [2])
-def test_mpi(actx_class, num_ranks):
-    run_test_with_mpi(num_ranks, mpi_communication_entrypoint, actx_class)
-
-
-@pytest.mark.parametrize("actx_class", [PyOpenCLArrayContext, MPIPytatoArrayContext])
-@pytest.mark.parametrize("num_ranks", [2])
-def test_simple_mpi(actx_class, num_ranks):
-    run_test_with_mpi(num_ranks, simple_mpi_communication_entrypoint, actx_class)
-
 # }}}
 
 
@@ -286,4 +301,5 @@ if __name__ == "__main__":
     else:
         from pytest import main
         main([__file__])
+
 # vim: fdm=marker
