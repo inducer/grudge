@@ -46,7 +46,9 @@ THE SOFTWARE.
 """
 
 
-from typing import List, Hashable, Optional
+from typing import List, Hashable, Optional, Type, Any
+
+from pytools.persistent_dict import KeyBuilder
 
 from arraycontext import (
     ArrayContainer,
@@ -432,6 +434,11 @@ class _RankBoundaryCommunicationLazy:
                          exterior=bdry_conn(self.remote_data))
 
 
+class _TagKeyBuilder(KeyBuilder):
+    def update_for_type(self, key_hash, key: Type[Any]):
+        self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
+
+
 def cross_rank_trace_pairs(
         dcoll: DiscretizationCollection, ary,
         comm_tag: Hashable = None,
@@ -492,16 +499,22 @@ def cross_rank_trace_pairs(
             if isinstance(comm_tag, int):
                 num_tag = comm_tag
 
-            from grudge.array_context import MPIPyOpenCLArrayContext
-            if isinstance(actx, MPIPyOpenCLArrayContext):
-                num_tag = actx.comm_tag_to_mpi_tag.get(comm_tag)
-
             if num_tag is None:
-                raise ValueError("Encountered unknown symbolic tag "
-                        f"'{comm_tag}'. To make this symbolic tag work, "
-                        f"use 'grudge.array_context.MPIPyOpenCLArrayContext' and "
-                        "assign this tag a numerical value via its "
-                        "comm_tag_to_mpi_tag attribute.")
+                # FIXME: This isn't guaranteed to be correct.
+                # See here for discussion:
+                # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716  # noqa
+                # - https://github.com/inducer/grudge/pull/222
+                from mpi4py import MPI
+                tag_ub = actx.mpi_communicator.Get_attr(MPI.TAG_UB)
+                key_builder = _TagKeyBuilder()
+                digest = key_builder(comm_tag)
+                num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
+
+                from warnings import warn
+                warn("Encountered unknown symbolic tag "
+                        f"'{comm_tag}', assigning a value of '{num_tag}'. "
+                        "This is a temporary workaround, please ensure that "
+                        "tags are sufficiently distinct for your use case.")
 
             comm_tag = num_tag
 
