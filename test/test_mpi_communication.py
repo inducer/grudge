@@ -179,7 +179,7 @@ def test_mpi_wave_op(actx_class, num_ranks):
     run_test_with_mpi(num_ranks, _test_mpi_wave_op_entrypoint, actx_class)
 
 
-def _test_mpi_wave_op_entrypoint(actx):
+def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     comm = actx.mpi_communicator
     i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
@@ -241,8 +241,9 @@ def _test_mpi_wave_op_entrypoint(actx):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
+    # FIXME: Sketchy, empirically determined fudge factor
     dt = actx.to_numpy(
-        2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
+        0.45 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
 
     wave_op.check_bc_coverage(local_mesh)
 
@@ -270,6 +271,10 @@ def _test_mpi_wave_op_entrypoint(actx):
     from time import time
     t_last_step = time()
 
+    if visualize:
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(dcoll)
+
     logmgr.tick_before()
     for step in range(nsteps):
         t = step*dt
@@ -280,6 +285,15 @@ def _test_mpi_wave_op_entrypoint(actx):
         logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
                     step, t, norm, time() - t_last_step)
 
+        if visualize:
+            vis.write_parallel_vtk_file(
+                comm,
+                f"fld-wave-mpi-{type(actx).__name__}-{{rank:03d}}-{step:04d}.vtu",
+                [
+                    ("u", fields[0]),
+                    ("v", fields[1:]),
+                ]
+            )
         assert norm < 1
 
         t_last_step = time()

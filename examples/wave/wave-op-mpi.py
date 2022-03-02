@@ -252,6 +252,8 @@ def main(ctx_factory, dim=2, order=3,
     )
 
     c = 1
+
+    # FIXME: Sketchy, empirically determined fudge factor
     dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
 
     vis = make_visualizer(dcoll)
