@@ -64,7 +64,8 @@ class WeakWaveOperator(HyperbolicOperator):
             dirichlet_tag=BTAG_ALL,
             dirichlet_bc_f=0,
             neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_NONE):
+            radiation_tag=BTAG_NONE,
+            comm_tag=None):
 
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
@@ -85,6 +86,8 @@ class WeakWaveOperator(HyperbolicOperator):
         self.dirichlet_bc_f = dirichlet_bc_f
 
         self.flux_type = flux_type
+
+        self.comm_tag = comm_tag
 
     def flux(self, wtpair):
         u = wtpair[0]
@@ -156,7 +159,8 @@ class WeakWaveOperator(HyperbolicOperator):
                 )
                 - op.face_mass(
                     dcoll,
-                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(
+                        dcoll, w, comm_tag=self.comm_tag))
                     + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
                     + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
                     + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))

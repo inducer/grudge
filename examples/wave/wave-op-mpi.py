@@ -34,7 +34,6 @@ from arraycontext import (
     with_container_arithmetic,
     dataclass_array_container
 )
-from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 
 from dataclasses import dataclass
 
@@ -95,6 +94,10 @@ def wave_flux(dcoll, c, w_tpair):
     return op.project(dcoll, dd, dd.with_dtag("all_faces"), c*flux_weak)
 
 
+class _WaveStateTag:
+    pass
+
+
 def wave_operator(dcoll, c, w, quad_tag=None):
     dd_base = as_dofdesc("vol")
     dd_vol = DOFDesc("vol", quad_tag)
@@ -138,7 +141,8 @@ def wave_operator(dcoll, c, w, quad_tag=None):
                                                exterior=dir_bc)
                 ) + sum(
                     wave_flux(dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
-                    for tpair in op.interior_trace_pairs(dcoll, w)
+                    for tpair in op.interior_trace_pairs(dcoll, w,
+                        comm_tag=_WaveStateTag)
                 )
             )
         )
@@ -178,17 +182,20 @@ def main(ctx_factory, dim=2, order=3,
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
-    if lazy:
-        actx = PytatoPyOpenCLArrayContext(queue)
-    else:
-        actx = PyOpenCLArrayContext(
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
-        )
-
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
+
+    from grudge.array_context import get_reasonable_array_context_class
+    actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
+    if lazy:
+        actx = actx_class(comm, queue, mpi_base_tag=15000)
+    else:
+        actx = actx_class(comm, queue,
+                allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+                force_device_scalars=True,
+                comm_tag_to_mpi_tag={
+                    _WaveStateTag: 1234,
+                    })
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
@@ -232,8 +239,7 @@ def main(ctx_factory, dim=2, order=3,
             # High-order quadrature to integrate inner products of polynomials
             # on warped geometry exactly (metric terms are also polynomial)
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-        }
-    )
+        })
 
     if use_quad:
         quad_tag = DISCR_TAG_QUAD
@@ -246,6 +252,8 @@ def main(ctx_factory, dim=2, order=3,
     )
 
     c = 1
+
+    # FIXME: Sketchy, empirically determined fudge factor
     dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
 
     vis = make_visualizer(dcoll)
@@ -265,6 +273,7 @@ def main(ctx_factory, dim=2, order=3,
     t_final = 3
     istep = 0
     while t < t_final:
+        start = time.time()
         if lazy:
             fields = thaw(freeze(fields, actx), actx)
 

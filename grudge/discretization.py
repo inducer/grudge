@@ -169,13 +169,43 @@ class DiscretizationCollection:
 
         # }}}
 
+        # {{{ process mpi_communicator argument
+
+        if mpi_communicator is not None:
+            warn("Passing 'mpi_communicator' is deprecated. This will stop working "
+                    "in 2023. Instead, pass an MPIBasedArrayContext.",
+                    DeprecationWarning, stacklevel=2)
+
+            from grudge.array_context import MPIBasedArrayContext
+            if (isinstance(array_context, MPIBasedArrayContext)
+                    and mpi_communicator is not array_context.mpi_communicator):
+                raise ValueError("mpi_communicator passed to "
+                        "DiscretizationCollection and the MPI communicator "
+                        "used to created the MPIBasedArrayContext must be "
+                        "idetical, which they aren't.")
+        else:
+            from grudge.array_context import MPIBasedArrayContext
+            if isinstance(self._setup_actx, MPIBasedArrayContext):
+                mpi_communicator = self._setup_actx.mpi_communicator
+
+        self._mpi_communicator = mpi_communicator
+
+        # }}}
+
         self._dist_boundary_connections = \
                 self._set_up_distributed_communication(
                         mpi_communicator, array_context)
 
-        self.mpi_communicator = mpi_communicator
-
     # }}}
+
+    @property
+    def mpi_communicator(self):
+        warn("Accessing DiscretizationCollection.mpi_communicator is deprecated. "
+                "This will stop working in 2023. "
+                "Instead, use an MPIBasedArrayContext, and obtain the communicator "
+                "from that.", DeprecationWarning, stacklevel=2)
+
+        return self._mpi_communicator
 
     @property
     def quad_tag_to_group_factory(self):
