@@ -192,10 +192,7 @@ def main(ctx_factory, dim=2, order=3,
     else:
         actx = actx_class(comm, queue,
                 allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-                force_device_scalars=True,
-                comm_tag_to_mpi_tag={
-                    _WaveStateTag: 1234,
-                    })
+                force_device_scalars=True)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)

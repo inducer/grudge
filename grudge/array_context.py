@@ -32,8 +32,7 @@ THE SOFTWARE.
 # {{{ imports
 
 from typing import (
-        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional,
-        Hashable, Type)
+        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional, Type)
 from dataclasses import dataclass
 
 from meshmode.array_context import (
@@ -240,16 +239,10 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
             queue: "pyopencl.CommandQueue",
             *, allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
             wait_event_queue_length: Optional[int] = None,
-            force_device_scalars: bool = False,
-            comm_tag_to_mpi_tag: Optional[Mapping[Hashable, int]] = None) -> None:
+            force_device_scalars: bool = False) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
         arguments.
-
-        :arg comm_tag_to_mpi_tag: A mapping from symbolic tags used
-            in the *comm_tag* argument of
-            :func:`grudge.trace_pair.cross_rank_trace_pairs` to numeric values
-            to be used with MPI.
         """
         super().__init__(queue, allocator=allocator,
                 wait_event_queue_length=wait_event_queue_length,
@@ -257,19 +250,13 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
 
         self.mpi_communicator = mpi_communicator
 
-        if comm_tag_to_mpi_tag is None:
-            comm_tag_to_mpi_tag = {}
-
-        self.comm_tag_to_mpi_tag = comm_tag_to_mpi_tag
-
     def clone(self):
         # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
         # pylint: disable=no-member
         return type(self)(self.mpi_communicator, self.queue,
                 allocator=self.allocator,
                 wait_event_queue_length=self._wait_event_queue_length,
-                force_device_scalars=self._force_device_scalars,
-                comm_tag_to_mpi_tag=self.comm_tag_to_mpi_tag)
+                force_device_scalars=self._force_device_scalars)
 
 # }}}
 

@@ -46,7 +46,10 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
-from testlib import SimpleTag
+
+
+class SimpleTag:
+    pass
 
 
 # {{{ mpi test infrastructure
@@ -86,8 +89,7 @@ def run_test_with_mpi_inner():
     if actx_class is MPIPytatoArrayContext:
         actx = actx_class(comm, queue, mpi_base_tag=15000)
     elif actx_class is MPIPyOpenCLArrayContext:
-        actx = actx_class(comm, queue, force_device_scalars=True,
-                comm_tag_to_mpi_tag={SimpleTag: 15000})
+        actx = actx_class(comm, queue, force_device_scalars=True)
     else:
         raise ValueError("unknown actx_class")
 
