@@ -497,9 +497,12 @@ def cross_rank_trace_pairs(
                 num_tag = actx.comm_tag_to_mpi_tag.get(comm_tag)
 
             if num_tag is None:
-                raise ValueError("Encountered unknown symbolic tag "
-                        f"'{comm_tag}'. To make this symbolic tag work, "
-                        f"use 'grudge.array_context.MPIPyOpenCLArrayContext' and "
+                num_tag = hash(comm_tag)
+                from warnings import warn
+                warn("Encountered unknown symbolic tag "
+                        f"'{comm_tag}', assigning a value of '{num_tag}'. "
+                        "To use a different value, "
+                        "use 'grudge.array_context.MPIPyOpenCLArrayContext' and "
                         "assign this tag a numerical value via its "
                         "comm_tag_to_mpi_tag attribute.")
 
