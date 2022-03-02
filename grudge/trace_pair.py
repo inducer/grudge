@@ -495,8 +495,11 @@ def cross_rank_trace_pairs(
             if num_tag is None:
                 # FIXME: This isn't guaranteed to be correct.
                 # See here for discussion:
-                # https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716
-                num_tag = hash(comm_tag)
+                # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716
+                # - https://github.com/inducer/grudge/pull/222
+                tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+                num_tag = hash(comm_tag) % tag_ub
+
                 from warnings import warn
                 warn("Encountered unknown symbolic tag "
                         f"'{comm_tag}', assigning a value of '{num_tag}'. "
