@@ -323,7 +323,7 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True
         ) -> Type[ArrayContext]:
-    """Returns the most reasonable class :class:`PyOpenCLArrayContext` currently
+    """Returns a reasonable :class:`ArrayContext` currently
     supported given the constraints of *lazy* and *distributed*."""
     if lazy:
         # lazy, non-distributed
