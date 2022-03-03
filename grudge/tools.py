@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Any
 import numpy as np
 from pytools import levi_civita
 
@@ -102,6 +103,10 @@ class SubsettableCrossProduct:
 cross = SubsettableCrossProduct()
 
 # }}}
+
+
+def to_real_dtype(dtype: np.dtype[Any]) -> np.dtype[Any]:
+    return np.array(0, dtype=dtype).real.dtype
 
 
 def count_subset(subset):
@@ -199,3 +204,5 @@ class OrderedSet(MutableSet):
         return set(self) == set(other)
 
 # }}}
+
+# vim: foldmethod=marker
