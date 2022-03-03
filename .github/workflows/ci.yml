@@ -69,7 +69,7 @@ jobs:
                 python euler/acoustic_pulse.py --lazy
                 python euler/vortex.py --oi --lazy
 
-                mpirun -n 2 python wave/wave-op-mpi.py --lazy
+                mpiexec -np 2 --oversubscribe python wave/wave-op-mpi.py --lazy
 
     docs:
         name: Documentation
