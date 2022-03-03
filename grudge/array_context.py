@@ -39,10 +39,16 @@ from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
 
+import logging
+logger = logging.getLogger(__name__)
+
 try:
     # FIXME: temporary workaround while SingleGridWorkBalancingPytatoArrayContext
     # is not available in meshmode's main branch
     from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
+
+    # Crude check if we have the correct loopy branch:
+    from loopy.codegen.result import get_idis_for_kernel  # noqa
     _HAVE_SINGLE_GRID_WORK_BALANCING = True
 except ImportError:
     _HAVE_SINGLE_GRID_WORK_BALANCING = False
@@ -317,23 +323,32 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True
         ) -> Type[ArrayContext]:
+    """Returns the most reasonable class :class:`PyOpenCLArrayContext` currently
+    supported given the constraints of *lazy* and *distributed*."""
     if lazy:
         # lazy, non-distributed
         if not distributed:
             if _HAVE_SINGLE_GRID_WORK_BALANCING:
-                return SingleGridWorkBalancingPytatoArrayContext
+                actx_class = SingleGridWorkBalancingPytatoArrayContext
             else:
-                return PytatoPyOpenCLArrayContext
+                actx_class = PytatoPyOpenCLArrayContext
         # distributed+lazy:
         if _HAVE_SINGLE_GRID_WORK_BALANCING:
-            return MPISingleGridWorkBalancingPytatoArrayContext
+            actx_class = MPISingleGridWorkBalancingPytatoArrayContext
         else:
-            return MPIBasePytatoPyOpenCLArrayContext
+            actx_class = MPIBasePytatoPyOpenCLArrayContext
     else:
         if distributed:
-            return MPIPyOpenCLArrayContext
+            actx_class = MPIPyOpenCLArrayContext
         else:
-            return PyOpenCLArrayContext
+            actx_class = PyOpenCLArrayContext
+
+    logger.info("get_reasonable_array_context_class: %s lazy=%r distributed=%r "
+                "device-parallel=%r",
+                actx_class.__name__, lazy, distributed,
+                # eager is always device-parallel:
+                (_HAVE_SINGLE_GRID_WORK_BALANCING or not lazy))
+    return actx_class
 
 # }}}
 
