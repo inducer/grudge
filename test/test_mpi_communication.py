@@ -243,9 +243,8 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    # FIXME: Sketchy, empirically determined fudge factor
     dt = actx.to_numpy(
-        0.45 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
+        wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
 
     wave_op.check_bc_coverage(local_mesh)
 

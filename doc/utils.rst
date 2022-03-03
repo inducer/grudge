@@ -10,3 +10,8 @@ Array contexts
 --------------
 
 .. automodule:: grudge.array_context
+
+Miscellaneous tools
+-------------------
+
+.. automodule:: grudge.tools

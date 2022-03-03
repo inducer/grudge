@@ -182,6 +182,9 @@ class WeakWaveOperator(HyperbolicOperator):
     def max_characteristic_velocity(self, actx, t=None, fields=None):
         return abs(self.c)
 
+    def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
+        # FIXME: Sketchy, empirically determined fudge factor
+        return 0.38 * super().estimate_rk4_timestep(actx,  dcoll, **kwargs)
 
 # }}}
 
