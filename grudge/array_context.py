@@ -329,6 +329,13 @@ def get_reasonable_array_context_class(
     """Returns a reasonable :class:`PyOpenCLArrayContext` currently
     supported given the constraints of *lazy* and *distributed*."""
     if lazy:
+        if not _HAVE_SINGLE_GRID_WORK_BALANCING:
+            from warnings import warn
+            warn("No device-parallel actx available, execution will be slow."
+                 "Please make sure you have the right branches for loopy "
+                 "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
+                 "and meshmode "
+                 "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).")  # noqa
         # lazy, non-distributed
         if not distributed:
             if _HAVE_SINGLE_GRID_WORK_BALANCING:
