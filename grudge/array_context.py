@@ -45,9 +45,12 @@ logger = logging.getLogger(__name__)
 try:
     # FIXME: temporary workaround while SingleGridWorkBalancingPytatoArrayContext
     # is not available in meshmode's main branch
+    # (it currently needs
+    # https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms)
     from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
 
-    # Crude check if we have the correct loopy branch:
+    # Crude check if we have the correct loopy branch
+    # (https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms)
     from loopy.codegen.result import get_idis_for_kernel  # noqa
     _HAVE_SINGLE_GRID_WORK_BALANCING = True
 except ImportError:
@@ -323,7 +326,7 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True
         ) -> Type[ArrayContext]:
-    """Returns a reasonable :class:`ArrayContext` currently
+    """Returns a reasonable :class:`PyOpenCLArrayContext` currently
     supported given the constraints of *lazy* and *distributed*."""
     if lazy:
         # lazy, non-distributed
