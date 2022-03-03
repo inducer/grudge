@@ -69,6 +69,9 @@ jobs:
                 python euler/acoustic_pulse.py --lazy
                 python euler/vortex.py --oi --lazy
 
+                # --oversubscribe is an option for Open MPI (which is what the CI uses)
+                # It allows the CI to succeed even if the CI runner does not
+                # have a sufficient number of cores.
                 mpiexec -np 2 --oversubscribe python wave/wave-op-mpi.py --lazy
 
     docs:
