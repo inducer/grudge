@@ -266,6 +266,7 @@ def dt_geometric_factors(
     )
 
     if dcoll.dim == 1:
+        # Inscribed "circle" radius is half the cell size
         return freeze(cell_vols/2)
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
