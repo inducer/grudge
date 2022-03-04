@@ -157,72 +157,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 # }}}
 
 
-# {{{ common derivative "helpers"
-
-def _div_helper(ambient_dim, component_div, is_scalar, vecs):
-    if not isinstance(vecs, np.ndarray):
-        # vecs is not an object array -> treat as array container
-        return map_array_container(
-            partial(_div_helper, ambient_dim, component_div, is_scalar), vecs)
-
-    assert vecs.dtype == object
-
-    if vecs.size and not is_scalar(vecs[(0,)*vecs.ndim]):
-        # vecs is an object array containing further object arrays
-        # -> treat as array container
-        return map_array_container(
-            partial(_div_helper, ambient_dim, component_div, is_scalar), vecs)
-
-    if vecs.shape[-1] != ambient_dim:
-        raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
-                "ambient dimension")
-
-    div_result_shape = vecs.shape[:-1]
-
-    if len(div_result_shape) == 0:
-        return component_div(vecs)
-    else:
-        result = np.zeros(div_result_shape, dtype=object)
-        for idx in np.ndindex(div_result_shape):
-            result[idx] = component_div(vecs[idx])
-        return result
-
-
-def _grad_helper(ambient_dim, component_grad, is_scalar, vecs, nested):
-    if isinstance(vecs, np.ndarray):
-        # Occasionally, data structures coming from *mirgecom* will
-        # contain empty object arrays as placeholders for fields.
-        # For example, species mass fractions is an empty object array when
-        # running in a single-species configuration.
-        # This hack here ensures that these empty arrays, at the very least,
-        # have their shape updated when applying the gradient operator
-        if vecs.size == 0:
-            return vecs.reshape(vecs.shape + (ambient_dim,))
-
-        # For containers with ndarray data (such as momentum/velocity),
-        # the gradient is matrix-valued, so we compute the gradient for
-        # each component. If requested (via 'not nested'), return a matrix of
-        # derivatives by stacking the results.
-        grad = obj_array_vectorize(
-            lambda el: _grad_helper(
-                ambient_dim, component_grad, is_scalar, el, nested=nested), vecs)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
-
-    if not is_scalar(vecs):
-        return map_array_container(
-            partial(
-                _grad_helper, ambient_dim, component_grad, is_scalar,
-                nested=nested),
-            vecs)
-
-    return component_grad(vecs)
-
-# }}}
-
-
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
@@ -280,7 +214,8 @@ def local_grad(
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
     dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    return _grad_helper(
+    from grudge.tools import container_grad
+    return container_grad(
         dcoll.ambient_dim,
         partial(_strong_scalar_grad, dcoll, dd_in),
         lambda v: isinstance(v, DOFArray),
@@ -341,7 +276,8 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
             local_d_dx(dcoll, i, vec_i)
             for i, vec_i in enumerate(vec))
 
-    return _div_helper(
+    from grudge.tools import container_div
+    return container_div(
         dcoll.ambient_dim,
         component_div,
         lambda v: isinstance(v, DOFArray),
@@ -444,7 +380,8 @@ def weak_local_grad(
     else:
         raise TypeError("invalid number of arguments")
 
-    return _grad_helper(
+    from grudge.tools import container_grad
+    return container_grad(
         dcoll.ambient_dim,
         partial(_weak_scalar_grad, dcoll, dd_in),
         lambda v: isinstance(v, DOFArray),
@@ -554,7 +491,8 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
             weak_local_d_dx(dcoll, dd_in, i, vec_i)
             for i, vec_i in enumerate(vec))
 
-    return _div_helper(
+    from grudge.tools import container_div
+    return container_div(
         dcoll.ambient_dim,
         component_div,
         lambda v: isinstance(v, DOFArray),
