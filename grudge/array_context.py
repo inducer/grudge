@@ -49,10 +49,20 @@ try:
     # https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms)
     from meshmode.array_context import SingleGridWorkBalancingPytatoArrayContext
 
-    # Crude check if we have the correct loopy branch
-    # (https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms)
-    from loopy.codegen.result import get_idis_for_kernel  # noqa
-    _HAVE_SINGLE_GRID_WORK_BALANCING = True
+    try:
+        # Crude check if we have the correct loopy branch
+        # (https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms)
+        from loopy.codegen.result import get_idis_for_kernel  # noqa
+    except ImportError:
+        from warnings import warn
+        warn("Your loopy and meshmode branches are mismatched. "
+             "Please make sure that you have the "
+             "https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms "  # noqa
+             "branch of loopy.")
+        _HAVE_SINGLE_GRID_WORK_BALANCING = False
+    else:
+        _HAVE_SINGLE_GRID_WORK_BALANCING = True
+
 except ImportError:
     _HAVE_SINGLE_GRID_WORK_BALANCING = False
 
@@ -331,7 +341,7 @@ def get_reasonable_array_context_class(
     if lazy:
         if not _HAVE_SINGLE_GRID_WORK_BALANCING:
             from warnings import warn
-            warn("No device-parallel actx available, execution will be slow."
+            warn("No device-parallel actx available, execution will be slow. "
                  "Please make sure you have the right branches for loopy "
                  "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
                  "and meshmode "
