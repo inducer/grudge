@@ -235,4 +235,70 @@ def build_jacobian(actx, f, base_state, stepsize):
     return mat
 
 
+# {{{ common derivative "helpers"
+
+def container_div(ambient_dim, component_div, is_scalar, vecs):
+    if not isinstance(vecs, np.ndarray):
+        # vecs is not an object array -> treat as array container
+        return map_array_container(
+            partial(container_div, ambient_dim, component_div, is_scalar), vecs)
+
+    assert vecs.dtype == object
+
+    if vecs.size and not is_scalar(vecs[(0,)*vecs.ndim]):
+        # vecs is an object array containing further object arrays
+        # -> treat as array container
+        return map_array_container(
+            partial(container_div, ambient_dim, component_div, is_scalar), vecs)
+
+    if vecs.shape[-1] != ambient_dim:
+        raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
+                "ambient dimension")
+
+    div_result_shape = vecs.shape[:-1]
+
+    if len(div_result_shape) == 0:
+        return component_div(vecs)
+    else:
+        result = np.zeros(div_result_shape, dtype=object)
+        for idx in np.ndindex(div_result_shape):
+            result[idx] = component_div(vecs[idx])
+        return result
+
+
+def container_grad(ambient_dim, component_grad, is_scalar, vecs, nested):
+    if isinstance(vecs, np.ndarray):
+        # Occasionally, data structures coming from *mirgecom* will
+        # contain empty object arrays as placeholders for fields.
+        # For example, species mass fractions is an empty object array when
+        # running in a single-species configuration.
+        # This hack here ensures that these empty arrays, at the very least,
+        # have their shape updated when applying the gradient operator
+        if vecs.size == 0:
+            return vecs.reshape(vecs.shape + (ambient_dim,))
+
+        # For containers with ndarray data (such as momentum/velocity),
+        # the gradient is matrix-valued, so we compute the gradient for
+        # each component. If requested (via 'not nested'), return a matrix of
+        # derivatives by stacking the results.
+        grad = obj_array_vectorize(
+            lambda el: container_grad(
+                ambient_dim, component_grad, is_scalar, el, nested=nested), vecs)
+        if nested:
+            return grad
+        else:
+            return np.stack(grad, axis=0)
+
+    if not is_scalar(vecs):
+        return map_array_container(
+            partial(
+                container_grad, ambient_dim, component_grad, is_scalar,
+                nested=nested),
+            vecs)
+
+    return component_grad(vecs)
+
+# }}}
+
+
 # vim: foldmethod=marker
