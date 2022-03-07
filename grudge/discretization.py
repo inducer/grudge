@@ -94,7 +94,7 @@ class DiscretizationCollection:
             (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
             :class:`grudge.dof_desc.DISCR_TAG_MODAL`, or
             :class:`grudge.dof_desc.DISCR_TAG_QUAD`) to a
-            :class:`~meshmode.discretization.poly_element.ElementGroupFactory`
+            :class:`~meshmode.discretization.ElementGroupFactory`
             indicating with which type of discretization the operations are
             to be carried out, or *None* to indicate that operations with this
             discretization tag should be carried out with the standard volume
