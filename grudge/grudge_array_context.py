@@ -390,7 +390,7 @@ class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
                             n_to_nodes*n_from_nodes +
                             kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
             elif "resample_by_picking" in program.default_entrypoint.name:
-                # Double check this
+                # Double check this - this may underestimate the number of bytes transferred
                 if "rhs" not in program.default_entrypoint.name:
                     nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                             + kwargs["to_element_indices"].shape[0])*8
@@ -615,13 +615,14 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             slabs = (0,1) if nelements > 128 else (0,0)
             program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
                                         slabs=slabs)
+
             # Should there be slabs here?
             program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
                                         inner_tag="l.0", slabs=(0,0))
 
             slabs = (0,1) if ndofs > 32 else (0,0)
             program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=slabs)
+                                        inner_tag="l.1", slabs=(0, 0))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
