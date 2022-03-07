@@ -61,7 +61,7 @@ from meshmode.transform_metadata import FirstAxisIsElementsTag
 from grudge.discretization import DiscretizationCollection
 
 from pytools import keyed_memoize_in
-from pytools.obj_array import obj_array_vectorize, make_obj_array
+from pytools.obj_array import make_obj_array
 
 import numpy as np
 
@@ -214,13 +214,14 @@ def local_grad(
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
     dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
-    from grudge.tools import container_grad
-    return container_grad(
-        dcoll.ambient_dim,
-        partial(_strong_scalar_grad, dcoll, dd_in),
-        lambda v: isinstance(v, DOFArray),
-        vec,
-        nested=nested)
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        f=partial(_strong_scalar_grad, dcoll, dd_in),
+        in_shape=(),
+        out_shape=(dcoll.ambient_dim,),
+        is_scalar=lambda v: isinstance(v, DOFArray),
+        return_nested=nested,
+        ary=vec)
 
 
 def local_d_dx(
@@ -271,17 +272,15 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
-    def component_div(vec):
-        return sum(
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        f=lambda vec: sum(
             local_d_dx(dcoll, i, vec_i)
-            for i, vec_i in enumerate(vec))
-
-    from grudge.tools import container_div
-    return container_div(
-        dcoll.ambient_dim,
-        component_div,
-        lambda v: isinstance(v, DOFArray),
-        vecs)
+            for i, vec_i in enumerate(vec)),
+        in_shape=(dcoll.ambient_dim,),
+        out_shape=(),
+        is_scalar=lambda v: isinstance(v, DOFArray),
+        ary=vecs)
 
 # }}}
 
@@ -380,13 +379,14 @@ def weak_local_grad(
     else:
         raise TypeError("invalid number of arguments")
 
-    from grudge.tools import container_grad
-    return container_grad(
-        dcoll.ambient_dim,
-        partial(_weak_scalar_grad, dcoll, dd_in),
-        lambda v: isinstance(v, DOFArray),
-        vecs,
-        nested=nested)
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        f=partial(_weak_scalar_grad, dcoll, dd_in),
+        in_shape=(),
+        out_shape=(dcoll.ambient_dim,),
+        is_scalar=lambda v: isinstance(v, DOFArray),
+        return_nested=nested,
+        ary=vecs)
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
@@ -486,17 +486,15 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     else:
         raise TypeError("invalid number of arguments")
 
-    def component_div(vec):
-        return sum(
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        f=lambda vec: sum(
             weak_local_d_dx(dcoll, dd_in, i, vec_i)
-            for i, vec_i in enumerate(vec))
-
-    from grudge.tools import container_div
-    return container_div(
-        dcoll.ambient_dim,
-        component_div,
-        lambda v: isinstance(v, DOFArray),
-        vecs)
+            for i, vec_i in enumerate(vec)),
+        in_shape=(dcoll.ambient_dim,),
+        out_shape=(),
+        is_scalar=lambda v: isinstance(v, DOFArray),
+        ary=vecs)
 
 # }}}
 

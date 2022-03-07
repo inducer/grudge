@@ -1,5 +1,7 @@
 """
 .. autofunction:: build_jacobian
+.. autofunction:: map_subarrays
+.. autofunction:: rec_map_subarrays
 """
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
@@ -26,6 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 from pytools import levi_civita
+from functools import partial
 
 
 def is_zero(x):
@@ -235,70 +238,99 @@ def build_jacobian(actx, f, base_state, stepsize):
     return mat
 
 
-# {{{ common derivative "helpers"
+def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
+    """
+    Map a function *f* over a :class:`numpy.ndarray`, applying it to subarrays
+    of shape *in_shape* individually.
 
-def container_div(ambient_dim, component_div, is_scalar, vecs):
-    if not isinstance(vecs, np.ndarray):
-        # vecs is not an object array -> treat as array container
-        return map_array_container(
-            partial(container_div, ambient_dim, component_div, is_scalar), vecs)
+    Example 1: given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
+    and an input array *ary* of shape ``(3, 2, 2)``, the call::
 
-    assert vecs.dtype == object
+        map_subarrays(f, (2, 2), (), ary)
 
-    if vecs.size and not is_scalar(vecs[(0,)*vecs.ndim]):
-        # vecs is an object array containing further object arrays
-        # -> treat as array container
-        return map_array_container(
-            partial(container_div, ambient_dim, component_div, is_scalar), vecs)
+    will produce an array of shape ``(3,)`` containing the results of calling *f* on
+    the 3 subarrays of shape ``(2, 2)`` in *ary*.
 
-    if vecs.shape[-1] != ambient_dim:
-        raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
-                "ambient dimension")
+    Example 2: given a function *f* that maps arrays of shape ``(2,)`` to arrays of
+    shape ``(2, 2)`` and an input array *ary* of shape ``(3, 2)``, the call::
 
-    div_result_shape = vecs.shape[:-1]
+        map_subarrays(f, (2,), (2, 2), ary)
 
-    if len(div_result_shape) == 0:
-        return component_div(vecs)
+    will produce an array of shape ``(3, 2, 2)`` containing the results of calling
+    *f* on the 3 subarrays of shape ``(2,)`` in *ary*. The call::
+
+        map_subarrays(f, (2,), (2, 2), ary, return_nested=True)
+
+    will instead produce an array of shape ``(3,)`` with each entry containing an
+    array of shape ``(2, 2)``.
+
+    :param f: the function to be called.
+    :param in_shape: the shape of any inputs to *f*.
+    :param out_shape: the shape of the result of calling *f* on an array of shape
+        *in_shape*.
+    :param ary: a :class:`numpy.ndarray` instance.
+    :param return_nested: if *out_shape* is nontrivial, this flag indicates whether
+        to return a nested array (containing one entry for each application of *f*),
+        or to return a single, higher-dimensional array.
+
+    :returns: an array with the subarrays of shape *in_shape* replaced with
+        subarrays of shape *out_shape* resulting from the application of *f*.
+    """
+    if not isinstance(ary, np.ndarray):
+        if len(in_shape) != 0:
+            raise ValueError(f"found scalar, expected array of shape {in_shape}")
+        return f(ary)
     else:
-        result = np.zeros(div_result_shape, dtype=object)
-        for idx in np.ndindex(div_result_shape):
-            result[idx] = component_div(vecs[idx])
-        return result
-
-
-def container_grad(ambient_dim, component_grad, is_scalar, vecs, nested):
-    if isinstance(vecs, np.ndarray):
-        # Occasionally, data structures coming from *mirgecom* will
-        # contain empty object arrays as placeholders for fields.
-        # For example, species mass fractions is an empty object array when
-        # running in a single-species configuration.
-        # This hack here ensures that these empty arrays, at the very least,
-        # have their shape updated when applying the gradient operator
-        if vecs.size == 0:
-            return vecs.reshape(vecs.shape + (ambient_dim,))
-
-        # For containers with ndarray data (such as momentum/velocity),
-        # the gradient is matrix-valued, so we compute the gradient for
-        # each component. If requested (via 'not nested'), return a matrix of
-        # derivatives by stacking the results.
-        grad = obj_array_vectorize(
-            lambda el: container_grad(
-                ambient_dim, component_grad, is_scalar, el, nested=nested), vecs)
-        if nested:
-            return grad
+        if (
+                ary.ndim < len(in_shape)
+                or ary.shape[ary.ndim-len(in_shape):] != in_shape):
+            raise ValueError(
+                f"array of shape {ary.shape} is incompatible with function "
+                f"expecting input shape {in_shape}")
+        base_shape = ary.shape[:ary.ndim-len(in_shape)]
+        if len(base_shape) == 0:
+            return f(ary)
         else:
-            return np.stack(grad, axis=0)
+            in_slice = tuple(slice(0, n) for n in in_shape)
+            out_slice = tuple(slice(0, n) for n in out_shape)
+            if return_nested:
+                result = np.empty(base_shape, dtype=object)
+                for idx in np.ndindex(base_shape):
+                    result[idx] = f(ary[idx + in_slice])
+                return result
+            else:
+                result = np.empty(base_shape + out_shape, dtype=object)
+                for idx in np.ndindex(base_shape):
+                    result[idx + out_slice] = f(ary[idx + in_slice])
+                return result
 
-    if not is_scalar(vecs):
+
+def rec_map_subarrays(
+        f, in_shape, out_shape, is_scalar, ary, *, return_nested=False):
+    """
+    Map a function *f* over an object *ary*, applying it to any subarrays
+    of shape *in_shape* individually.
+
+    Array container version of :func:`map_subarrays`.
+
+    :param is_scalar: a function that indicates whether a given object is to be
+        treated as a scalar or not.
+    """
+    def is_array_of_scalars(a):
+        return (
+            isinstance(a, np.ndarray) and a.dtype == object
+            and all(is_scalar(a[idx]) for idx in np.ndindex(a.shape)))
+
+    if is_scalar(ary) or is_array_of_scalars(ary):
+        return map_subarrays(
+            f, in_shape, out_shape, ary, return_nested=return_nested)
+    else:
+        from arraycontext import map_array_container
         return map_array_container(
             partial(
-                container_grad, ambient_dim, component_grad, is_scalar,
-                nested=nested),
-            vecs)
-
-    return component_grad(vecs)
-
-# }}}
+                rec_map_subarrays, f, in_shape, out_shape, is_scalar,
+                return_nested=return_nested),
+            ary)
 
 
 # vim: foldmethod=marker
