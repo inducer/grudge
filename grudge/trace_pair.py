@@ -252,7 +252,12 @@ def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair
         if isinstance(el, Number):
             return el
         else:
-            return dcoll.opposite_face_connection()(el)
+            op_face_conn = dcoll.opposite_face_connection()
+            print(type(op_face_conn))
+            conn = op_face_conn(el)
+            print(type(conn))
+            return conn
+            #return dcoll.opposite_face_connection()(el)
 
     e = obj_array_vectorize(get_opposite_face, i)
 

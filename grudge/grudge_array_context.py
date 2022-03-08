@@ -17,7 +17,8 @@ from arraycontext.container.traversal import (rec_map_array_container,
 from hashlib import md5
 import hjson
 import os
-from grudge.loopy_dg_kernels.run_tests import generic_test, random_search, exhaustive_search, exhaustive_search_v2
+from grudge.loopy_dg_kernels.run_tests import (generic_test, random_search,
+        exhaustive_search, exhaustive_search_v2)
 from arraycontext.container.traversal import rec_multimap_array_container
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
@@ -584,8 +585,6 @@ class KernelSavingArrayContext(FortranOrderedArrayContext):
 
         return program
 
-   
-
 
 # This class could be used for some set of default transformations
 class GrudgeArrayContext(FortranOrderedArrayContext):
@@ -861,9 +860,9 @@ def unique_program_id(program):
     return identifier
 
 
-def convert(o):
-    if isinstance(o, np.generic): return o.item()
-    raise TypeError
+#def convert(o):
+#    if isinstance(o, np.generic): return o.item()
+#    raise TypeError
 
 
 # Meshmode and Grudge kernels to autotune
@@ -877,6 +876,53 @@ autotuned_kernels = {"einsum3to2_kernel",
 
 
 class AutotuningArrayContext(GrudgeArrayContext):
+
+    #@memoize_method #Should this be memoized?
+    def get_generators(self, program):
+
+        # Maybe the generators should be classes so we can use inheritance.
+        if program.default_entrypoint.name == "einsum3to2_kernel":
+            from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_tlist_generator as tlist_generator
+            from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_pspace_generator as pspace_generator
+        elif program.default_entrypoint.name == "einsum4to2_kernel":
+            from grudge.loopy_dg_kernels.generators import einsum4to2_kernel_tlist_generator as tlist_generator
+            from grudge.loopy_dg_kernels.generators import einsum4to2_kernel_pspace_generator as pspace_generator
+        elif program.default_entrypoint.name == "einsum5to3_kernel":
+            from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_tlist_generator as tlist_generator
+            from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_pspace_generator as pspace_generator
+        elif program.default_entrypoint.name == "einsum2to2_kernel":
+            from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_tlist_generator as tlist_generator
+            from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_pspace_generator as pspace_generator
+        elif program.default_entrypoint.name == "grudge_elementwise_sum_knl":
+            from grudge.loopy_dg_kernels.generators import grudge_elementwise_sum_knl_tlist_generator as tlist_generator
+            from grudge.loopy_dg_kernels.generators import grudge_elementwise_sum_knl_pspace_generator as pspace_generator
+        else:
+            from grudge.loopy_dg_kernels.generators import gen_autotune_list as pspace_generator
+            from grudge.loopy_dg_kernels.generators import mxm_trans_list_generator as tlist_generator
+
+        return tlist_generator, pspace_generator
+
+
+    def autotune_and_save(self, queue, program, search_fn, tlist_generator,
+            pspace_generator,  hjson_file_str, time_limit=np.inf):
+        from hjson import dump
+        def convert(o):
+            if isinstance(o, np.generic): return o.item()
+            raise TypeError
+
+        try:
+            avg_time, transformations, data = search_fn(queue, program, generic_test,
+                                        pspace_generator, tlist_generator, time_limit=time_limit)
+        except cl._cl.RuntimeError as e:
+            print(e)
+            print("Profiling is not enabled and the PID does not match any transformation file. Turn on profiling and run again.")
+
+        od = {"transformations": transformations}
+        out_file = open(hjson_file_str, "wt+")
+
+        hjson.dump(od, out_file,default=convert)
+        out_file.close()
+        return transformations
 
     @memoize_method
     def transform_loopy_program(self, program):
@@ -903,7 +949,6 @@ class AutotuningArrayContext(GrudgeArrayContext):
             program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
             program = set_memory_layout(program)
             pid = unique_program_id(program)
-            print(pid)
             os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
             hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
 
@@ -964,8 +1009,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
             # There shouldn't be any more key errors now that PIDs are used
             except FileNotFoundError as e:
                 
-                search_fn = exhaustive_search_v2#random_search
-
+                """
                 # Maybe the generators should be classes so we can use inheritance.
                 if program.default_entrypoint.name == "einsum3to2_kernel":
                     from grudge.loopy_dg_kernels.generators import einsum3to2_kernel_tlist_generator as tlist_generator
@@ -993,26 +1037,18 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     print(e)
                     print("Profiling is not enabled and the PID does not match any transformation file. Turn on profiling and run again.")
 
-                #transformations = search_fn(self.queue, program, generic_test, time_limit=60)
-                #transformations = dgk.generate_transformation_list(*transformations) 
-                
-                # Write the new transformations back to local file
-                #if isinstance(e, KeyError):
-                #    hjson_file = open(hjson_file_str, "rt")
-                #    # Need to figure out how to copy existing transformations 
-                #    od = hjson.load(hjson_file)
-                #    hjson_file.close()
-                #    od[transform_id][fp_string][ndofs] = transformations
-                #else:
-                #    od = {transform_id: {fp_string: {str(ndofs): transformations} } }
                 od = {"transformations": transformations}
-                
                 out_file = open(hjson_file_str, "wt+")
 
                 hjson.dump(od, out_file,default=convert)
                 out_file.close()
                 #from pprint import pprint
                 #pprint(od)
+                """
+                tlist_generator, pspace_generator = self.get_generators(program)
+                search_fn = exhaustive_search_v2#random_search
+                transformations = self.autotune_and_save(self.queue, program, search_fn, 
+                        tlist_generator, pspace_generator, hjson_file_str)
 
             program = dgk.apply_transformation_list(program, transformations)
 
