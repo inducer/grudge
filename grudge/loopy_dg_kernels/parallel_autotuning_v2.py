@@ -9,6 +9,8 @@ from charm4py.charm import Charm, CharmRemote
 import pyopencl as cl
 import numpy as np
 import grudge.loopy_dg_kernels as dgk
+from grudge.loopy_dg_kernels.run_tests import run_single_param_set
+
 #from grudge.execution import diff_prg, elwise_linear
 
 # Makes one PE inactive on each host so the number of workers is the same on all hosts as
@@ -40,7 +42,7 @@ class AllPEsPoolScheduler(PoolScheduler):
        self.num_workers = len(self.idle_workers)
 
 
-def get_queue(pe_num, platform_num=0):
+def get_queue(pe_num, platform_num):
     platforms = cl.get_platforms()
     gpu_devices = platforms[platform_num].get_devices(device_type=cl.device_type.GPU)
     ctx = cl.Context(devices=[gpu_devices[pe_num % len(gpu_devices)]])
@@ -56,7 +58,102 @@ def do_work(args):
     avg_time, transform_list = dgk.run_tests.apply_transformations_and_run_test(queue, knl, dgk.run_tests.generic_test, params)
     return avg_time, params
 
+def test(args):
+    platform_id, knl, tlist_generator, params, test_fn = args
+    queue = get_queue(charm.myPe(), platform_id)
+    result = run_single_param_set(queue, knl, tlist_generator, p, test_fn) 
+    return result
 
+
+
+def unpickle_kernel(fname):
+    from pickle import load
+    f = open(fname, "rb")
+    program = load(f)
+    f.close()
+    return program
+
+def autotune_pickled_kernels(path, platform_id, actx_class):
+    from os import listdir
+    dir_list = listdir(path)
+    for f in dir_list:
+        if f.endswith(".pickle"):
+            fname = path + "/" + f
+            print("Autotuning", fname)
+            knl = unpickle_kernel(fname)
+            print(knl)
+            parallel_autotune(knl, platform_id, actx_class)
+
+def parallel_autotune(knl, platform_id, actx_class):
+
+    # Create queue, assume all GPUs on the machine are the same
+    platforms = cl.get_platforms()
+    gpu_devices = platforms[platform_id].get_devices(device_type=cl.device_type.GPU)
+    n_gpus = len(gpu_devices)
+    ctx = cl.Context(devices=[gpu_devices[charm.myPe() % n_gpus]])
+    profiling = cl.command_queue_properties.PROFILING_ENABLE
+    queue = cl.CommandQueue(ctx, properties=profiling)    
+
+
+    import pyopencl.tools as cl_tools
+    actx = actx_class(
+        queue,
+        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)))
+
+    import grudge.grudge_array_context as gac
+    import loopy as lp
+    knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+    knl = gac.set_memory_layout(knl)
+    pid = gac.unique_program_id(knl)
+    import os
+    os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
+    hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
+
+
+    assert charm.numPes() > 1
+    #assert charm.numPes() - 1 <= charm.numHosts()*len(gpu_devices)
+    assert charm.numPes() <= charm.numHosts()*(len(gpu_devices) + 1)
+    # Check that it can assign one PE to each GPU
+    # The first PE is used for scheduling
+    # Not certain how this will work with multiple nodes
+
+    from run_tests import run_single_param_set
+    
+    tlist_generator, pspace_generator = actx.get_generators(knl)
+    params_list = pspace_generator(actx.queue, knl)
+
+    # Could make a massive list with all kernels and parameters
+    args = [(platform_id, knl, tlist_generator, p, test_fn,) for p in params_list]
+
+    # May help to balance workload
+    # Should test if shuffling matters
+    from random import shuffle
+    shuffle(args)
+    
+    #a = Array(AutotuneTask, dims=(len(args)), args=args[0])
+    #a.get_queue()
+   
+    #result = charm.pool.map(do_work, args)
+
+    pool_proxy = Chare(BalancedPoolScheduler, onPE=0)
+    mypool = Pool(pool_proxy)
+    result = mypool.map(test, args)
+
+    sort_key = lambda entry: entry[0]
+    result.sort(key=sort_key)
+    
+    for r in result:
+        print(r)
+
+    avg_time, transformations, data = results[0]
+    od = {"transformations": transformations}
+    out_file = open(hjson_file_str, "wt+")
+    import hjson
+    hjson.dump(od, out_file,default=convert)
+    out_file.close()
+    return transformations
+
+"""
 def main(args):
 
     # Create queue, assume all GPUs on the machine are the same
@@ -77,7 +174,7 @@ def main(args):
     # Not certain how this will work with multiple nodes
     
     from grudge.execution import diff_prg, elwise_linear_prg
-    knl = diff_prg(3, 1000000, 20, np.float64)
+    knl = diff_prg(3, 1000000, 3, np.float64)
     params = dgk.run_tests.gen_autotune_list(queue, knl)
 
     args = [[param, knl] for param in params]
@@ -101,9 +198,18 @@ def main(args):
 
     for r in result:
         print(r)
-    
+"""
+
+def main(args):
+    from mirgecom.array_context import MirgecomAutotuningArrayContext as Maac
+    autotune_pickled_kernels("./pickled_programs", 0, Maac)
+
+def charm_autotune():
+    charm.start(main)
+    print(result)
+    charm.exit()
+ 
 if __name__ == "__main__":
     charm.start(main)
     print(result)
     charm.exit()
-    

@@ -529,7 +529,41 @@ def apply_transformations_and_run_test(queue, knl, test_fn, params, tgenerator, 
 	return result_saved
     """
 
-# Not tested yet
+def run_single_param_set(queue, knl_base, tlist_generator, params, test_fn, max_gflops=None, device_memory_bandwidth=None):
+    trans_list = tlist_generator(params, knl=knl_base)
+    knl = apply_transformation_list(knl_base, trans_list)
+    dev_arrays, avg_time = test_fn(queue, knl)
+
+    # Should this return the fraction of peak of should that be calculated in this function?
+    gflops, frac_peak_gflops = analyze_FLOPS(knl, avg_time, max_gflops=max_gflops)
+    bw = analyze_knl_bandwidth(knl, avg_time)
+
+    if device_memory_bandwidth is not None:  # noqa
+        bw = analyze_knl_bandwidth(knl, avg_time)
+        frac_peak_GBps = bw / device_memory_bandwidth
+        if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+            # Should validate result here
+            print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+            return choices
+
+    # This is incorrect for general einsum kernels
+    if max_gflops is not None:
+        frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
+        if frac_peak_gflops >= gflops_cutoff:
+            # Should validate result here
+            print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+            return choices
+
+    data = None
+    if device_memory_bandwidth is not None and max_gflops is not None:
+        data = (frac_peak_GBps*device_memory_bandwidth, 
+                frac_peak_gflops*max_gflops, 
+                frac_peak_GBps, 
+                frac_peak_gflops)
+
+    return (avg_time, trans_list, data)
+
+
 def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
 
@@ -559,22 +593,10 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
     # Should probably make separate function for each.
     for params in params_list:
         print(f"Currently testing: {params}")
+        """
         trans_list = tlist_generator(params, knl=knl)
         knl = apply_transformation_list(knl_base, trans_list)
         dev_arrays, avg_time = test_fn(queue, knl)
-
-        #avg_time = apply_transformations_and_run_test(queue, knl, test_fn, trans_list, max_gflops=None,
-        #    device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None)
-
-        #print(knl.default_entrypoint.name)
-        #print(trans_list)
-
-        # Execute and analyze the results
-        #dev_arrays, avg_time = test_fn(queue, knl)
-
-        #choices = param
-        #(kio, kii, iio, iii, ji) = param
-        #print(choices)
 
         # Should this return the fraction of peak of should that be calculated in this function?
         gflops, frac_peak_gflops = analyze_FLOPS(knl, avg_time, max_gflops=max_gflops)
@@ -602,7 +624,9 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
                     frac_peak_gflops*max_gflops, 
                     frac_peak_GBps, 
                     frac_peak_gflops)
+        """
 
+        avg_time, trans_list, data = run_single_param_set(queue, knl_base, tlist_generator, params, test_fn, max_gflops=max_gflops, device_memory_bandwidth=device_memory_bandwidth)
         result_list.append((avg_time, trans_list, data))
         print(avg_time)
         #result_list.append(data)
@@ -1041,6 +1065,28 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     #return result_saved
     return result_saved_list
 
+def convert(o):
+    if isinstance(o, np.generic): return o.item()
+    raise TypeError
+
+
+def autotune_and_save(queue, search_fn, tlist_generator, pspace_generator,  hjson_file_str, time_limit=np.inf):
+    from hjson import dump
+    try:
+        avg_time, transformations, data = search_fn(queue, program, generic_test, 
+                                    pspace_generator, tlist_generator, time_limit=time_limit)
+    except cl._cl.RuntimeError as e:
+        print(e)
+        print("Profiling is not enabled and the PID does not match any transformation file. Turn on profiling and run again.")
+
+    od = {"transformations": transformations}
+    out_file = open(hjson_file_str, "wt+")
+
+    hjson.dump(od, out_file,default=convert)
+    out_file.close()
+    return transformations
+
+
 def get_transformation_id(device_id):
     hjson_file = open("device_mappings.hjson") 
     hjson_text = hjson_file.read()
@@ -1204,11 +1250,11 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 1000000, 10, np.float64)
-    print(knl)
-    print(knl.default_entrypoint.domains)
-    print(knl.default_entrypoint.instructions)
-    exit()
+    knl = diff_prg(3, 1000000, 3, np.float64)
+    #print(knl)
+    #print(knl.default_entrypoint.domains)
+    #print(knl.default_entrypoint.instructions)
+    #exit()
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     #dofs = 84
@@ -1220,7 +1266,7 @@ if __name__ == "__main__":
 
     # Spock
     #result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=11540, device_memory_bandwidth=1047, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
-    #result = gen_autotune_list(queue, knl)
+    #pspace_generator = gen_autotune_list(queue, knl)
     #print(len(result))
 
     # Titan V
@@ -1228,4 +1274,6 @@ if __name__ == "__main__":
     #print(result)
     pspace_generator = gen_autotune_list
     tlist_generator = mxm_trans_list_generator 
-    result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+    result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+ 
+    #result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
