@@ -419,7 +419,8 @@ class _RankBoundaryCommunicationLazy:
                     local_bdry_ary, dest_rank=remote_rank, comm_tag=ary_tag,
                     stapled_to=make_distributed_recv(
                         src_rank=remote_rank, comm_tag=ary_tag,
-                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype))
+                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype,
+                        axes=local_bdry_ary.axes))
 
         from arraycontext.container.traversal import rec_keyed_map_array_container
         self.remote_data = rec_keyed_map_array_container(
