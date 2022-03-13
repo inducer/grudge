@@ -32,7 +32,8 @@ THE SOFTWARE.
 # {{{ imports
 
 from typing import (
-        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional, Type)
+        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional, Type,
+        Dict)
 from dataclasses import dataclass
 
 from meshmode.array_context import (
@@ -81,6 +82,8 @@ if TYPE_CHECKING:
     import pyopencl
     import pyopencl.tools
     from mpi4py import MPI
+
+    from grudge.trace_pair import CommunicationTag
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
@@ -252,13 +255,18 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
 
     .. autofunction:: __init__
     """
+    _source_rank_sym_tag_to_num_tag: Dict[Tuple[int, CommunicationTag], int]
+    _dest_rank_sym_tag_to_num_tag: Dict[Tuple[int, CommunicationTag], int]
+    _dest_rank_to_taken_num_tag: Dict[int, int]
+    mpi_base_tag: int
 
     def __init__(self,
             mpi_communicator,
             queue: "pyopencl.CommandQueue",
             *, allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
             wait_event_queue_length: Optional[int] = None,
-            force_device_scalars: bool = False) -> None:
+            force_device_scalars: bool = False,
+            mpi_base_tag: int) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
         arguments.
@@ -269,13 +277,20 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
 
         self.mpi_communicator = mpi_communicator
 
+        self.mpi_base_tag = mpi_base_tag
+
+        self._source_rank_sym_tag_to_num_tag = {}
+        self._dest_rank_sym_tag_to_num_tag = {}
+        self._dest_rank_to_next_num_tag = {}
+
     def clone(self):
         # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
         # pylint: disable=no-member
         return type(self)(self.mpi_communicator, self.queue,
                 allocator=self.allocator,
                 wait_event_queue_length=self._wait_event_queue_length,
-                force_device_scalars=self._force_device_scalars)
+                force_device_scalars=self._force_device_scalars,
+                mpi_base_tag=self.mpi_base_tag)
 
 # }}}
 
