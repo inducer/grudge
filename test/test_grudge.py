@@ -34,6 +34,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 from arraycontext.container.traversal import thaw
 
 from meshmode import _acf           # noqa: F401
+
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
@@ -96,7 +97,6 @@ def test_inverse_metric(actx_factory, dim):
             assert err < 1.0e-12, (i, j, err)
 
 # }}}
-
 
 # {{{ mass operator trig integration
 
@@ -670,7 +670,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
-    ("disk", [0.1, 0.05]),
+    ("disk", [0.07, 0.02, 0.01]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
     ("warped2", [4, 8]),

@@ -29,17 +29,18 @@ import os
 import numpy as np
 import pyopencl as cl
 import logging
+import sys
 
 from grudge.grudge_array_context import GrudgeArrayContext
-from grudge.array_context import PyOpenCLArrayContext
-from arraycontext.container.traversal import thaw
+from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
+from arraycontext.container.traversal import thaw, freeze
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
 logger.setLevel(logging.INFO)
 
 from grudge import DiscretizationCollection
-from grudge.shortcuts import set_up_rk4
+from grudge.shortcuts import rk4_step
 
 from meshmode.dof_array import flat_norm
 
@@ -48,17 +49,76 @@ from pytools.obj_array import flat_obj_array
 import grudge.op as op
 
 
-def simple_mpi_communication_entrypoint():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = GrudgeArrayContext(queue)
-    #actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+class SimpleTag:
+    pass
+
+
+# {{{ mpi test infrastructure
+
+DISTRIBUTED_ACTXS = [MPIPyOpenCLArrayContext, MPIPytatoArrayContext]
+
+
+def run_test_with_mpi(num_ranks, f, *args):
+    import pytest
+    pytest.importorskip("mpi4py")
+
+    from pickle import dumps
+    from base64 import b64encode
+
+    invocation_info = b64encode(dumps((f, args))).decode()
+    from subprocess import check_call
+
+    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
+    check_call([
+        "mpiexec", "-np", str(num_ranks),
+        "-x", "RUN_WITHIN_MPI=1",
+        "-x", f"INVOCATION_INFO={invocation_info}",
+        sys.executable, __file__])
+
+
+def run_test_with_mpi_inner():
+    from pickle import loads
+    from base64 import b64decode
+    f, (actx_class, *args) = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
+
+    cl_context = cl.create_some_context()
+    queue = cl.CommandQueue(cl_context)
+
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+
+    if actx_class is MPIPytatoArrayContext:
+        actx = actx_class(comm, queue, mpi_base_tag=15000)
+    elif actx_class is MPIPyOpenCLArrayContext:
+        actx = actx_class(comm, queue, force_device_scalars=True)
+    else:
+        raise ValueError("unknown actx_class")
+
+    f(actx, *args)
+
+# }}}
+
+
+# {{{ func_comparison
+
+@pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
+@pytest.mark.parametrize("num_ranks", [2])
+def test_func_comparison_mpi(actx_class, num_ranks):
+    run_test_with_mpi(
+            num_ranks, _test_func_comparison_mpi_communication_entrypoint,
+            actx_class)
+
+
+def _test_func_comparison_mpi_communication_entrypoint(actx):
+    """Discretize a function, communicate it, check that it matches the
+    function discretized by the other end.
+    """
+
+    comm = actx.mpi_communicator
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     from meshmode.mesh import BTAG_ALL
 
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
 
     mesh_dist = MPIMeshDistributor(comm)
@@ -75,8 +135,7 @@ def simple_mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=5,
-            mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=5)
 
     x = thaw(dcoll.nodes(), actx)
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
@@ -98,7 +157,8 @@ def simple_mpi_communication_entrypoint():
             dcoll.opposite_face_connection()(int_faces_func)
         )
         + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.int)
-              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc))
+              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc,
+                  comm_tag=SimpleTag))
     ) - (all_faces_func - bdry_faces_func)
 
     error = actx.to_numpy(flat_norm(hopefully_zero, ord=np.inf))
@@ -110,15 +170,19 @@ def simple_mpi_communication_entrypoint():
 
     assert error < 1e-14
 
+# }}}
 
-def mpi_communication_entrypoint():
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = GrudgeArrayContext(queue)
-    #actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
+# {{{ wave operator
+
+@pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
+@pytest.mark.parametrize("num_ranks", [2])
+def test_mpi_wave_op(actx_class, num_ranks):
+    run_test_with_mpi(num_ranks, _test_mpi_wave_op_entrypoint, actx_class)
+
+
+def _test_mpi_wave_op_entrypoint(actx, visualize=False):
+    comm = actx.mpi_communicator
     i_local_rank = comm.Get_rank()
     num_parts = comm.Get_size()
 
@@ -142,8 +206,7 @@ def mpi_communication_entrypoint():
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-                                     mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
@@ -154,7 +217,7 @@ def mpi_communication_entrypoint():
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
-            np.sin(source_omega*t)
+            actx.np.sin(source_omega*t)
             * actx.np.exp(
                 -np.dot(source_center_dist, source_center_dist)
                 / source_width**2
@@ -171,7 +234,8 @@ def mpi_communication_entrypoint():
         dirichlet_tag=BTAG_NONE,
         neumann_tag=BTAG_NONE,
         radiation_tag=BTAG_ALL,
-        flux_type="upwind"
+        flux_type="upwind",
+        comm_tag=SimpleTag,
     )
 
     fields = flat_obj_array(
@@ -180,7 +244,7 @@ def mpi_communication_entrypoint():
     )
 
     dt = actx.to_numpy(
-        2/3 * wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
+        wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
 
     wave_op.check_bc_coverage(local_mesh)
 
@@ -197,7 +261,7 @@ def mpi_communication_entrypoint():
     def rhs(t, w):
         return wave_op.operator(t, w)
 
-    dt_stepper = set_up_rk4("w", dt, fields, rhs)
+    compiled_rhs = actx.compile(rhs)
 
     final_t = 4
     nsteps = int(final_t/dt)
@@ -205,80 +269,52 @@ def mpi_communication_entrypoint():
 
     step = 0
 
-    def norm(u):
-        return op.norm(dcoll, u, 2)
-
     from time import time
     t_last_step = time()
 
+    if visualize:
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(dcoll)
+
     logmgr.tick_before()
-    for event in dt_stepper.run(t_end=final_t):
-        if isinstance(event, dt_stepper.StateComputed):
-            assert event.component_id == "w"
+    for step in range(nsteps):
+        t = step*dt
+        fields = rk4_step(fields, t=t, h=dt, f=compiled_rhs)
+        fields = thaw(freeze(fields, actx), actx)
 
-            step += 1
-            logger.info("[%04d] t = %.5e |u| = %.5e ellapsed %.5e",
-                        step, event.t,
-                        norm(u=event.state_component[0]),
-                        time() - t_last_step)
+        norm = actx.to_numpy(op.norm(dcoll, fields, 2))
+        logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",
+                    step, t, norm, time() - t_last_step)
 
-            t_last_step = time()
-            logmgr.tick_after()
-            logmgr.tick_before()
+        if visualize:
+            vis.write_parallel_vtk_file(
+                comm,
+                f"fld-wave-mpi-{type(actx).__name__}-{{rank:03d}}-{step:04d}.vtu",
+                [
+                    ("u", fields[0]),
+                    ("v", fields[1:]),
+                ]
+            )
+        assert norm < 1
+
+        t_last_step = time()
+        logmgr.tick_after()
+        logmgr.tick_before()
 
     logmgr.tick_after()
     logmgr.close()
     logger.info("Rank %d exiting", i_local_rank)
-
-
-# {{{ MPI test pytest entrypoint
-
-@pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [2])
-def test_mpi(num_ranks):
-    pytest.importorskip("mpi4py")
-    pytest.importorskip("pymetis")
-
-    from subprocess import check_call
-    import sys
-    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
-    check_call([
-        "mpiexec", "-np", str(num_ranks),
-        "-x", "RUN_WITHIN_MPI=1",
-        "-x", "TEST_MPI_COMMUNICATION=1",
-        sys.executable, __file__])
-
-
-@pytest.mark.mpi
-@pytest.mark.parametrize("num_ranks", [2])
-def test_simple_mpi(num_ranks):
-    pytest.importorskip("mpi4py")
-    pytest.importorskip("pymetis")
-
-    from subprocess import check_call
-    import sys
-    # NOTE: CI uses OpenMPI; -x to pass env vars. MPICH uses -env
-    check_call([
-        "mpiexec", "-np", str(num_ranks),
-        "-x", "RUN_WITHIN_MPI=1",
-        "-x", "TEST_SIMPLE_MPI_COMMUNICATION=1",
-        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
-        sys.executable, "-m", "mpi4py.run", __file__])
 
 # }}}
 
 
 if __name__ == "__main__":
     if "RUN_WITHIN_MPI" in os.environ:
-        if "TEST_MPI_COMMUNICATION" in os.environ:
-            mpi_communication_entrypoint()
-        elif "TEST_SIMPLE_MPI_COMMUNICATION" in os.environ:
-            simple_mpi_communication_entrypoint()
+        run_test_with_mpi_inner()
+    elif len(sys.argv) > 1:
+        exec(sys.argv[1])
     else:
-        import sys
-        if len(sys.argv) > 1:
-            exec(sys.argv[1])
-        else:
-            from pytest import main
-            main([__file__])
+        from pytest import main
+        main([__file__])
+
 # vim: fdm=marker

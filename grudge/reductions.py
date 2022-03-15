@@ -128,7 +128,9 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
 
     # NOTE: Don't move this
     from mpi4py import MPI
-    actx = vec.array_context
+
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
 
     return actx.from_numpy(
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
@@ -268,10 +270,16 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
 def _apply_elementwise_reduction(
         op_name: str, dcoll: DiscretizationCollection,
         *args) -> ArrayOrContainerT:
-    r"""Returns a vector of DOFs with all entries on each element set
-    to the reduction operation *op_name* over all degrees of freedom.
+    r"""Returns an array container whose entries contain
+    the elementwise reductions in each cell.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
+
+    Note that for array contexts which support nonscalar broadcasting
+    (e.g. :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`),
+    the size of each component vector will be of shape ``(nelements, 1)``.
+    Otherwise, the scalar value of the reduction will be repeated for each
+    degree of freedom.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -302,9 +310,7 @@ def _apply_elementwise_reduction(
         return DOFArray(
             actx,
             data=tuple(
-                actx.np.broadcast_to((getattr(actx.np, op_name)(vec_i, axis=1)
-                                      .reshape(-1, 1)),
-                                     vec_i.shape)
+                getattr(actx.np, op_name)(vec_i, axis=1).reshape(-1, 1)
                 for vec_i in vec
             )
         )

@@ -53,6 +53,7 @@ def main():
             "hjson",
             "gmsh",
             "import_resources; python_version<'3.7'"
+            "dataclasses>=0.7;python_version<='3.6'"
         ],
     )
 

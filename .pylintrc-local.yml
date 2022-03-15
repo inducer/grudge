@@ -9,3 +9,6 @@
     - pml.py
     - poisson.py
     - second_order.py
+- arg: ignored-modules
+  val:
+  - sympy

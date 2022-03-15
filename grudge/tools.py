@@ -1,4 +1,6 @@
-"""Miscellaneous helper facilities."""
+"""
+.. autofunction:: build_jacobian
+"""
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
@@ -199,3 +201,38 @@ class OrderedSet(MutableSet):
         return set(self) == set(other)
 
 # }}}
+
+
+def build_jacobian(actx, f, base_state, stepsize):
+    """Returns a Jacobian matrix of *f* determined by a one-sided finite
+    difference approximation with *stepsize*.
+
+    :param f: a callable with a single argument, any array or
+        :class:`arraycontext.ArrayContainer` supported by *actx*.
+    :param base_state: The point at which the Jacobian is to be
+        calculated. May be any array or :class:`arraycontext.ArrayContainer`
+        supported by *actx*.
+    :returns: a two-dimensional :class:`numpy.ndarray`
+    """
+    from arraycontext import flatten, unflatten
+    flat_base_state = flatten(base_state, actx)
+
+    n, = flat_base_state.shape
+
+    mat = np.empty((n, n), dtype=flat_base_state.dtype)
+
+    f_base = f(base_state)
+
+    for i in range(n):
+        unit_i_flat = np.zeros(n, dtype=mat.dtype)
+        unit_i_flat[i] = stepsize
+
+        f_unit_i = f(f_base + unflatten(
+            base_state, actx.from_numpy(unit_i_flat), actx))
+
+        mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
+
+    return mat
+
+
+# vim: foldmethod=marker
