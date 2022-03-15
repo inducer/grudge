@@ -508,6 +508,8 @@ class DiscretizationCollection:
 
     # }}}
 
+    # {{{ (internal) discretization getters
+
     @memoize_method
     def _discr_tag_volume_discr(self, discretization_tag):
         assert discretization_tag is not None
@@ -531,6 +533,8 @@ class DiscretizationCollection:
             self._setup_actx, discr_base.mesh,
             self.group_factory_for_discretization_tag(DISCR_TAG_MODAL)
         )
+
+    # }}}
 
     # {{{ connection factories: modal<->nodal
 
@@ -628,6 +632,8 @@ class DiscretizationCollection:
 
     # }}}
 
+    # {{{ properties
+
     @property
     def dim(self):
         """Return the topological dimension."""
@@ -655,6 +661,10 @@ class DiscretizationCollection:
         """
         return self._volume_discr.mesh
 
+    # }}}
+
+    # {{{ array creators
+
     def empty(self, array_context: ArrayContext, dtype=None):
         """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
         the volume nodes: :class:`grudge.dof_desc.DD_VOLUME`.
@@ -680,17 +690,9 @@ class DiscretizationCollection:
     def is_volume_where(self, where):
         return where is None or as_dofdesc(where).is_volume()
 
-    @property
-    def order(self):
-        warn("DiscretizationCollection.order is deprecated, "
-                "consider using the orders of element groups instead. "
-                "'order' will go away in 2021.",
-                DeprecationWarning, stacklevel=2)
+    # }}}
 
-        from pytools import single_valued
-        return single_valued(egrp.order for egrp in self._volume_discr.groups)
-
-    # {{{ Discretization-specific geometric properties
+    # {{{ discretization-specific geometric fields
 
     def nodes(self, dd=None):
         r"""Return the nodes of a discretization specified by *dd*.
