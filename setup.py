@@ -52,8 +52,8 @@ def main():
             "cgen>=2013.1.2",
             "hjson",
             "gmsh",
-            "import_resources; python_version<'3.7'"
-            "dataclasses>=0.7;python_version<='3.6'"
+            "import_resources; python_version<'3.7'",
+            "dataclasses>=0.7; python_version<='3.6'"
         ],
     )
 
