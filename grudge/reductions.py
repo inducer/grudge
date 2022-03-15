@@ -330,12 +330,13 @@ def _apply_elementwise_reduction(
                     result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
                 kernel_data=[
-                    lp.GlobalArg("result", fp_format, shape=(nelements, ndofs),
+                    lp.GlobalArg("result", fp_format, shape=("nelements", "ndofs"),
                         tags=[IsDOFArray()]),
-                    lp.GlobalArg("operand", fp_format, shape=(nelements, ndofs),
+                    lp.GlobalArg("operand", fp_format, shape=("nelements", "ndofs"),
                         tags=[IsDOFArray()]),
                     lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
-                    lp.ValueArg("nelements", tags=[ParameterValue(nelements)])
+                    lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                    ...
                 ],
                 name="grudge_elementwise_%s_knl" % op_name
             )

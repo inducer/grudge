@@ -282,7 +282,7 @@ def dt_geometric_factors(
     )
 
     data = []
-    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, surface_areas):
+    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, face_areas):
 
         fp_format = face_ae_i.dtype
         Ne = vgrp.nelements
