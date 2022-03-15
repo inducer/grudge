@@ -860,9 +860,9 @@ def unique_program_id(program):
     return identifier
 
 
-#def convert(o):
-#    if isinstance(o, np.generic): return o.item()
-#    raise TypeError
+def convert(o):
+    if isinstance(o, np.generic): return o.item()
+    raise TypeError
 
 
 # Meshmode and Grudge kernels to autotune
@@ -906,9 +906,6 @@ class AutotuningArrayContext(GrudgeArrayContext):
     def autotune_and_save(self, queue, program, search_fn, tlist_generator,
             pspace_generator,  hjson_file_str, time_limit=np.inf):
         from hjson import dump
-        def convert(o):
-            if isinstance(o, np.generic): return o.item()
-            raise TypeError
 
         try:
             avg_time, transformations, data = search_fn(queue, program, generic_test,

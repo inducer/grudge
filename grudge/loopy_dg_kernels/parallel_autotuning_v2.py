@@ -5,12 +5,12 @@ from charm4py.charm import Charm, CharmRemote
 #from charm4py.sections import SectionManager
 #import inspect
 #import sys
-
+import hjson
 import pyopencl as cl
 import numpy as np
 import grudge.loopy_dg_kernels as dgk
-from grudge.loopy_dg_kernels.run_tests import run_single_param_set
-
+from grudge.loopy_dg_kernels.run_tests import run_single_param_set, generic_test
+from grudge.grudge_array_context import convert
 #from grudge.execution import diff_prg, elwise_linear
 
 # Makes one PE inactive on each host so the number of workers is the same on all hosts as
@@ -61,7 +61,7 @@ def do_work(args):
 def test(args):
     platform_id, knl, tlist_generator, params, test_fn = args
     queue = get_queue(charm.myPe(), platform_id)
-    result = run_single_param_set(queue, knl, tlist_generator, p, test_fn) 
+    result = run_single_param_set(queue, knl, tlist_generator, params, test_fn) 
     return result
 
 
@@ -123,32 +123,36 @@ def parallel_autotune(knl, platform_id, actx_class):
     params_list = pspace_generator(actx.queue, knl)
 
     # Could make a massive list with all kernels and parameters
-    args = [(platform_id, knl, tlist_generator, p, test_fn,) for p in params_list]
+    args = [(platform_id, knl, tlist_generator, p, generic_test,) for p in params_list]
+
 
     # May help to balance workload
     # Should test if shuffling matters
     from random import shuffle
     shuffle(args)
-    
+
+
     #a = Array(AutotuneTask, dims=(len(args)), args=args[0])
     #a.get_queue()
    
     #result = charm.pool.map(do_work, args)
 
-    pool_proxy = Chare(BalancedPoolScheduler, onPE=0)
+    #pool_proxy = Chare(BalancedPoolScheduler, onPE=0) # Need to use own charm++ branch to make work
+
+    pool_proxy = Chare(PoolScheduler, onPE=0)
     mypool = Pool(pool_proxy)
-    result = mypool.map(test, args)
+    results = mypool.map(test, args)
 
     sort_key = lambda entry: entry[0]
-    result.sort(key=sort_key)
+    results.sort(key=sort_key)
     
-    for r in result:
-        print(r)
+    #for r in results:
+    #    print(r)
 
     avg_time, transformations, data = results[0]
+
     od = {"transformations": transformations}
     out_file = open(hjson_file_str, "wt+")
-    import hjson
     hjson.dump(od, out_file,default=convert)
     out_file.close()
     return transformations
@@ -164,8 +168,7 @@ def main(args):
     ctx = cl.Context(devices=[gpu_devices[charm.myPe() % n_gpus]])
     profiling = cl.command_queue_properties.PROFILING_ENABLE
     queue = cl.CommandQueue(ctx, properties=profiling)    
-    
-
+   
     assert charm.numPes() > 1
     #assert charm.numPes() - 1 <= charm.numHosts()*len(gpu_devices)
     assert charm.numPes() <= charm.numHosts()*(len(gpu_devices) + 1)
