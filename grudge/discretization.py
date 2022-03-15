@@ -86,9 +86,7 @@ class DiscretizationCollection:
 
     def __init__(self, array_context: ArrayContext, mesh: Mesh,
                  order=None,
-                 discr_tag_to_group_factory=None, mpi_communicator=None,
-                 # FIXME: `quad_tag_to_group_factory` is deprecated
-                 quad_tag_to_group_factory=None):
+                 discr_tag_to_group_factory=None, mpi_communicator=None):
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
             (typically one of: :class:`grudge.dof_desc.DISCR_TAG_BASE`,
@@ -100,22 +98,6 @@ class DiscretizationCollection:
             discretization tag should be carried out with the standard volume
             discretization.
         """
-
-        if (quad_tag_to_group_factory is not None
-                and discr_tag_to_group_factory is not None):
-            raise ValueError(
-                "Both `quad_tag_to_group_factory` and `discr_tag_to_group_factory` "
-                "are specified. Use `discr_tag_to_group_factory` instead."
-            )
-
-        # FIXME: `quad_tag_to_group_factory` is deprecated
-        if (quad_tag_to_group_factory is not None
-                and discr_tag_to_group_factory is None):
-            warn("`quad_tag_to_group_factory` is a deprecated kwarg and will "
-                 "be dropped in version 2022.x. Use `discr_tag_to_group_factory` "
-                 "instead.",
-                 DeprecationWarning, stacklevel=2)
-            discr_tag_to_group_factory = quad_tag_to_group_factory
 
         self._setup_actx = array_context.clone()
 
@@ -195,16 +177,6 @@ class DiscretizationCollection:
                 "from that.", DeprecationWarning, stacklevel=2)
 
         return self._mpi_communicator
-
-    @property
-    def quad_tag_to_group_factory(self):
-        warn("`DiscretizationCollection.quad_tag_to_group_factory` "
-             "is deprecated and will go away in 2022. Use "
-             "`DiscretizationCollection.discr_tag_to_group_factory` "
-             "instead.",
-             DeprecationWarning, stacklevel=2)
-
-        return self.discr_tag_to_group_factory
 
     def get_management_rank_index(self):
         return 0
