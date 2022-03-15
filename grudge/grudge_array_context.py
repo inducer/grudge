@@ -1,4 +1,5 @@
 from meshmode.array_context import PyOpenCLArrayContext
+from grudge.array_context import MPIPyOpenCLArrayContext
 from pytools import memoize_method, memoize_in, memoize
 import loopy as lp
 import pyopencl as cl
@@ -335,7 +336,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
 
 # The PyOpenCLArrayContext needs this since the array dimensions are
 # Maybe the parameter fixing should be moved into the PyOpenCLArrayContext
-class ParameterFixingPyOpenCLArrayContext(PyOpenCLArrayContext):
+class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
 
     @memoize_method
     def transform_loopy_program(self, program):
