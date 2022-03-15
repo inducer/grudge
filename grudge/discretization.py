@@ -29,6 +29,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Callable
 from pytools import memoize_method
 
 from grudge.dof_desc import (
@@ -37,6 +38,7 @@ from grudge.dof_desc import (
     DISCR_TAG_MODAL,
     DTAG_BOUNDARY,
     DOFDesc,
+    DiscretizationTag,
     as_dofdesc
 )
 
@@ -44,10 +46,12 @@ import numpy as np  # noqa: F401
 
 from arraycontext import ArrayContext
 
+from meshmode.discretization import ElementGroupFactory
 from meshmode.discretization.connection import (
     FACE_RESTR_INTERIOR,
     FACE_RESTR_ALL,
-    make_face_restriction
+    make_face_restriction,
+    DiscretizationConnection
 )
 from meshmode.mesh import Mesh, BTAG_PARTITION
 
@@ -174,9 +178,18 @@ class DiscretizationCollection:
 
         # }}}
 
-        self._dist_boundary_connections = \
-                self._set_up_distributed_communication(
-                        mpi_communicator, array_context)
+        self._dist_boundary_connections = _get_dist_boundary_connections_single_vol(
+                volume_discr=self._volume_discr,
+                mpi_communicator=mpi_communicator,
+                array_context=self._setup_actx,
+                get_group_factory_for_discretization_tag=(
+                    self.group_factory_for_discretization_tag),
+                get_connection_to_rank_boundary=(
+                    lambda remote_rank:
+                    self.connection_from_dds(
+                        DOFDesc("vol", DISCR_TAG_BASE),
+                        DOFDesc(BTAG_PARTITION(remote_rank),
+                            DISCR_TAG_BASE))),)
 
     # }}}
 
@@ -200,40 +213,6 @@ class DiscretizationCollection:
                     == self.get_management_rank_index()
 
     # {{{ distributed
-
-    def _set_up_distributed_communication(self, mpi_communicator, array_context):
-        from_dd = DOFDesc("vol", DISCR_TAG_BASE)
-
-        boundary_connections = {}
-
-        from meshmode.distributed import get_connected_partitions
-        connected_parts = get_connected_partitions(self._volume_discr.mesh)
-
-        if connected_parts:
-            if mpi_communicator is None:
-                raise RuntimeError("must supply an MPI communicator when using a "
-                    "distributed mesh")
-
-            grp_factory = \
-                self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
-
-            local_boundary_connections = {}
-            for i_remote_part in connected_parts:
-                local_boundary_connections[i_remote_part] = self.connection_from_dds(
-                        from_dd, DOFDesc(BTAG_PARTITION(i_remote_part),
-                        DISCR_TAG_BASE))
-
-            from meshmode.distributed import MPIBoundaryCommSetupHelper
-            with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
-                    local_boundary_connections, grp_factory) as bdry_setup_helper:
-                while True:
-                    conns = bdry_setup_helper.complete_some()
-                    if not conns:
-                        break
-                    for i_remote_part, conn in conns.items():
-                        boundary_connections[i_remote_part] = conn
-
-        return boundary_connections
 
     def distributed_boundary_swap_connection(self, dd):
         """Provides a mapping from the base volume discretization
@@ -717,6 +696,45 @@ class DiscretizationCollection:
         return freeze(normal(self._setup_actx, self, dd))
 
     # }}}
+
+
+# {{{ distributed setup
+
+def _get_dist_boundary_connections_single_vol(
+        volume_discr, mpi_communicator, array_context,
+        get_group_factory_for_discretization_tag: Callable[
+            [DiscretizationTag], ElementGroupFactory],
+        get_connection_to_rank_boundary: Callable[[int], DiscretizationConnection]):
+    boundary_connections = {}
+
+    from meshmode.distributed import get_connected_partitions
+    connected_parts = get_connected_partitions(volume_discr.mesh)
+
+    if connected_parts:
+        if mpi_communicator is None:
+            raise RuntimeError("must supply an MPI communicator when using a "
+                "distributed mesh")
+
+        grp_factory = get_group_factory_for_discretization_tag(DISCR_TAG_BASE)
+
+        local_boundary_connections = {}
+        for i_remote_part in connected_parts:
+            local_boundary_connections[i_remote_part] = \
+                    get_connection_to_rank_boundary(i_remote_part)
+
+        from meshmode.distributed import MPIBoundaryCommSetupHelper
+        with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
+                local_boundary_connections, grp_factory) as bdry_setup_helper:
+            while True:
+                conns = bdry_setup_helper.complete_some()
+                if not conns:
+                    break
+                for i_remote_part, conn in conns.items():
+                    boundary_connections[i_remote_part] = conn
+
+    return boundary_connections
+
+# }}}
 
 
 def _generate_modal_group_factory(nodal_group_factory):

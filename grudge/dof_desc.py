@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Hashable
 from meshmode.discretization.connection import \
     FACE_RESTR_INTERIOR, FACE_RESTR_ALL
 from meshmode.mesh import \
@@ -52,6 +53,9 @@ __doc__ = """
 
 
 # {{{ DOF description
+
+DiscretizationTag = Hashable
+
 
 class DTAG_SCALAR:  # noqa: N801
     """A domain tag denoting scalar values."""
