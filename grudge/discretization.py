@@ -224,14 +224,6 @@ class DiscretizationCollection:
 
         return boundary_connections
 
-    def get_distributed_boundary_swap_connection(self, dd):
-        warn("`DiscretizationCollection.get_distributed_boundary_swap_connection` "
-             "is deprecated and will go away in 2022. Use "
-             "`DiscretizationCollection.distributed_boundary_swap_connection` "
-             "instead.",
-             DeprecationWarning, stacklevel=2)
-        return self.distributed_boundary_swap_connection(dd)
-
     def distributed_boundary_swap_connection(self, dd):
         """Provides a mapping from the base volume discretization
         to the exterior boundary restriction on a parallel boundary
@@ -711,15 +703,6 @@ class DiscretizationCollection:
         return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}
-
-
-class DGDiscretizationWithBoundaries(DiscretizationCollection):
-    def __init__(self, *args, **kwargs):
-        warn("DGDiscretizationWithBoundaries is deprecated and will go away "
-                "in 2022. Use DiscretizationCollection instead.",
-                DeprecationWarning, stacklevel=2)
-
-        super().__init__(*args, **kwargs)
 
 
 def _generate_modal_group_factory(nodal_group_factory):
