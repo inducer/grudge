@@ -37,6 +37,8 @@ from meshmode.dof_array import DOFArray, flatten, unflatten
 import grudge.symbolic.mappers as mappers
 from grudge import sym
 from grudge.function_registry import base_function_registry
+from grudge.dof_desc import \
+        DD_VOLUME_ALL, BoundaryDomainTag, FACE_RESTR_INTERIOR, VTAG_ALL, DOFDesc
 
 import logging
 logger = logging.getLogger(__name__)
@@ -323,7 +325,9 @@ class ExecutionMapper(mappers.Evaluator,
         return bdry_conn(remote_bdry_vec)
 
     def map_opposite_interior_face_swap(self, op, field_expr):
-        return self.dcoll.opposite_face_connection()(self.rec(field_expr))
+        return self.dcoll.opposite_face_connection(
+                BoundaryDomainTag(FACE_RESTR_INTERIOR, VTAG_ALL)
+                )(self.rec(field_expr))
 
     # }}}
 
@@ -382,8 +386,6 @@ class ExecutionMapper(mappers.Evaluator,
         return result
 
     def map_signed_face_ones(self, expr):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME
-
         assert expr.dd.is_trace()
         face_discr = self.dcoll.discr_from_dd(expr.dd)
         assert face_discr.dim == 0
@@ -391,7 +393,7 @@ class ExecutionMapper(mappers.Evaluator,
         # NOTE: ignore quadrature_tags on expr.dd, since we only care about
         # the face_id here
         all_faces_conn = self.dcoll.connection_from_dds(
-                DD_VOLUME,
+                DD_VOLUME_ALL,
                 DOFDesc(expr.dd.domain_tag))
 
         field = face_discr.empty(self.array_context, dtype=self.dcoll.real_dtype)
@@ -682,7 +684,9 @@ def process_sym_operator(dcoll, sym_operator, post_bind_mapper=None, dumper=None
     dumper("before-bind", sym_operator)
     sym_operator = mappers.OperatorBinder()(sym_operator)
 
-    mappers.ErrorChecker(dcoll.mesh)(sym_operator)
+    # the old and busted symbolic stuff will not learn to use multi-volume
+    mesh = dcoll.discr_from_dd(DD_VOLUME_ALL).mesh
+    mappers.ErrorChecker(mesh)(sym_operator)
 
     sym_operator = \
             mappers.OppositeInteriorFaceSwapUniqueIDAssigner()(sym_operator)
@@ -713,14 +717,14 @@ def process_sym_operator(dcoll, sym_operator, post_bind_mapper=None, dumper=None
         sym_operator = post_bind_mapper(sym_operator)
 
     dumper("before-empty-flux-killer", sym_operator)
-    sym_operator = mappers.EmptyFluxKiller(dcoll.mesh)(sym_operator)
+    sym_operator = mappers.EmptyFluxKiller(mesh)(sym_operator)
 
     dumper("before-cfold", sym_operator)
     sym_operator = mappers.CommutativeConstantFoldingMapper()(sym_operator)
 
     dumper("before-qcheck", sym_operator)
     sym_operator = mappers.QuadratureCheckerAndRemover(
-            dcoll.discr_tag_to_group_factory)(sym_operator)
+            dcoll._discr_tag_to_group_factory)(sym_operator)
 
     # Work around https://github.com/numpy/numpy/issues/9438
     #

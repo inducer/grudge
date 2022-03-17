@@ -1206,7 +1206,8 @@ def problem_stats(order=3):
     with open_output_file("grudge-problem-stats.txt") as outf:
         _, dg_discr_2d = get_wave_op_with_discr(
             actx, dims=2, order=order)
-        print("Number of 2D elements:", dg_discr_2d.mesh.nelements, file=outf)
+        mesh_2d = dg_discr_2d.discr_from_dd("vol").mesh
+        print("Number of 2D elements:", mesh_2d.nelements, file=outf)
         vol_discr_2d = dg_discr_2d.discr_from_dd("vol")
         dofs_2d = {group.nunit_dofs for group in vol_discr_2d.groups}
         from pytools import one
@@ -1214,7 +1215,8 @@ def problem_stats(order=3):
 
         _, dg_discr_3d = get_wave_op_with_discr(
             actx, dims=3, order=order)
-        print("Number of 3D elements:", dg_discr_3d.mesh.nelements, file=outf)
+        mesh_3d = dg_discr_3d.discr_from_dd("vol").mesh
+        print("Number of 3D elements:", mesh_3d.nelements, file=outf)
         vol_discr_3d = dg_discr_3d.discr_from_dd("vol")
         dofs_3d = {group.nunit_dofs for group in vol_discr_3d.groups}
         from pytools import one

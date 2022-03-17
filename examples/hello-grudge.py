@@ -15,7 +15,7 @@ import grudge.op as op
 from meshmode.mesh.generation import generate_box_mesh
 from meshmode.array_context import PyOpenCLArrayContext
 from arraycontext import thaw
-from grudge.dof_desc import DTAG_BOUNDARY, FACE_RESTR_INTERIOR
+from grudge.dof_desc import BoundaryDomainTag, FACE_RESTR_INTERIOR
 
 
 ctx = cl.create_some_context()
@@ -52,8 +52,8 @@ def flux(dcoll, u_tpair):
 
 
 vol_discr = dcoll.discr_from_dd("vol")
-left_bndry = DTAG_BOUNDARY("left")
-right_bndry = DTAG_BOUNDARY("right")
+left_bndry = BoundaryDomainTag("left")
+right_bndry = BoundaryDomainTag("right")
 
 x_vol = thaw(dcoll.nodes(), actx)
 x_bndry = thaw(dcoll.discr_from_dd(left_bndry).nodes(), actx)

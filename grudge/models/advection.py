@@ -216,13 +216,13 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
         self.quad_tag = quad_tag
 
     def flux(self, u_tpair):
-        from grudge.dof_desc import DD_VOLUME
+        from grudge.dof_desc import DD_VOLUME_ALL
 
-        surf_v = op.project(self.dcoll, DD_VOLUME, u_tpair.dd, self.v)
+        surf_v = op.project(self.dcoll, DD_VOLUME_ALL, u_tpair.dd, self.v)
         return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME, DTAG_VOLUME_ALL
+        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
         from meshmode.mesh import BTAG_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
 
@@ -236,7 +236,7 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, face_dd, self.flux(tpair))
 
         def to_quad(arg):
-            return op.project(dcoll, DD_VOLUME, quad_dd, arg)
+            return op.project(dcoll, DD_VOLUME_ALL, quad_dd, arg)
 
         if self.inflow_u is not None:
             inflow_flux = flux(op.bv_trace_pair(dcoll,
@@ -281,7 +281,7 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 # {{{ closed surface advection
 
 def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
-    from grudge.dof_desc import DTAG_BOUNDARY
+    from grudge.dof_desc import BoundaryDomainTag
     from grudge.trace_pair import TracePair
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
@@ -289,10 +289,9 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     v_dot_n = velocity.dot(normal)
     i = op.project(dcoll, trace_dd.with_discr_tag(None), trace_dd, v_dot_n)
 
-    if trace_dd.domain_tag is FACE_RESTR_INTERIOR:
-        e = dcoll.opposite_face_connection()(i)
-    elif isinstance(trace_dd.domain_tag, DTAG_BOUNDARY):
-        e = dcoll.distributed_boundary_swap_connection(trace_dd)(i)
+    assert isinstance(trace_dd.domain_tag, BoundaryDomainTag)
+    if trace_dd.domain_tag.tag is FACE_RESTR_INTERIOR:
+        e = dcoll.opposite_face_connection(trace_dd.domain_tag)(i)
     else:
         raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
 
@@ -327,9 +326,9 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
         self.quad_tag = quad_tag
 
     def flux(self, u_tpair):
-        from grudge.dof_desc import DD_VOLUME
+        from grudge.dof_desc import DD_VOLUME_ALL
 
-        surf_v = op.project(self.dcoll, DD_VOLUME,
+        surf_v = op.project(self.dcoll, DD_VOLUME_ALL,
                             u_tpair.dd.with_discr_tag(None), self.v)
         return surface_advection_weak_flux(self.dcoll,
                                            self.flux_type,
@@ -337,7 +336,7 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                                            surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME, DTAG_VOLUME_ALL
+        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
@@ -349,7 +348,7 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, face_dd, self.flux(tpair))
 
         def to_quad(arg):
-            return op.project(dcoll, DD_VOLUME, quad_dd, arg)
+            return op.project(dcoll, DD_VOLUME_ALL, quad_dd, arg)
 
         quad_v = to_quad(self.v)
         quad_u = to_quad(u)

@@ -683,12 +683,12 @@ def int_tpair(expression, qtag=None, from_dd=None):
     if from_dd.domain_tag == trace_dd.domain_tag:
         i = expression
     else:
-        i = project(from_dd, trace_dd.with_qtag(None))(expression)
+        i = project(from_dd, trace_dd.with_discr_tag(None))(expression)
     e = cse(OppositeInteriorFaceSwap()(i))
 
     if trace_dd.uses_quadrature():
-        i = cse(project(trace_dd.with_qtag(None), trace_dd)(i))
-        e = cse(project(trace_dd.with_qtag(None), trace_dd)(e))
+        i = cse(project(trace_dd.with_discr_tag(None), trace_dd)(i))
+        e = cse(project(trace_dd.with_discr_tag(None), trace_dd)(e))
 
     return TracePair(trace_dd, interior=i, exterior=e)
 

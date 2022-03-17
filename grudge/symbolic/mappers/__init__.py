@@ -966,7 +966,7 @@ class EmptyFluxKiller(CSECachingMapperMixin, IdentityMapper):
         if (isinstance(expr.op, sym.ProjectionOperator)
                 and expr.op.dd_out.is_boundary_or_partition_interface()):
             domain_tag = expr.op.dd_out.domain_tag
-            assert isinstance(domain_tag, dof_desc.DTAG_BOUNDARY)
+            assert isinstance(domain_tag, dof_desc.BoundaryDomainTag)
             if is_boundary_tag_empty(self.mesh, domain_tag.tag):
                 return 0
 

@@ -40,7 +40,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array
 
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -343,7 +343,10 @@ def test_face_normal_surface(actx_factory, mesh_name):
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
     face_normal_i = thaw(dcoll.normal(df), actx)
-    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
+    face_normal_e = dcoll.opposite_face_connection(
+            dof_desc.BoundaryDomainTag(
+                dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+            )(face_normal_i)
 
     if mesh.ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
@@ -978,6 +981,8 @@ def test_bessel(actx_factory):
 # }}}
 
 
+# {{{ test norms
+
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_real(actx_factory, p):
     actx = actx_factory()
@@ -1041,6 +1046,10 @@ def test_norm_obj_array(actx_factory, p):
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
 
+# }}}
+
+
+# {{{ empty boundaries
 
 def test_empty_boundary(actx_factory):
     # https://github.com/inducer/grudge/issues/54
@@ -1059,6 +1068,39 @@ def test_empty_boundary(actx_factory):
     for component in normal:
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
+
+# }}}
+
+
+# {{{ multi-volume
+
+def test_multi_volume(actx_factory):
+    dim = 2
+    actx = actx_factory()
+
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(8,)*dim, order=4)
+
+    meg, = mesh.groups
+    part_per_element = (
+            mesh.vertices[0, meg.vertex_indices[:, 0]] > 0).astype(np.int32)
+
+    from meshmode.mesh.processing import partition_mesh
+    from grudge.discretization import relabel_partitions
+    parts = {
+            i: relabel_partitions(
+                partition_mesh(mesh, part_per_element, i)[0],
+                self_rank=0,
+                part_nr_to_rank_and_vol_tag={
+                    0: (0, 0),
+                    1: (0, 1),
+                    })
+            for i in range(2)}
+
+    make_discretization_collection(actx, parts, order=4)
+
+# }}}
 
 
 # You can test individual routines by typing

@@ -132,7 +132,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
 
         return sym_f, sym_x, sym_ones
 
-    sym_f, sym_x, sym_ones = _get_variables_on(dof_desc.DD_VOLUME)
+    sym_f, sym_x, sym_ones = _get_variables_on(dof_desc.DD_VOLUME_ALL)
     f_volm = actx.to_numpy(flatten(bind(discr, sym.cos(sym_x[0])**2)(actx)))
     ones_volm = actx.to_numpy(flatten(bind(discr, sym_ones)(actx)))
 
@@ -140,7 +140,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     f_quad = bind(discr, sym.cos(sym_x[0])**2)(actx)
     ones_quad = bind(discr, sym_ones)(actx)
 
-    mass_op = bind(discr, sym.MassOperator(dd_quad, dof_desc.DD_VOLUME)(sym_f))
+    mass_op = bind(discr, sym.MassOperator(dd_quad, dof_desc.DD_VOLUME_ALL)(sym_f))
 
     num_integral_1 = np.dot(ones_volm, actx.to_numpy(flatten(mass_op(f=f_quad))))
     err_1 = abs(num_integral_1 - true_integral)
@@ -227,14 +227,14 @@ def test_mass_surface_area(actx_factory, name):
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
         discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute surface area
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         sym_op = sym.NodalSum(dd)(sym.MassOperator(dd, dd)(sym.Ones(dd)))
         approx_surface_area = bind(discr, sym_op)(actx)
 
@@ -285,14 +285,14 @@ def test_surface_mass_operator_inverse(actx_factory, name):
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
         discr = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute inverse mass
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         sym_f = sym.cos(4.0 * sym.nodes(mesh.ambient_dim, dd)[0])
         sym_op = sym.InverseMassOperator(dd, dd)(
                 sym.MassOperator(dd, dd)(sym.var("f")))
@@ -342,7 +342,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
     discr = DiscretizationCollection(actx, mesh, order=builder.order)
 
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     logger.info("ndofs:    %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -351,7 +351,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ symbolic
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    dv = dof_desc.DD_VOLUME
+    dv = dof_desc.DD_VOLUME_ALL
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
@@ -578,11 +578,11 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
             }
         )
 
-        volume = discr.discr_from_dd(dof_desc.DD_VOLUME)
+        volume = discr.discr_from_dd(dof_desc.DD_VOLUME_ALL)
         logger.info("ndofs:     %d", volume.ndofs)
         logger.info("nelements: %d", volume.mesh.nelements)
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         dq = dd.with_discr_tag("product")
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
         ambient_dim = discr.ambient_dim
@@ -657,7 +657,8 @@ def test_op_collector_order_determinism():
     class TestOperator(sym.Operator):
 
         def __init__(self):
-            sym.Operator.__init__(self, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME)
+            sym.Operator.__init__(
+                    self, dof_desc.DD_VOLUME_ALL, dof_desc.DD_VOLUME_ALL)
 
         mapper_method = "map_test_operator"
 
@@ -725,7 +726,7 @@ def test_external_call(actx_factory):
             a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
     discr = DiscretizationCollection(actx, mesh, order=1)
 
-    ones = sym.Ones(dof_desc.DD_VOLUME)
+    ones = sym.Ones(dof_desc.DD_VOLUME_ALL)
     op = (
             ones * 3
             + sym.FunctionSymbol("double")(ones))
@@ -737,7 +738,7 @@ def test_external_call(actx_factory):
             base_function_registry,
             "double",
             implementation=double,
-            dd=dof_desc.DD_VOLUME)
+            dd=dof_desc.DD_VOLUME_ALL)
 
     bound_op = bind(discr, op, function_registry=freg)
 
@@ -756,7 +757,7 @@ def test_function_symbol_array(actx_factory, array_type):
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
     discr = DiscretizationCollection(actx, mesh, order=4)
-    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = discr.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
     if array_type == "scalar":
         sym_x = sym.var("x")
@@ -897,8 +898,8 @@ def test_incorrect_assignment_aggregation(actx_factory, ambient_dim):
 
     # {{{ test with a relative norm
 
-    from grudge.dof_desc import DD_VOLUME
-    dd = DD_VOLUME
+    from grudge.dof_desc import DD_VOLUME_ALL
+    dd = DD_VOLUME_ALL
     sym_x = sym.make_sym_array("y", ambient_dim, dd=dd)
     sym_y = sym.make_sym_array("y", ambient_dim, dd=dd)
 

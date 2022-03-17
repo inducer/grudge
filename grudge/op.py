@@ -66,6 +66,7 @@ from pytools.obj_array import obj_array_vectorize, make_obj_array
 import numpy as np
 
 import grudge.dof_desc as dof_desc
+from grudge.dof_desc import DD_VOLUME_ALL, FACE_RESTR_ALL
 
 from grudge.interpolation import interp  # noqa: F401
 from grudge.projection import project  # noqa: F401
@@ -88,7 +89,6 @@ from grudge.reductions import (  # noqa: F401
 from grudge.trace_pair import (  # noqa: F401
     interior_trace_pair,
     interior_trace_pairs,
-    connected_ranks,
     cross_rank_trace_pairs,
     bdry_trace_pair,
     bv_trace_pair
@@ -162,7 +162,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 def _div_helper(dcoll, diff_func, *args):
     if len(args) == 1:
         vecs, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vecs = args
     else:
@@ -204,7 +204,7 @@ def _div_helper(dcoll, diff_func, *args):
 def _grad_helper(dcoll, scalar_grad, *args, nested):
     if len(args) == 1:
         vec, = args
-        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd_in = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd_in, vec = args
     else:
@@ -265,11 +265,11 @@ def _reference_derivative_matrices(actx: ArrayContext,
 
 
 def _strong_scalar_grad(dcoll, dd_in, vec):
-    assert dd_in == dof_desc.as_dofdesc(dof_desc.DD_VOLUME)
+    assert dd_in == dof_desc.as_dofdesc(DD_VOLUME_ALL)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
-    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
     actx = vec.array_context
 
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll,
@@ -320,7 +320,7 @@ def local_d_dx(
     if not isinstance(vec, DOFArray):
         return map_array_container(partial(local_d_dx, dcoll, xyz_axis), vec)
 
-    discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
     actx = vec.array_context
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -408,7 +408,7 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    out_discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
 
     actx = vec.array_context
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
@@ -478,7 +478,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd_in = dof_desc.DD_VOLUME_ALL
     elif len(args) == 3:
         dd_in, xyz_axis, vec = args
     else:
@@ -493,7 +493,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    out_discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
 
     actx = vec.array_context
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
@@ -646,13 +646,13 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_mass_operator(dcoll, dof_desc.DD_VOLUME, dd, vec)
+    return _apply_mass_operator(dcoll, DD_VOLUME_ALL, dd, vec)
 
 # }}}
 
@@ -755,7 +755,7 @@ def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
     """
 
     return _apply_inverse_mass_operator(
-        dcoll, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME, vec
+        dcoll, DD_VOLUME_ALL, DD_VOLUME_ALL, vec
     )
 
 # }}}
@@ -857,7 +857,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
 
     from grudge.geometry import area_element
 
-    volm_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volm_discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
     face_discr = dcoll.discr_from_dd(dd)
     dtype = vec.entry_dtype
     actx = vec.array_context
@@ -931,7 +931,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("all_faces", dof_desc.DISCR_TAG_BASE)
+        dd = DD_VOLUME_ALL.trace(FACE_RESTR_ALL)
     elif len(args) == 2:
         dd, vec = args
     else:

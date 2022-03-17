@@ -40,6 +40,7 @@ intersphinx_mapping = {
     "https://documen.tician.de/arraycontext/": None,
     "https://documen.tician.de/meshmode/": None,
     "https://documen.tician.de/loopy/": None,
+    "https://mpi4py.readthedocs.io/en/stable": None,
     }
 
 # index-page demo uses pyopencl via plot_directive

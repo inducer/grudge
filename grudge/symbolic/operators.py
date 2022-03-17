@@ -25,6 +25,8 @@ from sys import intern
 import numpy as np
 import pymbolic.primitives
 
+from grudge.dof_desc import BoundaryDomainTag
+
 from typing import Tuple
 
 __doc__ = """
@@ -567,7 +569,9 @@ class OppositeInteriorFaceSwap(Operator):
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if self.dd_in.domain_tag is not FACE_RESTR_INTERIOR:
+        if not isinstance(self.dd_in.domain_tag, BoundaryDomainTag):
+            raise ValueError("dd_in must be a boundary")
+        if self.dd_in.domain_tag.tag is not FACE_RESTR_INTERIOR:
             raise ValueError("dd_in must be an interior faces domain")
         if self.dd_out != self.dd_in:
             raise ValueError("dd_out and dd_in must be identical")
@@ -603,7 +607,7 @@ class OppositePartitionFaceSwap(Operator):
             dd_out = dd_in
 
         super().__init__(dd_in, dd_out)
-        if not (isinstance(self.dd_in.domain_tag, dof_desc.DTAG_BOUNDARY)
+        if not (isinstance(self.dd_in.domain_tag, dof_desc.BoundaryDomainTag)
                 and isinstance(self.dd_in.domain_tag.tag, BTAG_PARTITION)):
             raise ValueError(
                     "dd_in must be a partition boundary faces domain, not '%s'"
@@ -641,7 +645,9 @@ class FaceMassOperatorBase(ElementwiseLinearOperator):
 
         if not dd_out.is_volume():
             raise ValueError("dd_out must be a volume domain")
-        if dd_in.domain_tag is not FACE_RESTR_ALL:
+        if not isinstance(dd_in.domain_tag, BoundaryDomainTag):
+            raise ValueError("dd_in must be a boundary")
+        if dd_in.domain_tag.tag is not FACE_RESTR_ALL:
             raise ValueError("dd_in must be an interior faces domain")
 
         super().__init__(dd_in, dd_out)
