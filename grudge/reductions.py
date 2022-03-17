@@ -77,6 +77,40 @@ import numpy as np
 import grudge.dof_desc as dof_desc
 
 
+def _quadrature_summand(
+        dcoll: DiscretizationCollection, dd, vec) -> ArrayOrContainerT:
+    if not isinstance(vec, DOFArray):
+        return map_array_container(partial(_quadrature_summand, dcoll, dd), vec)
+
+    dd = dof_desc.as_dofdesc(dd)
+    discr = dcoll.discr_from_dd(dd)
+    actx = vec.array_context
+
+    if dd.uses_quadrature():
+        from grudge.geometry import area_element
+        from meshmode.transform_metadata import FirstAxisIsElementsTag
+
+        jacobians = area_element(
+            actx, dcoll, dd=dd,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+        return DOFArray(
+            actx,
+            data=tuple(
+                actx.einsum("ei,i,ei->ei",
+                            vec_i,
+                            actx.from_numpy(grp.quadrature_rule().weights),
+                            jac_i,
+                            arg_names=("vec", "weights", "jac"),
+                            tagged=(FirstAxisIsElementsTag(),))
+                for grp, vec_i, jac_i in zip(discr.groups, vec, jacobians)
+            )
+        )
+
+    from grudge.op import _apply_mass_operator
+
+    return vec * _apply_mass_operator(dcoll, dd, dd, discr.zeros(actx) + 1.0)
+
+
 # {{{ Nodal reductions
 
 def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
@@ -244,23 +278,28 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
             vec, actx.from_numpy(np.array(-np.inf)))
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def integral(dcoll: DiscretizationCollection, *args) -> "DeviceScalar":
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     :returns: a device scalar denoting the evaluated integral.
     """
-    from grudge.op import _apply_mass_operator
+    if len(args) == 1:
+        vec, = args
+        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return nodal_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
-    )
+    return nodal_sum(dcoll, dd, _quadrature_summand(dcoll, dd, vec))
 
 # }}}
 
@@ -464,12 +503,7 @@ def elementwise_integral(
 
     dd = dof_desc.as_dofdesc(dd)
 
-    from grudge.op import _apply_mass_operator
-
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return elementwise_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
-    )
+    return elementwise_sum(dcoll, dd, _quadrature_summand(dcoll, dd, vec))
 
 # }}}
 
