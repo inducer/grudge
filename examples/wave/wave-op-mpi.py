@@ -180,7 +180,7 @@ def bump(actx, dcoll, t=0):
 def main(ctx_factory, dim=2, order=3,
          visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False):
     cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
