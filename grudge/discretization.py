@@ -8,8 +8,6 @@
 
 .. currentmodule:: grudge.discretization
 
-.. autofunction:: relabel_partitions
-
 Internal things that are visble due to type annotations
 -------------------------------------------------------
 
@@ -41,13 +39,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
+from typing import Mapping, Optional, Union, Tuple, Callable, TYPE_CHECKING, Any
 
 from pytools import memoize_method, single_valued
 
+from dataclasses import dataclass
+
 from grudge.dof_desc import (
         VTAG_ALL,
-        BTAG_MULTIVOL_PARTITION,
         DD_VOLUME_ALL,
         DISCR_TAG_BASE,
         DISCR_TAG_MODAL,
@@ -70,8 +69,7 @@ from meshmode.discretization.connection import (
     make_face_restriction,
     DiscretizationConnection
 )
-from meshmode.mesh import (
-        InterPartitionAdjacencyGroup, Mesh, BTAG_PARTITION, BoundaryTag)
+from meshmode.mesh import Mesh, BTAG_PARTITION, PartitionID
 from meshmode.dof_array import DOFArray
 
 from warnings import warn
@@ -127,6 +125,27 @@ def _normalize_discr_tag_to_group_factory(
 # }}}
 
 
+# {{{ _PartitionIDHelper
+
+@dataclass(frozen=True, init=True, eq=True)
+class _PartitionIDHelper:
+    """
+    Provides a unified interface for creating and inspecting partition identifiers
+    that does not depend on whether the problem is distributed, multi-volume, etc.
+
+    .. attribute:: make
+    .. attribute:: get_mpi_rank
+    .. attribute:: get_volume
+
+    .. automethod:: __init__
+    """
+    make: Callable[[Optional[int], VolumeTag], PartitionID]
+    get_mpi_rank: Callable[[PartitionID], Optional[int]]
+    get_volume: Callable[[PartitionID], VolumeTag]
+
+# }}}
+
+
 class DiscretizationCollection:
     """A collection of discretizations, defined on the same underlying
     :class:`~meshmode.mesh.Mesh`, corresponding to various mesh entities
@@ -161,7 +180,9 @@ class DiscretizationCollection:
                 Mapping[DiscretizationTag, ElementGroupFactory]] = None,
             mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None,
             inter_partition_connections: Optional[
-                Mapping[BoundaryDomainTag, DiscretizationConnection]] = None
+                Mapping[Tuple[PartitionID, PartitionID],
+                    DiscretizationConnection]] = None,
+            part_id_helper: Optional[_PartitionIDHelper] = None,
             ) -> None:
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -213,9 +234,9 @@ class DiscretizationCollection:
 
         from meshmode.discretization import Discretization
 
-        # {{{ deprecated backward compatibility yuck
-
         if isinstance(volume_discrs, Mesh):
+            # {{{ deprecated backward compatibility yuck
+
             warn("Calling the DiscretizationCollection constructor directly "
                     "is deprecated, call make_discretization_collection "
                     "instead. This will stop working in 2023.",
@@ -239,6 +260,21 @@ class DiscretizationCollection:
                 raise TypeError("may not pass inter_partition_connections when "
                         "DiscretizationCollection constructor is called in "
                         "legacy mode")
+            if part_id_helper is not None:
+                raise TypeError("may not pass part_id_helper when "
+                        "DiscretizationCollection constructor is called in "
+                        "legacy mode")
+
+            if mpi_communicator is not None:
+                part_id_helper = _PartitionIDHelper(
+                    make=lambda rank, vtag: rank,
+                    get_mpi_rank=lambda part_id: part_id,
+                    get_volume=lambda part_id: VTAG_ALL)
+            else:
+                part_id_helper = _PartitionIDHelper(
+                    make=lambda rank, vtag: None,
+                    get_mpi_rank=lambda part_id: None,
+                    get_volume=lambda part_id: VTAG_ALL)
 
             self._inter_partition_connections = \
                     _set_up_inter_partition_connections(
@@ -246,19 +282,26 @@ class DiscretizationCollection:
                             mpi_communicator=mpi_communicator,
                             volume_discrs=volume_discrs,
                             base_group_factory=(
-                                discr_tag_to_group_factory[DISCR_TAG_BASE]))
+                                discr_tag_to_group_factory[DISCR_TAG_BASE]),
+                            part_id_helper=part_id_helper)
+            self._part_id_helper = part_id_helper
+
+            # }}}
         else:
+            assert discr_tag_to_group_factory is not None
+            self._discr_tag_to_group_factory = discr_tag_to_group_factory
+
             if inter_partition_connections is None:
                 raise TypeError("inter_partition_connections must be passed when "
                         "DiscretizationCollection constructor is called in "
                         "'modern' mode")
+            if part_id_helper is None:
+                raise TypeError("part_id_helper must be passed when "
+                        "DiscretizationCollection constructor is called in "
+                        "'modern' mode")
 
             self._inter_partition_connections = inter_partition_connections
-
-            assert discr_tag_to_group_factory is not None
-            self._discr_tag_to_group_factory = discr_tag_to_group_factory
-
-        # }}}
+            self._part_id_helper = part_id_helper
 
         self._volume_discrs = volume_discrs
 
@@ -741,104 +784,68 @@ class DiscretizationCollection:
 
 # {{{ distributed/multi-volume setup
 
-def _check_btag(tag: BoundaryTag) -> Union[BTAG_MULTIVOL_PARTITION, BTAG_PARTITION]:
-    if isinstance(tag, BTAG_MULTIVOL_PARTITION):
-        return tag
-
-    elif isinstance(tag, BTAG_PARTITION):
-        return tag
-
-    else:
-        raise TypeError("unexpected type of inter-partition boundary tag "
-                f"'{type(tag)}'")
-
-
-def _remote_rank_from_btag(btag: BoundaryTag) -> Optional[int]:
-    if isinstance(btag, BTAG_PARTITION):
-        return btag.part_nr
-
-    elif isinstance(btag, BTAG_MULTIVOL_PARTITION):
-        return btag.other_rank
-
-    else:
-        raise TypeError("unexpected type of inter-partition boundary tag "
-                f"'{type(btag)}'")
-
-
-def _flip_dtag(
-        self_rank: Optional[int],
-        domain_tag: BoundaryDomainTag,
-        ) -> BoundaryDomainTag:
-    if isinstance(domain_tag.tag, BTAG_PARTITION):
-        assert self_rank is not None
-        return BoundaryDomainTag(
-                BTAG_PARTITION(self_rank), domain_tag.volume_tag)
-
-    elif isinstance(domain_tag.tag, BTAG_MULTIVOL_PARTITION):
-        return BoundaryDomainTag(
-            BTAG_MULTIVOL_PARTITION(
-                other_rank=None if domain_tag.tag.other_rank is None else self_rank,
-                other_volume_tag=domain_tag.volume_tag),
-            domain_tag.tag.other_volume_tag)
-
-    else:
-        raise TypeError("unexpected type of inter-partition boundary tag "
-                f"'{type(domain_tag.tag)}'")
-
-
 def _set_up_inter_partition_connections(
         array_context: ArrayContext,
         mpi_communicator: Optional["mpi4py.MPI.Intracomm"],
         volume_discrs: Mapping[VolumeTag, Discretization],
-        base_group_factory:  ElementGroupFactory,
+        base_group_factory: ElementGroupFactory,
+        part_id_helper: _PartitionIDHelper,
         ) -> Mapping[
-                BoundaryDomainTag,
+                Tuple[PartitionID, PartitionID],
                 DiscretizationConnection]:
 
-    from meshmode.distributed import (get_inter_partition_tags,
+    from meshmode.distributed import (get_connected_partitions,
             make_remote_group_infos, InterRankBoundaryInfo,
             MPIBoundaryCommSetupHelper)
 
-    inter_part_tags = {
-            BoundaryDomainTag(_check_btag(btag), discr_vol_tag)
-            for discr_vol_tag, volume_discr in volume_discrs.items()
-            for btag in get_inter_partition_tags(volume_discr.mesh)}
+    rank = mpi_communicator.Get_rank() if mpi_communicator is not None else None
+
+    # Save boundary restrictions as they're created to avoid potentially creating
+    # them twice in the loop below
+    cached_part_bdry_restrictions: Mapping[
+        Tuple[PartitionID, PartitionID],
+        DiscretizationConnection] = {}
+
+    def get_part_bdry_restriction(self_part_id, other_part_id):
+        cached_result = cached_part_bdry_restrictions.get(
+            (self_part_id, other_part_id), None)
+        if cached_result is not None:
+            return cached_result
+        self_vtag = part_id_helper.get_volume(self_part_id)
+        return cached_part_bdry_restrictions.setdefault(
+            (self_part_id, other_part_id),
+            make_face_restriction(
+                array_context, volume_discrs[self_vtag],
+                base_group_factory,
+                boundary_tag=BTAG_PARTITION(other_part_id)))
 
     inter_part_conns: Mapping[
-            BoundaryDomainTag,
+            Tuple[PartitionID, PartitionID],
             DiscretizationConnection] = {}
 
-    if inter_part_tags:
-        local_boundary_restrictions = {
-                domain_tag: make_face_restriction(
-                    array_context, volume_discrs[domain_tag.volume_tag],
-                    base_group_factory, boundary_tag=domain_tag.tag)
-                for domain_tag in inter_part_tags}
+    irbis = []
 
-        irbis = []
+    for vtag, volume_discr in volume_discrs.items():
+        part_id = part_id_helper.make(rank, vtag)
+        connected_part_ids = get_connected_partitions(volume_discr.mesh)
+        for connected_part_id in connected_part_ids:
+            bdry_restr = get_part_bdry_restriction(part_id, connected_part_id)
 
-        for domain_tag in inter_part_tags:
-            assert isinstance(
-                    domain_tag.tag, (BTAG_PARTITION, BTAG_MULTIVOL_PARTITION))
-
-            other_rank = _remote_rank_from_btag(domain_tag.tag)
-            btag_restr = local_boundary_restrictions[domain_tag]
-
-            if other_rank is None:
+            if part_id_helper.get_mpi_rank(connected_part_id) == rank:
                 # {{{ rank-local interface between multiple volumes
 
-                assert isinstance(domain_tag.tag,  BTAG_MULTIVOL_PARTITION)
+                rev_bdry_restr = get_part_bdry_restriction(
+                    connected_part_id, part_id)
 
                 from meshmode.discretization.connection import \
                         make_partition_connection
-                remote_dtag = _flip_dtag(None, domain_tag)
-                inter_part_conns[domain_tag] = make_partition_connection(
+                inter_part_conns[connected_part_id, part_id] = \
+                    make_partition_connection(
                         array_context,
-                        local_bdry_conn=btag_restr,
-                        remote_bdry_discr=(
-                            local_boundary_restrictions[remote_dtag].to_discr),
+                        local_bdry_conn=bdry_restr,
+                        remote_bdry_discr=rev_bdry_restr.to_discr,
                         remote_group_infos=make_remote_group_infos(
-                            array_context, remote_dtag.tag, btag_restr))
+                            array_context, connected_part_id, rev_bdry_restr))
 
                 # }}}
             else:
@@ -850,27 +857,26 @@ def _set_up_inter_partition_connections(
 
                 irbis.append(
                         InterRankBoundaryInfo(
-                            local_btag=domain_tag.tag,
-                            local_part_id=domain_tag,
-                            remote_part_id=_flip_dtag(
-                                mpi_communicator.rank, domain_tag),
-                            remote_rank=other_rank,
-                            local_boundary_connection=btag_restr))
+                            local_part_id=part_id,
+                            remote_part_id=connected_part_id,
+                            remote_rank=part_id_helper.get_mpi_rank(
+                                connected_part_id),
+                            local_boundary_connection=bdry_restr))
 
                 # }}}
 
-        if irbis:
-            assert mpi_communicator is not None
+    if irbis:
+        assert mpi_communicator is not None
 
-            with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
-                    irbis, base_group_factory) as bdry_setup_helper:
-                while True:
-                    conns = bdry_setup_helper.complete_some()
-                    if not conns:
-                        # We're done.
-                        break
+        with MPIBoundaryCommSetupHelper(mpi_communicator, array_context,
+                irbis, base_group_factory) as bdry_setup_helper:
+            while True:
+                conns = bdry_setup_helper.complete_some()
+                if not conns:
+                    # We're done.
+                    break
 
-                    inter_part_conns.update(conns)
+                inter_part_conns.update(conns)
 
     return inter_part_conns
 
@@ -954,6 +960,7 @@ def make_discretization_collection(
 
     from pytools import single_valued, is_single_valued
 
+    assert len(volumes) > 0
     assert is_single_valued(mesh_or_discr.ambient_dim
             for mesh_or_discr in volumes.values())
 
@@ -973,54 +980,44 @@ def make_discretization_collection(
                 if isinstance(mesh_or_discr, Mesh) else mesh_or_discr)
             for vtag, mesh_or_discr in volumes.items()}
 
+    mpi_communicator = getattr(array_context, "mpi_communicator", None)
+
+    if VTAG_ALL not in volumes.keys():
+        # Multi-volume
+        if mpi_communicator is not None:
+            part_id_helper = _PartitionIDHelper(
+                make=lambda rank, vtag: (rank, vtag),
+                get_mpi_rank=lambda part_id: part_id[0],
+                get_volume=lambda part_id: part_id[1])
+        else:
+            part_id_helper = _PartitionIDHelper(
+                make=lambda rank, vtag: vtag,
+                get_mpi_rank=lambda part_id: None,
+                get_volume=lambda part_id: part_id)
+    else:
+        # Single-volume
+        if mpi_communicator is not None:
+            part_id_helper = _PartitionIDHelper(
+                make=lambda rank, vtag: rank,
+                get_mpi_rank=lambda part_id: part_id,
+                get_volume=lambda part_id: VTAG_ALL)
+        else:
+            part_id_helper = _PartitionIDHelper(
+                make=lambda rank, vtag: None,
+                get_mpi_rank=lambda part_id: None,
+                get_volume=lambda part_id: VTAG_ALL)
+
     return DiscretizationCollection(
             array_context=array_context,
             volume_discrs=volume_discrs,
             discr_tag_to_group_factory=discr_tag_to_group_factory,
             inter_partition_connections=_set_up_inter_partition_connections(
                 array_context=array_context,
-                mpi_communicator=getattr(
-                    array_context, "mpi_communicator", None),
+                mpi_communicator=mpi_communicator,
                 volume_discrs=volume_discrs,
                 base_group_factory=discr_tag_to_group_factory[DISCR_TAG_BASE],
-                ))
-
-# }}}
-
-
-# {{{ relabel_partitions
-
-def relabel_partitions(mesh: Mesh,
-        self_rank: int,
-        part_nr_to_rank_and_vol_tag: Mapping[int, Tuple[int, VolumeTag]]) -> Mesh:
-    """Given a partitioned mesh (which includes :class:`meshmode.mesh.BTAG_PARTITION`
-    boundary tags), relabel those boundary tags into
-    :class:`grudge.dof_desc.BTAG_MULTIVOL_PARTITION` tags, which map each
-    of the incoming partitions onto a combination of rank and volume tag,
-    given by *part_nr_to_rank_and_vol_tag*.
-    """
-
-    def _new_btag(btag: BoundaryTag) -> BTAG_MULTIVOL_PARTITION:
-        if not isinstance(btag, BTAG_PARTITION):
-            raise TypeError("unexpected inter-partition boundary tags of type "
-                    f"'{type(btag)}', expected BTAG_PARTITION")
-
-        rank, vol_tag = part_nr_to_rank_and_vol_tag[btag.part_nr]
-        return BTAG_MULTIVOL_PARTITION(
-                other_rank=(None if rank == self_rank else rank),
-                other_volume_tag=vol_tag)
-
-    assert mesh.facial_adjacency_groups is not None
-
-    from dataclasses import replace
-    return mesh.copy(facial_adjacency_groups=[
-        [
-            replace(fagrp,
-                boundary_tag=_new_btag(fagrp.boundary_tag))
-            if isinstance(fagrp, InterPartitionAdjacencyGroup)
-            else fagrp
-            for fagrp in grp_fagrp_list]
-        for grp_fagrp_list in mesh.facial_adjacency_groups])
+                part_id_helper=part_id_helper),
+            part_id_helper=part_id_helper)
 
 # }}}
 

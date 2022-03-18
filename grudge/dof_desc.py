@@ -8,8 +8,6 @@ Volume tags
 :mod:`grudge`-specific boundary tags
 ------------------------------------
 
-.. autoclass:: BTAG_MULTIVOL_PARTITION
-
 Domain tags
 -----------
 
@@ -96,24 +94,6 @@ class VTAG_ALL:  # noqa: N801
 
 
 VolumeTag = Hashable
-
-# }}}
-
-
-# {{{ partition identifier
-
-@dataclass(init=True, eq=True, frozen=True)
-class BTAG_MULTIVOL_PARTITION:  # noqa: N801
-    """
-    .. attribute:: other_rank
-
-        An integer, or *None*. If *None*, this marks a partition boundary
-        to another volume on the same rank.
-
-    .. attribute:: other_volume_tag
-    """
-    other_rank: Optional[int]
-    other_volume_tag: "VolumeTag"
 
 # }}}
 
@@ -350,7 +330,7 @@ def _normalize_domain_and_discr_tag(
         domain = BoundaryDomainTag(FACE_RESTR_ALL)
     elif domain in [FACE_RESTR_INTERIOR, "int_faces"]:
         domain = BoundaryDomainTag(FACE_RESTR_INTERIOR)
-    elif isinstance(domain, (BTAG_PARTITION, BTAG_MULTIVOL_PARTITION)):
+    elif isinstance(domain, BTAG_PARTITION):
         domain = BoundaryDomainTag(domain, _contextual_volume_tag)
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
         domain = BoundaryDomainTag(domain, _contextual_volume_tag)

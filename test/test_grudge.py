@@ -1083,22 +1083,17 @@ def test_multi_volume(actx_factory):
             nelements_per_axis=(8,)*dim, order=4)
 
     meg, = mesh.groups
-    part_per_element = (
-            mesh.vertices[0, meg.vertex_indices[:, 0]] > 0).astype(np.int32)
+    x = mesh.vertices[0, meg.vertex_indices]
+    x_elem_avg = np.sum(x, axis=1)/x.shape[1]
+    volume_per_element = (x_elem_avg > 0).astype(np.int32)
+
+    from meshmode.distributed import membership_list_to_map
+    volume_to_elements = membership_list_to_map(volume_per_element)
 
     from meshmode.mesh.processing import partition_mesh
-    from grudge.discretization import relabel_partitions
-    parts = {
-            i: relabel_partitions(
-                partition_mesh(mesh, part_per_element, i)[0],
-                self_rank=0,
-                part_nr_to_rank_and_vol_tag={
-                    0: (0, 0),
-                    1: (0, 1),
-                    })
-            for i in range(2)}
+    volume_to_mesh = partition_mesh(mesh, volume_to_elements)
 
-    make_discretization_collection(actx, parts, order=4)
+    make_discretization_collection(actx, volume_to_mesh, order=4)
 
 # }}}
 

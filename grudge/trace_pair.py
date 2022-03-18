@@ -72,17 +72,17 @@ from numbers import Number
 from pytools import memoize_on_first_arg
 from pytools.obj_array import obj_array_vectorize
 
-from grudge.discretization import DiscretizationCollection, _remote_rank_from_btag
+from grudge.discretization import DiscretizationCollection
 from grudge.projection import project
 
-from meshmode.mesh import BTAG_PARTITION
+from meshmode.mesh import BTAG_PARTITION, PartitionID
 
 import numpy as np
 
 import grudge.dof_desc as dof_desc
 from grudge.dof_desc import (
         DOFDesc, DD_VOLUME_ALL, FACE_RESTR_INTERIOR, DISCR_TAG_BASE,
-        VolumeTag, VolumeDomainTag, BoundaryDomainTag, BTAG_MULTIVOL_PARTITION,
+        VolumeTag, VolumeDomainTag, BoundaryDomainTag,
         ConvertibleToDOFDesc,
         )
 
@@ -377,15 +377,16 @@ def local_inter_volume_trace_pairs(
         raise TypeError(
             f"expected a base-discretized other DOFDesc, got '{other_volume_dd}'")
 
-    self_btag = BTAG_MULTIVOL_PARTITION(
-            other_rank=None,
-            other_volume_tag=other_volume_dd.domain_tag.tag)
-    other_btag = BTAG_MULTIVOL_PARTITION(
-            other_rank=None,
-            other_volume_tag=self_volume_dd.domain_tag.tag)
+    rank = (
+        dcoll.mpi_communicator.Get_rank()
+        if dcoll.mpi_communicator is not None
+        else None)
 
-    self_trace_dd = self_volume_dd.trace(self_btag)
-    other_trace_dd = other_volume_dd.trace(other_btag)
+    self_part_id = dcoll._part_id_helper.make(rank, self_volume_dd.domain_tag.tag)
+    other_part_id = dcoll._part_id_helper.make(rank, other_volume_dd.domain_tag.tag)
+
+    self_trace_dd = self_volume_dd.trace(BTAG_PARTITION(other_part_id))
+    other_trace_dd = other_volume_dd.trace(BTAG_PARTITION(self_part_id))
 
     # FIXME: In all likelihood, these traces will be reevaluated from
     # the other side, which is hard to prevent given the interface we
@@ -396,7 +397,7 @@ def local_inter_volume_trace_pairs(
             dcoll, other_volume_dd, other_trace_dd, other_ary)
 
     other_to_self = dcoll._inter_partition_connections[
-            BoundaryDomainTag(self_btag, self_volume_dd.domain_tag.tag)]
+            other_part_id, self_part_id]
 
     def get_opposite_trace(el):
         if isinstance(el, Number):
@@ -441,29 +442,19 @@ class _TagKeyBuilder(KeyBuilder):
 
 
 @memoize_on_first_arg
-def _remote_inter_partition_tags(
+def _connected_partitions(
         dcoll: DiscretizationCollection,
         self_volume_tag: VolumeTag,
-        other_volume_tag: Optional[VolumeTag] = None
-        ) -> Sequence[BoundaryDomainTag]:
-    if other_volume_tag is None:
-        other_volume_tag = self_volume_tag
-
-    result: List[BoundaryDomainTag] = []
-    for domain_tag in dcoll._inter_partition_connections:
-        if isinstance(domain_tag.tag, BTAG_PARTITION):
-            if domain_tag.volume_tag == self_volume_tag:
-                result.append(domain_tag)
-
-        elif isinstance(domain_tag.tag, BTAG_MULTIVOL_PARTITION):
-            if (domain_tag.tag.other_rank is not None
-                    and domain_tag.volume_tag == self_volume_tag
-                    and domain_tag.tag.other_volume_tag == other_volume_tag):
-                result.append(domain_tag)
-
-        else:
-            raise AssertionError("unexpected inter-partition tag type encountered: "
-                    f"'{domain_tag.tag}'")
+        other_volume_tag: VolumeTag
+        ) -> Sequence[PartitionID]:
+    result: List[PartitionID] = [
+        connected_part_id
+        for connected_part_id, part_id in dcoll._inter_partition_connections.keys()
+        if (
+            dcoll._part_id_helper.get_volume(part_id) == self_volume_tag
+            and (
+                dcoll._part_id_helper.get_volume(connected_part_id)
+                == other_volume_tag))]
 
     return result
 
@@ -505,21 +496,25 @@ class _RankBoundaryCommunicationEager:
     def __init__(self,
             actx: ArrayContext,
             dcoll: DiscretizationCollection,
-            domain_tag: BoundaryDomainTag,
-            *, local_bdry_data: ArrayOrContainerT,
+            *,
+            local_part_id: PartitionID,
+            remote_part_id: PartitionID,
+            local_bdry_data: ArrayOrContainerT,
             send_data: ArrayOrContainerT,
             comm_tag: Optional[Hashable] = None):
 
         comm = dcoll.mpi_communicator
         assert comm is not None
 
-        remote_rank = _remote_rank_from_btag(domain_tag.tag)
+        remote_rank = dcoll._part_id_helper.get_mpi_rank(remote_part_id)
         assert remote_rank is not None
 
         self.dcoll = dcoll
         self.array_context = actx
-        self.domain_tag = domain_tag
-        self.bdry_discr = dcoll.discr_from_dd(domain_tag)
+        self.local_part_id = local_part_id
+        self.remote_part_id = remote_part_id
+        self.bdry_discr = dcoll.discr_from_dd(
+            BoundaryDomainTag(BTAG_PARTITION(remote_part_id)))
         self.local_bdry_data = local_bdry_data
 
         self.comm_tag = self.base_comm_tag
@@ -551,7 +546,8 @@ class _RankBoundaryCommunicationEager:
                 self.recv_data_np, self.array_context)
         unswapped_remote_bdry_data = unflatten(self.local_bdry_data,
                                      recv_data_flat, self.array_context)
-        bdry_conn = self.dcoll._inter_partition_connections[self.domain_tag]
+        bdry_conn = self.dcoll._inter_partition_connections[
+            self.remote_part_id, self.local_part_id]
         remote_bdry_data = bdry_conn(unswapped_remote_bdry_data)
 
         # Complete the nonblocking send request associated with communicating
@@ -559,7 +555,9 @@ class _RankBoundaryCommunicationEager:
         self.send_req.Wait()
 
         return TracePair(
-                DOFDesc(self.domain_tag, DISCR_TAG_BASE),
+                DOFDesc(
+                    BoundaryDomainTag(BTAG_PARTITION(self.remote_part_id)),
+                    DISCR_TAG_BASE),
                 interior=self.local_bdry_data,
                 exterior=remote_bdry_data)
 
@@ -572,8 +570,9 @@ class _RankBoundaryCommunicationLazy:
     def __init__(self,
             actx: ArrayContext,
             dcoll: DiscretizationCollection,
-            domain_tag: BoundaryDomainTag,
             *,
+            local_part_id: PartitionID,
+            remote_part_id: PartitionID,
             local_bdry_data: ArrayOrContainerT,
             send_data: ArrayOrContainerT,
             comm_tag: Optional[Hashable] = None) -> None:
@@ -583,10 +582,12 @@ class _RankBoundaryCommunicationLazy:
 
         self.dcoll = dcoll
         self.array_context = actx
-        self.bdry_discr = dcoll.discr_from_dd(domain_tag)
-        self.domain_tag = domain_tag
+        self.bdry_discr = dcoll.discr_from_dd(
+            BoundaryDomainTag(BTAG_PARTITION(remote_part_id)))
+        self.local_part_id = local_part_id
+        self.remote_part_id = remote_part_id
 
-        remote_rank = _remote_rank_from_btag(domain_tag.tag)
+        remote_rank = dcoll._part_id_helper.get_mpi_rank(remote_part_id)
         assert remote_rank is not None
 
         self.local_bdry_data = local_bdry_data
@@ -615,10 +616,13 @@ class _RankBoundaryCommunicationLazy:
                 communicate_single_array, self.local_bdry_data)
 
     def finish(self):
-        bdry_conn = self.dcoll._inter_partition_connections[self.domain_tag]
+        bdry_conn = self.dcoll._inter_partition_connections[
+            self.remote_part_id, self.local_part_id]
 
         return TracePair(
-                DOFDesc(self.domain_tag, DISCR_TAG_BASE),
+                DOFDesc(
+                    BoundaryDomainTag(BTAG_PARTITION(self.remote_part_id)),
+                    DISCR_TAG_BASE),
                 interior=self.local_bdry_data,
                 exterior=bdry_conn(self.remote_data))
 
@@ -682,19 +686,37 @@ def cross_rank_trace_pairs(
 
     # }}}
 
-    comm_bdtags = _remote_inter_partition_tags(
-            dcoll, self_volume_tag=volume_dd.domain_tag.tag)
+    if dcoll.mpi_communicator is None:
+        return []
+
+    rank = dcoll.mpi_communicator.Get_rank()
+
+    local_part_id = dcoll._part_id_helper.make(rank, volume_dd.domain_tag.tag)
+
+    connected_part_ids = _connected_partitions(
+            dcoll, self_volume_tag=volume_dd.domain_tag.tag,
+            other_volume_tag=volume_dd.domain_tag.tag)
+
+    remote_part_ids = [
+        part_id
+        for part_id in connected_part_ids
+        if dcoll._part_id_helper.get_mpi_rank(part_id) != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(comm_bdtags) == len(
-            {_remote_rank_from_btag(bdtag.tag) for bdtag in comm_bdtags})
+    assert len(remote_part_ids) == len(
+        {dcoll._part_id_helper.get_mpi_rank(part_id) for part_id in remote_part_ids})
 
     if isinstance(ary, Number):
         # NOTE: Assumes that the same number is passed on every rank
-        return [TracePair(DOFDesc(bdtag, DISCR_TAG_BASE), interior=ary, exterior=ary)
-                for bdtag in comm_bdtags]
+        return [
+            TracePair(
+                DOFDesc(
+                    BoundaryDomainTag(BTAG_PARTITION(remote_part_id)),
+                    DISCR_TAG_BASE),
+                interior=ary, exterior=ary)
+            for remote_part_id in remote_part_ids]
 
     actx = get_container_context_recursively(ary)
     assert actx is not None
@@ -706,19 +728,21 @@ def cross_rank_trace_pairs(
     else:
         rbc = _RankBoundaryCommunicationEager
 
-    def start_comm(bdtag):
-        local_bdry_data = project(
-                dcoll,
-                DOFDesc(VolumeDomainTag(bdtag.volume_tag), DISCR_TAG_BASE),
-                DOFDesc(bdtag, DISCR_TAG_BASE),
-                ary)
+    def start_comm(remote_part_id):
+        bdtag = BoundaryDomainTag(BTAG_PARTITION(remote_part_id))
 
-        return rbc(actx, dcoll, bdtag,
+        local_bdry_data = project(dcoll, volume_dd, bdtag, ary)
+
+        return rbc(actx, dcoll,
+            local_part_id=local_part_id,
+            remote_part_id=remote_part_id,
             local_bdry_data=local_bdry_data,
             send_data=local_bdry_data,
             comm_tag=comm_tag)
 
-    rank_bdry_communcators = [start_comm(bdtag) for bdtag in comm_bdtags]
+    rank_bdry_communcators = [
+        start_comm(remote_part_id)
+        for remote_part_id in remote_part_ids]
     return [rc.finish() for rc in rank_bdry_communcators]
 
 # }}}
@@ -758,16 +782,27 @@ def cross_rank_inter_volume_trace_pairs(
 
     # }}}
 
-    comm_bdtags = _remote_inter_partition_tags(
-            dcoll,
-            self_volume_tag=self_volume_dd.domain_tag.tag,
+    if dcoll.mpi_communicator is None:
+        return []
+
+    rank = dcoll.mpi_communicator.Get_rank()
+
+    local_part_id = dcoll._part_id_helper.make(rank, self_volume_dd.domain_tag.tag)
+
+    connected_part_ids = _connected_partitions(
+            dcoll, self_volume_tag=self_volume_dd.domain_tag.tag,
             other_volume_tag=other_volume_dd.domain_tag.tag)
+
+    remote_part_ids = [
+        part_id
+        for part_id in connected_part_ids
+        if dcoll._part_id_helper.get_mpi_rank(part_id) != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(comm_bdtags) == len(
-            {_remote_rank_from_btag(bdtag.tag) for bdtag in comm_bdtags})
+    assert len(remote_part_ids) == len(
+        {dcoll._part_id_helper.get_mpi_rank(part_id) for part_id in remote_part_ids})
 
     actx = get_container_context_recursively(self_ary)
     assert actx is not None
@@ -779,25 +814,23 @@ def cross_rank_inter_volume_trace_pairs(
     else:
         rbc = _RankBoundaryCommunicationEager
 
-    def start_comm(bdtag):
-        assert isinstance(bdtag.tag, BTAG_MULTIVOL_PARTITION)
-        self_volume_dd = DOFDesc(
-                VolumeDomainTag(bdtag.volume_tag), DISCR_TAG_BASE)
-        other_volume_dd = DOFDesc(
-                VolumeDomainTag(bdtag.tag.other_volume_tag), DISCR_TAG_BASE)
+    def start_comm(remote_part_id):
+        bdtag = BoundaryDomainTag(BTAG_PARTITION(remote_part_id))
 
         local_bdry_data = project(dcoll, self_volume_dd, bdtag, self_ary)
         send_data = project(dcoll, other_volume_dd,
-                BTAG_MULTIVOL_PARTITION(
-                    other_rank=bdtag.tag.other_rank,
-                    other_volume_tag=bdtag.volume_tag), other_ary)
+                BTAG_PARTITION(local_part_id), other_ary)
 
-        return rbc(actx, dcoll, bdtag,
+        return rbc(actx, dcoll,
+                local_part_id=local_part_id,
+                remote_part_id=remote_part_id,
                 local_bdry_data=local_bdry_data,
                 send_data=send_data,
                 comm_tag=comm_tag)
 
-    rank_bdry_communcators = [start_comm(bdtag) for bdtag in comm_bdtags]
+    rank_bdry_communcators = [
+        start_comm(remote_part_id)
+        for remote_part_id in remote_part_ids]
     return [rc.finish() for rc in rank_bdry_communcators]
 
 # }}}
