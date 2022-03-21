@@ -225,6 +225,11 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
             self, mpi_communicator, queue, *, mpi_base_tag, allocator=None
             ) -> None:
+
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one.")
+
         super().__init__(queue, allocator)
 
         self.mpi_communicator = mpi_communicator
