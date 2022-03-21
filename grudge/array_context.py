@@ -210,6 +210,7 @@ class _DistributedCompiledFunction:
         out_dict = execute_distributed_partition(
                 self.distributed_partition, self.part_id_to_prg,
                 self.actx.queue, self.actx.mpi_communicator,
+                allocator=self.actx.allocator,
                 input_args=input_args_for_prg)
 
         def to_output_template(keys, _):
