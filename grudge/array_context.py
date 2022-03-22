@@ -88,6 +88,19 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     to understand :mod:`grudge`-specific transform metadata. (Of which there isn't
     any, for now.)
     """
+    def __init__(self, queue: "pyopencl.CommandQueue",
+            allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
+            wait_event_queue_length: Optional[int] = None,
+            force_device_scalars: bool = False) -> None:
+
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
+
+        super().__init__(queue, allocator,
+                         wait_event_queue_length, force_device_scalars)
 
 # }}}
 
@@ -99,6 +112,13 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
+    def __init__(self, queue, allocator=None):
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
+        super().__init__(queue, allocator)
 
 # }}}
 
@@ -210,6 +230,7 @@ class _DistributedCompiledFunction:
         out_dict = execute_distributed_partition(
                 self.distributed_partition, self.part_id_to_prg,
                 self.actx.queue, self.actx.mpi_communicator,
+                allocator=self.actx.allocator,
                 input_args=input_args_for_prg)
 
         def to_output_template(keys, _):
@@ -224,6 +245,12 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
             self, mpi_communicator, queue, *, mpi_base_tag, allocator=None
             ) -> None:
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
+
         super().__init__(queue, allocator)
 
         self.mpi_communicator = mpi_communicator
