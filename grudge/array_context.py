@@ -95,7 +95,9 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         if allocator is None:
             from warnings import warn
-            warn("No memory allocator specified, please pass one.")
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
 
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
@@ -113,8 +115,9 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     def __init__(self, queue, allocator=None):
         if allocator is None:
             from warnings import warn
-            warn("No memory allocator specified, please pass one.")
-
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
         super().__init__(queue, allocator)
 
 # }}}
@@ -244,7 +247,9 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
             ) -> None:
         if allocator is None:
             from warnings import warn
-            warn("No memory allocator specified, please pass one.")
+            warn("No memory allocator specified, please pass one. "
+                 "(Preferably a pyopencl.tools.MemoryPool in order "
+                 "to reduce device allocations)")
 
         super().__init__(queue, allocator)
 
