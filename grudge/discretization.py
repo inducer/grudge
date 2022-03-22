@@ -8,10 +8,10 @@
 
 .. currentmodule:: grudge.discretization
 
-Internal things that are visble due to type annotations
--------------------------------------------------------
+Internal things that are visible due to type annotations
+--------------------------------------------------------
 
-.. class:: _InterPartitionConnectionPair
+.. class:: _PartitionIDHelper
 """
 
 __copyright__ = """
@@ -151,6 +151,11 @@ class DiscretizationCollection:
     :class:`~meshmode.mesh.Mesh`, corresponding to various mesh entities
     (volume, interior facets, boundaries) and associated element
     groups.
+
+    .. note::
+
+        Do not call the constructor directly. Use
+        :func:`make_discretization_collection` instead.
 
     .. autoattribute:: dim
     .. autoattribute:: ambient_dim
