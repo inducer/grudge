@@ -88,6 +88,17 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     to understand :mod:`grudge`-specific transform metadata. (Of which there isn't
     any, for now.)
     """
+    def __init__(self, queue: "pyopencl.CommandQueue",
+            allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
+            wait_event_queue_length: Optional[int] = None,
+            force_device_scalars: bool = False) -> None:
+
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one.")
+
+        super().__init__(queue, allocator,
+                         wait_event_queue_length, force_device_scalars)
 
 # }}}
 
@@ -99,6 +110,12 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
+    def __init__(self, queue, allocator=None):
+        if allocator is None:
+            from warnings import warn
+            warn("No memory allocator specified, please pass one.")
+
+        super().__init__(queue, allocator)
 
 # }}}
 
@@ -225,7 +242,6 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
             self, mpi_communicator, queue, *, mpi_base_tag, allocator=None
             ) -> None:
-
         if allocator is None:
             from warnings import warn
             warn("No memory allocator specified, please pass one.")
