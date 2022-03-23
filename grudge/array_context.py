@@ -38,7 +38,6 @@ from dataclasses import dataclass
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
-
 import logging
 logger = logging.getLogger(__name__)
 

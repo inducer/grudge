@@ -30,7 +30,13 @@ except ImportError:
     # Use backported version for python < 3.7
     import importlib_resources as pkg_resources
 
-ctof_knl = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
+ctof_knl_base = lp.make_copy_kernel("f,f", old_dim_tags="c,c")
+ctof_knl = lp.make_kernel(ctof_knl_base.default_entrypoint.domains,
+                     ctof_knl_base.default_entrypoint.instructions,
+                     default_offset=lp.auto)
+ctof_knl = lp.tag_array_axes(ctof_knl, "input", "c,c")
+ctof_knl = lp.tag_array_axes(ctof_knl, "output", "f,f")
+
 #ftoc_knl = lp.make_copy_kernel("c,c", old_dim_tags="f,f")
 
 def get_transformation_id(device_id):
@@ -47,29 +53,31 @@ def get_order_from_dofs(dofs):
     dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
     return dofs_to_order[dofs]
 
-def set_memory_layout(program):
+def set_memory_layout(program, order="F"):
     # This assumes arguments have only one tag
-    for arg in program.default_entrypoint.args:
-        if IsDOFArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "f,f")
-        elif IsSepVecDOFArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "sep,f,f")
-        elif IsSepVecOpArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "sep,c,c")
-        elif IsFaceDOFArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
-        elif IsVecDOFArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "N2,N0,N1")
-        elif IsVecOpArray() in arg.tags or IsFaceMassOpArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "c,c,c")
-        elif IsFourAxisDOFArray() in arg.tags:
-            program = lp.tag_array_axes(program, arg.name, "N3,N2,N0,N1")
-        else:
-            for tag in arg.tags:
-                if isinstance(tag, ParameterValue):
-                    program = lp.fix_parameters(program, **{arg.name: tag.value})
+    if order == "F":
+        for arg in program.default_entrypoint.args:
+            if IsDOFArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "f,f")
+            elif IsSepVecDOFArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "sep,f,f")
+            elif IsSepVecOpArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "sep,c,c")
+            elif IsFaceDOFArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
+            elif IsVecDOFArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "N2,N0,N1")
+            elif IsVecOpArray() in arg.tags or IsFaceMassOpArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "c,c,c")
+            elif IsFourAxisDOFArray() in arg.tags:
+                program = lp.tag_array_axes(program, arg.name, "N3,N2,N0,N1")
 
-        program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
+    for arg in program.default_entrypoint.args:
+        for tag in arg.tags:
+            if isinstance(tag, ParameterValue):
+                program = lp.fix_parameters(program, **{arg.name: tag.value})
+
+    program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
     return program
 
 
@@ -267,21 +275,30 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             actx = self._array_context
             prg = _get_scalar_func_loopy_program(actx,
                     c_name, nargs=len(args), axis_lengths=args[0].shape)
-            #for arg in args:
-            #    print("Input dtype:", arg.dtype)
-            #    print("Input shape:", arg.shape)
-            #    print("Input Sum:", cla.sum(arg))
-            #    print("Input Max:", cla.max(arg))
-            #    print("Input Min:", cla.min(arg))
-            #    print("Input numpy:", np.sum(np.abs(arg.get())))
+            for arg in args:
+                print("Input dtype:", arg.dtype)
+                print("Input shape:", arg.shape)
+                print("Input strides:", arg.strides)
+                print("Input Sum:", cla.sum(arg))
+                #print("Input Max:", cla.max(arg))
+                #print("Input Min:", cla.min(arg))
+                print("Input numpy:", np.sum(np.abs(arg.get())))
+                if arg.shape == (0,2):
+                    print("Input array:", arg.get())
             #cargs = []
             #for arg in args:
             #    print(
             #evt, (out,) = ftoc_knl(self._array_context.queue, input=arg)
             #    cargs.append(out)
+            # Workaround
+            #if len(args) == 1 and args[0].shape[0] == 0:
+            #    return args[0]
+            print(prg)
+
             outputs = actx.call_loopy(prg,
                     #**{"inp%d" % i: cargs[i] for i, arg in enumerate(args)})
                     **{"inp%d" % i: arg for i, arg in enumerate(args)})
+            
             #print("PyOpenCL Output sum:", cla.sum(outputs["out"]))
             #print("Output numpy:", np.sum(np.abs(outputs["out"].get())))
             #1/0
@@ -447,9 +464,9 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         #print("Shape:", thawed.shape)
         #print("C_contiguous:", array.flags.c_contiguous)
         #print("F_contiguous:", array.flags.f_contiguous)
-        if len(thawed.shape) == 2 and array.flags.c_contiguous:
+        if len(thawed.shape) == 2 and array.flags.c_contiguous and not array.flags.f_contiguous:
             result = self.call_loopy(ctof_knl, **{"input": thawed})
-            print("CALLED CTOF")
+            #print("CALLED CTOF")
             #assert cla.sum(thawed - result["output"]) == 0
             #exit()
             thawed = result["output"]
@@ -562,25 +579,42 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
 
 
 class KernelSavingArrayContext(FortranOrderedArrayContext):
-     def transform_loopy_program(self, program):
+#class KernelSavingArrayContext(ParameterFixingPyOpenCLArrayContext):
+    def transform_loopy_program(self, program):
 
         if program.default_entrypoint.name in autotuned_kernels:
             import pickle
             # Set no_numpy and return_dict options here?
-            program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
-            program = set_memory_layout(program)
- 
+            program = set_memory_layout(program, order="F")
+
+            print("====CALCULATING PROGRAM ID====")
             filename = "./pickled_programs"
             pid = unique_program_id(program)
         
             # Is there a way to obtain the current rank?
             file_path = f"{filename}/{program.default_entrypoint.name}_{pid}.pickle"
+            from os.path import exists
+            
+            if not exists(file_path):
+                # For some reason this doesn't create the directory
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                print(program.default_entrypoint)
+                print("====WRITING PROGRAM TO FILE===", file_path)
+                out_file = open(file_path, "wb")
+                pickle.dump(program, out_file)
+                out_file.close()
+                print("====READING PROGRAM FROM FILE===", file_path)
+                f = open(file_path, "rb")
+                loaded = pickle.load(f)
+                f.close()
+                pid2 = unique_program_id(loaded)
+                print(pid, pid2)
+                assert pid == pid2
 
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
-            print("Writing program to file")
-            out_file = open(file_path, "wb+")
-            pickle.dump(program, out_file)
-            out_file.close()
+            else:
+                print("PICKLED FILE ALREADY EXISTS", file_path)
+            #if program.default_entrypoint.name == "einsum3to2_kernel":
+            #    exit()
         else:
             program = super().transform_loopy_program(program)
 
@@ -855,9 +889,40 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
 
 # Could be problematic if code generation is not deterministic.
 def unique_program_id(program):
-    code = lp.generate_code_v2(program).device_code()
-    h = md5(code.encode())
-    identifier = h.hexdigest()
+    #code = lp.generate_code_v2(program).device_code() # Not unique
+    #return md5(str(program.default_entrypoint).encode()).hexdigest() # Also not unique
+
+    ep = program.default_entrypoint
+    domains = ep.domains
+    instr = [str(entry) for entry in ep.instructions]
+    args = ep.args
+    name = ep.name
+
+    # Is the name really relevant? 
+    all_list = [name] + domains + instr + args
+    identifier = md5(str(all_list).encode()).hexdigest()
+
+    """
+    print("NAME")
+    print(name)
+    print()
+    print("DOMAINS")
+    print(domains)
+    print()
+    print("INSTRUCTIONS")
+    print(instr)
+    print()
+    print("ARGS")
+    print(args)
+    print()
+
+    dstr = md5(str(domains).encode()).hexdigest() #List
+    istr = md5(str(instr).encode()).hexdigest()   #List
+    astr = md5(str(args).encode()).hexdigest()    #List
+    nstr = md5(name.encode()).hexdigest()
+    identifier = nstr[:4] + dstr[:4] + istr[:4] + astr[:4]
+    """
+
     return identifier
 
 
@@ -873,7 +938,8 @@ autotuned_kernels = {"einsum3to2_kernel",
                      "einsum2to2_kernel",
                      "diff", 
                      "lp_nodes",
-                     "grudge_elementwise_sum_knl"}
+                     "grudge_elementwise_sum_knl",
+                     "smooth_comp" } # This last one is a mirgecom kernel. Should probably have some class variable.
 
 
 class AutotuningArrayContext(GrudgeArrayContext):
@@ -920,6 +986,8 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         hjson.dump(od, out_file,default=convert)
         out_file.close()
+        print("WRITING TRANSFORMATION FILE:", hjson_file_str)
+
         return transformations
 
     @memoize_method
@@ -961,6 +1029,8 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 try: # New hjson structure
                     transformations = dgk.load_transformations_from_file(hjson_file,
                         ["transformations"])
+                    print("LOCATED TRANSFORMATION:", hjson_file_str)
+                    #exit()
                 except KeyError as e:
                     # This can eventually be removed since we're now using the hash of the program code to specify the file.
                     # Kernels with different dimensions will have different files.
@@ -1043,6 +1113,8 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 #from pprint import pprint
                 #pprint(od)
                 """
+                print("TRANSFORMATION FILE NOT FOUND", hjson_file_str)
+                exit()
                 tlist_generator, pspace_generator = self.get_generators(program)
                 search_fn = exhaustive_search_v2#random_search
                 transformations = self.autotune_and_save(self.queue, program, search_fn, 
@@ -1067,6 +1139,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
                     l0 = 16
                 if n_to_nodes*16 > 1024:
                     l0 = 8
+                    c
 
                 outer = max(l0, 32)
 
