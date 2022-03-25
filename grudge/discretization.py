@@ -950,6 +950,7 @@ def make_discretization_collection(
         order: Optional[int] = None,
         discr_tag_to_group_factory: Optional[
             Mapping[DiscretizationTag, ElementGroupFactory]] = None,
+        _result_type: type = DiscretizationCollection
         ) -> DiscretizationCollection:
     """
     :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -1017,7 +1018,7 @@ def make_discretization_collection(
             discr_tag_to_group_factory[DISCR_TAG_BASE])
         for vtag, mesh in volumes.items()}
 
-    return DiscretizationCollection(
+    return _result_type(
             array_context=array_context,
             volume_discrs=volume_discrs,
             discr_tag_to_group_factory=discr_tag_to_group_factory,
