@@ -151,22 +151,24 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
     bdry_faces_func = op.project(dcoll, BTAG_ALL, dd_af,
                                  op.project(dcoll, dd_vol, BTAG_ALL, myfunc))
 
-    hopefully_zero = (
-        op.project(
-            dcoll, "int_faces", "all_faces",
-            dcoll.opposite_face_connection(
-                dof_desc.BoundaryDomainTag(
-                    dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
-                )(int_faces_func)
-        )
-        + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.int)
-              for tpair in op.cross_rank_trace_pairs(dcoll, myfunc,
-                  comm_tag=SimpleTag))
-    ) - (all_faces_func - bdry_faces_func)
+    def hopefully_zero():
+        return (
+            op.project(
+                dcoll, "int_faces", "all_faces",
+                dcoll.opposite_face_connection(
+                    dof_desc.BoundaryDomainTag(
+                        dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+                    )(int_faces_func)
+            )
+            + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.ext)
+                  for tpair in op.cross_rank_trace_pairs(dcoll, myfunc,
+                      comm_tag=SimpleTag))
+        ) - (all_faces_func - bdry_faces_func)
 
-    error = actx.to_numpy(flat_norm(hopefully_zero, ord=np.inf))
+    hopefully_zero_result = actx.compile(hopefully_zero)()
 
-    print(__file__)
+    error = actx.to_numpy(flat_norm(hopefully_zero_result, ord=np.inf))
+
     with np.printoptions(threshold=100000000, suppress=True):
         logger.debug(hopefully_zero)
     logger.info("error: %.5e", error)
