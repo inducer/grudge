@@ -713,12 +713,9 @@ class _RankBoundaryCommunicationLazy:
         # Add the dummy zeros and hope that the caller proceeds to actually
         # use some of this data on every rank...
         from arraycontext import rec_map_array_container
-        # This caused test_mpi_communication.py::test_func_comparison_mpi to fail
-        # for some reason
-#         self.local_bdry_data = rec_map_array_container(
-#             lambda x: x + zero,
-#             local_bdry_data)
-        self.local_bdry_data = local_bdry_data
+        self.local_bdry_data = rec_map_array_container(
+            lambda x: x + zero,
+            local_bdry_data)
         self.unswapped_remote_bdry_data = rec_map_array_container(
             lambda x: x + zero,
             unswapped_remote_bdry_data)
