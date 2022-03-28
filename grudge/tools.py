@@ -28,6 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 from pytools import levi_civita
+from typing import Tuple, Callable, Optional
 from functools import partial
 
 
@@ -238,12 +239,20 @@ def build_jacobian(actx, f, base_state, stepsize):
     return mat
 
 
-def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
+def map_subarrays(
+        f: Callable[[np.ndarray], np.ndarray],
+        in_shape: Tuple[int, ...], out_shape: Tuple[int, ...],
+        ary: np.ndarray, *, return_nested=False) -> np.ndarray:
     """
-    Map a function *f* over a :class:`numpy.ndarray`, applying it to subarrays
-    of shape *in_shape* individually.
+    Apply a function *f* to subarrrays of shape *in_shape* of an
+    :class:`numpy.ndarray`, typically (but not necessarily) of dtype
+    :class:`object`. Return an :class:`numpy.ndarray` of the same dtype,
+    with the corresponding subarrays replaced by the return values of *f*,
+    and with the shape adapted to reflect *out_shape*.
 
-    Example 1: given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
+    Similar to :class:`numpy.vectorize`.
+
+    *Example 1:* given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
     and an input array *ary* of shape ``(3, 2, 2)``, the call::
 
         map_subarrays(f, (2, 2), (), ary)
@@ -251,7 +260,7 @@ def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
     will produce an array of shape ``(3,)`` containing the results of calling *f* on
     the 3 subarrays of shape ``(2, 2)`` in *ary*.
 
-    Example 2: given a function *f* that maps arrays of shape ``(2,)`` to arrays of
+    *Example 2:* given a function *f* that maps arrays of shape ``(2,)`` to arrays of
     shape ``(2, 2)`` and an input array *ary* of shape ``(3, 2)``, the call::
 
         map_subarrays(f, (2,), (2, 2), ary)
@@ -294,41 +303,39 @@ def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
             in_slice = tuple(slice(0, n) for n in in_shape)
             out_slice = tuple(slice(0, n) for n in out_shape)
             if return_nested:
-                result = np.empty(base_shape, dtype=object)
+                result = np.empty(base_shape, dtype=ary.dtype)
                 for idx in np.ndindex(base_shape):
                     result[idx] = f(ary[idx + in_slice])
                 return result
             else:
-                result = np.empty(base_shape + out_shape, dtype=object)
+                result = np.empty(base_shape + out_shape, dtype=ary.dtype)
                 for idx in np.ndindex(base_shape):
                     result[idx + out_slice] = f(ary[idx + in_slice])
                 return result
 
 
 def rec_map_subarrays(
-        f, in_shape, out_shape, is_scalar, ary, *, return_nested=False):
+        f: Callable[[np.ndarray], np.ndarray],
+        in_shape: Tuple[int, ...],
+        out_shape: Tuple[int, ...],
+        ary: np.ndarray, *,
+        leaf_cls: Optional[type] = None,
+        return_nested: bool = False) -> np.ndarray:
+    r"""
+    Like :func:`map_subarrays`, but with support for
+    :class:`arraycontext.ArrayContainer`\ s.
+
+    :param leaf_cls: An array container of this type will be considered a leaf
+        and will be passed to *f* without further destructuring.
     """
-    Map a function *f* over an object *ary*, applying it to any subarrays
-    of shape *in_shape* individually.
-
-    Array container version of :func:`map_subarrays`.
-
-    :param is_scalar: a function that indicates whether a given object is to be
-        treated as a scalar or not.
-    """
-    def is_array_of_scalars(a):
-        return (
-            isinstance(a, np.ndarray) and a.dtype == object
-            and all(is_scalar(a[idx]) for idx in np.ndindex(a.shape)))
-
-    if is_scalar(ary) or is_array_of_scalars(ary):
+    if type(ary) is leaf_cls or isinstance(ary, np.ndarray):
         return map_subarrays(
             f, in_shape, out_shape, ary, return_nested=return_nested)
     else:
         from arraycontext import map_array_container
         return map_array_container(
             partial(
-                rec_map_subarrays, f, in_shape, out_shape, is_scalar,
+                rec_map_subarrays, f, in_shape, out_shape, leaf_cls=leaf_cls,
                 return_nested=return_nested),
             ary)
 

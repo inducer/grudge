@@ -219,9 +219,7 @@ def local_grad(
         f=partial(_strong_scalar_grad, dcoll, dd_in),
         in_shape=(),
         out_shape=(dcoll.ambient_dim,),
-        is_scalar=lambda v: isinstance(v, DOFArray),
-        return_nested=nested,
-        ary=vec)
+        ary=vec, leaf_cls=DOFArray, return_nested=nested,)
 
 
 def local_d_dx(
@@ -279,8 +277,7 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
             for i, vec_i in enumerate(vec)),
         in_shape=(dcoll.ambient_dim,),
         out_shape=(),
-        is_scalar=lambda v: isinstance(v, DOFArray),
-        ary=vecs)
+        ary=vecs, leaf_cls=DOFArray)
 
 # }}}
 
@@ -384,9 +381,7 @@ def weak_local_grad(
         f=partial(_weak_scalar_grad, dcoll, dd_in),
         in_shape=(),
         out_shape=(dcoll.ambient_dim,),
-        is_scalar=lambda v: isinstance(v, DOFArray),
-        return_nested=nested,
-        ary=vecs)
+        ary=vecs, leaf_cls=DOFArray, return_nested=nested)
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
@@ -493,8 +488,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
             for i, vec_i in enumerate(vec)),
         in_shape=(dcoll.ambient_dim,),
         out_shape=(),
-        is_scalar=lambda v: isinstance(v, DOFArray),
-        ary=vecs)
+        ary=vecs, leaf_cls=DOFArray)
 
 # }}}
 
