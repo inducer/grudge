@@ -9,6 +9,10 @@ import hjson
 import pyopencl as cl
 import numpy as np
 import grudge.loopy_dg_kernels as dgk
+import os
+import grudge.grudge_array_context as gac
+import loopy as lp
+from os.path import exists
 from grudge.loopy_dg_kernels.run_tests import run_single_param_set, generic_test
 from grudge.grudge_array_context import convert
 #from grudge.execution import diff_prg, elwise_linear
@@ -73,7 +77,7 @@ def unpickle_kernel(fname):
     f.close()
     return program
 
-def autotune_pickled_kernels(path, platform_id, actx_class):
+def autotune_pickled_kernels(path, platform_id, actx_class, comm):
     from os import listdir
     dir_list = listdir(path)
     for f in dir_list:
@@ -81,10 +85,25 @@ def autotune_pickled_kernels(path, platform_id, actx_class):
             fname = path + "/" + f
             print("Autotuning", fname)
             knl = unpickle_kernel(fname)
-            print(knl)
-            parallel_autotune(knl, platform_id, actx_class)
+            knl_id = f.split(".")[0]
+            knl_id = knl_id.split("_")[-1]
+            print("Kernel ID", knl_id)
+            print("New kernel ID", gac.unique_program_id(knl))
+            
+            assert knl_id == gac.unique_program_id(knl)
+            knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+            knl = gac.set_memory_layout(knl)
+            assert knl_id == gac.unique_program_id(knl)
 
-def parallel_autotune(knl, platform_id, actx_class):
+            print(knl)
+            pid = gac.unique_program_id(knl)
+            hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
+            if not exists(hjson_file_str):
+                parallel_autotune(knl, platform_id, actx_class, comm)
+            else:
+                print("hjson file exists, skipping")
+
+def parallel_autotune(knl, platform_id, actx_class, comm):
 
     # Create queue, assume all GPUs on the machine are the same
     platforms = cl.get_platforms()
@@ -97,15 +116,13 @@ def parallel_autotune(knl, platform_id, actx_class):
 
     import pyopencl.tools as cl_tools
     actx = actx_class(
+        comm,
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)))
 
-    import grudge.grudge_array_context as gac
-    import loopy as lp
     knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
     knl = gac.set_memory_layout(knl)
     pid = gac.unique_program_id(knl)
-    import os
     os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
     hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
 
@@ -141,20 +158,24 @@ def parallel_autotune(knl, platform_id, actx_class):
 
     pool_proxy = Chare(PoolScheduler, onPE=0)
     mypool = Pool(pool_proxy)
-    results = mypool.map(test, args)
+    if len(args) > 0: # Guard against empyt list
+        results = mypool.map(test, args)
 
-    sort_key = lambda entry: entry[0]
-    results.sort(key=sort_key)
+        sort_key = lambda entry: entry[0]
+        results.sort(key=sort_key)
+        
+        #for r in results:
+        #    print(r)
+
+        avg_time, transformations, data = results[0]
+    else:
+        transformations = {}
     
-    #for r in results:
-    #    print(r)
-
-    avg_time, transformations, data = results[0]
-
     od = {"transformations": transformations}
     out_file = open(hjson_file_str, "wt+")
     hjson.dump(od, out_file,default=convert)
     out_file.close()
+
     return transformations
 
 """
@@ -204,8 +225,13 @@ def main(args):
 """
 
 def main(args):
+    import mpi4py.MPI as MPI
     from mirgecom.array_context import MirgecomAutotuningArrayContext as Maac
-    autotune_pickled_kernels("./pickled_programs", 0, Maac)
+    comm = MPI.COMM_WORLD
+    
+    autotune_pickled_kernels("./pickled_programs", 0, Maac, comm)
+    print("DONE!")
+    exit()
 
 def charm_autotune():
     charm.start(main)
