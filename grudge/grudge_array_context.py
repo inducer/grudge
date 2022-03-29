@@ -641,23 +641,32 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                 if arg.name == "n_to_nodes":
                     # Assumes this has has a single ParameterValue tag
                     n_to_nodes = arg.tags[0].value
+                elif arg.name == "nelements":
+                    nelements = arg.tags[0].value
 
             l1 = min(n_to_nodes, 32)
-            l0 = 32#((1024 // n_to_nodes) // 32) * 32 # Closest multiple of 32 to 1024 // n_to_nodes
+            outer = min(nelements, 128)
+            l0 = min(nelements, 32)#32#((1024 // n_to_nodes) // 32) * 32 # Closest multiple of 32 to 1024 // n_to_nodes
             #if l0 == 0:
             #    l0 = 16
             #if n_to_nodes*16 > 1024:
             #    l0 = 8
 
-            outer = 128#max(l0, 32)
+            #outer = 128#max(l0, 32)
 
             #program = set_memory_layout(program)
-            program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
-                                        slabs=(0, 1))
-            program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
-                                        inner_tag="l.0")
-            program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
-                                        inner_tag="l.1", slabs=(0, 0))
+            if nelements*n_to_nodes <= 1024: # Eventually shouldn't hardcode this.
+                program = lp.split_iname(program, "iel", nelements, outer_tag="g.0",
+                                            inner_tag="l.0", slabs=(0,0))
+                program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
+                                            inner_tag="l.1", slabs=(0,0))
+            else:
+                program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
+                                            slabs=(0,1))
+                program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
+                                            inner_tag="l.0", slabs=(0,1))
+                program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
+                                            inner_tag="l.1", slabs=(0,0))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
@@ -1000,6 +1009,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
         device_id = "NVIDIA Titan V"
 
         print(program.default_entrypoint.name)
+        print(unique_program_id(program))
         print(program)
 
         # These are the most compute intensive kernels
