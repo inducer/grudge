@@ -381,16 +381,16 @@ def _normalize_domain_and_discr_tag(
     if _contextual_volume_tag is None:
         _contextual_volume_tag = VTAG_ALL
 
-    if domain in [DTAG_SCALAR, "scalar"]:
+    if domain == "scalar":
         domain = DTAG_SCALAR
-    elif isinstance(domain, (BoundaryDomainTag, VolumeDomainTag)):
+    elif isinstance(domain, (ScalarDomainTag, BoundaryDomainTag, VolumeDomainTag)):
         pass
-    elif domain == "vol":
+    elif domain in [VTAG_ALL, "vol"]:
         domain = DTAG_VOLUME_ALL
     elif domain in [FACE_RESTR_ALL, "all_faces"]:
-        domain = BoundaryDomainTag(FACE_RESTR_ALL)
+        domain = BoundaryDomainTag(FACE_RESTR_ALL, _contextual_volume_tag)
     elif domain in [FACE_RESTR_INTERIOR, "int_faces"]:
-        domain = BoundaryDomainTag(FACE_RESTR_INTERIOR)
+        domain = BoundaryDomainTag(FACE_RESTR_INTERIOR, _contextual_volume_tag)
     elif isinstance(domain, BTAG_PARTITION):
         domain = BoundaryDomainTag(domain, _contextual_volume_tag)
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
