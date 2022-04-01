@@ -876,7 +876,7 @@ def _set_up_inter_part_connections(
                         local_bdry_conn=bdry_restr,
                         remote_bdry_discr=connected_bdry_restr.to_discr,
                         remote_group_infos=make_remote_group_infos(
-                            array_context, connected_part_id, connected_bdry_restr))
+                            array_context, part_id, connected_bdry_restr))
 
                 # }}}
             else:
