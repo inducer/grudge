@@ -64,7 +64,6 @@ from arraycontext import (
     ArrayContext,
     with_container_arithmetic,
     dataclass_array_container,
-    get_container_context_recursively,
     get_container_context_recursively_opt,
     to_numpy,
     from_numpy,
@@ -261,7 +260,7 @@ def bv_trace_pair(
                 DeprecationWarning, stacklevel=2)
         dd = dof_desc.as_dofdesc(dd)
     return bdry_trace_pair(
-        dcoll, dd, project(dcoll, "vol", dd, interior), exterior)
+        dcoll, dd, project(dcoll, dd.domain_tag.volume_tag, dd, interior), exterior)
 
 # }}}
 
@@ -470,7 +469,7 @@ def inter_volume_trace_pairs(dcoll: DiscretizationCollection,
         result[directional_vol_dd_pair] = [tpair]
 
     for directional_vol_dd_pair, tpairs in cross_rank_tpairs.items():
-        result.setdefault(directional_vol_dd_pair, []).append(tpairs)
+        result.setdefault(directional_vol_dd_pair, []).extend(tpairs)
 
     return result
 
@@ -832,7 +831,7 @@ def cross_rank_trace_pairs(
     # (Since we have only a single tag.)
     assert len(remote_part_ids) == len({part_id.rank for part_id in remote_part_ids})
 
-    actx = get_container_context_recursively(ary)
+    actx = get_container_context_recursively_opt(ary)
 
     if actx is None:
         # NOTE: Assumes that the same number is passed on every rank
