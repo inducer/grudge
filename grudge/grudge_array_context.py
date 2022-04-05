@@ -275,16 +275,16 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             actx = self._array_context
             prg = _get_scalar_func_loopy_program(actx,
                     c_name, nargs=len(args), axis_lengths=args[0].shape)
-            for arg in args:
-                print("Input dtype:", arg.dtype)
-                print("Input shape:", arg.shape)
-                print("Input strides:", arg.strides)
-                print("Input Sum:", cla.sum(arg))
-                #print("Input Max:", cla.max(arg))
-                #print("Input Min:", cla.min(arg))
-                print("Input numpy:", np.sum(np.abs(arg.get())))
-                if arg.shape == (0,2):
-                    print("Input array:", arg.get())
+            #for arg in args:
+                #print("Input dtype:", arg.dtype)
+                #print("Input shape:", arg.shape)
+                #print("Input strides:", arg.strides)
+                #print("Input Sum:", cla.sum(arg))
+                ##print("Input Max:", cla.max(arg))
+                ##print("Input Min:", cla.min(arg))
+                #print("Input numpy:", np.sum(np.abs(arg.get())))
+                #if arg.shape == (0,2):
+                #    print("Input array:", arg.get())
             #cargs = []
             #for arg in args:
             #    print(
@@ -293,7 +293,7 @@ class GrudgeFakeNumpyNamespace(PyOpenCLFakeNumpyNamespace):
             # Workaround
             #if len(args) == 1 and args[0].shape[0] == 0:
             #    return args[0]
-            print(prg)
+            #print(prg)
 
             outputs = actx.call_loopy(prg,
                     #**{"inp%d" % i: cargs[i] for i, arg in enumerate(args)})
@@ -411,11 +411,14 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
                             kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
             elif "resample_by_picking" in program.default_entrypoint.name:
                 # Double check this - this may underestimate the number of bytes transferred
+                print("Inaccurate byte count for resample_by_picking")
+                """
                 if "rhs" not in program.default_entrypoint.name:
                     nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0]
                             + kwargs["to_element_indices"].shape[0])*8
                 else:
                     nbytes = kwargs["pick_list"].shape[0] * (kwargs["from_element_indices"].shape[0])*8
+                """
             else:
                 # This won't work because not all kernels have dimensions specified
                 #for arg in program.default_entrypoint.args:
@@ -635,10 +638,11 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
         #transform_id = get_transformation_id(device_id)
 
         # Static (non-autotuned) transformations for the GPU
+        # This needs to be fixed for new resample by picking kernel
         if "resample_by_picking" in program.default_entrypoint.name:
             for arg in program.default_entrypoint.args:
                 print(arg.name, arg.tags)
-                if arg.name == "n_to_nodes":
+                if arg.name == "nunit_dofs_tgt":
                     # Assumes this has has a single ParameterValue tag
                     n_to_nodes = arg.tags[0].value
                 elif arg.name == "nelements":
