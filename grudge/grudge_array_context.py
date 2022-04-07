@@ -659,18 +659,19 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             #outer = 128#max(l0, 32)
 
             #program = set_memory_layout(program)
-            if nelements*n_to_nodes <= 1024: # Eventually shouldn't hardcode this.
-                program = lp.split_iname(program, "iel", nelements, outer_tag="g.0",
-                                            inner_tag="l.0", slabs=(0,0))
-                program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
-                                            inner_tag="l.1", slabs=(0,0))
-            else:
-                program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
-                                            slabs=(0,1))
-                program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
-                                            inner_tag="l.0", slabs=(0,1))
-                program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
-                                            inner_tag="l.1", slabs=(0,0))
+            if nelements*n_to_nodes > 0:
+                if nelements*n_to_nodes <= 1024: # Eventually shouldn't hardcode this.
+                    program = lp.split_iname(program, "iel", nelements, outer_tag="g.0",
+                                                inner_tag="l.0", slabs=(0,0))
+                    program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
+                                                inner_tag="l.1", slabs=(0,0))
+                else:
+                    program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
+                                                slabs=(0,1))
+                    program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
+                                                inner_tag="l.0", slabs=(0,1))
+                    program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
+                                                inner_tag="l.1", slabs=(0,0))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
