@@ -912,8 +912,9 @@ def unique_program_id(program):
     name = ep.name
 
     # Is the name really relevant? 
-    all_list = [name] + domains + instr + args
-    identifier = md5(str(all_list).encode()).hexdigest()
+    #all_list = [name] + domains + instr + args
+    # Somehow this can change even if the string is the same
+    #identifier = md5(str(all_list).encode()).hexdigest()
 
     """
     print("NAME")
@@ -928,13 +929,20 @@ def unique_program_id(program):
     print("ARGS")
     print(args)
     print()
+    """
 
     dstr = md5(str(domains).encode()).hexdigest() #List
     istr = md5(str(instr).encode()).hexdigest()   #List
     astr = md5(str(args).encode()).hexdigest()    #List
     nstr = md5(name.encode()).hexdigest()
+    print("dstr", dstr)
+    print("nstr", nstr)
+    print("istr", istr)
+    print("astr", astr)
+    #for entry in all_list:
+    #    print(entry)
+    #print(str(all_list))
     identifier = nstr[:4] + dstr[:4] + istr[:4] + astr[:4]
-    """
 
     return identifier
 
