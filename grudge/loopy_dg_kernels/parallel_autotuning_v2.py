@@ -166,8 +166,15 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
         
         #for r in results:
         #    print(r)
+        # Workaround for pocl CUDA bug
+        # whereby times are imprecise
+        ret_index = 0
+        for i, result in enumerate(results):
+            if result[0] > 1e-7:
+                ret_index = i
+                break
 
-        avg_time, transformations, data = results[0]
+        avg_time, transformations, data = results[ret_index]
     else:
         transformations = {}
     
