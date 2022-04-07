@@ -216,41 +216,53 @@ def grudge_elementwise_sum_knl_pspace_generator(queue, knl, start_param=None):
 def einsum3to2_kernel_tlist_generator(params, **kwargs):
     trans_list = []
     kio, kii, iio, iii, ji = params
-    knl = kwargs["knl"]
+    if 0 not in params: # If there is a zero length dimension then don't transform
+        knl = kwargs["knl"]
 
-    trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["e_inner", kii], 
-        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["i_inner", iii], 
-        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-    # Should the i loop have (0,1) slabs for both?
+        if kio != kii:
+            trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+            trans_list.append(["split_iname", ["e_inner", kii], 
+                {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+            prefetch_str = "j,e_inner_outer,e_inner_inner"
+        else:
+            trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "inner_tag": "l.0", "slabs":(0,0)}])
+            prefetch_str = "j,e_inner"    
+        if iio != iii:
+            trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+            trans_list.append(["split_iname", ["i_inner", iii], 
+                {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+        else:
+            trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "inner_tag": "l.1", "slabs":(0,0)}])
+        # Should the i loop have (0,1) slabs for both?
 
-    for arg in knl.default_entrypoint.args:
+        for arg in knl.default_entrypoint.args:
 
-        if "vec" == arg.name:
-            trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"vecf", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-        elif "jac" == arg.name:
-            trans_list.append(["add_prefetch", ["jac", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"jacf", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
-        elif "arg2" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch", ["arg2", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg2f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
-        elif "arg1" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch", ["arg1", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg1f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
-        elif "arg0" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch",
-                ["arg0", "i_inner_outer,i_inner_inner,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg0f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
+            if "vec" == arg.name:
+                trans_list.append(["add_prefetch", ["vec", prefetch_str],
+                    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+            elif "jac" == arg.name:
+                trans_list.append(["add_prefetch", ["jac", prefetch_str],
+                    {"temporary_name":"jacf", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
+            elif "arg2" == arg.name and IsDOFArray() in arg.tags:
+                trans_list.append(["add_prefetch", ["arg2", prefetch_str],
+                    {"temporary_name":"arg2f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
+            elif "arg1" == arg.name and IsDOFArray() in arg.tags:
+                trans_list.append(["add_prefetch", ["arg1", prefetch_str],
+                    {"temporary_name":"arg1f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
+            elif "arg0" == arg.name and IsDOFArray() in arg.tags:
+                arg0_prefetch_str = "i_inner," if iio == iii else "i_inner_outer,i_inner_inner,"
+                arg0_prefetch_str += "e_inner" if kio == kii else "e_inner_outer,e_inner_inner"
+                trans_list.append(["add_prefetch",
+                    ["arg0", arg0_prefetch_str],
+                    {"temporary_name":"arg0f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
 
-    trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+        trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
     return trans_list 
 
@@ -274,12 +286,13 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
     # Iterate over five search dimensions
     parameter_list = []
 
-    if n_elem*n_out <=1024:
+    if n_elem*n_out <= 1024:
         choices = (n_elem, n_elem, n_out, n_out, n_in)
         parameter_list.append(choices)
     else:
         for kii in k_inner_inner_options(start_val=kii_s):
             # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
+            # Should check if jac is present
             for kio in k_inner_outer_options(n_in, kii, local_mem_size // 2,
                         fp_bytes=fp_bytes,start_val=kio_s,nelem=n_elem):
                 kio_s = None # Set to None so will form the full set the next time around

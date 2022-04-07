@@ -158,7 +158,7 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
 
     pool_proxy = Chare(PoolScheduler, onPE=0)
     mypool = Pool(pool_proxy)
-    if len(args) > 0: # Guard against empyt list
+    if len(args) > 0: # Guard against empty list
         results = mypool.map(test, args)
 
         sort_key = lambda entry: entry[0]
