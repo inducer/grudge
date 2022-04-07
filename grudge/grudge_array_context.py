@@ -666,12 +666,14 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
                                                 inner_tag="l.1", slabs=(0,0))
                 else:
+                    slabs = (0,0) if outer == nelements else (0,1)
                     program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
-                                                slabs=(0,1))
+                                                slabs=slabs)
                     program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
-                                                inner_tag="l.0", slabs=(0,1))
+                                                inner_tag="l.0", slabs=(0,0))
+                    slabs = (0,0) if l1 == n_to_nodes else (0,1)
                     program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
-                                                inner_tag="l.1", slabs=(0,0))
+                                                inner_tag="l.1", slabs=slabs)
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
