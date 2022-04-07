@@ -671,7 +671,7 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     program = lp.split_iname(program, "iel_inner", l0, outer_tag="ilp",
                                                 inner_tag="l.0", slabs=(0,1))
                     program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
-                                                inner_tag="l.1", slabs=(0,0))
+                                                inner_tag="l.1", slabs=(0,1))
 
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
@@ -1257,5 +1257,49 @@ class AutotuningArrayContext(GrudgeArrayContext):
             program = super().transform_loopy_program(program)
 
         return program
-   
+
+class KernelSavingAutotuningArrayContext(AutotuningArrayContext):
+    def transform_loopy_program(self, program):
+
+        if program.default_entrypoint.name in autotuned_kernels:
+            import pickle
+            # Set no_numpy and return_dict options here?
+            program = set_memory_layout(program, order="F")
+
+            print("====CALCULATING PROGRAM ID====")
+            filename = "./pickled_programs"
+            pid = unique_program_id(program)
+        
+            # Is there a way to obtain the current rank?
+            file_path = f"{filename}/{program.default_entrypoint.name}_{pid}.pickle"
+            hjson_path = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
+            from os.path import exists
+            
+            if not exists(file_path):
+                # For some reason this doesn't create the directory
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                print(program.default_entrypoint)
+                print("====WRITING PROGRAM TO FILE===", file_path)
+                out_file = open(file_path, "wb")
+                pickle.dump(program, out_file)
+                out_file.close()
+                print("====READING PROGRAM FROM FILE===", file_path)
+                f = open(file_path, "rb")
+                loaded = pickle.load(f)
+                f.close()
+                pid2 = unique_program_id(loaded)
+                print(pid, pid2)
+                assert pid == pid2
+                print("DUMPED PICKLED FILE. EXITING - RUN THE AUTOTUNER")
+            elif exists(hjson_path): # Use the transformations
+                program = super().transform_loopy_program(program)
+            else:
+                print("PICKLED FILE ALREADY EXISTS. RUN THE AUTOTUNER.", file_path)
+                exit()
+        else:
+            program = super().transform_loopy_program(program)
+
+        return program
+
+
 # vim: foldmethod=marker
