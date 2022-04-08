@@ -344,7 +344,7 @@ def _apply_elementwise_reduction(
             )
         )
     else:
-        @memoize_in(actx, (_apply_elementwise_reduction,
+        @memoize_in(actx, (_apply_elementwise_reduction, dd,
                         "elementwise_%s_prg" % op_name))
         def elementwise_prg():
             # FIXME: This computes the reduction value redundantly for each
