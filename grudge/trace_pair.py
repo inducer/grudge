@@ -257,9 +257,9 @@ def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair
             return el
         else:
             op_face_conn = dcoll.opposite_face_connection()
-            print(type(op_face_conn))
+            #print(type(op_face_conn))
             conn = op_face_conn(el)
-            print(type(conn))
+            #print(type(conn))
             return conn
             #return dcoll.opposite_face_connection()(el)
 

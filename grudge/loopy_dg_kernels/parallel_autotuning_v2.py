@@ -129,7 +129,7 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
 
     assert charm.numPes() > 1
     #assert charm.numPes() - 1 <= charm.numHosts()*len(gpu_devices)
-    assert charm.numPes() <= charm.numHosts()*(len(gpu_devices) + 1)
+    #assert charm.numPes() <= charm.numHosts()*(len(gpu_devices) + 1)
     # Check that it can assign one PE to each GPU
     # The first PE is used for scheduling
     # Not certain how this will work with multiple nodes

@@ -409,6 +409,17 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
                 nbytes = (kwargs["to_element_indices"].shape[0]*n_to_nodes +
                             n_to_nodes*n_from_nodes +
                             kwargs["from_element_indices"].shape[0]*n_from_nodes) * 8
+            elif program.default_entrypoint.name == "resample_by_picking_group":
+                nelements = kwargs["from_element_indices"].shape[0]
+                dpl1, nunit_dofs_tgt = kwargs["dof_pick_lists"].shape
+                ary_bytes = kwargs["ary"].dtype.itemsize
+                dpl_bytes = kwargs["dof_pick_lists"].dtype.itemsize
+                dpli_bytes = kwargs["dof_pick_list_index"].dtype.itemsize
+                fei_bytes = kwargs["from_element_indices"].dtype.itemsize
+                # Data from source and target + the indirections arrays
+                # Assume indirection arrays and data arrays are fetched only once
+                nbytes = 2*nelements*nunit_dofs_tgt*ary_bytes
+                nbytes += nelements*fei_bytes + nelements*dpli_bytes + nunit_dofs_tgt*dpl1*dpl_bytes 
             elif "resample_by_picking" in program.default_entrypoint.name:
                 # Double check this - this may underestimate the number of bytes transferred
                 print("Inaccurate byte count for resample_by_picking")
@@ -639,6 +650,7 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
 
         # Static (non-autotuned) transformations for the GPU
         # This needs to be fixed for new resample by picking kernel
+        ary_itemsize = 8 # Assume doubles
         if "resample_by_picking" in program.default_entrypoint.name:
             for arg in program.default_entrypoint.args:
                 print(arg.name, arg.tags)
@@ -647,6 +659,8 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     n_to_nodes = arg.tags[0].value
                 elif arg.name == "nelements":
                     nelements = arg.tags[0].value
+                elif arg.name == "ary":
+                    ary_itemsize = arg.dtype.dtype.itemsize
 
             l1 = min(n_to_nodes, 32)
             outer = min(nelements, 128)
@@ -657,10 +671,15 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             #    l0 = 8
 
             #outer = 128#max(l0, 32)
+            # Prefetch ary if it can fit in shared memory
 
+            # Broken, plus if elements are fetched only once this helps not.
+            #if nelements*n_to_nodes <= self.queue.device.local_mem_size // ary_itemsize:
+            #    program = lp.add_prefetch(program, "ary", "iel,idof", temporary_address_space=lp.AddressSpace.LOCAL, default_tag="l.auto")
+ 
             #program = set_memory_layout(program)
             if nelements*n_to_nodes > 0:
-                if nelements*n_to_nodes <= 1024: # Eventually shouldn't hardcode this.
+                if nelements*n_to_nodes <= self.queue.device.max_work_group_size:
                     program = lp.split_iname(program, "iel", nelements, outer_tag="g.0",
                                                 inner_tag="l.0", slabs=(0,0))
                     program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
@@ -674,7 +693,8 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     slabs = (0,0) if l1 == n_to_nodes else (0,1)
                     program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
                                                 inner_tag="l.1", slabs=slabs)
-
+            #program = lp.add_inames_for_unused_hw_axes(program)   
+            #program = lp.set_options(program, "write_cl")
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             #program = set_memory_layout(program)
             # Sometimes sqrt is called on single values.
@@ -963,6 +983,7 @@ autotuned_kernels = {"einsum3to2_kernel",
                      "diff", 
                      "lp_nodes",
                      "grudge_elementwise_sum_knl",
+                     #"resample_by_picking_group", # Will require implementing a special testing function
                      "smooth_comp" } # This last one is a mirgecom kernel. Should probably have some class variable.
 
 
@@ -981,7 +1002,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
         elif program.default_entrypoint.name == "einsum5to3_kernel":
             from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_tlist_generator as tlist_generator
             from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_pspace_generator as pspace_generator
-        elif program.default_entrypoint.name == "einsum2to2_kernel":
+        elif program.default_entrypoint.name == "einsum2to2_kernel" or program.default_entrypoint.name == "resample_by_picking_group":
             from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_tlist_generator as tlist_generator
             from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_pspace_generator as pspace_generator
         elif program.default_entrypoint.name == "grudge_elementwise_sum_knl":

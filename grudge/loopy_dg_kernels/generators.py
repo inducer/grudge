@@ -314,13 +314,21 @@ def einsum2to2_kernel_tlist_generator(params, **kwargs):
     kio, kii, iio, iii = params
     knl = kwargs["knl"]
 
-    trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["e_inner", kii], 
-        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["i_inner", iii], 
-        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-    # Should the i loop have (0,1) slabs for both?
+    if knl.default_entrypoint.name == "resample_by_picking_group":
+        trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["iel_inner", kii], 
+            {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+        trans_list.append(["split_iname", ["idof_inner", iii], 
+            {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+    else:
+        trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["e_inner", kii], 
+            {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+        trans_list.append(["split_iname", ["i_inner", iii], 
+            {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+        # Should the i loop have (0,1) slabs for both?
 
     # Prefetching probably matters not for this kernel
     #trans_list.append(["add_prefetch", ["arg1", "e_inner_outer,e_inner_inner,i_inner_outer,i_inner_inner"],
@@ -336,9 +344,15 @@ def einsum2to2_kernel_pspace_generator(queue, knl, start_param=None):
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
 
+    n_elem = None
+    n_out = None
     for arg in knl.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
-            n_elem, n_out = arg.shape
+            if n_elem is None:
+                n_elem, n_out = arg.shape
+            else: # Needed to handle resample_by_picking_group
+                n_elem = min(arg.shape[0], n_elem)
+                n_out = min(arg.shape[1], n_out)
             n_in = n_out
             fp_bytes = arg.dtype.dtype.itemsize
 
@@ -350,7 +364,6 @@ def einsum2to2_kernel_pspace_generator(queue, knl, start_param=None):
     # Iterate over five search dimensions
     parameter_list = []
     for kii in k_inner_inner_options(start_val=kii_s):
-        # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
         for kio in k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
             kio_s = None # Set to None so will form the full set the next time around
             for iii in i_inner_inner_options(n_out, kii,

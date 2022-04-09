@@ -414,7 +414,7 @@ def apply_transformation_list(knl, transformations):
     # bounds
     #print(knl)
     for t in transformations:
-        #print(t)
+        print(t)
         func = function_mapping[t[0]]
         args = [knl]
         if len(t) > 1:
