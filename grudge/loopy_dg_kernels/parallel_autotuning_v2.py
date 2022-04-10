@@ -83,6 +83,7 @@ def autotune_pickled_kernels(path, platform_id, actx_class, comm):
     for f in dir_list:
         if f.endswith(".pickle"):
             fname = path + "/" + f
+            print("===============================================")
             print("Autotuning", fname)
             knl = unpickle_kernel(fname)
             knl_id = f.split(".")[0]
