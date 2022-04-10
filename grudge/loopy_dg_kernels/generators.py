@@ -68,12 +68,14 @@ def gen_autotune_list(queue, knl, start_param=None):
 
     n_in = None
     print(knl.default_entrypoint.name)
+    ndof_arrays = 0
     for arg in knl.default_entrypoint.args:
         print(arg.name)
         if "resample_by_mat" not in knl.default_entrypoint.name:
             if IsDOFArray() in arg.tags:
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
+                ndof_arrays += 1
             elif IsSepVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
             elif IsOpArray() in arg.tags:
@@ -84,7 +86,7 @@ def gen_autotune_list(queue, knl, start_param=None):
             if IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
-
+    ndof_arrays = max(ndof_arrays, 1)
     if n_in is None:
         n_in = n_out
 
@@ -100,7 +102,7 @@ def gen_autotune_list(queue, knl, start_param=None):
     for kii in k_inner_inner_options(start_val=kii_s):
         # Should come up with a way to set the effective local memory size. It depends on the number of
         # arrays actually prefetched.
-        for kio in k_inner_outer_options(n_in*nfaces, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
+        for kio in k_inner_outer_options(n_in*nfaces, kii, local_mem_size // ndof_arrays, fp_bytes=fp_bytes,start_val=kio_s):
             kio_s = None # Set to None so will form the full set the next time around
             for iii in i_inner_inner_options(n_out, kii,
                     max_work_group_size=max_work_group_size, start_val=iii_s):
@@ -271,10 +273,12 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
 
+    n_dof_arrays = 0
     for arg in knl.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
+            n_dof_arrays += 1
         elif IsOpArray() in arg.tags:
             n_out, n_in = arg.shape
 
@@ -293,7 +297,7 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
         for kii in k_inner_inner_options(start_val=kii_s):
             # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
             # Should check if jac is present
-            for kio in k_inner_outer_options(n_in, kii, local_mem_size // 2,
+            for kio in k_inner_outer_options(n_in, kii, local_mem_size // n_dof_arrays,
                         fp_bytes=fp_bytes,start_val=kio_s,nelem=n_elem):
                 kio_s = None # Set to None so will form the full set the next time around
                 for iii in i_inner_inner_options(n_out, kii,
