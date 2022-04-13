@@ -51,7 +51,7 @@ def main():
             "loopy>=2020.2.2",
             "cgen>=2013.1.2",
             "hjson",
-            "gmsh",
+            #"gmsh",
             "import_resources; python_version<'3.7'",
             "dataclasses>=0.7; python_version<='3.6'"
         ],

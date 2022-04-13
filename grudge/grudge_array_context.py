@@ -1148,7 +1148,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
                 #pprint(od)
                 """
                 print("TRANSFORMATION FILE NOT FOUND", hjson_file_str)
-                exit()
+                #exit()
                 tlist_generator, pspace_generator = self.get_generators(program)
                 search_fn = exhaustive_search_v2#random_search
                 transformations = self.autotune_and_save(self.queue, program, search_fn, 
