@@ -358,13 +358,15 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
     @memoize_method
     def transform_loopy_program(self, program):
 
+        program = set_memory_layout(program, order="C")
+        #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
         # Set no_numpy and return_dict options here?
-        for arg in program.default_entrypoint.args:
-            for tag in arg.tags:
-                if isinstance(tag, ParameterValue):
-                    program = lp.fix_parameters(program, **{arg.name: tag.value})
+        #for arg in program.default_entrypoint.args:
+        #    for tag in arg.tags:
+        #        if isinstance(tag, ParameterValue):
+        #            program = lp.fix_parameters(program, **{arg.name: tag.value})
 
-        program = super().transform_loopy_program(program)
+        #program = super().transform_loopy_program(program)
         return program
 
 
@@ -372,22 +374,14 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
 
         #print(program)
         result = super().call_loopy(program, **kwargs)
-        #for val in result.values():
-        #    if isinstance(val, cla.Array):
-        #        # Could have some variable that tracks the
-        #        # sum of each call and the name of the kernel called
-        #        # so point of deviation may be found
-        #        try:
-        #            sm = self.to_numpy(cla.sum(val))
-        #            print("Array sum:", sm, program.default_entrypoint.name)
-        #            if not np.isfinite(sm):
-        #                print("Returned val is not finite", program.default_entrypoint.name)
-        #                print(program)
-        #                exit()
-        #        except:
-        #            pass
+        
+        queue_properties = self.queue.get_info(cl.command_queue_info.PROPERTIES)
+        profiling_enabled = cl.command_queue_properties.PROFILING_ENABLE
+        profiling_is_enabled = queue_properties & profiling_enabled == profiling_enabled
 
-        try: # Only if profiling is enabled
+        #try: # Only if profiling is enabled
+        if profiling_is_enabled:
+
             evt = None
             for val in result.values():
                 if isinstance(val, cla.Array):
@@ -452,45 +446,10 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
 
             print("Kernel {}, Time {}, Bytes {}, Bandwidth {}".format(program.default_entrypoint.name, dt, nbytes, bw))
 
-        except cl._cl.RuntimeError as e:
-            pass 
+        #except cl._cl.RuntimeError as e:
+        #    pass 
 
         return result
-
-   
-
-class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
-
-    def _get_fake_numpy_namespace(self):
-        return GrudgeFakeNumpyNamespace(self)
-
-    def empty(self, shape, dtype):
-        return cla.empty(self.queue, shape=shape, dtype=dtype,
-                allocator=self.allocator, order="F")
-
-    def zeros(self, shape, dtype):
-        return cla.zeros(self.queue, shape=shape, dtype=dtype,
-                allocator=self.allocator, order="F")
-
-    def thaw(self, array):
-        #print("THAWING", array.shape)
-        thawed = super().thaw(array)
-        #print("Shape:", thawed.shape)
-        #print("C_contiguous:", array.flags.c_contiguous)
-        #print("F_contiguous:", array.flags.f_contiguous)
-        if len(thawed.shape) == 2 and array.flags.c_contiguous and not array.flags.f_contiguous:
-            result = self.call_loopy(ctof_knl, **{"input": thawed})
-            #print("CALLED CTOF")
-            #assert cla.sum(thawed - result["output"]) == 0
-            #exit()
-            thawed = result["output"]
-
-            #result = ctof_knl(thawed.queue, input=thawed)
-            #evt, (out,) = ctof_knl(thawed.queue, input=thawed)
-            #print("CALLED CTOF")
-            #thawed = out
-
-        return thawed
 
     #@memoize_method # Somehow causes a shape mismatch
     def _wrap_get_einsum_prg(self, spec, arg_names, tagged): 
@@ -556,15 +515,44 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         else:
             prg = self._wrap_get_einsum_prg(spec, arg_names, tagged)
 
-        #for tag in tagged:
-        #    if isinstance(tag, KernelDataTag):
-        #        ep = prg.default_entrypoint
-        #        # Is there a better way to apply the kernel data besides making a new tunit object?
-        #        prg = lp.make_kernel(ep.domains, ep.instructions, kernel_data=tag.kernel_data, name=ep.name)
-
         return self.call_loopy(
             prg, **{arg_names[i]: arg for i, arg in enumerate(args)}
         )["out"]
+
+
+class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
+
+    def _get_fake_numpy_namespace(self):
+        return GrudgeFakeNumpyNamespace(self)
+
+    def empty(self, shape, dtype):
+        return cla.empty(self.queue, shape=shape, dtype=dtype,
+                allocator=self.allocator, order="F")
+
+    def zeros(self, shape, dtype):
+        return cla.zeros(self.queue, shape=shape, dtype=dtype,
+                allocator=self.allocator, order="F")
+
+    def thaw(self, array):
+        #print("THAWING", array.shape)
+        thawed = super().thaw(array)
+        #print("Shape:", thawed.shape)
+        #print("C_contiguous:", array.flags.c_contiguous)
+        #print("F_contiguous:", array.flags.f_contiguous)
+        if len(thawed.shape) == 2 and array.flags.c_contiguous and not array.flags.f_contiguous:
+            result = self.call_loopy(ctof_knl, **{"input": thawed})
+            #print("CALLED CTOF")
+            #assert cla.sum(thawed - result["output"]) == 0
+            #exit()
+            thawed = result["output"]
+
+            #result = ctof_knl(thawed.queue, input=thawed)
+            #evt, (out,) = ctof_knl(thawed.queue, input=thawed)
+            #print("CALLED CTOF")
+            #thawed = out
+
+        return thawed
+
 
     def from_numpy(self, np_array: np.ndarray):
         cl_a = super().from_numpy(np_array)
@@ -582,10 +570,10 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         program = set_memory_layout(program)
 
         # This should probably be a separate function
-        for arg in program.default_entrypoint.args:
-            for tag in arg.tags:
-                if isinstance(tag, ParameterValue):
-                    program = lp.fix_parameters(program, **{arg.name: tag.value})
+        #for arg in program.default_entrypoint.args:
+        #    for tag in arg.tags:
+        #        if isinstance(tag, ParameterValue):
+        #            program = lp.fix_parameters(program, **{arg.name: tag.value})
 
         # PyOpenCLArrayContext default transformations can't handle fortran ordering
         #program = super().transform_loopy_program(program)
