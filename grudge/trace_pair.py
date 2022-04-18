@@ -391,6 +391,12 @@ def local_inter_volume_trace_pairs(
     result: Mapping[Tuple[DOFDesc, DOFDesc], TracePair] = {}
 
     for vol_dd_pair, vol_data_pair in pairwise_volume_data.items():
+        from meshmode.mesh import mesh_has_boundary
+        if not mesh_has_boundary(
+                dcoll.discr_from_dd(vol_dd_pair[0]).mesh,
+                BTAG_PARTITION(PartID(vol_dd_pair[1].domain_tag.tag, rank))):
+            continue
+
         directional_vol_dd_pairs = [
             (vol_dd_pair[1], vol_dd_pair[0]),
             (vol_dd_pair[0], vol_dd_pair[1])]
