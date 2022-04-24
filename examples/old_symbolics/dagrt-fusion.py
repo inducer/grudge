@@ -244,7 +244,7 @@ def isolate_function_calls_in_phase(phase, stmt_id_gen, var_name_gen):
             stmt_id_gen=stmt_id_gen,
             var_name_gen=var_name_gen)
 
-    for stmt in sorted(phase.statements, key=lambda stmt: stmt.id):
+    for stmt in sorted(phase.statements, key=lambda stmt_: stmt_.id):
         new_deps = []
 
         from dagrt.language import Assign
