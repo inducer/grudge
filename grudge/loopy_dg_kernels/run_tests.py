@@ -21,7 +21,6 @@ from pycuda.curandom import rand as curand
 from modepy import equidistant_nodes
 from pytools.obj_array import make_obj_array
 
-from bs4 import UnicodeDammit
 import hjson
 import time
 #from math import ceil
@@ -151,6 +150,7 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
         prog = prog.build()
         ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
         #errors="ignore") #Breaks pocl
+        from bs4 import UnicodeDammit
         dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
         f = open("ptx.ptx", "w")
