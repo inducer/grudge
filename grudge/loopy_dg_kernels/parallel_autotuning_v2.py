@@ -124,7 +124,7 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
     knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
     knl = gac.set_memory_layout(knl)
     pid = gac.unique_program_id(knl)
-    os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
+    os.makedirs(os.getcwd() + "/hjson", exist_ok=True)
     hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
 
 
