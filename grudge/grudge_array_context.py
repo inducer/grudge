@@ -18,9 +18,13 @@ from arraycontext.container.traversal import (rec_map_array_container,
 from hashlib import md5
 import hjson
 import os
+import pickle
+from os.path import exists
+
 from grudge.loopy_dg_kernels.run_tests import (generic_test, random_search,
         exhaustive_search, exhaustive_search_v2)
 from arraycontext.container.traversal import rec_multimap_array_container
+from typing import Optional
 
 #from grudge.loopy_dg_kernels.run_tests import analyzeResult
 
@@ -49,9 +53,9 @@ def get_transformation_id(device_id):
 def get_fp_string(dtype):
     return "FP64" if dtype == np.float64 else "FP32"
 
-def get_order_from_dofs(dofs):
-    dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
-    return dofs_to_order[dofs]
+#def get_order_from_dofs(dofs):
+#    dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
+#    return dofs_to_order[dofs]
 
 def set_memory_layout(program, order="F"):
     # This assumes arguments have only one tag
@@ -566,7 +570,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
 
 
     def transform_loopy_program(self, program):
-        program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
+        #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
         program = set_memory_layout(program)
 
         # This should probably be a separate function
@@ -582,41 +586,52 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
 
 class KernelSavingArrayContext(FortranOrderedArrayContext):
 #class KernelSavingArrayContext(ParameterFixingPyOpenCLArrayContext):
+    def __init__(self,
+            mpi_communicator,
+            queue: "pyopencl.CommandQueue",
+            *, allocator: Optional["pyopencl.tools.AllocatorInterface"] = None,
+            wait_event_queue_length: Optional[int] = None,
+            force_device_scalars: bool = False,
+            save_dir: str = "./pickled_programs") -> None:
+
+        # Currently placed in cwd
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
+        super().__init__(mpi_communicator, queue, allocator=allocator,
+            wait_event_queue_length=wait_event_queue_length,
+            force_device_scalars=force_device_scalars)
+
     def transform_loopy_program(self, program):
 
         if program.default_entrypoint.name in autotuned_kernels:
-            import pickle
-            # Set no_numpy and return_dict options here?
-            program = set_memory_layout(program, order="F")
 
-            print("====CALCULATING PROGRAM ID====")
-            filename = "./pickled_programs"
+            # Needs to be set here so autotuner knows dimensions for test data
+            program = set_memory_layout(program, order="F")
             pid = unique_program_id(program)
         
+            # Is there a possible race condition in the multirank case?
             # Is there a way to obtain the current rank?
-            file_path = f"{filename}/{program.default_entrypoint.name}_{pid}.pickle"
-            from os.path import exists
+            file_path = f"{self.save_dir}/{program.default_entrypoint.name}_{pid}.pickle"
             
             if not exists(file_path):
                 # For some reason this doesn't create the directory
-                os.makedirs(os.path.dirname(filename), exist_ok=True)
                 print(program.default_entrypoint)
                 print("====WRITING PROGRAM TO FILE===", file_path)
                 out_file = open(file_path, "wb")
                 pickle.dump(program, out_file)
                 out_file.close()
+                # Check that the identifier is the same.
                 print("====READING PROGRAM FROM FILE===", file_path)
                 f = open(file_path, "rb")
                 loaded = pickle.load(f)
                 f.close()
                 pid2 = unique_program_id(loaded)
-                print(pid, pid2)
+                #print(pid, pid2)
                 assert pid == pid2
 
             else:
                 print("PICKLED FILE ALREADY EXISTS", file_path)
-            #if program.default_entrypoint.name == "einsum3to2_kernel":
-            #    exit()
         else:
             program = super().transform_loopy_program(program)
 
@@ -624,7 +639,8 @@ class KernelSavingArrayContext(FortranOrderedArrayContext):
 
 
 # This class could be used for some set of default transformations
-class GrudgeArrayContext(FortranOrderedArrayContext):
+#class GrudgeArrayContext(FortranOrderedArrayContext):
+class GrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
 
     @memoize_method
     def transform_loopy_program(self, program):
@@ -911,7 +927,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
         return program
 
 
-# Could be problematic if code generation is not deterministic.
 def unique_program_id(program):
     #code = lp.generate_code_v2(program).device_code() # Not unique
     #return md5(str(program.default_entrypoint).encode()).hexdigest() # Also not unique
@@ -946,10 +961,10 @@ def unique_program_id(program):
     istr = md5(str(instr).encode()).hexdigest()   #List
     astr = md5(str(args).encode()).hexdigest()    #List
     nstr = md5(name.encode()).hexdigest()
-    print("dstr", dstr)
-    print("nstr", nstr)
-    print("istr", istr)
-    print("astr", astr)
+    #print("dstr", dstr)
+    #print("nstr", nstr)
+    #print("istr", istr)
+    #print("astr", astr)
     #for entry in all_list:
     #    print(entry)
     #print(str(all_list))
