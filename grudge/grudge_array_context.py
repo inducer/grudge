@@ -1064,7 +1064,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
             program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
             program = set_memory_layout(program)
             pid = unique_program_id(program)
-            os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
+            os.makedirs(os.getcwd() + "/hjson"), exist_ok=True)
             hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
 
             try:
