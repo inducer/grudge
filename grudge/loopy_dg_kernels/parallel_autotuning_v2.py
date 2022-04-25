@@ -121,7 +121,8 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)))
 
-    knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+    #knl = gac.fix_program_parameters(knl)
+    #knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
     knl = gac.set_memory_layout(knl)
     pid = gac.unique_program_id(knl)
     os.makedirs(os.getcwd() + "/hjson", exist_ok=True)

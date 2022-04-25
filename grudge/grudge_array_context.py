@@ -57,6 +57,14 @@ def get_fp_string(dtype):
 #    dofs_to_order = {10: 2, 20: 3, 35: 4, 56: 5, 84: 6, 120: 7}
 #    return dofs_to_order[dofs]
 
+
+def fix_program_parameters(program):
+    for arg in program.default_entrypoint.args:
+        for tag in arg.tags:
+            if isinstance(tag, ParameterValue):
+                program = lp.fix_parameters(program, **{arg.name: tag.value})
+    return program
+
 def set_memory_layout(program, order="F"):
     # This assumes arguments have only one tag
     if order == "F":
@@ -76,11 +84,11 @@ def set_memory_layout(program, order="F"):
             elif IsFourAxisDOFArray() in arg.tags:
                 program = lp.tag_array_axes(program, arg.name, "N3,N2,N0,N1")
 
-    for arg in program.default_entrypoint.args:
-        for tag in arg.tags:
-            if isinstance(tag, ParameterValue):
-                program = lp.fix_parameters(program, **{arg.name: tag.value})
-
+    #for arg in program.default_entrypoint.args:
+    #    for tag in arg.tags:
+    #        if isinstance(tag, ParameterValue):
+    #            program = lp.fix_parameters(program, **{arg.name: tag.value})
+    program = fix_program_parameters(program)
     program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
     return program
 
@@ -608,6 +616,7 @@ class KernelSavingArrayContext(FortranOrderedArrayContext):
 
             # Needs to be set here so autotuner knows dimensions for test data
             program = set_memory_layout(program, order="F")
+            #program = fix_program_parameters(program)
             pid = unique_program_id(program)
         
             # Is there a possible race condition in the multirank case?
@@ -632,8 +641,8 @@ class KernelSavingArrayContext(FortranOrderedArrayContext):
 
             else:
                 print("PICKLED FILE ALREADY EXISTS", file_path)
-        else:
-            program = super().transform_loopy_program(program)
+        #else:
+        program = super().transform_loopy_program(program)
 
         return program
 
@@ -1061,11 +1070,12 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         if program.default_entrypoint.name in autotuned_kernels:
             # Set no_numpy and return_dict options here?
+            program = fix_program_parameters(program)
+            pid = unique_program_id(program)
+            os.makedirs(os.getcwd() + "/hjson", exist_ok=True)
+            hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
             program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
             program = set_memory_layout(program)
-            pid = unique_program_id(program)
-            os.makedirs(os.getcwd() + "/hjson"), exist_ok=True)
-            hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
 
             try:
                 # Attempt to read from a transformation file in the current directory first,
