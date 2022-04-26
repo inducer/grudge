@@ -22,6 +22,13 @@ Mass, inverse mass, and face mass operators
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
+
+Working around documentation tool akwardness
+--------------------------------------------
+
+.. class:: TracePair
+
+    See :class:`grudge.trace_pair.TracePair`.
 """
 
 __copyright__ = """
@@ -86,8 +93,11 @@ from grudge.reductions import (
 )
 
 from grudge.trace_pair import (
+    project_tracepair,
+    tracepair_with_discr_tag,
     interior_trace_pair,
     interior_trace_pairs,
+    local_interior_trace_pair,
     connected_ranks,
     cross_rank_trace_pairs,
     bdry_trace_pair,
@@ -112,8 +122,11 @@ __all__ = (
     "elementwise_min",
     "elementwise_integral",
 
+    "project_tracepair",
+    "tracepair_with_discr_tag",
     "interior_trace_pair",
     "interior_trace_pairs",
+    "local_interior_trace_pair",
     "connected_ranks",
     "cross_rank_trace_pairs",
     "bdry_trace_pair",
