@@ -67,10 +67,10 @@ import numpy as np
 
 import grudge.dof_desc as dof_desc
 
-from grudge.interpolation import interp  # noqa: F401
-from grudge.projection import project  # noqa: F401
+from grudge.interpolation import interp
+from grudge.projection import project
 
-from grudge.reductions import (  # noqa: F401
+from grudge.reductions import (
     norm,
     nodal_sum,
     nodal_min,
@@ -85,7 +85,7 @@ from grudge.reductions import (  # noqa: F401
     elementwise_integral,
 )
 
-from grudge.trace_pair import (  # noqa: F401
+from grudge.trace_pair import (
     interior_trace_pair,
     interior_trace_pairs,
     connected_ranks,
@@ -93,6 +93,44 @@ from grudge.trace_pair import (  # noqa: F401
     bdry_trace_pair,
     bv_trace_pair
 )
+
+
+__all__ = (
+    "project",
+    "interp",
+
+    "norm",
+    "nodal_sum",
+    "nodal_min",
+    "nodal_max",
+    "nodal_sum_loc",
+    "nodal_min_loc",
+    "nodal_max_loc",
+    "integral",
+    "elementwise_sum",
+    "elementwise_max",
+    "elementwise_min",
+    "elementwise_integral",
+
+    "interior_trace_pair",
+    "interior_trace_pairs",
+    "connected_ranks",
+    "cross_rank_trace_pairs",
+    "bdry_trace_pair",
+    "bv_trace_pair",
+
+    "local_grad",
+    "local_d_dx",
+    "local_div",
+
+    "weak_local_grad",
+    "weak_local_d_dx",
+    "weak_local_div",
+
+    "mass",
+    "inverse_mass",
+    "face_mass",
+    )
 
 
 # {{{ common derivative "kernels"
