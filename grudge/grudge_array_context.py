@@ -579,7 +579,7 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
 
     def transform_loopy_program(self, program):
         #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
-        program = set_memory_layout(program)
+        program = set_memory_layout(program, order="F")
 
         # This should probably be a separate function
         #for arg in program.default_entrypoint.args:
@@ -648,8 +648,8 @@ class KernelSavingArrayContext(FortranOrderedArrayContext):
 
 
 # This class could be used for some set of default transformations
-#class GrudgeArrayContext(FortranOrderedArrayContext):
-class GrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
+class GrudgeArrayContext(FortranOrderedArrayContext):
+#class GrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
 
     @memoize_method
     def transform_loopy_program(self, program):
@@ -667,7 +667,7 @@ class GrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
         if "resample_by_picking" in program.default_entrypoint.name:
             for arg in program.default_entrypoint.args:
                 print(arg.name, arg.tags)
-                if arg.name == "nunit_dofs_tgt":
+                if arg.name == "nunit_dofs_tgt" or arg.name == "n_to_nodes":
                     # Assumes this has has a single ParameterValue tag
                     n_to_nodes = arg.tags[0].value
                 elif arg.name == "nelements":
@@ -1070,12 +1070,12 @@ class AutotuningArrayContext(GrudgeArrayContext):
 
         if program.default_entrypoint.name in autotuned_kernels:
             # Set no_numpy and return_dict options here?
-            program = fix_program_parameters(program)
+            #program = fix_program_parameters(program)
+            program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
+            program = set_memory_layout(program, order="F")
             pid = unique_program_id(program)
             os.makedirs(os.getcwd() + "/hjson", exist_ok=True)
             hjson_file_str = f"hjson/{program.default_entrypoint.name}_{pid}.hjson"
-            program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
-            program = set_memory_layout(program)
 
             try:
                 # Attempt to read from a transformation file in the current directory first,
