@@ -318,17 +318,9 @@ class EulerOperator(HyperbolicOperator):
         qtag = self.qtag
         dq = DOFDesc("vol", qtag)
         df = DOFDesc("all_faces", qtag)
-        df_int = DOFDesc("int_faces", qtag)
 
         def interp_to_quad(u):
             return op.project(dcoll, "vol", dq, u)
-
-        def interp_to_quad_surf(u):
-            return TracePair(
-                df_int,
-                interior=op.project(dcoll, "int_faces", df_int, u.int),
-                exterior=op.project(dcoll, "int_faces", df_int, u.ext)
-            )
 
         # Compute volume fluxes
         volume_fluxes = op.weak_local_div(
@@ -341,7 +333,7 @@ class EulerOperator(HyperbolicOperator):
             sum(
                 euler_numerical_flux(
                     dcoll,
-                    interp_to_quad_surf(tpair),
+                    op.tracepair_with_discr_tag(dcoll, qtag, tpair),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
                 ) for tpair in op.interior_trace_pairs(dcoll, q)
