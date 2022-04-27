@@ -267,10 +267,9 @@ def local_grad(
     dd_in = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        f=partial(_strong_scalar_grad, dcoll, dd_in),
-        in_shape=(),
-        out_shape=(dcoll.ambient_dim,),
-        ary=vec, scalar_cls=DOFArray, return_nested=nested,)
+        partial(_strong_scalar_grad, dcoll, dd_in),
+        (), (dcoll.ambient_dim,),
+        vec, scalar_cls=DOFArray, return_nested=nested,)
 
 
 def local_d_dx(
@@ -323,12 +322,11 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     """
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        f=lambda vec: sum(
+        lambda vec: sum(
             local_d_dx(dcoll, i, vec_i)
             for i, vec_i in enumerate(vec)),
-        in_shape=(dcoll.ambient_dim,),
-        out_shape=(),
-        ary=vecs, scalar_cls=DOFArray)
+        (dcoll.ambient_dim,), (),
+        vecs, scalar_cls=DOFArray)
 
 # }}}
 
@@ -429,10 +427,9 @@ def weak_local_grad(
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        f=partial(_weak_scalar_grad, dcoll, dd_in),
-        in_shape=(),
-        out_shape=(dcoll.ambient_dim,),
-        ary=vecs, scalar_cls=DOFArray, return_nested=nested)
+        partial(_weak_scalar_grad, dcoll, dd_in),
+        (), (dcoll.ambient_dim,),
+        vecs, scalar_cls=DOFArray, return_nested=nested)
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
@@ -534,12 +531,11 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        f=lambda vec: sum(
+        lambda vec: sum(
             weak_local_d_dx(dcoll, dd_in, i, vec_i)
             for i, vec_i in enumerate(vec)),
-        in_shape=(dcoll.ambient_dim,),
-        out_shape=(),
-        ary=vecs, scalar_cls=DOFArray)
+        (dcoll.ambient_dim,), (),
+        vecs, scalar_cls=DOFArray)
 
 # }}}
 
