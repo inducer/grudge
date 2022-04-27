@@ -320,19 +320,28 @@ def rec_map_subarrays(
         in_shape: Tuple[int, ...],
         out_shape: Tuple[int, ...],
         ary: ArrayOrContainerT, *,
-        is_scalar: Optional[Callable[[Any], bool]] = None,
+        scalar_cls: Optional[Union[type, Tuple[type]]] = None,
         return_nested: bool = False) -> ArrayOrContainerT:
     r"""
     Like :func:`map_subarrays`, but with support for
     :class:`arraycontext.ArrayContainer`\ s.
 
-    :param is_scalar: a function that indicates whether a given object is to be
-        treated as a scalar or not.
+    :param scalar_cls: An array container of this type will be considered a scalar
+        and arrays of it will be passed to *f* without further destructuring.
     """
+    if scalar_cls is not None:
+        def is_scalar(x):
+            return np.isscalar(x) or isinstance(x, scalar_cls)
+    else:
+        def is_scalar(x):
+            return np.isscalar(x)
+
     def is_array_of_scalars(a):
         return (
-            isinstance(a, np.ndarray) and a.dtype == object
-            and all(is_scalar(a[idx]) for idx in np.ndindex(a.shape)))
+            isinstance(a, np.ndarray)
+            and (
+                a.dtype != object
+                or all(is_scalar(a[idx]) for idx in np.ndindex(a.shape))))
 
     if is_scalar(ary) or is_array_of_scalars(ary):
         return map_subarrays(
@@ -341,7 +350,7 @@ def rec_map_subarrays(
         from arraycontext import map_array_container
         return map_array_container(
             partial(
-                rec_map_subarrays, f, in_shape, out_shape, is_scalar=is_scalar,
+                rec_map_subarrays, f, in_shape, out_shape, scalar_cls=scalar_cls,
                 return_nested=return_nested),
             ary)
 
