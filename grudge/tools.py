@@ -28,7 +28,9 @@ THE SOFTWARE.
 
 import numpy as np
 from pytools import levi_civita
+from typing import Tuple, Callable, Optional, Any
 from functools import partial
+from arraycontext.container import ArrayOrContainerT
 
 
 def is_zero(x):
@@ -238,12 +240,20 @@ def build_jacobian(actx, f, base_state, stepsize):
     return mat
 
 
-def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
+def map_subarrays(
+        f: Callable[[Any], Any],
+        in_shape: Tuple[int, ...], out_shape: Tuple[int, ...],
+        ary: Any, *, return_nested=False) -> Any:
     """
-    Map a function *f* over a :class:`numpy.ndarray`, applying it to subarrays
-    of shape *in_shape* individually.
+    Apply a function *f* to subarrays of shape *in_shape* of an
+    :class:`numpy.ndarray`, typically (but not necessarily) of dtype
+    :class:`object`. Return an :class:`numpy.ndarray` of the same dtype,
+    with the corresponding subarrays replaced by the return values of *f*,
+    and with the shape adapted to reflect *out_shape*.
 
-    Example 1: given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
+    Similar to :class:`numpy.vectorize`.
+
+    *Example 1:* given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
     and an input array *ary* of shape ``(3, 2, 2)``, the call::
 
         map_subarrays(f, (2, 2), (), ary)
@@ -251,7 +261,7 @@ def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
     will produce an array of shape ``(3,)`` containing the results of calling *f* on
     the 3 subarrays of shape ``(2, 2)`` in *ary*.
 
-    Example 2: given a function *f* that maps arrays of shape ``(2,)`` to arrays of
+    *Example 2:* given a function *f* that maps arrays of shape ``(2,)`` to arrays of
     shape ``(2, 2)`` and an input array *ary* of shape ``(3, 2)``, the call::
 
         map_subarrays(f, (2,), (2, 2), ary)
@@ -299,19 +309,22 @@ def map_subarrays(f, in_shape, out_shape, ary, *, return_nested=False):
                     result[idx] = f(ary[idx + in_slice])
                 return result
             else:
-                result = np.empty(base_shape + out_shape, dtype=object)
+                result = np.empty(base_shape + out_shape, dtype=ary.dtype)
                 for idx in np.ndindex(base_shape):
                     result[idx + out_slice] = f(ary[idx + in_slice])
                 return result
 
 
 def rec_map_subarrays(
-        f, in_shape, out_shape, is_scalar, ary, *, return_nested=False):
-    """
-    Map a function *f* over an object *ary*, applying it to any subarrays
-    of shape *in_shape* individually.
-
-    Array container version of :func:`map_subarrays`.
+        f: Callable[[Any], Any],
+        in_shape: Tuple[int, ...],
+        out_shape: Tuple[int, ...],
+        ary: ArrayOrContainerT, *,
+        is_scalar: Optional[Callable[[Any], bool]] = None,
+        return_nested: bool = False) -> ArrayOrContainerT:
+    r"""
+    Like :func:`map_subarrays`, but with support for
+    :class:`arraycontext.ArrayContainer`\ s.
 
     :param is_scalar: a function that indicates whether a given object is to be
         treated as a scalar or not.
@@ -328,7 +341,7 @@ def rec_map_subarrays(
         from arraycontext import map_array_container
         return map_array_container(
             partial(
-                rec_map_subarrays, f, in_shape, out_shape, is_scalar,
+                rec_map_subarrays, f, in_shape, out_shape, is_scalar=is_scalar,
                 return_nested=return_nested),
             ary)
 
