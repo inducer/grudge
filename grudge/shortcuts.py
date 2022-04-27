@@ -1,5 +1,3 @@
-"""Minimal example of a grudge driver."""
-
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
 __license__ = """
@@ -23,12 +21,43 @@ THE SOFTWARE.
 """
 
 
+from pytools import memoize_in
+
+
 def rk4_step(y, t, h, f):
     k1 = f(t, y)
     k2 = f(t+h/2, y + h/2*k1)
     k3 = f(t+h/2, y + h/2*k2)
     k4 = f(t+h, y + h*k3)
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
+
+
+def _lsrk45_update(y, a, b, h, rhs_val, residual=0):
+    residual = a*residual + h*rhs_val
+    y = y + b * residual
+    from pytools.obj_array import make_obj_array
+    return make_obj_array([y, residual])
+
+
+def compiled_lsrk45_step(actx, y, t, h, f):
+    from leap.rk import LSRK4MethodBuilder
+
+    @memoize_in(actx, (compiled_lsrk45_step, "update"))
+    def get_state_updater():
+        return actx.compile(_lsrk45_update)
+
+    update = get_state_updater()
+
+    residual = None
+
+    for a, b, c in LSRK4MethodBuilder.coeffs:  # pylint: disable=not-an-iterable
+        rhs_val = f(t + c*h, y)
+        if residual is None:
+            y, residual = update(y, a, b, h, rhs_val)
+        else:
+            y, residual = update(y, a, b, h, rhs_val, residual)
+
+    return y
 
 
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0.0):

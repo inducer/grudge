@@ -63,7 +63,7 @@ from arraycontext import (
     make_loopy_program,
     map_array_container,
     serialize_container,
-    DeviceScalar
+    Scalar
 )
 from arraycontext.container import ArrayOrContainerT
 
@@ -79,7 +79,7 @@ import grudge.dof_desc as dof_desc
 
 # {{{ Nodal reductions
 
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
+def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
@@ -113,7 +113,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> "DeviceScalar":
         raise ValueError("unsupported norm order")
 
 
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -136,7 +136,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
-def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -156,7 +156,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
     return sum([actx.np.sum(grp_ary) for grp_ary in vec])
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -177,7 +177,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
         comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN))
 
 
-def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -200,7 +200,7 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
             vec, actx.from_numpy(np.array(np.inf)))
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -221,7 +221,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
         comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX))
 
 
-def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
@@ -244,7 +244,7 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
             vec, actx.from_numpy(np.array(-np.inf)))
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec) -> "DeviceScalar":
+def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
