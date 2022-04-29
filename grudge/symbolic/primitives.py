@@ -42,6 +42,10 @@ class ExpressionBase(prim.Expression):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper()
 
+    def make_equality_mapper(self):
+        from grudge.symbolic.mappers import EqualityMapper
+        return EqualityMapper()
+
 
 __doc__ = """
 

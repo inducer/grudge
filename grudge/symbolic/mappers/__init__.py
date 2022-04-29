@@ -32,6 +32,7 @@ import pymbolic.mapper.constant_folder
 import pymbolic.mapper.constant_converter
 import pymbolic.mapper.flop_counter
 from pymbolic.mapper import CSECachingMapperMixin
+from pymbolic.mapper.equality import EqualityMapper as EqualityMapperBase
 
 from grudge import sym
 import grudge.dof_desc as dof_desc
@@ -1294,5 +1295,47 @@ class SymbolicEvaluator(pymbolic.mapper.evaluator.EvaluationMapper):
 
 # }}}
 
+
+# {{{ equality
+
+class EqualityMapper(EqualityMapperBase):
+    def map_ones(self, expr, other) -> bool:
+        return expr.dd == other.dd
+
+    def map_grudge_variable(self, expr, other) -> bool:
+        return (
+                expr.name == other.name
+                and expr.dd == other.dd)
+
+    def map_node_coordinate_component(self, expr, other) -> bool:
+        return (
+                expr.axis == other.axis
+                and expr.dd == other.dd)
+
+    def map_operator_binding(self, expr, other) -> bool:
+        return (
+                self.rec(expr.op, other.op)
+                and self.rec(expr.field, other.field))
+
+    def map_ref_diff(self, expr, other) -> bool:
+        return (
+                expr.rst_axis == other.rst_axis
+                and expr.dd_in == other.dd_in
+                and expr.dd_out == other.dd_out)
+
+    map_ref_stiffness_t = map_ref_diff
+
+    def map_elementwise_linear(self, expr, other) -> bool:
+        return (
+                expr.dd_in == other.dd_in
+                and expr.dd_out == other.dd_out)
+
+    map_ref_mass = map_elementwise_linear
+    map_ref_inverse_mass = map_elementwise_linear
+    map_face_mass_operator = map_elementwise_linear
+    map_ref_face_mass_operator = map_elementwise_linear
+    map_projection = map_elementwise_linear
+
+# }}}
 
 # vim: foldmethod=marker

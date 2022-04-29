@@ -139,6 +139,11 @@ class Operator(pymbolic.primitives.Expression):
     def make_stringifier(self, originating_stringifier=None):
         from grudge.symbolic.mappers import StringifyMapper
         return StringifyMapper()
+
+    def make_equality_mapper(self):
+        from grudge.symbolic.mappers import EqualityMapper
+        return EqualityMapper()
+
 # }}}
 
 

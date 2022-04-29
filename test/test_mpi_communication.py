@@ -100,6 +100,7 @@ def run_test_with_mpi_inner():
 
 # {{{ func_comparison
 
+@pytest.mark.mpi
 @pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
 @pytest.mark.parametrize("num_ranks", [2])
 def test_func_comparison_mpi(actx_class, num_ranks):
@@ -177,6 +178,7 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
 
 # {{{ wave operator
 
+@pytest.mark.mpi
 @pytest.mark.parametrize("actx_class", DISTRIBUTED_ACTXS)
 @pytest.mark.parametrize("num_ranks", [2])
 def test_mpi_wave_op(actx_class, num_ranks):
