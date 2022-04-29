@@ -1,10 +1,10 @@
 numpy
 mpi4py
 git+https://github.com/inducer/pytools.git#egg=pytools
-git+https://github.com/inducer/pymbolic.git#egg=pymbolic
+git+https://github.com/alexfikl/pymbolic.git@equality-mapper#egg=pymbolic
 git+https://github.com/inducer/islpy.git#egg=islpy
 git+https://github.com/inducer/pyopencl.git#egg=pyopencl
-git+https://github.com/inducer/loopy.git#egg=loopy
+git+https://github.com/alexfikl/loopy.git@equality-mapper#egg=loopy
 git+https://github.com/inducer/dagrt.git#egg=dagrt
 git+https://github.com/inducer/leap.git#egg=leap
 git+https://github.com/inducer/meshpy.git#egg=meshpy
@@ -14,7 +14,7 @@ git+https://github.com/inducer/meshmode.git#egg=meshmode
 git+https://github.com/inducer/pyvisfile.git#egg=pyvisfile
 git+https://github.com/inducer/pymetis.git#egg=pymetis
 git+https://github.com/illinois-ceesd/logpyle.git#egg=logpyle
-git+https://github.com/inducer/pytato.git#egg=pytato
+git+https://github.com/alexfikl/pytato.git@equality-mapper#egg=pytato
 
 # for test_wave_dt_estimate
 sympy
