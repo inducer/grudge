@@ -33,7 +33,7 @@ from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContex
 from grudge.grudge_array_context import (AutotuningArrayContext, 
     GrudgeArrayContext, ParameterFixingPyOpenCLArrayContext)
 from arraycontext import (
-    thaw, freeze,
+    thaw,
     with_container_arithmetic,
     dataclass_array_container
 )
@@ -48,7 +48,7 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
 from grudge.trace_pair import TracePair
 from grudge.discretization import DiscretizationCollection
-from grudge.shortcuts import make_visualizer, rk4_step
+from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
 
 import grudge.op as op
 
@@ -60,7 +60,8 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
-@with_container_arithmetic(bcast_obj_array=True, rel_comparison=True)
+@with_container_arithmetic(bcast_obj_array=True, rel_comparison=True,
+        _cls_has_array_context_attr=True)
 @dataclass_array_container
 @dataclass(frozen=True)
 class WaveState:
@@ -271,7 +272,8 @@ def main(ctx_factory, dim=2, order=3,
     c = 1
 
     # FIXME: Sketchy, empirically determined fudge factor
-    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c))
+    # 5/4 to account for larger LSRK45 stability region
+    dt = actx.to_numpy(0.45 * estimate_rk4_timestep(actx, dcoll, c)) * 5/4
 
     vis = make_visualizer(dcoll)
 
@@ -293,25 +295,32 @@ def main(ctx_factory, dim=2, order=3,
 
     while t < t_final:
         start = time.time()
-        if lazy:
-            fields = thaw(freeze(fields, actx), actx)
 
-        fields = rk4_step(fields, t, dt, compiled_rhs)
-
-        l2norm = actx.to_numpy(op.norm(dcoll, fields.u, 2))
+        fields = compiled_lsrk45_step(actx, fields, t, dt, compiled_rhs)
 
         if istep % 10 == 0:
             stop = time.time()
-            linfnorm = actx.to_numpy(op.norm(dcoll, fields.u, np.inf))
-            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields.u))
-            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields.u))
-            if comm.rank == 0:
-                logger.info(f"step: {istep} t: {t} "
-                            f"L2: {l2norm} "
-                            f"Linf: {linfnorm} "
-                            f"sol max: {nodalmax} "
-                            f"sol min: {nodalmin} "
-                            f"wall: {stop-start} ")
+            if args.no_diagnostics:
+                if comm.rank == 0:
+                    logger.info(f"step: {istep} t: {t} "
+                                f"wall: {stop-start} ")
+            else:
+                l2norm = actx.to_numpy(op.norm(dcoll, fields.u, 2))
+
+                # NOTE: These are here to ensure the solution is bounded for the
+                # time interval specified
+                assert l2norm < 1
+
+                linfnorm = actx.to_numpy(op.norm(dcoll, fields.u, np.inf))
+                nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields.u))
+                nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields.u))
+                if comm.rank == 0:
+                    logger.info(f"step: {istep} t: {t} "
+                                f"L2: {l2norm} "
+                                f"Linf: {linfnorm} "
+                                f"sol max: {nodalmax} "
+                                f"sol min: {nodalmin} "
+                                f"wall: {stop-start} ")
             if visualize:
                 vis.write_parallel_vtk_file(
                     comm,
@@ -326,11 +335,6 @@ def main(ctx_factory, dim=2, order=3,
         t += dt
         istep += 1
 
-        # NOTE: These are here to ensure the solution is bounded for the
-        # time interval specified
-        print(f"NORM OF SOLUTION: {l2norm}")
-        assert l2norm < 1
-
 
 if __name__ == "__main__":
     import argparse
@@ -343,6 +347,7 @@ if __name__ == "__main__":
                         help="switch to a lazy computation mode")
     parser.add_argument("--quad", action="store_true")
     parser.add_argument("--nonaffine", action="store_true")
+    parser.add_argument("--no-diagnostics", action="store_true")
 
     args = parser.parse_args()
 
