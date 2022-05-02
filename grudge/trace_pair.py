@@ -682,48 +682,48 @@ class _RankBoundaryCommunicationLazy:
         self.local_part_id = local_part_id
         self.remote_part_id = remote_part_id
 
-        from pytato import make_distributed_recv, staple_distributed_send
+        from pytato import (
+            make_distributed_recv,
+            make_distributed_send,
+            DistributedSendRefHolder)
 
-        # Staple the sends to a bunch of dummy arrays of zeros
+        # TODO: This currently assumes that local_bdry_data and
+        # remote_bdry_data_template have the same structure. This is not true
+        # in general. Find a way to staple the sends appropriately when the number
+        # of recvs is not equal to the number of sends
+        assert type(local_bdry_data) == type(remote_bdry_data_template)
+
+        sends = {}
+
         def send_single_array(key, local_subary):
             if isinstance(local_subary, Number):
-                return 0
+                return
             else:
                 ary_tag = (comm_tag, key)
-                return staple_distributed_send(
-                    local_subary, dest_rank=remote_rank, comm_tag=ary_tag,
-                    stapled_to=actx.zeros_like(local_subary))
+                sends[key] = make_distributed_send(
+                    local_subary, dest_rank=remote_rank, comm_tag=ary_tag)
 
         def recv_single_array(key, remote_subary_template):
             if isinstance(remote_subary_template, Number):
                 # NOTE: Assumes that the same number is passed on every rank
-                return remote_subary_template
+                return Number
             else:
                 ary_tag = (comm_tag, key)
-                return make_distributed_recv(
-                    src_rank=remote_rank, comm_tag=ary_tag,
-                    shape=remote_subary_template.shape,
-                    dtype=remote_subary_template.dtype,
-                    axes=remote_subary_template.axes)
+                return DistributedSendRefHolder(
+                    sends[key],
+                    make_distributed_recv(
+                        src_rank=remote_rank, comm_tag=ary_tag,
+                        shape=remote_subary_template.shape,
+                        dtype=remote_subary_template.dtype,
+                        axes=remote_subary_template.axes))
 
         from arraycontext.container.traversal import rec_keyed_map_array_container
-        zeros_like_local_bdry_data = rec_keyed_map_array_container(
-            send_single_array, local_bdry_data)
-        unswapped_remote_bdry_data = rec_keyed_map_array_container(
+
+        rec_keyed_map_array_container(send_single_array, local_bdry_data)
+        self.local_bdry_data = local_bdry_data
+
+        self.unswapped_remote_bdry_data = rec_keyed_map_array_container(
             recv_single_array, remote_bdry_data_template)
-
-        # Sum up the dummy zeros
-        zero = actx.np.sum(zeros_like_local_bdry_data)
-
-        # Add the dummy zeros and hope that the caller proceeds to actually
-        # use some of this data on every rank...
-        from arraycontext import rec_map_array_container
-        self.local_bdry_data = rec_map_array_container(
-            lambda x: x + zero,
-            local_bdry_data)
-        self.unswapped_remote_bdry_data = rec_map_array_container(
-            lambda x: x + zero,
-            unswapped_remote_bdry_data)
 
     def finish(self):
         remote_to_local = self.dcoll._inter_part_connections[
