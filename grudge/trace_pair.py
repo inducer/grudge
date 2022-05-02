@@ -2,13 +2,18 @@
 Trace Pairs
 ^^^^^^^^^^^
 
-Container class
----------------
+Container class and auxiliary functionality
+-------------------------------------------
 
 .. autoclass:: TracePair
 
-Boundary traces
----------------
+.. currentmodule:: grudge.op
+
+.. autoclass:: project_tracepair
+.. autoclass:: tracepair_with_discr_tag
+
+Boundary trace functions
+------------------------
 
 .. autofunction:: bdry_trace_pair
 .. autofunction:: bv_trace_pair
@@ -802,5 +807,28 @@ def cross_rank_inter_volume_trace_pairs(
 
 # }}}
 
+
+# {{{ project_tracepair
+
+def project_tracepair(
+        dcoll: DiscretizationCollection, new_dd: dof_desc.DOFDesc,
+        tpair: TracePair) -> TracePair:
+    r"""Return a new :class:`TracePair` :func:`~grudge.op.project`\ 'ed
+    onto *new_dd*.
+    """
+    return TracePair(
+        new_dd,
+        interior=project(dcoll, tpair.dd, new_dd, tpair.int),
+        exterior=project(dcoll, tpair.dd, new_dd, tpair.ext)
+    )
+
+
+def tracepair_with_discr_tag(dcoll, discr_tag, tpair: TracePair) -> TracePair:
+    r"""Return a new :class:`TracePair` :func:`~grudge.op.project`\ 'ed
+    onto a :class:`~grudge.dof_desc.DOFDesc` with discretization tag *discr_tag*.
+    """
+    return project_tracepair(dcoll, tpair.dd.with_discr_tag(discr_tag), tpair)
+
+# }}}
 
 # vim: foldmethod=marker

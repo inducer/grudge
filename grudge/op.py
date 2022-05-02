@@ -22,6 +22,13 @@ Mass, inverse mass, and face mass operators
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
+
+Working around documentation tool akwardness
+--------------------------------------------
+
+.. class:: TracePair
+
+    See :class:`grudge.trace_pair.TracePair`.
 """
 
 __copyright__ = """
@@ -61,17 +68,17 @@ from meshmode.transform_metadata import FirstAxisIsElementsTag
 from grudge.discretization import DiscretizationCollection
 
 from pytools import keyed_memoize_in
-from pytools.obj_array import obj_array_vectorize, make_obj_array
+from pytools.obj_array import make_obj_array
 
 import numpy as np
 
 import grudge.dof_desc as dof_desc
 from grudge.dof_desc import DD_VOLUME_ALL, FACE_RESTR_ALL
 
-from grudge.interpolation import interp  # noqa: F401
-from grudge.projection import project  # noqa: F401
+from grudge.interpolation import interp
+from grudge.projection import project
 
-from grudge.reductions import (  # noqa: F401
+from grudge.reductions import (
     norm,
     nodal_sum,
     nodal_min,
@@ -86,13 +93,62 @@ from grudge.reductions import (  # noqa: F401
     elementwise_integral,
 )
 
-from grudge.trace_pair import (  # noqa: F401
+from grudge.trace_pair import (
+    project_tracepair,
+    tracepair_with_discr_tag,
     interior_trace_pair,
     interior_trace_pairs,
+    local_interior_trace_pair,
+    inter_volume_trace_pairs,
+    local_inter_volume_trace_pairs,
     cross_rank_trace_pairs,
+    cross_rank_inter_volume_trace_pairs,
     bdry_trace_pair,
     bv_trace_pair
 )
+
+
+__all__ = (
+    "project",
+    "interp",
+
+    "norm",
+    "nodal_sum",
+    "nodal_min",
+    "nodal_max",
+    "nodal_sum_loc",
+    "nodal_min_loc",
+    "nodal_max_loc",
+    "integral",
+    "elementwise_sum",
+    "elementwise_max",
+    "elementwise_min",
+    "elementwise_integral",
+
+    "project_tracepair",
+    "tracepair_with_discr_tag",
+    "interior_trace_pair",
+    "interior_trace_pairs",
+    "local_interior_trace_pair",
+    "inter_volume_trace_pairs",
+    "local_inter_volume_trace_pairs",
+    "cross_rank_trace_pairs",
+    "cross_rank_inter_volume_trace_pairs",
+    "bdry_trace_pair",
+    "bv_trace_pair",
+
+    "local_grad",
+    "local_d_dx",
+    "local_div",
+
+    "weak_local_grad",
+    "weak_local_d_dx",
+    "weak_local_div",
+
+    "mass",
+    "inverse_mass",
+    "face_mass",
+    )
 
 
 # {{{ common derivative "kernels"
@@ -157,90 +213,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 # }}}
 
 
-# {{{ common derivative "helpers"
-
-def _div_helper(dcoll, diff_func, *args):
-    if len(args) == 1:
-        vecs, = args
-        dd = DD_VOLUME_ALL
-    elif len(args) == 2:
-        dd, vecs = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    if not isinstance(vecs, np.ndarray):
-        # vecs is not an object array -> treat as array container
-        return map_array_container(
-            partial(_div_helper, dcoll, diff_func, dd), vecs)
-
-    assert vecs.dtype == object
-
-    if vecs.size:
-        sample_vec = vecs[(0,)*vecs.ndim]
-
-        if isinstance(sample_vec, np.ndarray):
-            assert sample_vec.dtype == object
-            # vecs is an object array containing further object arrays
-            # -> treat as array container
-            return map_array_container(
-                partial(_div_helper, dcoll, diff_func, dd), vecs)
-
-    if vecs.shape[-1] != dcoll.ambient_dim:
-        raise ValueError("last/innermost dimension of *vecs* argument doesn't match "
-                "ambient dimension")
-
-    div_result_shape = vecs.shape[:-1]
-
-    if len(div_result_shape) == 0:
-        return sum(diff_func(dd, i, vec_i) for i, vec_i in enumerate(vecs))
-    else:
-        result = np.zeros(div_result_shape, dtype=object)
-        for idx in np.ndindex(div_result_shape):
-            result[idx] = sum(
-                    diff_func(dd, i, vec_i) for i, vec_i in enumerate(vecs[idx]))
-        return result
-
-
-def _grad_helper(dcoll, scalar_grad, *args, nested):
-    if len(args) == 1:
-        vec, = args
-        dd_in = dof_desc.DD_VOLUME_ALL
-    elif len(args) == 2:
-        dd_in, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    if isinstance(vec, np.ndarray):
-        # Occasionally, data structures coming from *mirgecom* will
-        # contain empty object arrays as placeholders for fields.
-        # For example, species mass fractions is an empty object array when
-        # running in a single-species configuration.
-        # This hack here ensures that these empty arrays, at the very least,
-        # have their shape updated when applying the gradient operator
-        if vec.size == 0:
-            return vec.reshape(vec.shape + (dcoll.ambient_dim,))
-
-        # For containers with ndarray data (such as momentum/velocity),
-        # the gradient is matrix-valued, so we compute the gradient for
-        # each component. If requested (via 'not nested'), return a matrix of
-        # derivatives by stacking the results.
-        grad = obj_array_vectorize(
-            lambda el: _grad_helper(
-                dcoll, scalar_grad, dd_in, el, nested=nested), vec)
-        if nested:
-            return grad
-        else:
-            return np.stack(grad, axis=0)
-
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(_grad_helper, dcoll, scalar_grad, dd_in, nested=nested), vec)
-
-    return scalar_grad(dcoll, dd_in, vec)
-
-# }}}
-
-
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
@@ -297,8 +269,12 @@ def local_grad(
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-
-    return _grad_helper(dcoll, _strong_scalar_grad, vec, nested=nested)
+    dd_in = DD_VOLUME_ALL
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        partial(_strong_scalar_grad, dcoll, dd_in),
+        (), (dcoll.ambient_dim,),
+        vec, scalar_cls=DOFArray, return_nested=nested,)
 
 
 def local_d_dx(
@@ -349,10 +325,13 @@ def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
     """
-    return _div_helper(
-        dcoll,
-        lambda dd, i, subvec: local_d_dx(dcoll, i, subvec),
-        vecs)
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        lambda vec: sum(
+            local_d_dx(dcoll, i, vec_i)
+            for i, vec_i in enumerate(vec)),
+        (dcoll.ambient_dim,), (),
+        vecs, scalar_cls=DOFArray)
 
 # }}}
 
@@ -443,7 +422,19 @@ def weak_local_grad(
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.container.ArrayContainer`\ of object arrays.
     """
-    return _grad_helper(dcoll, _weak_scalar_grad, *args, nested=nested)
+    if len(args) == 1:
+        vecs, = args
+        dd_in = DD_VOLUME_ALL
+    elif len(args) == 2:
+        dd_in, vecs = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        partial(_weak_scalar_grad, dcoll, dd_in),
+        (), (dcoll.ambient_dim,),
+        vecs, scalar_cls=DOFArray, return_nested=nested)
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
@@ -535,11 +526,21 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` like *vec*.
     """
-    return _div_helper(
-        dcoll,
-        lambda dd, i, subvec: weak_local_d_dx(dcoll, dd, i, subvec),
-        *args
-    )
+    if len(args) == 1:
+        vecs, = args
+        dd_in = DD_VOLUME_ALL
+    elif len(args) == 2:
+        dd_in, vecs = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    from grudge.tools import rec_map_subarrays
+    return rec_map_subarrays(
+        lambda vec: sum(
+            weak_local_d_dx(dcoll, dd_in, i, vec_i)
+            for i, vec_i in enumerate(vec)),
+        (dcoll.ambient_dim,), (),
+        vecs, scalar_cls=DOFArray)
 
 # }}}
 
