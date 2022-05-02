@@ -1,5 +1,7 @@
 """
 .. autofunction:: build_jacobian
+.. autofunction:: map_subarrays
+.. autofunction:: rec_map_subarrays
 """
 
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
@@ -25,7 +27,10 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import levi_civita
+from pytools import levi_civita, product
+from typing import Tuple, Callable, Optional, Union, Any
+from functools import partial
+from arraycontext.container import ArrayOrContainerT
 
 
 def is_zero(x):
@@ -233,6 +238,135 @@ def build_jacobian(actx, f, base_state, stepsize):
         mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
 
     return mat
+
+
+def map_subarrays(
+        f: Callable[[Any], Any],
+        in_shape: Tuple[int, ...], out_shape: Tuple[int, ...],
+        ary: Any, *, return_nested=False) -> Any:
+    """
+    Apply a function *f* to subarrays of shape *in_shape* of an
+    :class:`numpy.ndarray`, typically (but not necessarily) of dtype
+    :class:`object`. Return an :class:`numpy.ndarray` with the corresponding
+    subarrays replaced by the return values of *f*, and with the shape adapted
+    to reflect *out_shape*.
+
+    Similar to :class:`numpy.vectorize`.
+
+    *Example 1:* given a function *f* that maps arrays of shape ``(2, 2)`` to scalars
+    and an input array *ary* of shape ``(3, 2, 2)``, the call::
+
+        map_subarrays(f, (2, 2), (), ary)
+
+    will produce an array of shape ``(3,)`` containing the results of calling *f* on
+    the 3 subarrays of shape ``(2, 2)`` in *ary*.
+
+    *Example 2:* given a function *f* that maps arrays of shape ``(2,)`` to arrays of
+    shape ``(2, 2)`` and an input array *ary* of shape ``(3, 2)``, the call::
+
+        map_subarrays(f, (2,), (2, 2), ary)
+
+    will produce an array of shape ``(3, 2, 2)`` containing the results of calling
+    *f* on the 3 subarrays of shape ``(2,)`` in *ary*. The call::
+
+        map_subarrays(f, (2,), (2, 2), ary, return_nested=True)
+
+    will instead produce an array of shape ``(3,)`` with each entry containing an
+    array of shape ``(2, 2)``.
+
+    :param f: the function to be called.
+    :param in_shape: the shape of any inputs to *f*.
+    :param out_shape: the shape of the result of calling *f* on an array of shape
+        *in_shape*.
+    :param ary: a :class:`numpy.ndarray` instance.
+    :param return_nested: if *out_shape* is nontrivial, this flag indicates whether
+        to return a nested array (containing one entry for each application of *f*),
+        or to return a single, higher-dimensional array.
+
+    :returns: an array with the subarrays of shape *in_shape* replaced with
+        subarrays of shape *out_shape* resulting from the application of *f*.
+    """
+    if not isinstance(ary, np.ndarray):
+        if len(in_shape) != 0:
+            raise ValueError(f"found scalar, expected array of shape {in_shape}")
+        return f(ary)
+    else:
+        if (
+                ary.ndim < len(in_shape)
+                or ary.shape[ary.ndim-len(in_shape):] != in_shape):
+            raise ValueError(
+                f"array of shape {ary.shape} is incompatible with function "
+                f"expecting input shape {in_shape}")
+        base_shape = ary.shape[:ary.ndim-len(in_shape)]
+        if len(base_shape) == 0:
+            return f(ary)
+        elif product(base_shape) == 0:
+            if return_nested:
+                return np.empty(base_shape, dtype=object)
+            else:
+                return np.empty(base_shape + out_shape, dtype=object)
+        else:
+            in_slice = tuple(slice(0, n) for n in in_shape)
+            result_entries = np.empty(base_shape, dtype=object)
+            for idx in np.ndindex(base_shape):
+                result_entries[idx] = f(ary[idx + in_slice])
+            if len(out_shape) == 0:
+                out_entry_template = result_entries.flat[0]
+                if np.isscalar(out_entry_template):
+                    return result_entries.astype(type(out_entry_template))
+                else:
+                    return result_entries
+            else:
+                if return_nested:
+                    return result_entries
+                else:
+                    out_slice = tuple(slice(0, n) for n in out_shape)
+                    out_entry_template = result_entries.flat[0]
+                    result = np.empty(
+                        base_shape + out_shape, dtype=out_entry_template.dtype)
+                    for idx in np.ndindex(base_shape):
+                        result[idx + out_slice] = result_entries[idx]
+                    return result
+
+
+def rec_map_subarrays(
+        f: Callable[[Any], Any],
+        in_shape: Tuple[int, ...],
+        out_shape: Tuple[int, ...],
+        ary: ArrayOrContainerT, *,
+        scalar_cls: Optional[Union[type, Tuple[type]]] = None,
+        return_nested: bool = False) -> ArrayOrContainerT:
+    r"""
+    Like :func:`map_subarrays`, but with support for
+    :class:`arraycontext.ArrayContainer`\ s.
+
+    :param scalar_cls: An array container of this type will be considered a scalar
+        and arrays of it will be passed to *f* without further destructuring.
+    """
+    if scalar_cls is not None:
+        def is_scalar(x):
+            return np.isscalar(x) or isinstance(x, scalar_cls)
+    else:
+        def is_scalar(x):
+            return np.isscalar(x)
+
+    def is_array_of_scalars(a):
+        return (
+            isinstance(a, np.ndarray)
+            and (
+                a.dtype != object
+                or all(is_scalar(a[idx]) for idx in np.ndindex(a.shape))))
+
+    if is_scalar(ary) or is_array_of_scalars(ary):
+        return map_subarrays(
+            f, in_shape, out_shape, ary, return_nested=return_nested)
+    else:
+        from arraycontext import map_array_container
+        return map_array_container(
+            partial(
+                rec_map_subarrays, f, in_shape, out_shape, scalar_cls=scalar_cls,
+                return_nested=return_nested),
+            ary)
 
 
 # vim: foldmethod=marker
