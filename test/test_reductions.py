@@ -56,13 +56,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def test_nodal_reductions(actx_factory):
+@pytest.mark.parametrize("mesh_size", [4, 0])
+def test_nodal_reductions(actx_factory, mesh_size):
     actx = actx_factory()
 
     from mesh_data import BoxMeshBuilder
     builder = BoxMeshBuilder(ambient_dim=1)
 
-    mesh = builder.get_mesh(4, builder.mesh_order)
+    mesh = builder.get_mesh(mesh_size, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
     x = thaw(dcoll.nodes(), actx)
 
@@ -82,21 +83,35 @@ def test_nodal_reductions(actx_factory):
     h_ref = actx.to_numpy(flatten(fields[2]))
     concat_fields = np.concatenate([f_ref, g_ref, h_ref])
 
-    for grudge_op, np_op in [(op.nodal_sum, np.sum),
-                             (op.nodal_max, np.max),
-                             (op.nodal_min, np.min)]:
+    for grudge_op, np_op in [(op.nodal_max, np.max),
+                             (op.nodal_min, np.min),
+                             (op.nodal_sum, np.sum)]:
+        if grudge_op is op.nodal_max:
+            extra_kwargs = {"initial": -100.}
+        elif grudge_op is op.nodal_min:
+            extra_kwargs = {"initial": 100.}
+        else:
+            extra_kwargs = {}
 
         # Componentwise reduction checks
-        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[0])),
-                          np_op(f_ref), rtol=1e-13)
-        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[1])),
-                          np_op(g_ref), rtol=1e-13)
-        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields[2])),
-                          np_op(h_ref), rtol=1e-13)
+        assert np.isclose(
+            actx.to_numpy(grudge_op(dcoll, "vol", fields[0], **extra_kwargs)),
+            np_op(f_ref, **extra_kwargs),
+            rtol=1e-13)
+        assert np.isclose(
+            actx.to_numpy(grudge_op(dcoll, "vol", fields[1], **extra_kwargs)),
+            np_op(g_ref, **extra_kwargs),
+            rtol=1e-13)
+        assert np.isclose(
+            actx.to_numpy(grudge_op(dcoll, "vol", fields[2], **extra_kwargs)),
+            np_op(h_ref, **extra_kwargs),
+            rtol=1e-13)
 
         # Test nodal reductions work on object arrays
-        assert np.isclose(actx.to_numpy(grudge_op(dcoll, "vol", fields)),
-                          np_op(concat_fields), rtol=1e-13)
+        assert np.isclose(
+            actx.to_numpy(grudge_op(dcoll, "vol", fields, **extra_kwargs)),
+            np_op(concat_fields, **extra_kwargs),
+            rtol=1e-13)
 
 
 def test_elementwise_reductions(actx_factory):
