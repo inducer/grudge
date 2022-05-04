@@ -707,7 +707,7 @@ class _RankBoundaryCommunicationLazy:
         def recv_single_array(key, remote_subary_template):
             if isinstance(remote_subary_template, Number):
                 # NOTE: Assumes that the same number is passed on every rank
-                return Number
+                return remote_subary_template
             else:
                 ary_tag = (comm_tag, key)
                 return DistributedSendRefHolder(
