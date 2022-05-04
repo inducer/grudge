@@ -691,6 +691,7 @@ class _RankBoundaryCommunicationLazy:
         # remote_bdry_data_template have the same structure. This is not true
         # in general. Find a way to staple the sends appropriately when the number
         # of recvs is not equal to the number of sends
+        # FIXME: Overly restrictive (just needs to be the same structure)
         assert type(local_bdry_data) == type(remote_bdry_data_template)
 
         sends = {}
