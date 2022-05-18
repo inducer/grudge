@@ -874,7 +874,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                         surf_ae_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                -1),
+                                surf_ae_i.shape[-1]),
                         vec_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,

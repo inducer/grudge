@@ -288,7 +288,9 @@ def dt_geometric_factors(
                 actx.einsum(
                     "fej->e",
                     face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces, vgrp.nelements, -1),
+                        vgrp.mesh_el_group.nfaces,
+                        vgrp.nelements,
+                        face_ae_i.shape[-1]),
                     tagged=(FirstAxisIsElementsTag(),))
 
                 for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)
@@ -307,7 +309,9 @@ def dt_geometric_factors(
                 actx.einsum(
                     "fej->e",
                     face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces, vgrp.nelements, -1
+                        vgrp.mesh_el_group.nfaces,
+                        vgrp.nelements,
+                        face_ae_i.shape[-1]
                     ) / afgrp.nunit_dofs,
                     tagged=(FirstAxisIsElementsTag(),))
 
