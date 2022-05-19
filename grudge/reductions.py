@@ -154,7 +154,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     actx = vec.array_context
 
     return sum([
-        actx.np.sum(grp_ary) if grp_ary.size > 0 else actx.from_numpy(np.array(0.))
+        actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))
         for grp_ary in vec])
 
 
@@ -211,7 +211,7 @@ def nodal_min_loc(
     return reduce(
             lambda acc, grp_ary: actx.np.minimum(
                 acc,
-                actx.np.min(grp_ary) if grp_ary.size > 0 else initial),
+                actx.np.min(grp_ary) if grp_ary.size else initial),
             vec, initial)
 
 
