@@ -56,8 +56,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.parametrize("mesh_size", [4, 0])
-def test_nodal_reductions(actx_factory, mesh_size):
+@pytest.mark.parametrize(("mesh_size", "with_initial"), [
+    (4, False),
+    (4, True),
+    (0, True)  # No False case; must pass initial for empty nodal_min/nodal_max
+])
+def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     actx = actx_factory()
 
     from mesh_data import BoxMeshBuilder
@@ -86,12 +90,12 @@ def test_nodal_reductions(actx_factory, mesh_size):
     for grudge_op, np_op in [(op.nodal_max, np.max),
                              (op.nodal_min, np.min),
                              (op.nodal_sum, np.sum)]:
-        if grudge_op is op.nodal_max:
-            extra_kwargs = {"initial": -100.}
-        elif grudge_op is op.nodal_min:
-            extra_kwargs = {"initial": 100.}
-        else:
-            extra_kwargs = {}
+        extra_kwargs = {}
+        if with_initial:
+            if grudge_op is op.nodal_max:
+                extra_kwargs["initial"] = -100.
+            elif grudge_op is op.nodal_min:
+                extra_kwargs["initial"] = 100.
 
         # Componentwise reduction checks
         assert np.isclose(
