@@ -165,7 +165,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
-    :arg initial: an optional initial value.
+    :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal minimum.
     """
     comm = dcoll.mpi_communicator
@@ -191,7 +191,7 @@ def nodal_min_loc(
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
-    :arg initial: an optional initial value.
+    :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
     if not isinstance(vec, DOFArray):
@@ -202,23 +202,17 @@ def nodal_min_loc(
 
     actx = vec.array_context
 
-    if initial is not None and np.isscalar(initial):
+    if initial is None:
+        initial = np.inf
+
+    if np.isscalar(initial):
         initial = actx.from_numpy(np.array(initial))
 
-    def reduce_func(acc, grp_ary):
-        grp_min = actx.np.min(grp_ary) if grp_ary.size else initial
-        if acc is not None:
-            if grp_min is not None:
-                return actx.np.minimum(acc, grp_min)
-            else:
-                return acc
-        else:
-            return grp_min
-
-    result = reduce(reduce_func, vec, initial)
-    if result is None:
-        raise ValueError("must set an initial value for empty nodal minimum")
-    return result
+    return reduce(
+            lambda acc, grp_ary: actx.np.minimum(
+                acc,
+                actx.np.min(grp_ary) if grp_ary.size else initial),
+            vec, initial)
 
 
 def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
@@ -228,7 +222,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
-    :arg initial: an optional initial value.
+    :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a device scalar denoting the nodal maximum.
     """
     comm = dcoll.mpi_communicator
@@ -254,7 +248,7 @@ def nodal_max_loc(
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
-    :arg initial: an optional initial value.
+    :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
     if not isinstance(vec, DOFArray):
@@ -265,23 +259,17 @@ def nodal_max_loc(
 
     actx = vec.array_context
 
-    if initial is not None and np.isscalar(initial):
+    if initial is None:
+        initial = -np.inf
+
+    if np.isscalar(initial):
         initial = actx.from_numpy(np.array(initial))
 
-    def reduce_func(acc, grp_ary):
-        grp_max = actx.np.max(grp_ary) if grp_ary.size else initial
-        if acc is not None:
-            if grp_max is not None:
-                return actx.np.maximum(acc, grp_max)
-            else:
-                return acc
-        else:
-            return grp_max
-
-    result = reduce(reduce_func, vec, initial)
-    if result is None:
-        raise ValueError("must set an initial value for empty nodal maximum")
-    return result
+    return reduce(
+            lambda acc, grp_ary: actx.np.maximum(
+                acc,
+                actx.np.max(grp_ary) if grp_ary.size > 0 else initial),
+            vec, initial)
 
 
 def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
