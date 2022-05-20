@@ -59,7 +59,8 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize(("mesh_size", "with_initial"), [
     (4, False),
     (4, True),
-    (0, True)  # No False case; must pass initial for empty nodal_min/nodal_max
+    (0, False),
+    (0, True)
 ])
 def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     actx = actx_factory()
@@ -97,24 +98,33 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
             elif grudge_op is op.nodal_min:
                 extra_kwargs["initial"] = 100.
 
+        # nodal_min/nodal_max have default initial values, so they behave
+        # differently from numpy in the empty case
+        extra_np_only_kwargs = {}
+        if mesh_size == 0 and not with_initial:
+            if grudge_op is op.nodal_max:
+                extra_np_only_kwargs["initial"] = -np.inf
+            elif grudge_op is op.nodal_min:
+                extra_np_only_kwargs["initial"] = np.inf
+
         # Componentwise reduction checks
         assert np.isclose(
             actx.to_numpy(grudge_op(dcoll, "vol", fields[0], **extra_kwargs)),
-            np_op(f_ref, **extra_kwargs),
+            np_op(f_ref, **extra_kwargs, **extra_np_only_kwargs),
             rtol=1e-13)
         assert np.isclose(
             actx.to_numpy(grudge_op(dcoll, "vol", fields[1], **extra_kwargs)),
-            np_op(g_ref, **extra_kwargs),
+            np_op(g_ref, **extra_kwargs, **extra_np_only_kwargs),
             rtol=1e-13)
         assert np.isclose(
             actx.to_numpy(grudge_op(dcoll, "vol", fields[2], **extra_kwargs)),
-            np_op(h_ref, **extra_kwargs),
+            np_op(h_ref, **extra_kwargs, **extra_np_only_kwargs),
             rtol=1e-13)
 
         # Test nodal reductions work on object arrays
         assert np.isclose(
             actx.to_numpy(grudge_op(dcoll, "vol", fields, **extra_kwargs)),
-            np_op(concat_fields, **extra_kwargs),
+            np_op(concat_fields, **extra_kwargs, **extra_np_only_kwargs),
             rtol=1e-13)
 
 
