@@ -85,6 +85,11 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     ratios = min_factors[:-1] / min_factors[1:]
     assert np.all(np.isclose(ratios, 2))
 
+    # Make sure it works with empty meshes
+    mesh = builder.get_mesh(0, builder.mesh_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    factors = thaw(dt_geometric_factors(dcoll), actx)  # noqa: F841
+
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
 def test_non_geometric_factors(actx_factory, name):
