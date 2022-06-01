@@ -108,7 +108,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
                     actx.np.conjugate(vec)
                     * _apply_mass_operator(dcoll, dd, dd, vec))))
     elif p == np.inf:
-        return nodal_max(dcoll, dd, actx.np.abs(vec))
+        return nodal_max(dcoll, dd, actx.np.abs(vec), initial=0.)
     else:
         raise ValueError("unsupported norm order")
 
@@ -153,31 +153,37 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
 
     actx = vec.array_context
 
-    return sum([actx.np.sum(grp_ary) for grp_ary in vec])
+    return sum([
+        actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))
+        for grp_ary in vec])
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+    :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal minimum.
     """
     comm = dcoll.mpi_communicator
     if comm is None:
-        return nodal_min_loc(dcoll, dd, vec)
+        return nodal_min_loc(dcoll, dd, vec, initial=initial)
 
     # NOTE: Don't move this
     from mpi4py import MPI
     actx = vec.array_context
 
     return actx.from_numpy(
-        comm.allreduce(actx.to_numpy(nodal_min_loc(dcoll, dd, vec)), op=MPI.MIN))
+        comm.allreduce(
+            actx.to_numpy(nodal_min_loc(dcoll, dd, vec, initial=initial)),
+            op=MPI.MIN))
 
 
-def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_min_loc(
+        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -185,43 +191,56 @@ def nodal_min_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+    :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
     if not isinstance(vec, DOFArray):
         return min(
-            nodal_min_loc(dcoll, dd, comp)
+            nodal_min_loc(dcoll, dd, comp, initial=initial)
             for _, comp in serialize_container(vec)
         )
 
     actx = vec.array_context
 
+    if initial is None:
+        initial = np.inf
+
+    if np.isscalar(initial):
+        initial = actx.from_numpy(np.array(initial))
+
     return reduce(
-            lambda acc, grp_ary: actx.np.minimum(acc, actx.np.min(grp_ary)),
-            vec, actx.from_numpy(np.array(np.inf)))
+            lambda acc, grp_ary: actx.np.minimum(
+                acc,
+                actx.np.min(grp_ary) if grp_ary.size else initial),
+            vec, initial)
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer` of them.
+    :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a device scalar denoting the nodal maximum.
     """
     comm = dcoll.mpi_communicator
     if comm is None:
-        return nodal_max_loc(dcoll, dd, vec)
+        return nodal_max_loc(dcoll, dd, vec, initial=initial)
 
     # NOTE: Don't move this
     from mpi4py import MPI
     actx = vec.array_context
 
     return actx.from_numpy(
-        comm.allreduce(actx.to_numpy(nodal_max_loc(dcoll, dd, vec)), op=MPI.MAX))
+        comm.allreduce(
+            actx.to_numpy(nodal_max_loc(dcoll, dd, vec, initial=initial)),
+            op=MPI.MAX))
 
 
-def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_max_loc(
+        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
@@ -229,19 +248,28 @@ def nodal_max_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.container.ArrayContainer`.
+    :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
     if not isinstance(vec, DOFArray):
         return max(
-            nodal_max_loc(dcoll, dd, comp)
+            nodal_max_loc(dcoll, dd, comp, initial=initial)
             for _, comp in serialize_container(vec)
         )
 
     actx = vec.array_context
 
+    if initial is None:
+        initial = -np.inf
+
+    if np.isscalar(initial):
+        initial = actx.from_numpy(np.array(initial))
+
     return reduce(
-            lambda acc, grp_ary: actx.np.maximum(acc, actx.np.max(grp_ary)),
-            vec, actx.from_numpy(np.array(-np.inf)))
+            lambda acc, grp_ary: actx.np.maximum(
+                acc,
+                actx.np.max(grp_ary) if grp_ary.size > 0 else initial),
+            vec, initial)
 
 
 def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
