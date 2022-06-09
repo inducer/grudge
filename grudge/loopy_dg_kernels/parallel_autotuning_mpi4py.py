@@ -131,23 +131,21 @@ def autotune_pickled_kernels(path, platform_id, actx_class, comm):
             #assert knl_id == gac.unique_program_id(knl)
 
             print("Kernel ID", knl_id)
-            print("Old kernel ID", gac.unique_program_id(knl))
-            knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
-            knl = gac.set_memory_layout(knl)
-            print("New kernel ID", gac.unique_program_id(knl))
+            print("Calculated Kernel ID", gac.unique_program_id(knl))
+            # These should be baked into the kernel object already?
+            #knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+            #knl = gac.set_memory_layout(knl)
+            #print("New kernel ID", gac.unique_program_id(knl))
 
             assert knl_id == gac.unique_program_id(knl)
 
             print(knl)
-            pid = gac.unique_program_id(knl)
-            hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
+            #pid = gac.unique_program_id(knl)
+            hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{knl_id}.hjson"
             if not exists(hjson_file_str):
-
                 parallel_autotune(knl, platform_id, actx_class, comm)
             else:
                 print("hjson file exists, skipping")
-
-            #del knl
 
 
 def parallel_autotune(knl, platform_id, actx_class, comm):
@@ -168,8 +166,8 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)))
 
-    knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
-    knl = gac.set_memory_layout(knl)
+    #knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+    #knl = gac.set_memory_layout(knl)
     pid = gac.unique_program_id(knl)
     os.makedirs(os.getcwd() + "/hjson", exist_ok=True)
     hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
