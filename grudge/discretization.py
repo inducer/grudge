@@ -158,17 +158,6 @@ class DiscretizationCollection:
             self.group_factory_for_discretization_tag(DISCR_TAG_BASE)
         )
 
-        # NOTE: Can be removed when symbolics are completely removed
-        # {{{ management of discretization-scoped common subexpressions
-
-        from pytools import UniqueNameGenerator
-        self._discr_scoped_name_gen = UniqueNameGenerator()
-
-        self._discr_scoped_subexpr_to_name = {}
-        self._discr_scoped_subexpr_name_to_value = {}
-
-        # }}}
-
         # {{{ process mpi_communicator argument
 
         if mpi_communicator is not None:

@@ -105,11 +105,6 @@ class TracePair:
     .. automethod:: __getattr__
     .. automethod:: __getitem__
     .. automethod:: __len__
-
-    .. note::
-
-        :class:`TracePair` is currently used both by the symbolic (deprecated)
-        and the current interfaces, with symbolic information or concrete data.
     """
 
     dd: dof_desc.DOFDesc

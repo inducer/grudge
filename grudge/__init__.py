@@ -20,11 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import grudge.symbolic as sym
-from grudge.execution import bind
-
 from grudge.discretization import DiscretizationCollection
 
 __all__ = [
-    "sym", "bind", "DiscretizationCollection"
+    "DiscretizationCollection"
 ]
