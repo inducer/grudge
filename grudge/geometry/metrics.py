@@ -60,7 +60,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw, freeze, ArrayContext, tag_axes
+from arraycontext import ArrayContext, tag_axes
 from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
@@ -173,7 +173,7 @@ def forward_metric_nth_derivative(
     vec = num_reference_derivative(
         dcoll.discr_from_dd(inner_dd),
         flat_ref_axes,
-        thaw(dcoll.discr_from_dd(inner_dd).nodes(), actx)[xyz_axis]
+        actx.thaw(dcoll.discr_from_dd(inner_dd).nodes())[xyz_axis]
     )
 
     return _geometry_to_quad_if_requested(
@@ -526,12 +526,12 @@ def inverse_surface_metric_derivative_mat(
                 for rst_axis in range(dcoll.dim)])
             for xyz_axis in range(dcoll.ambient_dim)])
 
-        return freeze(tag_axes(actx, {
+        return actx.freeze(tag_axes(actx, {
             0: DiscretizationAmbientDimAxisTag(),
             1: DiscretizationTopologicalDimAxisTag()},
             mat))
 
-    return thaw(_inv_surf_metric_deriv(), actx)
+    return actx.thaw(_inv_surf_metric_deriv())
 
 
 def _signed_face_ones(
@@ -549,13 +549,13 @@ def _signed_face_ones(
         actx, dtype=dcoll.real_dtype
     ) + 1
 
-    from arraycontext import to_numpy, from_numpy, thaw
+    from arraycontext import to_numpy, from_numpy
 
     _signed_face_ones_numpy = to_numpy(signed_ones, actx)
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
-            i = to_numpy(thaw(batch.to_element_indices, actx), actx)
+            i = to_numpy(actx.thaw(batch.to_element_indices), actx)
             grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
                 (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
@@ -644,9 +644,9 @@ def area_element(
                 actx, dcoll, dd=dd,
                 _use_geoderiv_connection=_use_geoderiv_connection).norm_squared())
 
-        return freeze(result, actx)
+        return actx.freeze(result)
 
-    return thaw(_area_elements(), actx)
+    return actx.thaw(_area_elements())
 
 # }}}
 
@@ -751,10 +751,9 @@ def mv_normal(
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
-        return freeze(result, actx)
+        return actx.freeze(result)
 
-    n = _normal()
-    return thaw(n, actx)
+    return actx.thaw(_normal())
 
 
 def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd,

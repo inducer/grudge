@@ -45,7 +45,7 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import ArrayContext, thaw, freeze, Scalar, tag_axes
+from arraycontext import ArrayContext, Scalar, tag_axes
 from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationDOFAxisTag,
                                          DiscretizationFaceAxisTag,
@@ -93,7 +93,7 @@ def characteristic_lengthscales(
     @memoize_in(dcoll, (characteristic_lengthscales,
                         "compute_characteristic_lengthscales"))
     def _compute_characteristic_lengthscales():
-        return freeze(
+        return actx.freeze(
             DOFArray(
                 actx,
                 data=tuple(
@@ -102,12 +102,12 @@ def characteristic_lengthscales(
                     cng * geo_facts
                     for cng, geo_facts in zip(
                         dt_non_geometric_factors(dcoll),
-                        thaw(dt_geometric_factors(dcoll), actx)
+                        actx.thaw(dt_geometric_factors(dcoll))
                     )
                 )
             )
         )
-    return thaw(_compute_characteristic_lengthscales(), actx)
+    return actx.thaw(_compute_characteristic_lengthscales())
 
 
 @memoize_on_first_arg
@@ -270,7 +270,7 @@ def dt_geometric_factors(
 
     if dcoll.dim == 1:
         # Inscribed "circle" radius is half the cell size
-        return freeze(cell_vols/2)
+        return actx.freeze(cell_vols/2)
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
@@ -327,7 +327,7 @@ def dt_geometric_factors(
             )
         )
 
-    return freeze(DOFArray(
+    return actx.freeze(DOFArray(
         actx,
         data=tuple(
             actx.einsum("e,ei->ei", 1/sae_i, cv_i,

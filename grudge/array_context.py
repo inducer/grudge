@@ -176,7 +176,7 @@ class _DistributedLazilyCompilingFunctionCaller(
                 part_id_to_prg[part.pid],
                 part_prg_name_to_tags,
                 part_prg_name_to_axes
-            ) = self._dag_to_transformed_loopy_prg(d)
+            ) = self._dag_to_transformed_pytato_prg(d)
 
             assert not (set(name_in_program_to_tags.keys())
                         & set(part_prg_name_to_tags.keys()))

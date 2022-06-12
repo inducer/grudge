@@ -27,7 +27,6 @@ import pytest
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
-    thaw, freeze
 )
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
@@ -82,7 +81,7 @@ def test_euler_vortex_convergence(actx_factory, order):
             discr_tag_to_group_factory=discr_tag_to_group_factory
         )
         h_max = actx.to_numpy(h_max_from_volume(dcoll, dim=dcoll.ambient_dim))
-        nodes = thaw(dcoll.nodes(), actx)
+        nodes = actx.thaw(dcoll.nodes())
 
         # }}}
 
@@ -115,7 +114,7 @@ def test_euler_vortex_convergence(actx_factory, order):
         t = 0.0
         last_q = None
         while t < final_time:
-            fields = thaw(freeze(fields, actx), actx)
+            fields = actx.thaw(actx.freeze(fields))
             fields = rk4_step(fields, t, dt, compiled_rhs)
             t += dt
             logger.info("[%04d] t = %.5f", step, t)

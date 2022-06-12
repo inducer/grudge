@@ -28,7 +28,6 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw, freeze
 from grudge.array_context import (
     PyOpenCLArrayContext,
     PytatoPyOpenCLArrayContext
@@ -175,7 +174,7 @@ def run_acoustic_pulse(actx,
     cn = 0.5*(order + 1)**2
     dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
-    fields = acoustic_pulse_condition(thaw(dcoll.nodes(), actx))
+    fields = acoustic_pulse_condition(actx.thaw(dcoll.nodes()))
 
     logger.info("Timestep size: %g", dt)
 
@@ -204,7 +203,7 @@ def run_acoustic_pulse(actx,
                 )
             assert norm_q < 5
 
-        fields = thaw(freeze(fields, actx), actx)
+        fields = actx.thaw(actx.freeze(fields))
         fields = rk4_step(fields, t, dt, compiled_rhs)
         t += dt
         step += 1

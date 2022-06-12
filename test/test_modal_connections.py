@@ -25,7 +25,6 @@ from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-from arraycontext import thaw
 
 from meshmode.discretization.poly_element import (
     # Simplex group factories
@@ -76,7 +75,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     dd_modal = dof_desc.DD_VOLUME_MODAL
     dd_volume = dof_desc.DD_VOLUME
 
-    x_nodal = thaw(dcoll.discr_from_dd(dd_volume).nodes()[0], actx)
+    x_nodal = actx.thaw(dcoll.discr_from_dd(dd_volume).nodes()[0])
     nodal_f = f(x_nodal)
 
     # Map nodal coefficients of f to modal coefficients
@@ -120,7 +119,7 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL,
                                dof_desc.DISCR_TAG_QUAD)
 
-    x_quad = thaw(dcoll.discr_from_dd(dd_quad).nodes()[0], actx)
+    x_quad = actx.thaw(dcoll.discr_from_dd(dd_quad).nodes()[0])
     quad_f = f(x_quad)
 
     # Map nodal coefficients of f to modal coefficients
