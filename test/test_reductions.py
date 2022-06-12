@@ -27,7 +27,6 @@ import numpy as np
 from dataclasses import dataclass
 
 from arraycontext import (
-    thaw,
     with_container_arithmetic,
     dataclass_array_container,
     pytest_generate_tests_for_array_contexts
@@ -70,7 +69,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
 
     mesh = builder.get_mesh(mesh_size, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
 
     def f(x):
         return -actx.np.sin(10*x[0])
@@ -137,7 +136,7 @@ def test_elementwise_reductions(actx_factory):
     nelements = 4
     mesh = builder.get_mesh(nelements, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
 
     def f(x):
         return actx.np.sin(x[0])
@@ -197,7 +196,7 @@ def test_nodal_reductions_with_container(actx_factory):
 
     mesh = builder.get_mesh(4, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
 
     def f(x):
         return -actx.np.sin(10*x[0]) * actx.np.cos(2*x[1])
@@ -245,7 +244,7 @@ def test_elementwise_reductions_with_container(actx_factory):
     nelements = 4
     mesh = builder.get_mesh(nelements, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
 
     def f(x):
         return actx.np.sin(x[0]) * actx.np.sin(x[1])

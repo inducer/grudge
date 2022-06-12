@@ -30,8 +30,6 @@ import numpy as np
 import grudge.op as op
 import types
 
-from arraycontext.container.traversal import thaw
-
 from grudge.models import HyperbolicOperator
 
 
@@ -43,7 +41,7 @@ def advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
     """
     actx = u_tpair.int.array_context
     dd = u_tpair.dd
-    normal = thaw(dcoll.normal(dd), actx)
+    normal = actx.thaw(dcoll.normal(dd))
     v_dot_n = np.dot(velocity, normal)
 
     flux_type = flux_type.lower()
@@ -92,7 +90,7 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
     def flux(self, u_tpair):
         actx = u_tpair.int.array_context
         dd = u_tpair.dd
-        normal = thaw(self.dcoll.normal(dd), actx)
+        normal = actx.thaw(self.dcoll.normal(dd))
         v_dot_normal = np.dot(self.v, normal)
 
         return u_tpair.int * v_dot_normal - self.weak_flux(u_tpair)
@@ -285,7 +283,7 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     from grudge.trace_pair import TracePair
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    normal = thaw(dcoll.normal(trace_dd.with_discr_tag(None)), actx)
+    normal = actx.thaw(dcoll.normal(trace_dd.with_discr_tag(None)))
     v_dot_n = velocity.dot(normal)
     i = op.project(dcoll, trace_dd.with_discr_tag(None), trace_dd, v_dot_n)
 

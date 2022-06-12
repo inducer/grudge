@@ -29,7 +29,6 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from meshmode.dof_array import flatten
@@ -61,7 +60,7 @@ class Plotter:
             self.ylim = ylim
 
             volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(thaw(volume_discr.nodes()[0], actx)))
+            self.x = actx.to_numpy(flatten(actx.thaw(volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -168,7 +167,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator
 
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
 
     # velocity field
     if dim == 1:

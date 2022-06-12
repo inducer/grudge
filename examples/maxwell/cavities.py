@@ -28,7 +28,6 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
@@ -84,7 +83,7 @@ def main(ctx_factory, dim=3, order=4, visualize=False):
         else:
             return get_rectangular_cavity_mode(actx, x, t, 1, (2, 3))
 
-    fields = cavity_mode(thaw(dcoll.nodes(), actx), t=0)
+    fields = cavity_mode(actx.thaw(dcoll.nodes()), t=0)
 
     maxwell_operator.check_bc_coverage(mesh)
 

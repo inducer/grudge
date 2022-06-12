@@ -734,10 +734,9 @@ class DiscretizationCollection:
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
         :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
         """
-        from arraycontext import freeze
         from grudge.geometry import normal
 
-        return freeze(normal(self._setup_actx, self, dd))
+        return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}
 

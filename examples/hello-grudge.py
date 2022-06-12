@@ -14,7 +14,6 @@ from grudge.discretization import DiscretizationCollection
 import grudge.op as op
 from meshmode.mesh.generation import generate_box_mesh
 from meshmode.array_context import PyOpenCLArrayContext
-from arraycontext import thaw
 from grudge.dof_desc import DTAG_BOUNDARY, FACE_RESTR_INTERIOR
 
 
@@ -43,7 +42,7 @@ def left_boundary_condition(x, t):
 def flux(dcoll, u_tpair):
     dd = u_tpair.dd
     velocity = np.array([2 * np.pi])
-    normal = thaw(dcoll.normal(dd), actx)
+    normal = actx.thaw(dcoll.normal(dd))
 
     v_dot_n = np.dot(velocity, normal)
     u_upwind = actx.np.where(v_dot_n > 0,
@@ -55,8 +54,8 @@ vol_discr = dcoll.discr_from_dd("vol")
 left_bndry = DTAG_BOUNDARY("left")
 right_bndry = DTAG_BOUNDARY("right")
 
-x_vol = thaw(dcoll.nodes(), actx)
-x_bndry = thaw(dcoll.discr_from_dd(left_bndry).nodes(), actx)
+x_vol = actx.thaw(dcoll.nodes())
+x_bndry = actx.thaw(dcoll.discr_from_dd(left_bndry).nodes())
 
 uh = initial_condition(x_vol)
 

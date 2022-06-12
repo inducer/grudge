@@ -24,8 +24,6 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw
-
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory
@@ -76,7 +74,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
         dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
         min_factors.append(
             actx.to_numpy(
-                op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx)))
+                op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
         )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
@@ -88,7 +86,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     # Make sure it works with empty meshes
     mesh = builder.get_mesh(0, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    factors = thaw(dt_geometric_factors(dcoll), actx)  # noqa: F841
+    factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
