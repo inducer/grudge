@@ -61,6 +61,7 @@ THE SOFTWARE.
 import numpy as np
 
 from arraycontext import ArrayContext, tag_axes
+from arraycontext.metadata import NameHint
 from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
@@ -507,6 +508,10 @@ def inverse_surface_metric_derivative_mat(
         ``(xyz_dimension, rst_dimension, nelements, ndof)``.
     """
 
+    if dd is None:
+        dd = DD_VOLUME
+    dd = dof_desc.as_dofdesc(dd)
+
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
         times_area_element, _use_geoderiv_connection))
     def _inv_surf_metric_deriv():
@@ -526,10 +531,12 @@ def inverse_surface_metric_derivative_mat(
                 for rst_axis in range(dcoll.dim)])
             for xyz_axis in range(dcoll.ambient_dim)])
 
-        return actx.freeze(tag_axes(actx, {
-            0: DiscretizationAmbientDimAxisTag(),
-            1: DiscretizationTopologicalDimAxisTag()},
-            mat))
+        return actx.freeze(
+                actx.tag(NameHint(f"inv_metric_deriv_{dd.as_identifier()}"),
+                    tag_axes(actx, {
+                        0: DiscretizationAmbientDimAxisTag(),
+                        1: DiscretizationTopologicalDimAxisTag()},
+                        mat)))
 
     return actx.thaw(_inv_surf_metric_deriv())
 
@@ -644,14 +651,15 @@ def area_element(
                 actx, dcoll, dd=dd,
                 _use_geoderiv_connection=_use_geoderiv_connection).norm_squared())
 
-        return actx.freeze(result)
+        return actx.freeze(
+                actx.tag(NameHint(f"area_el_{dd.as_identifier()}"), result))
 
     return actx.thaw(_area_elements())
 
 # }}}
 
 
-# {{{ Surface normal vectors
+# {{{ surface normal vectors
 
 def rel_mv_normal(
         actx: ArrayContext, dcoll: DiscretizationCollection, dd=None,
@@ -751,7 +759,11 @@ def mv_normal(
 
             result = mv / actx.np.sqrt(mv.norm_squared())
 
-        return actx.freeze(result)
+        return MultiVector({
+            bits: actx.freeze(
+                actx.tag(NameHint(f"normal_{bits}_{dd.as_identifier()}"), ary))
+            for bits, ary in result.data.items()
+            }, result.space)
 
     return actx.thaw(_normal())
 

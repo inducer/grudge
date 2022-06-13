@@ -46,6 +46,7 @@ THE SOFTWARE.
 import numpy as np
 
 from arraycontext import ArrayContext, Scalar, tag_axes
+from arraycontext.metadata import NameHint
 from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationDOFAxisTag,
                                          DiscretizationFaceAxisTag,
@@ -94,19 +95,17 @@ def characteristic_lengthscales(
                         "compute_characteristic_lengthscales"))
     def _compute_characteristic_lengthscales():
         return actx.freeze(
-            DOFArray(
-                actx,
-                data=tuple(
-                    # Scale each group array of geometric factors by the
-                    # corresponding group non-geometric factor
-                    cng * geo_facts
-                    for cng, geo_facts in zip(
-                        dt_non_geometric_factors(dcoll),
-                        actx.thaw(dt_geometric_factors(dcoll))
-                    )
-                )
-            )
-        )
+                actx.tag(NameHint("char_lscales"),
+                    DOFArray(
+                        actx,
+                        data=tuple(
+                            # Scale each group array of geometric factors by the
+                            # corresponding group non-geometric factor
+                            cng * geo_facts
+                            for cng, geo_facts in zip(
+                                dt_non_geometric_factors(dcoll),
+                                actx.thaw(dt_geometric_factors(dcoll)))))))
+
     return actx.thaw(_compute_characteristic_lengthscales())
 
 
@@ -327,14 +326,13 @@ def dt_geometric_factors(
             )
         )
 
-    return actx.freeze(DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("e,ei->ei", 1/sae_i, cv_i,
-                tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
-            for cv_i, sae_i, vgrp in zip(cell_vols, surface_areas, volm_discr.groups)
-        )
-    ))
+    return actx.freeze(
+            actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),
+                DOFArray(actx,
+                    data=tuple(
+                        actx.einsum("e,ei->ei", 1/sae_i, cv_i,
+                            tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
+                        for cv_i, sae_i in zip(cell_vols, surface_areas)))))
 
 # }}}
 
