@@ -98,6 +98,7 @@ def gen_autotune_list(queue, knl, start_param=None):
         kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
 
     # Iterate over five search dimensions
+    # Maybe there is a way to use islpy to do this? 
     parameter_list = []
     for kii in k_inner_inner_options(start_val=kii_s):
         # Should come up with a way to set the effective local memory size. It depends on the number of
@@ -217,7 +218,7 @@ def grudge_elementwise_sum_knl_pspace_generator(queue, knl, start_param=None):
 
 def einsum3to2_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
+    kio, kii, iio, iii, ji, lm_layout = params
     if 0 not in params: # If there is a zero length dimension then don't transform
         knl = kwargs["knl"]
 
@@ -242,26 +243,26 @@ def einsum3to2_kernel_tlist_generator(params, **kwargs):
             if "vec" == arg.name:
                 trans_list.append(["add_prefetch", ["vec", prefetch_str],
                     {"temporary_name":"vecf", "default_tag":"l.auto"}])
-                trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+                trans_list.append(["tag_array_axes", ["vecf", lm_layout]])
             elif "jac" == arg.name:
                 trans_list.append(["add_prefetch", ["jac", prefetch_str],
                     {"temporary_name":"jacf", "default_tag":"l.auto"}])
-                trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
+                trans_list.append(["tag_array_axes", ["jacf", lm_layout]])
             elif "arg2" == arg.name and IsDOFArray() in arg.tags:
                 trans_list.append(["add_prefetch", ["arg2", prefetch_str],
                     {"temporary_name":"arg2f", "default_tag":"l.auto"}])
-                trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
+                trans_list.append(["tag_array_axes", ["arg2f", lm_layout]])
             elif "arg1" == arg.name and IsDOFArray() in arg.tags:
                 trans_list.append(["add_prefetch", ["arg1", prefetch_str],
                     {"temporary_name":"arg1f", "default_tag":"l.auto"}])
-                trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
+                trans_list.append(["tag_array_axes", ["arg1f", lm_layout]])
             elif "arg0" == arg.name and IsDOFArray() in arg.tags:
                 arg0_prefetch_str = "i_inner," if iio == iii else "i_inner_outer,i_inner_inner,"
                 arg0_prefetch_str += "e_inner" if kio == kii else "e_inner_outer,e_inner_inner"
                 trans_list.append(["add_prefetch",
                     ["arg0", arg0_prefetch_str],
                     {"temporary_name":"arg0f", "default_tag":"l.auto"}])
-                trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
+                trans_list.append(["tag_array_axes", ["arg0f", lm_layout]])
 
         trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
 
@@ -283,15 +284,17 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
             n_out, n_in = arg.shape
 
     if start_param is not None:
-        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+        kio_s, kii_s, iio_s, iii_s, ji_s, lm_layout = start_param
     else:
-        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+        kio_s, kii_s, iio_s, iii_s, ji_s, lm_layout = (None, None, None, None, None, None)
 
-    # Iterate over five search dimensions
+    # Iterate over six search dimensions
     parameter_list = []
 
     if n_elem*n_out <= 1024:
-        choices = (n_elem, n_elem, n_out, n_out, n_in)
+        choices = (n_elem, n_elem, n_out, n_out, n_in, "c,c")
+        parameter_list.append(choices)
+        choices = (n_elem, n_elem, n_out, n_out, n_in, "f,f")
         parameter_list.append(choices)
     else:
         for kii in k_inner_inner_options(start_val=kii_s):
@@ -307,8 +310,9 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
                         iio_s = None
                         for ji in j_inner_options(n_in, start_val=ji_s):
                             ji_s = None
-                            choices = (kio, kii, iio, iii, ji)
-                            parameter_list.append(choices)
+                            for lm_layout in ["f,f", "c,c"]:
+                                choices = (kio, kii, iio, iii, ji, lm_layout)
+                                parameter_list.append(choices)
 
     return parameter_list
 
