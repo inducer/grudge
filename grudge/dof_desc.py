@@ -51,6 +51,13 @@ __doc__ = """
 """
 
 
+def _to_identifier(name: str) -> str:
+    if not name.isidentifier():
+        return "".join(ch for ch in name if ch.isidentifier())
+    else:
+        return name
+
+
 # {{{ DOF description
 
 class DTAG_SCALAR:  # noqa: N801
@@ -164,6 +171,7 @@ class DOFDesc:
     .. automethod:: __eq__
     .. automethod:: __ne__
     .. automethod:: __hash__
+    .. automethod:: as_identifier
     """
 
     def __init__(self, domain_tag, discretization_tag=None,
@@ -319,6 +327,46 @@ class DOFDesc:
         return "DOFDesc({}, {})".format(
                 fmt(self.domain_tag),
                 fmt(self.discretization_tag))
+
+    def as_identifier(self) -> str:
+        """Returns a descriptive string for this :class:`DOFDesc` that is usable
+        in Python identifiers.
+        """
+
+        if self.domain_tag is DTAG_SCALAR:
+            dom_id = "sc"
+        elif self.domain_tag is DTAG_VOLUME_ALL:
+            dom_id = "vol"
+        elif self.domain_tag is FACE_RESTR_ALL:
+            dom_id = "f_all"
+        elif self.domain_tag is FACE_RESTR_INTERIOR:
+            dom_id = "f_int"
+        elif isinstance(self.domain_tag, DTAG_BOUNDARY):
+            btag = self.domain_tag.tag
+            if isinstance(btag, type):
+                btag = btag.__name__.replace("BTAG_", "").lower()
+            elif isinstance(btag, str):
+                btag = _to_identifier(btag)
+            else:
+                btag = _to_identifier(str(btag))
+            dom_id = f"b_{btag}"
+        else:
+            raise ValueError(f"unexpected domain tag: '{self.domain_tag}'")
+
+        if isinstance(self.discretization_tag, str):
+            discr_id = _to_identifier(name)
+        elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
+            discr_id = "_quad"
+        elif self.discretization_tag is DISCR_TAG_BASE:
+            discr_id = ""
+        elif self.discretization_tag is DISCR_TAG_MODAL:
+            discr_id = "_modal"
+        else:
+            raise ValueError(
+                f"Unexpected discretization tag: {self.discretization_tag}"
+            )
+
+        return f"{dom_id}{discr_id}"
 
 
 DD_SCALAR = DOFDesc(DTAG_SCALAR, None)
