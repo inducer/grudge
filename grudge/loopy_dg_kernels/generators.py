@@ -459,7 +459,7 @@ def einsum4to2_face_mass_kernel_pspace_generator(queue, knl, start_param=None):
 
 def einsum4to2_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
+    kio, kii, iio, iii, ji, o = params
     knl = kwargs["knl"]
     arg_names = {arg.name for arg in knl.default_entrypoint.args}
     inames = knl.default_entrypoint.inames.keys()
@@ -484,19 +484,20 @@ def einsum4to2_kernel_tlist_generator(params, **kwargs):
     if "inv_jac_t" in arg_names:
         trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "N0,N1"]])
+        trans_list.append(["tag_array_axes", ["vecf", "N0,N1" if o == "F" else "N1,N0"]])
  
         trans_list.append(["add_prefetch", ["inv_jac_t", "r,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N2,N0,N1"]])
+        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N2,N0,N1" if o == "F" else "N2,N1,N0"]])
     elif "jac_surf" in arg_names:
         trans_list.append(["add_prefetch", ["vec", "f,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+        # See if N2,N0,N1 works for "F" order, may need to change it in the array context
+        trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2" if o =="F" else "N2,N1,N0"]])
  
         trans_list.append(["add_prefetch", ["jac_surf", "f,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N1,N0,N2"]])
+        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N1,N0,N2" if o == "F" else "N2,N1,N0"]])
  
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
@@ -543,15 +544,22 @@ def einsum4to2_kernel_pspace_generator(queue, knl, start_param=None):
                     iio_s = None
                     for ji in j_inner_options(n_in, start_val=ji_s):
                         ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
+                        for order in ["F","C"]:
+                            choices = (kio, kii, iio, iii, ji,order)
+                            parameter_list.append(choices)
 
     return parameter_list
 
 
 def einsum5to3_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
+    kio, kii, iio, iii, ji, lm_ord = params
+    if lm_ord in "fF":
+        vecf_ord = "f,f"
+        inv_jac_tf_ord = "N3,N2,N0,N1"
+    else:
+        vecf_ord = "c,c"
+        inv_jac_tf_ord = "N3,N2,N1,N0"
     trans_list.append(["tag_inames", ["r: unr"]])
     trans_list.append(["tag_inames", ["x: ilp"]])
     trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
@@ -564,10 +572,10 @@ def einsum5to3_kernel_tlist_generator(params, **kwargs):
 
     trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
         {"temporary_name":"vecf", "default_tag":"l.auto"}])
-    trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+    trans_list.append(["tag_array_axes", ["vecf", vecf_ord]])
     trans_list.append(["add_prefetch", ["inv_jac_t", "x,r,j,e_inner_outer,e_inner_inner"],
         {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-    trans_list.append(["tag_array_axes", ["inv_jac_tf", "N3,N2,N0,N1"]])
+    trans_list.append(["tag_array_axes", ["inv_jac_tf", inv_jac_tf_ord]])
 
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
@@ -589,9 +597,9 @@ def einsum5to3_kernel_pspace_generator(queue, knl, start_param=None):
             n_r, n_out, n_in = arg.shape
 
     if start_param is not None:
-        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+        kio_s, kii_s, iio_s, iii_s, ji_s, order = start_param
     else:
-        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+        kio_s, kii_s, iio_s, iii_s, ji_s, order = (None, None, None, None, None, None)
 
     # Iterate over five search dimensions
     parameter_list = []
@@ -606,7 +614,8 @@ def einsum5to3_kernel_pspace_generator(queue, knl, start_param=None):
                     iio_s = None
                     for ji in j_inner_options(n_in, start_val=ji_s):
                         ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
+                        for order in ["F", "C"]:  
+                            choices = (kio, kii, iio, iii, ji, order)
+                            parameter_list.append(choices)
 
     return parameter_list
