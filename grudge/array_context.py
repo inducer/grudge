@@ -135,12 +135,24 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
-    def __init__(self, queue, allocator=None):
+    def __init__(self, queue, allocator=None,
+            *,
+            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
+             = None) -> None:
+        """
+        :arg compile_trace_callback: A function of three arguments
+            *(what, stage, ir)*, where *what* identifies the object
+            being compiled, *stage* is a string describing the compilation
+            pass, and *ir* is an object containing the intermediate
+            representation. This interface should be considered
+            unstable.
+        """
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
                  "to reduce device allocations)")
-        super().__init__(queue, allocator)
+        super().__init__(queue, allocator,
+                compile_trace_callback=compile_trace_callback)
 
 # }}}
 
@@ -150,6 +162,27 @@ class MPIBasedArrayContext:
 
 
 # {{{ distributed + pytato
+
+def _to_identifier(s: str) -> str:
+    return "".join(ch for ch in s if ch.isidentifier())
+
+
+@dataclass(frozen=True)
+class _DistributedPartProgramID:
+    f: Callable[..., Any]
+    part_id: Any
+
+    def __str__(self):
+        name = self.f.__name__
+        if not name.isidentifier():
+            name = _to_identifier(name)
+
+        part = _to_identifier(str(self.part_id))
+        if part:
+            return f"{name}_part{part}"
+        else:
+            return name
+
 
 class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         LazilyPyOpenCLCompilingFunctionCaller):
@@ -161,12 +194,24 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
 
         from pytools import ProcessLogger
 
+        self.actx._compile_trace_callback(self.f, "pre_deduplicate_data_wrappers",
+                dict_of_named_arrays)
+
         with ProcessLogger(logger, "deduplicate_data_wrappers[pre-partition]"):
             dict_of_named_arrays = pt.transform.deduplicate_data_wrappers(
                 dict_of_named_arrays)
 
+        self.actx._compile_trace_callback(self.f, "post_deduplicate_data_wrappers",
+                dict_of_named_arrays)
+
+        self.actx._compile_trace_callback(self.f, "pre_materialize",
+                dict_of_named_arrays)
+
         with ProcessLogger(logger, "materialize_with_mpms[pre-partition]"):
             dict_of_named_arrays = pt.transform.materialize_with_mpms(
+                dict_of_named_arrays)
+
+        self.actx._compile_trace_callback(self.f, "post_materialize",
                 dict_of_named_arrays)
 
         # FIXME: Remove the import failure handling once this is in upstream grudge
@@ -180,14 +225,29 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                     "transformation for acceptable results.")
 
         else:
+            self.actx._compile_trace_callback(self.f, "pre_infer_axes_tags",
+                    dict_of_named_arrays)
+
             with ProcessLogger(logger,
                                "transform_dag.infer_axes_tags[pre-partition]"):
                 dict_of_named_arrays = unify_discretization_entity_tags(
                     dict_of_named_arrays)
 
+            self.actx._compile_trace_callback(self.f, "post_infer_axes_tags",
+                    dict_of_named_arrays)
+
+        self.actx._compile_trace_callback(self.f, "pre_find_distributed_partition",
+                dict_of_named_arrays)
+
         distributed_partition = pt.find_distributed_partition(dict_of_named_arrays)
 
+        self.actx._compile_trace_callback(self.f, "post_find_distributed_partition",
+                distributed_partition)
+
         # {{{ turn symbolic tags into globally agreed-upon integers
+
+        self.actx._compile_trace_callback(self.f, "pre_number_distributed_tags",
+                distributed_partition)
 
         from pytato.distributed import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
@@ -203,6 +263,9 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         # FIXME: Updating stuff inside the array context from here is *cough*
         # not super pretty.
         self.actx.mpi_base_tag = _new_mpi_base_tag
+
+        self.actx._compile_trace_callback(self.f, "post_number_distributed_tags",
+                distributed_partition)
 
         # }}}
 
@@ -220,7 +283,8 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                 part_id_to_prg[part.pid],
                 part_prg_name_to_tags,
                 part_prg_name_to_axes
-            ) = self._dag_to_transformed_pytato_prg(d)
+            ) = self._dag_to_transformed_pytato_prg(
+                    d, prg_id=_DistributedPartProgramID(self.f, part.pid))
 
             assert not (set(name_in_program_to_tags.keys())
                         & set(part_prg_name_to_tags.keys()))
@@ -317,14 +381,24 @@ class _DistributedCompiledFunction:
 
 class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
-            self, mpi_communicator, queue, *, mpi_base_tag, allocator=None
-            ) -> None:
+            self, mpi_communicator, queue, *, mpi_base_tag, allocator=None,
+            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
+            = None) -> None:
+        """
+        :arg compile_trace_callback: A function of three arguments
+            *(what, stage, ir)*, where *what* identifies the object
+            being compiled, *stage* is a string describing the compilation
+            pass, and *ir* is an object containing the intermediate
+            representation. This interface should be considered
+            unstable.
+        """
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
                  "to reduce device allocations)")
 
-        super().__init__(queue, allocator)
+        super().__init__(queue, allocator,
+                compile_trace_callback=compile_trace_callback)
 
         self.mpi_communicator = mpi_communicator
         self.mpi_base_tag = mpi_base_tag
