@@ -87,6 +87,17 @@ from meshmode.mesh import (
     BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BoundaryTag)
 
 
+# {{{ _to_identifier
+
+def _to_identifier(name: str) -> str:
+    if not name.isidentifier():
+        return "".join(ch for ch in name if ch.isidentifier())
+    else:
+        return name
+
+# }}}
+
+
 # {{{ volume tags
 
 class VTAG_ALL:  # noqa: N801
@@ -221,6 +232,7 @@ class DOFDesc:
     .. automethod:: __eq__
     .. automethod:: __ne__
     .. automethod:: __hash__
+    .. automethod:: as_identifier
     """
 
     domain_tag: DomainTag
@@ -304,6 +316,55 @@ class DOFDesc:
 
     def with_discr_tag(self, discr_tag) -> "DOFDesc":
         return replace(self, discretization_tag=discr_tag)
+
+    def as_identifier(self) -> str:
+        """Returns a descriptive string for this :class:`DOFDesc` that is usable
+        in Python identifiers.
+        """
+
+        if self.domain_tag is DTAG_SCALAR:
+            dom_id = "sc"
+        elif self.domain_tag is DTAG_VOLUME_ALL:
+            dom_id = "vol"
+        elif self.domain_tag is FACE_RESTR_ALL:
+            dom_id = "f_all"
+        elif self.domain_tag is FACE_RESTR_INTERIOR:
+            dom_id = "f_int"
+        elif isinstance(self.domain_tag, VolumeDomainTag):
+            vtag = self.domain_tag.tag
+            if isinstance(vtag, type):
+                vtag = vtag.__name__.replace("VTAG_", "").lower()
+            elif isinstance(vtag, str):
+                vtag = _to_identifier(vtag)
+            else:
+                vtag = _to_identifier(str(vtag))
+            dom_id = f"v_{vtag}"
+        elif isinstance(self.domain_tag, BoundaryDomainTag):
+            btag = self.domain_tag.tag
+            if isinstance(btag, type):
+                btag = btag.__name__.replace("BTAG_", "").lower()
+            elif isinstance(btag, str):
+                btag = _to_identifier(btag)
+            else:
+                btag = _to_identifier(str(btag))
+            dom_id = f"b_{btag}"
+        else:
+            raise ValueError(f"unexpected domain tag: '{self.domain_tag}'")
+
+        if isinstance(self.discretization_tag, str):
+            discr_id = _to_identifier(name)
+        elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
+            discr_id = "_quad"
+        elif self.discretization_tag is DISCR_TAG_BASE:
+            discr_id = ""
+        elif self.discretization_tag is DISCR_TAG_MODAL:
+            discr_id = "_modal"
+        else:
+            raise ValueError(
+                f"Unexpected discretization tag: {self.discretization_tag}"
+            )
+
+        return f"{dom_id}{discr_id}"
 
 
 DD_SCALAR = DOFDesc(DTAG_SCALAR, DISCR_TAG_BASE)

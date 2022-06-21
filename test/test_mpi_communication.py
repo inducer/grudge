@@ -32,7 +32,6 @@ import logging
 import sys
 
 from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
-from arraycontext.container.traversal import thaw, freeze
 
 logger = logging.getLogger(__name__)
 logging.basicConfig()
@@ -137,7 +136,7 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
 
     dcoll = DiscretizationCollection(actx, local_mesh, order=5)
 
-    x = thaw(dcoll.nodes(), actx)
+    x = actx.thaw(dcoll.nodes())
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
     from grudge.dof_desc import as_dofdesc
@@ -218,7 +217,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
         source_width = 0.05
         source_omega = 3
-        nodes = thaw(dcoll.nodes(), actx)
+        nodes = actx.thaw(dcoll.nodes())
         source_center_dist = flat_obj_array(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
@@ -286,7 +285,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     for step in range(nsteps):
         t = step*dt
         fields = rk4_step(fields, t=t, h=dt, f=compiled_rhs)
-        fields = thaw(freeze(fields, actx), actx)
+        fields = actx.thaw(actx.freeze(fields))
 
         norm = actx.to_numpy(op.norm(dcoll, fields, 2))
         logger.info("[%04d] t = %.5e |u| = %.5e elapsed %.5e",

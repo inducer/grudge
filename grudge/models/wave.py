@@ -28,8 +28,6 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw, freeze
-
 from grudge.models import HyperbolicOperator
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -93,7 +91,7 @@ class WeakWaveOperator(HyperbolicOperator):
         u = wtpair[0]
         v = wtpair[1:]
         actx = u.int.array_context
-        normal = thaw(self.dcoll.normal(wtpair.dd), actx)
+        normal = actx.thaw(self.dcoll.normal(wtpair.dd))
 
         central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
@@ -136,7 +134,7 @@ class WeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(dcoll.normal(dd=self.radiation_tag), actx)
+        rad_normal = actx.thaw(dcoll.normal(dd=self.radiation_tag))
 
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
@@ -214,7 +212,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             neumann_tag=BTAG_NONE,
             radiation_tag=BTAG_NONE):
         """
-        :arg c: a thawed (with *actx*) :class:`~meshmode.dof_array.DOFArray`
+        :arg c: a frozen :class:`~meshmode.dof_array.DOFArray`
             representing the propogation speed of the wave.
         """
 
@@ -223,11 +221,13 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
         actx = c.array_context
         self.dcoll = dcoll
-        self.c = freeze(c)
+        self.c = c
         self.source_f = source_f
 
         ones = dcoll.zeros(actx) + 1
-        self.sign = freeze(actx.np.where(actx.np.greater(c, 0), ones, -ones))
+        thawed_c = dcoll._setup_actx.thaw(c)
+        self.sign = dcoll._setup_actx.freeze(
+                actx.np.where(actx.np.greater(thawed_c, 0), ones, -ones))
 
         self.dirichlet_tag = dirichlet_tag
         self.neumann_tag = neumann_tag
@@ -242,7 +242,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         u = wtpair[1]
         v = wtpair[2:]
         actx = u.int.array_context
-        normal = thaw(self.dcoll.normal(wtpair.dd), actx)
+        normal = actx.thaw(self.dcoll.normal(wtpair.dd))
 
         flux_central_weak = -0.5 * flat_obj_array(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
@@ -266,7 +266,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         v = w[1:]
         actx = u.array_context
 
-        c = thaw(self.c, actx)
+        c = actx.thaw(self.c)
 
         flux_w = flat_obj_array(c, w)
 
@@ -294,13 +294,12 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = thaw(dcoll.normal(dd=self.radiation_tag), actx)
+        rad_normal = actx.thaw(dcoll.normal(dd=self.radiation_tag))
 
         rad_c = op.project(dcoll, "vol", self.radiation_tag, c)
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
-        rad_sign = op.project(dcoll, "vol", self.radiation_tag,
-                thaw(self.sign, actx))
+        rad_sign = op.project(dcoll, "vol", self.radiation_tag, actx.thaw(self.sign))
 
         rad_bc = flat_obj_array(
             rad_c,
@@ -345,7 +344,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             self.radiation_tag])
 
     def max_characteristic_velocity(self, actx, **kwargs):
-        return actx.np.abs(thaw(self.c, actx))
+        return actx.np.abs(actx.thaw(self.c))
 
 # }}}
 

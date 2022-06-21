@@ -46,8 +46,12 @@ THE SOFTWARE.
 from typing import Optional, Sequence
 import numpy as np
 
-from arraycontext import ArrayContext, thaw, freeze, Scalar
-from meshmode.transform_metadata import FirstAxisIsElementsTag
+from arraycontext import ArrayContext, Scalar, tag_axes
+from arraycontext.metadata import NameHint
+from meshmode.transform_metadata import (FirstAxisIsElementsTag,
+                                         DiscretizationDOFAxisTag,
+                                         DiscretizationFaceAxisTag,
+                                         DiscretizationElementAxisTag)
 
 from grudge.dof_desc import (
         DD_VOLUME_ALL, DOFDesc, as_dofdesc, BoundaryDomainTag, FACE_RESTR_ALL)
@@ -93,21 +97,19 @@ def characteristic_lengthscales(
     @memoize_in(dcoll, (characteristic_lengthscales,
                         "compute_characteristic_lengthscales"))
     def _compute_characteristic_lengthscales():
-        return freeze(
-            DOFArray(
-                actx,
-                data=tuple(
-                    # Scale each group array of geometric factors by the
-                    # corresponding group non-geometric factor
-                    cng * geo_facts
-                    for cng, geo_facts in zip(
-                        dt_non_geometric_factors(dcoll, dd),
-                        thaw(dt_geometric_factors(dcoll, dd), actx)
-                    )
-                )
-            )
-        )
-    return thaw(_compute_characteristic_lengthscales(), actx)
+        return actx.freeze(
+                actx.tag(NameHint("char_lscales"),
+                    DOFArray(
+                        actx,
+                        data=tuple(
+                            # Scale each group array of geometric factors by the
+                            # corresponding group non-geometric factor
+                            cng * geo_facts
+                            for cng, geo_facts in zip(
+                                dt_non_geometric_factors(dcoll, dd),
+                                actx.thaw(dt_geometric_factors(dcoll, dd)))))))
+
+    return actx.thaw(_compute_characteristic_lengthscales())
 
 
 @memoize_on_first_arg
@@ -273,7 +275,7 @@ def dt_geometric_factors(
 
     if dcoll.dim == 1:
         # Inscribed "circle" radius is half the cell size
-        return freeze(cell_vols/2)
+        return actx.freeze(cell_vols/2)
 
     dd_face = dd.with_domain_tag(
             BoundaryDomainTag(FACE_RESTR_ALL, dd.domain_tag.tag))
@@ -294,15 +296,18 @@ def dt_geometric_factors(
             data=tuple(
                 actx.einsum(
                     "fej->e",
-                    face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces,
-                        vgrp.nelements,
-                        face_ae_i.shape[-1]),
+                    tag_axes(actx, {
+                        0: DiscretizationFaceAxisTag(),
+                        1: DiscretizationElementAxisTag(),
+                        2: DiscretizationDOFAxisTag()
+                        },
+                        face_ae_i.reshape(
+                            vgrp.mesh_el_group.nfaces,
+                            vgrp.nelements,
+                            face_ae_i.shape[-1])),
                     tagged=(FirstAxisIsElementsTag(),))
 
-                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)
-            )
-        )
+                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)))
     else:
         surface_areas = DOFArray(
             actx,
@@ -323,22 +328,18 @@ def dt_geometric_factors(
                     tagged=(FirstAxisIsElementsTag(),))
 
                 for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
-                                                face_discr.groups,
-                                                face_areas)
+                                                  face_discr.groups,
+                                                  face_areas)
             )
         )
 
-    return freeze(DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("e,ei->ei",
-                        1/sae_i,
-                        cv_i,
-                        tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
-
-            for cv_i, sae_i in zip(cell_vols, surface_areas)
-        )
-    ))
+    return actx.freeze(
+            actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),
+                DOFArray(actx,
+                    data=tuple(
+                        actx.einsum("e,ei->ei", 1/sae_i, cv_i,
+                            tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
+                        for cv_i, sae_i in zip(cell_vols, surface_areas)))))
 
 # }}}
 
