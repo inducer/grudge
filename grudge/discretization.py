@@ -177,17 +177,6 @@ class DiscretizationCollection:
 
         self._setup_actx = array_context.clone()
 
-        # NOTE: Can be removed when symbolics are completely removed
-        # {{{ management of discretization-scoped common subexpressions
-
-        from pytools import UniqueNameGenerator
-        self._discr_scoped_name_gen = UniqueNameGenerator()
-
-        self._discr_scoped_subexpr_to_name = {}
-        self._discr_scoped_subexpr_name_to_value = {}
-
-        # }}}
-
         # {{{ process mpi_communicator argument
 
         if mpi_communicator is not None:
@@ -731,10 +720,9 @@ class DiscretizationCollection:
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
         :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
         """
-        from arraycontext import freeze
         from grudge.geometry import normal
 
-        return freeze(normal(self._setup_actx, self, dd))
+        return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}
 

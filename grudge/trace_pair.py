@@ -116,11 +116,6 @@ class TracePair:
     .. automethod:: __getattr__
     .. automethod:: __getitem__
     .. automethod:: __len__
-
-    .. note::
-
-        :class:`TracePair` is currently used both by the symbolic (deprecated)
-        and the current interfaces, with symbolic information or concrete data.
     """
 
     dd: DOFDesc
@@ -614,7 +609,8 @@ class _RankBoundaryCommunicationLazy:
                     stapled_to=make_distributed_recv(
                         src_rank=remote_rank, comm_tag=ary_tag,
                         shape=local_bdry_subary.shape,
-                        dtype=local_bdry_subary.dtype))
+                        dtype=local_bdry_subary.dtype,
+                        axes=local_bdry_subary.axes))
 
         self.remote_data = rec_keyed_map_array_container(
                 communicate_single_array, self.local_bdry_data)

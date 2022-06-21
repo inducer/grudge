@@ -30,7 +30,6 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 
 from arraycontext import (
-    thaw,
     with_container_arithmetic,
     dataclass_array_container
 )
@@ -73,12 +72,12 @@ class WaveState:
         return self.u.array_context
 
 
-def wave_flux(dcoll, c, w_tpair):
+def wave_flux(actx, dcoll, c, w_tpair):
     u = w_tpair.u
     v = w_tpair.v
     dd = w_tpair.dd
 
-    normal = thaw(dcoll.normal(dd), u.int.array_context)
+    normal = actx.thaw(dcoll.normal(dd))
 
     flux_weak = WaveState(
         u=v.avg @ normal,
@@ -99,7 +98,7 @@ class _WaveStateTag:
     pass
 
 
-def wave_operator(dcoll, c, w, quad_tag=None):
+def wave_operator(actx, dcoll, c, w, quad_tag=None):
     dd_base = as_dofdesc("vol")
     dd_vol = DOFDesc("vol", quad_tag)
     dd_faces = DOFDesc("all_faces", quad_tag)
@@ -135,13 +134,14 @@ def wave_operator(dcoll, c, w, quad_tag=None):
                 dcoll,
                 dd_faces,
                 wave_flux(
+                    actx,
                     dcoll, c=c,
                     w_tpair=op.bdry_trace_pair(dcoll,
                                                dd_btag,
                                                interior=dir_bval,
                                                exterior=dir_bc)
                 ) + sum(
-                    wave_flux(dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
+                    wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
                     for tpair in op.interior_trace_pairs(dcoll, w,
                         comm_tag=_WaveStateTag)
                 )
@@ -165,7 +165,7 @@ def bump(actx, dcoll, t=0):
     source_width = 0.05
     source_omega = 3
 
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
     center_dist = flat_obj_array([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)
@@ -258,7 +258,7 @@ def main(ctx_factory, dim=2, order=3,
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(dcoll, c=c, w=w, quad_tag=quad_tag)
+        return wave_operator(actx, dcoll, c=c, w=w, quad_tag=quad_tag)
 
     compiled_rhs = actx.compile(rhs)
 

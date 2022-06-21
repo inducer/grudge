@@ -32,15 +32,10 @@ THE SOFTWARE.
 """
 
 
-from functools import partial
-
-from arraycontext import map_array_container
 from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc, VolumeDomainTag, ConvertibleToDOFDesc
-
-from meshmode.dof_array import DOFArray
 
 from numbers import Number
 
@@ -77,10 +72,5 @@ def project(
 
     if isinstance(vec, Number) or src_dofdesc == tgt_dofdesc:
         return vec
-
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(project, dcoll, src_dofdesc, tgt_dofdesc), vec
-        )
 
     return dcoll.connection_from_dds(src_dofdesc, tgt_dofdesc)(vec)

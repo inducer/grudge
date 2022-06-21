@@ -30,7 +30,6 @@ import numpy as np  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge import DiscretizationCollection, shortcuts
@@ -51,9 +50,9 @@ def main(write_output=True):
 
     dcoll = DiscretizationCollection(actx, mesh, order=4)
 
-    nodes = thaw(dcoll.nodes(), actx)
-    bdry_nodes = thaw(dcoll.nodes(dd=BTAG_ALL), actx)
-    bdry_normals = thaw(dcoll.normal(dd=BTAG_ALL), actx)
+    nodes = actx.thaw(dcoll.nodes())
+    bdry_nodes = actx.thaw(dcoll.nodes(dd=BTAG_ALL))
+    bdry_normals = actx.thaw(dcoll.normal(dd=BTAG_ALL))
 
     if write_output:
         vis = shortcuts.make_visualizer(dcoll)

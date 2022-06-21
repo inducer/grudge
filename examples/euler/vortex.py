@@ -26,8 +26,6 @@ THE SOFTWARE.
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw, freeze
-
 from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
 from grudge.models.euler import (
     vortex_initial_condition,
@@ -111,7 +109,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
 
     compiled_rhs = actx.compile(rhs)
 
-    fields = vortex_initial_condition(thaw(dcoll.nodes(), actx))
+    fields = vortex_initial_condition(actx.thaw(dcoll.nodes()))
 
     from grudge.dt_utils import h_min_from_volume
 
@@ -147,7 +145,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
                 )
             assert norm_q < 200
 
-        fields = thaw(freeze(fields, actx), actx)
+        fields = actx.thaw(actx.freeze(fields))
         fields = rk4_step(fields, t, dt, compiled_rhs)
         t += dt
         step += 1
