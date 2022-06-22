@@ -215,18 +215,20 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         :arg c: a frozen :class:`~meshmode.dof_array.DOFArray`
             representing the propogation speed of the wave.
         """
+        from arraycontext import get_container_context_recursively
+        assert get_container_context_recursively(c) is None
 
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
 
-        actx = c.array_context
+        actx = dcoll._setup_actx
         self.dcoll = dcoll
         self.c = c
         self.source_f = source_f
 
         ones = dcoll.zeros(actx) + 1
-        thawed_c = dcoll._setup_actx.thaw(c)
-        self.sign = dcoll._setup_actx.freeze(
+        thawed_c = actx.thaw(self.c)
+        self.sign = actx.freeze(
                 actx.np.where(actx.np.greater(thawed_c, 0), ones, -ones))
 
         self.dirichlet_tag = dirichlet_tag
