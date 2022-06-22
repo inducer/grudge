@@ -232,7 +232,7 @@ def build_jacobian(actx, f, base_state, stepsize):
         unit_i_flat = np.zeros(n, dtype=mat.dtype)
         unit_i_flat[i] = stepsize
 
-        f_unit_i = f(f_base + unflatten(
+        f_unit_i = f(base_state + unflatten(
             base_state, actx.from_numpy(unit_i_flat), actx))
 
         mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
