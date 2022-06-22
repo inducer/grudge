@@ -83,7 +83,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
     wave_op = VariableCoefficientWeakWaveOperator(
         dcoll,
-        c,
+        actx.freeze(c),
         source_f=source_f,
         dirichlet_tag=BTAG_NONE,
         neumann_tag=BTAG_NONE,
