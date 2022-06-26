@@ -56,6 +56,7 @@ def get_queue(pe_num, platform_num):
 # Just assume each rank has one processor and create a queue
 # Breaks for some reason. Maybe because the tasks migrate and the underlying hardware
 # address changes so the queue is not for the correct device.
+# The memory will probably run out over time if many queues are created.
 #queue = get_queue(0,0)
 
 def test(args):
