@@ -61,9 +61,9 @@ from arraycontext import (
     dataclass_array_container,
     get_container_context_recursively,
     flatten, to_numpy,
-    unflatten, from_numpy
+    unflatten, from_numpy,
+    ArrayOrContainer
 )
-from arraycontext.container import ArrayOrContainerT
 
 from dataclasses import dataclass
 
@@ -323,7 +323,7 @@ class _RankBoundaryCommunication:
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainerT,
+                 array_container: ArrayOrContainer,
                  remote_rank, comm_tag: Optional[int] = None):
         actx = get_container_context_recursively(array_container)
         btag = BTAG_PARTITION(remote_rank)
@@ -400,7 +400,7 @@ from pytato import make_distributed_recv, staple_distributed_send
 class _RankBoundaryCommunicationLazy:
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainerT,
+                 array_container: ArrayOrContainer,
                  remote_rank: int, comm_tag: Hashable):
         if comm_tag is None:
             raise ValueError("lazy communication requires 'tag' to be supplied")

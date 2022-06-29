@@ -30,7 +30,7 @@ import numpy as np
 from pytools import levi_civita, product
 from typing import Tuple, Callable, Optional, Union, Any
 from functools import partial
-from arraycontext.container import ArrayOrContainerT
+from arraycontext import ArrayOrContainer
 
 
 def is_zero(x):
@@ -333,9 +333,9 @@ def rec_map_subarrays(
         f: Callable[[Any], Any],
         in_shape: Tuple[int, ...],
         out_shape: Tuple[int, ...],
-        ary: ArrayOrContainerT, *,
+        ary: ArrayOrContainer, *,
         scalar_cls: Optional[Union[type, Tuple[type]]] = None,
-        return_nested: bool = False) -> ArrayOrContainerT:
+        return_nested: bool = False) -> ArrayOrContainer:
     r"""
     Like :func:`map_subarrays`, but with support for
     :class:`arraycontext.ArrayContainer`\ s.
