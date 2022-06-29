@@ -88,10 +88,11 @@ def _normalize_mesh_part_ids(mesh, promote_to_part_id):
         new_grp_list = []
         for fagrp in grp_list:
             if isinstance(fagrp, InterPartAdjacencyGroup):
+                part_id = promote_to_part_id(fagrp.boundary_tag.part_id)
                 new_fagrp = replace(
                     fagrp,
-                    boundary_tag=BTAG_PARTITION(
-                        promote_to_part_id(fagrp.boundary_tag.part_id)))
+                    boundary_tag=BTAG_PARTITION(part_id),
+                    part_id=part_id)
             else:
                 new_fagrp = fagrp
             new_grp_list.append(new_fagrp)
