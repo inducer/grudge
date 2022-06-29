@@ -57,8 +57,8 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import ArrayContext, map_array_container, tag_axes
-from arraycontext.container import ArrayOrContainerT
+from arraycontext import (ArrayContext, map_array_container, tag_axes,
+        ArrayOrContainer)
 
 from functools import partial
 
@@ -247,7 +247,7 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
 
 
 def local_grad(
-        dcoll: DiscretizationCollection, vec, *, nested=False) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, vec, *, nested=False) -> ArrayOrContainer:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
 
@@ -273,7 +273,7 @@ def local_grad(
 
 
 def local_d_dx(
-        dcoll: DiscretizationCollection, xyz_axis, vec) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, xyz_axis, vec) -> ArrayOrContainer:
     r"""Return the element-local derivative along axis *xyz_axis* of a
     function :math:`f` represented by *vec*:
 
@@ -304,7 +304,7 @@ def local_d_dx(
         metric_in_matvec=False)
 
 
-def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainerT:
+def local_div(dcoll: DiscretizationCollection, vecs) -> ArrayOrContainer:
     r"""Return the element-local divergence of the vector function
     :math:`\mathbf{f}` represented by *vecs*:
 
@@ -393,7 +393,7 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
 
 
 def weak_local_grad(
-        dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainer:
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -430,7 +430,7 @@ def weak_local_grad(
         vecs, scalar_cls=DOFArray, return_nested=nested)
 
 
-def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
@@ -490,7 +490,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT
             metric_in_matvec=True)
 
 
-def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
@@ -610,7 +610,7 @@ def _apply_mass_operator(
     )
 
 
-def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an :class:`~arraycontext.container.ArrayContainer`,
@@ -702,7 +702,7 @@ def _apply_inverse_mass_operator(
     return DOFArray(actx, data=tuple(group_data))
 
 
-def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainerT:
+def inverse_mass(dcoll: DiscretizationCollection, vec) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.container.ArrayContainer`,
@@ -883,7 +883,7 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd, vec):
                                                      surf_area_elements)))
 
 
-def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Return the action of the DG face mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an arbitrary :class:`~arraycontext.container.ArrayContainer`,
