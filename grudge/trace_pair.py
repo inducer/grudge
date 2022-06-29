@@ -78,10 +78,10 @@ from numbers import Number
 from pytools import memoize_on_first_arg
 from pytools.obj_array import obj_array_vectorize
 
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import DiscretizationCollection, PartitionID
 from grudge.projection import project
 
-from meshmode.mesh import BTAG_PARTITION, PartitionID
+from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
 
@@ -383,8 +383,8 @@ def local_inter_volume_trace_pairs(
         if dcoll.mpi_communicator is not None
         else None)
 
-    self_part_id = dcoll._part_id_helper.make(rank, self_volume_dd.domain_tag.tag)
-    other_part_id = dcoll._part_id_helper.make(rank, other_volume_dd.domain_tag.tag)
+    self_part_id = (self_volume_dd.domain_tag.tag, rank)
+    other_part_id = (other_volume_dd.domain_tag.tag, rank)
 
     self_trace_dd = self_volume_dd.trace(BTAG_PARTITION(other_part_id))
     other_trace_dd = other_volume_dd.trace(BTAG_PARTITION(self_part_id))
@@ -452,10 +452,8 @@ def _connected_partitions(
         connected_part_id
         for connected_part_id, part_id in dcoll._inter_partition_connections.keys()
         if (
-            dcoll._part_id_helper.get_volume(part_id) == self_volume_tag
-            and (
-                dcoll._part_id_helper.get_volume(connected_part_id)
-                == other_volume_tag))]
+            part_id[0] == self_volume_tag
+            and connected_part_id[0] == other_volume_tag)]
 
     return result
 
@@ -507,7 +505,7 @@ class _RankBoundaryCommunicationEager:
         comm = dcoll.mpi_communicator
         assert comm is not None
 
-        remote_rank = dcoll._part_id_helper.get_mpi_rank(remote_part_id)
+        remote_rank = remote_part_id[1]
         assert remote_rank is not None
 
         self.dcoll = dcoll
@@ -588,7 +586,7 @@ class _RankBoundaryCommunicationLazy:
         self.local_part_id = local_part_id
         self.remote_part_id = remote_part_id
 
-        remote_rank = dcoll._part_id_helper.get_mpi_rank(remote_part_id)
+        remote_rank = remote_part_id[1]
         assert remote_rank is not None
 
         self.local_bdry_data = local_bdry_data
@@ -693,7 +691,7 @@ def cross_rank_trace_pairs(
 
     rank = dcoll.mpi_communicator.Get_rank()
 
-    local_part_id = dcoll._part_id_helper.make(rank, volume_dd.domain_tag.tag)
+    local_part_id = (volume_dd.domain_tag.tag, rank)
 
     connected_part_ids = _connected_partitions(
             dcoll, self_volume_tag=volume_dd.domain_tag.tag,
@@ -702,13 +700,12 @@ def cross_rank_trace_pairs(
     remote_part_ids = [
         part_id
         for part_id in connected_part_ids
-        if dcoll._part_id_helper.get_mpi_rank(part_id) != rank]
+        if part_id[1] != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(remote_part_ids) == len(
-        {dcoll._part_id_helper.get_mpi_rank(part_id) for part_id in remote_part_ids})
+    assert len(remote_part_ids) == len({part_id[1] for part_id in remote_part_ids})
 
     if isinstance(ary, Number):
         # NOTE: Assumes that the same number is passed on every rank
@@ -789,7 +786,7 @@ def cross_rank_inter_volume_trace_pairs(
 
     rank = dcoll.mpi_communicator.Get_rank()
 
-    local_part_id = dcoll._part_id_helper.make(rank, self_volume_dd.domain_tag.tag)
+    local_part_id = (self_volume_dd.domain_tag.tag, rank)
 
     connected_part_ids = _connected_partitions(
             dcoll, self_volume_tag=self_volume_dd.domain_tag.tag,
@@ -798,13 +795,12 @@ def cross_rank_inter_volume_trace_pairs(
     remote_part_ids = [
         part_id
         for part_id in connected_part_ids
-        if dcoll._part_id_helper.get_mpi_rank(part_id) != rank]
+        if part_id[1] != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(remote_part_ids) == len(
-        {dcoll._part_id_helper.get_mpi_rank(part_id) for part_id in remote_part_ids})
+    assert len(remote_part_ids) == len({part_id[1] for part_id in remote_part_ids})
 
     actx = get_container_context_recursively(self_ary)
     assert actx is not None

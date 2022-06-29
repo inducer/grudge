@@ -7,11 +7,6 @@
 .. autofunction:: make_discretization_collection
 
 .. currentmodule:: grudge.discretization
-
-Internal things that are visible due to type annotations
---------------------------------------------------------
-
-.. class:: _PartitionIDHelper
 """
 
 __copyright__ = """
@@ -39,11 +34,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Mapping, Optional, Union, Tuple, Callable, TYPE_CHECKING, Any
+from typing import Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
 
 from pytools import memoize_method, single_valued
 
-from dataclasses import dataclass
+from dataclasses import replace
 
 from grudge.dof_desc import (
         VTAG_ALL,
@@ -69,13 +64,44 @@ from meshmode.discretization.connection import (
     make_face_restriction,
     DiscretizationConnection
 )
-from meshmode.mesh import Mesh, BTAG_PARTITION, PartitionID
+from meshmode.mesh import Mesh, BTAG_PARTITION
 from meshmode.dof_array import DOFArray
 
 from warnings import warn
 
 if TYPE_CHECKING:
     import mpi4py.MPI
+
+
+PartitionID = Tuple[VolumeTag, int]
+
+
+# {{{ partition ID normalization
+
+def _normalize_mesh_part_ids(mesh, promote_to_part_id):
+    facial_adjacency_groups = mesh.facial_adjacency_groups
+
+    new_facial_adjacency_groups = []
+
+    from meshmode.mesh import InterPartitionAdjacencyGroup
+    for grp_list in facial_adjacency_groups:
+        new_grp_list = []
+        for fagrp in grp_list:
+            # FIXME: Will also need to replace part_id attribute (not added yet
+            # in this version)
+            if isinstance(fagrp, InterPartitionAdjacencyGroup):
+                new_fagrp = replace(
+                    fagrp,
+                    boundary_tag=BTAG_PARTITION(
+                        promote_to_part_id(fagrp.boundary_tag.part_id)))
+            else:
+                new_fagrp = fagrp
+            new_grp_list.append(new_fagrp)
+        new_facial_adjacency_groups.append(new_grp_list)
+
+    return mesh.copy(facial_adjacency_groups=new_facial_adjacency_groups)
+
+# }}}
 
 
 # {{{ discr_tag_to_group_factory normalization
@@ -125,27 +151,6 @@ def _normalize_discr_tag_to_group_factory(
 # }}}
 
 
-# {{{ _PartitionIDHelper
-
-@dataclass(frozen=True, init=True, eq=True)
-class _PartitionIDHelper:
-    """
-    Provides a unified interface for creating and inspecting partition identifiers
-    that does not depend on whether the problem is distributed, multi-volume, etc.
-
-    .. attribute:: make
-    .. attribute:: get_mpi_rank
-    .. attribute:: get_volume
-
-    .. automethod:: __init__
-    """
-    make: Callable[[Optional[int], VolumeTag], PartitionID]
-    get_mpi_rank: Callable[[PartitionID], Optional[int]]
-    get_volume: Callable[[PartitionID], VolumeTag]
-
-# }}}
-
-
 class DiscretizationCollection:
     """A collection of discretizations, defined on the same underlying
     :class:`~meshmode.mesh.Mesh`, corresponding to various mesh entities
@@ -187,7 +192,6 @@ class DiscretizationCollection:
             inter_partition_connections: Optional[
                 Mapping[Tuple[PartitionID, PartitionID],
                     DiscretizationConnection]] = None,
-            part_id_helper: Optional[_PartitionIDHelper] = None,
             ) -> None:
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -237,6 +241,16 @@ class DiscretizationCollection:
                     DeprecationWarning, stacklevel=2)
 
             mesh = volume_discrs
+
+            if mpi_communicator is not None:
+                def promote_to_part_id(key):
+                    return (VTAG_ALL, key)
+            else:
+                def promote_to_part_id(key):
+                    return (VTAG_ALL, None)
+
+            mesh = _normalize_mesh_part_ids(mesh, promote_to_part_id)
+
             discr_tag_to_group_factory = _normalize_discr_tag_to_group_factory(
                     dim=mesh.dim,
                     discr_tag_to_group_factory=discr_tag_to_group_factory,
@@ -254,21 +268,6 @@ class DiscretizationCollection:
                 raise TypeError("may not pass inter_partition_connections when "
                         "DiscretizationCollection constructor is called in "
                         "legacy mode")
-            if part_id_helper is not None:
-                raise TypeError("may not pass part_id_helper when "
-                        "DiscretizationCollection constructor is called in "
-                        "legacy mode")
-
-            if mpi_communicator is not None:
-                part_id_helper = _PartitionIDHelper(
-                    make=lambda rank, vtag: rank,
-                    get_mpi_rank=lambda part_id: part_id,
-                    get_volume=lambda part_id: VTAG_ALL)
-            else:
-                part_id_helper = _PartitionIDHelper(
-                    make=lambda rank, vtag: None,
-                    get_mpi_rank=lambda part_id: None,
-                    get_volume=lambda part_id: VTAG_ALL)
 
             self._inter_partition_connections = \
                     _set_up_inter_partition_connections(
@@ -276,9 +275,7 @@ class DiscretizationCollection:
                             mpi_communicator=mpi_communicator,
                             volume_discrs=volume_discrs,
                             base_group_factory=(
-                                discr_tag_to_group_factory[DISCR_TAG_BASE]),
-                            part_id_helper=part_id_helper)
-            self._part_id_helper = part_id_helper
+                                discr_tag_to_group_factory[DISCR_TAG_BASE]))
 
             # }}}
         else:
@@ -289,13 +286,8 @@ class DiscretizationCollection:
                 raise TypeError("inter_partition_connections must be passed when "
                         "DiscretizationCollection constructor is called in "
                         "'modern' mode")
-            if part_id_helper is None:
-                raise TypeError("part_id_helper must be passed when "
-                        "DiscretizationCollection constructor is called in "
-                        "'modern' mode")
 
             self._inter_partition_connections = inter_partition_connections
-            self._part_id_helper = part_id_helper
 
         self._volume_discrs = volume_discrs
 
@@ -782,7 +774,6 @@ def _set_up_inter_partition_connections(
         mpi_communicator: Optional["mpi4py.MPI.Intracomm"],
         volume_discrs: Mapping[VolumeTag, Discretization],
         base_group_factory: ElementGroupFactory,
-        part_id_helper: _PartitionIDHelper,
         ) -> Mapping[
                 Tuple[PartitionID, PartitionID],
                 DiscretizationConnection]:
@@ -804,11 +795,10 @@ def _set_up_inter_partition_connections(
             (self_part_id, other_part_id), None)
         if cached_result is not None:
             return cached_result
-        self_vtag = part_id_helper.get_volume(self_part_id)
         return cached_part_bdry_restrictions.setdefault(
             (self_part_id, other_part_id),
             make_face_restriction(
-                array_context, volume_discrs[self_vtag],
+                array_context, volume_discrs[self_part_id[0]],
                 base_group_factory,
                 boundary_tag=BTAG_PARTITION(other_part_id)))
 
@@ -819,12 +809,12 @@ def _set_up_inter_partition_connections(
     irbis = []
 
     for vtag, volume_discr in volume_discrs.items():
-        part_id = part_id_helper.make(rank, vtag)
+        part_id = (vtag, rank)
         connected_part_ids = get_connected_partitions(volume_discr.mesh)
         for connected_part_id in connected_part_ids:
             bdry_restr = get_part_bdry_restriction(part_id, connected_part_id)
 
-            if part_id_helper.get_mpi_rank(connected_part_id) == rank:
+            if connected_part_id[1] == rank:
                 # {{{ rank-local interface between multiple volumes
 
                 rev_bdry_restr = get_part_bdry_restriction(
@@ -852,8 +842,7 @@ def _set_up_inter_partition_connections(
                         InterRankBoundaryInfo(
                             local_part_id=part_id,
                             remote_part_id=connected_part_id,
-                            remote_rank=part_id_helper.get_mpi_rank(
-                                connected_part_id),
+                            remote_rank=connected_part_id[1],
                             local_boundary_connection=bdry_restr))
 
                 # }}}
@@ -965,40 +954,35 @@ def make_discretization_collection(
 
     del order
 
-    volume_discrs = {
-            vtag: (
-                Discretization(
-                    array_context, mesh_or_discr,
-                    discr_tag_to_group_factory[DISCR_TAG_BASE])
-                if isinstance(mesh_or_discr, Mesh) else mesh_or_discr)
-            for vtag, mesh_or_discr in volumes.items()}
-
     mpi_communicator = getattr(array_context, "mpi_communicator", None)
 
     if VTAG_ALL not in volumes.keys():
         # Multi-volume
         if mpi_communicator is not None:
-            part_id_helper = _PartitionIDHelper(
-                make=lambda rank, vtag: (rank, vtag),
-                get_mpi_rank=lambda part_id: part_id[0],
-                get_volume=lambda part_id: part_id[1])
+            def promote_to_part_id(key):
+                return key
         else:
-            part_id_helper = _PartitionIDHelper(
-                make=lambda rank, vtag: vtag,
-                get_mpi_rank=lambda part_id: None,
-                get_volume=lambda part_id: part_id)
+            def promote_to_part_id(key):
+                return (key, None)
     else:
         # Single-volume
         if mpi_communicator is not None:
-            part_id_helper = _PartitionIDHelper(
-                make=lambda rank, vtag: rank,
-                get_mpi_rank=lambda part_id: part_id,
-                get_volume=lambda part_id: VTAG_ALL)
+            def promote_to_part_id(key):
+                return (VTAG_ALL, key)
         else:
-            part_id_helper = _PartitionIDHelper(
-                make=lambda rank, vtag: None,
-                get_mpi_rank=lambda part_id: None,
-                get_volume=lambda part_id: VTAG_ALL)
+            def promote_to_part_id(key):
+                return (VTAG_ALL, None)
+
+    if any(
+            isinstance(mesh_or_discr, Discretization)
+            for mesh_or_discr in volumes.values()):
+        raise NotImplementedError("Doesn't work at the moment")
+
+    volume_discrs = {
+        vtag: Discretization(
+            array_context, _normalize_mesh_part_ids(mesh, promote_to_part_id),
+            discr_tag_to_group_factory[DISCR_TAG_BASE])
+        for vtag, mesh in volumes.items()}
 
     return DiscretizationCollection(
             array_context=array_context,
@@ -1008,9 +992,7 @@ def make_discretization_collection(
                 array_context=array_context,
                 mpi_communicator=mpi_communicator,
                 volume_discrs=volume_discrs,
-                base_group_factory=discr_tag_to_group_factory[DISCR_TAG_BASE],
-                part_id_helper=part_id_helper),
-            part_id_helper=part_id_helper)
+                base_group_factory=discr_tag_to_group_factory[DISCR_TAG_BASE]))
 
 # }}}
 
