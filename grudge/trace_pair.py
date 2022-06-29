@@ -78,7 +78,7 @@ from numbers import Number
 from pytools import memoize_on_first_arg
 from pytools.obj_array import obj_array_vectorize
 
-from grudge.discretization import DiscretizationCollection, PartitionID
+from grudge.discretization import DiscretizationCollection, PartID
 from grudge.projection import project
 
 from meshmode.mesh import BTAG_PARTITION
@@ -397,8 +397,7 @@ def local_inter_volume_trace_pairs(
     other_trace = project(
             dcoll, other_volume_dd, other_trace_dd, other_ary)
 
-    other_to_self = dcoll._inter_partition_connections[
-            other_part_id, self_part_id]
+    other_to_self = dcoll._inter_part_connections[other_part_id, self_part_id]
 
     def get_opposite_trace(el):
         if isinstance(el, Number):
@@ -443,14 +442,14 @@ class _TagKeyBuilder(KeyBuilder):
 
 
 @memoize_on_first_arg
-def _connected_partitions(
+def _connected_parts(
         dcoll: DiscretizationCollection,
         self_volume_tag: VolumeTag,
         other_volume_tag: VolumeTag
-        ) -> Sequence[PartitionID]:
-    result: List[PartitionID] = [
+        ) -> Sequence[PartID]:
+    result: List[PartID] = [
         connected_part_id
-        for connected_part_id, part_id in dcoll._inter_partition_connections.keys()
+        for connected_part_id, part_id in dcoll._inter_part_connections.keys()
         if (
             part_id[0] == self_volume_tag
             and connected_part_id[0] == other_volume_tag)]
@@ -496,8 +495,8 @@ class _RankBoundaryCommunicationEager:
             actx: ArrayContext,
             dcoll: DiscretizationCollection,
             *,
-            local_part_id: PartitionID,
-            remote_part_id: PartitionID,
+            local_part_id: PartID,
+            remote_part_id: PartID,
             local_bdry_data: ArrayOrContainer,
             send_data: ArrayOrContainer,
             comm_tag: Optional[Hashable] = None):
@@ -545,7 +544,7 @@ class _RankBoundaryCommunicationEager:
                 self.recv_data_np, self.array_context)
         unswapped_remote_bdry_data = unflatten(self.local_bdry_data,
                                      recv_data_flat, self.array_context)
-        bdry_conn = self.dcoll._inter_partition_connections[
+        bdry_conn = self.dcoll._inter_part_connections[
             self.remote_part_id, self.local_part_id]
         remote_bdry_data = bdry_conn(unswapped_remote_bdry_data)
 
@@ -570,8 +569,8 @@ class _RankBoundaryCommunicationLazy:
             actx: ArrayContext,
             dcoll: DiscretizationCollection,
             *,
-            local_part_id: PartitionID,
-            remote_part_id: PartitionID,
+            local_part_id: PartID,
+            remote_part_id: PartID,
             local_bdry_data: ArrayOrContainer,
             send_data: ArrayOrContainer,
             comm_tag: Optional[Hashable] = None) -> None:
@@ -616,7 +615,7 @@ class _RankBoundaryCommunicationLazy:
                 communicate_single_array, self.local_bdry_data)
 
     def finish(self):
-        bdry_conn = self.dcoll._inter_partition_connections[
+        bdry_conn = self.dcoll._inter_part_connections[
             self.remote_part_id, self.local_part_id]
 
         return TracePair(
@@ -639,9 +638,9 @@ def cross_rank_trace_pairs(
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
-    communicated to/from the neighboring partition. Presumably, this
-    communication is MPI (but strictly speaking, may not be, and this
-    routine is agnostic to the underlying communication).
+    communicated to/from the neighboring part. Presumably, this communication
+    is MPI (but strictly speaking, may not be, and this routine is agnostic to
+    the underlying communication).
 
     For each face on each partition boundary, a
     :class:`TracePair` is created with the locally, and
@@ -693,7 +692,7 @@ def cross_rank_trace_pairs(
 
     local_part_id = (volume_dd.domain_tag.tag, rank)
 
-    connected_part_ids = _connected_partitions(
+    connected_part_ids = _connected_parts(
             dcoll, self_volume_tag=volume_dd.domain_tag.tag,
             other_volume_tag=volume_dd.domain_tag.tag)
 
@@ -788,7 +787,7 @@ def cross_rank_inter_volume_trace_pairs(
 
     local_part_id = (self_volume_dd.domain_tag.tag, rank)
 
-    connected_part_ids = _connected_partitions(
+    connected_part_ids = _connected_parts(
             dcoll, self_volume_tag=self_volume_dd.domain_tag.tag,
             other_volume_tag=other_volume_dd.domain_tag.tag)
 

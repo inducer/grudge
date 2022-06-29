@@ -73,23 +73,21 @@ if TYPE_CHECKING:
     import mpi4py.MPI
 
 
-PartitionID = Tuple[VolumeTag, int]
+PartID = Tuple[VolumeTag, int]
 
 
-# {{{ partition ID normalization
+# {{{ part ID normalization
 
 def _normalize_mesh_part_ids(mesh, promote_to_part_id):
     facial_adjacency_groups = mesh.facial_adjacency_groups
 
     new_facial_adjacency_groups = []
 
-    from meshmode.mesh import InterPartitionAdjacencyGroup
+    from meshmode.mesh import InterPartAdjacencyGroup
     for grp_list in facial_adjacency_groups:
         new_grp_list = []
         for fagrp in grp_list:
-            # FIXME: Will also need to replace part_id attribute (not added yet
-            # in this version)
-            if isinstance(fagrp, InterPartitionAdjacencyGroup):
+            if isinstance(fagrp, InterPartAdjacencyGroup):
                 new_fagrp = replace(
                     fagrp,
                     boundary_tag=BTAG_PARTITION(
@@ -189,8 +187,8 @@ class DiscretizationCollection:
             discr_tag_to_group_factory: Optional[
                 Mapping[DiscretizationTag, ElementGroupFactory]] = None,
             mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None,
-            inter_partition_connections: Optional[
-                Mapping[Tuple[PartitionID, PartitionID],
+            inter_part_connections: Optional[
+                Mapping[Tuple[PartID, PartID],
                     DiscretizationConnection]] = None,
             ) -> None:
         """
@@ -264,13 +262,13 @@ class DiscretizationCollection:
 
             del mesh
 
-            if inter_partition_connections is not None:
-                raise TypeError("may not pass inter_partition_connections when "
+            if inter_part_connections is not None:
+                raise TypeError("may not pass inter_part_connections when "
                         "DiscretizationCollection constructor is called in "
                         "legacy mode")
 
-            self._inter_partition_connections = \
-                    _set_up_inter_partition_connections(
+            self._inter_part_connections = \
+                    _set_up_inter_part_connections(
                             array_context=self._setup_actx,
                             mpi_communicator=mpi_communicator,
                             volume_discrs=volume_discrs,
@@ -282,12 +280,12 @@ class DiscretizationCollection:
             assert discr_tag_to_group_factory is not None
             self._discr_tag_to_group_factory = discr_tag_to_group_factory
 
-            if inter_partition_connections is None:
-                raise TypeError("inter_partition_connections must be passed when "
+            if inter_part_connections is None:
+                raise TypeError("inter_part_connections must be passed when "
                         "DiscretizationCollection constructor is called in "
                         "'modern' mode")
 
-            self._inter_partition_connections = inter_partition_connections
+            self._inter_part_connections = inter_part_connections
 
         self._volume_discrs = volume_discrs
 
@@ -769,16 +767,16 @@ class DiscretizationCollection:
 
 # {{{ distributed/multi-volume setup
 
-def _set_up_inter_partition_connections(
+def _set_up_inter_part_connections(
         array_context: ArrayContext,
         mpi_communicator: Optional["mpi4py.MPI.Intracomm"],
         volume_discrs: Mapping[VolumeTag, Discretization],
         base_group_factory: ElementGroupFactory,
         ) -> Mapping[
-                Tuple[PartitionID, PartitionID],
+                Tuple[PartID, PartID],
                 DiscretizationConnection]:
 
-    from meshmode.distributed import (get_connected_partitions,
+    from meshmode.distributed import (get_connected_parts,
             make_remote_group_infos, InterRankBoundaryInfo,
             MPIBoundaryCommSetupHelper)
 
@@ -787,7 +785,7 @@ def _set_up_inter_partition_connections(
     # Save boundary restrictions as they're created to avoid potentially creating
     # them twice in the loop below
     cached_part_bdry_restrictions: Mapping[
-        Tuple[PartitionID, PartitionID],
+        Tuple[PartID, PartID],
         DiscretizationConnection] = {}
 
     def get_part_bdry_restriction(self_part_id, other_part_id):
@@ -803,14 +801,14 @@ def _set_up_inter_partition_connections(
                 boundary_tag=BTAG_PARTITION(other_part_id)))
 
     inter_part_conns: Mapping[
-            Tuple[PartitionID, PartitionID],
+            Tuple[PartID, PartID],
             DiscretizationConnection] = {}
 
     irbis = []
 
     for vtag, volume_discr in volume_discrs.items():
         part_id = (vtag, rank)
-        connected_part_ids = get_connected_partitions(volume_discr.mesh)
+        connected_part_ids = get_connected_parts(volume_discr.mesh)
         for connected_part_id in connected_part_ids:
             bdry_restr = get_part_bdry_restriction(part_id, connected_part_id)
 
@@ -988,7 +986,7 @@ def make_discretization_collection(
             array_context=array_context,
             volume_discrs=volume_discrs,
             discr_tag_to_group_factory=discr_tag_to_group_factory,
-            inter_partition_connections=_set_up_inter_partition_connections(
+            inter_part_connections=_set_up_inter_part_connections(
                 array_context=array_context,
                 mpi_communicator=mpi_communicator,
                 volume_discrs=volume_discrs,
