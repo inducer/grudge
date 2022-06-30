@@ -127,6 +127,28 @@ def test_non_geometric_factors(actx_factory, name):
     assert all(factors <= upper_bounds)
 
 
+def test_build_jacobian(actx_factory):
+    actx = actx_factory()
+    import meshmode.mesh.generation as mgen
+
+    mesh = mgen.generate_regular_rect_mesh(a=[0], b=[1], nelements_per_axis=(3,))
+    assert mesh.dim == 1
+
+    dcoll = DiscretizationCollection(actx, mesh, order=1)
+
+    def rhs(x):
+        return 3*x**2 + 2*x + 5
+
+    from pytools.obj_array import make_obj_array
+    base_state = make_obj_array([dcoll.zeros(actx)+2])
+
+    from grudge.tools import build_jacobian
+    mat = build_jacobian(actx, rhs, base_state, 1e-5)
+
+    assert np.array_equal(mat, np.diag(np.diag(mat)))
+    assert np.allclose(np.diag(mat), 3*2*2 + 2)
+
+
 @pytest.mark.parametrize("dim", [1, 2])
 @pytest.mark.parametrize("degree", [2, 4])
 def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):

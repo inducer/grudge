@@ -30,7 +30,7 @@ import numpy as np
 from pytools import levi_civita, product
 from typing import Tuple, Callable, Optional, Union, Any
 from functools import partial
-from arraycontext.container import ArrayOrContainerT
+from arraycontext import ArrayOrContainer
 
 
 def is_zero(x):
@@ -232,7 +232,7 @@ def build_jacobian(actx, f, base_state, stepsize):
         unit_i_flat = np.zeros(n, dtype=mat.dtype)
         unit_i_flat[i] = stepsize
 
-        f_unit_i = f(f_base + unflatten(
+        f_unit_i = f(base_state + unflatten(
             base_state, actx.from_numpy(unit_i_flat), actx))
 
         mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
@@ -333,9 +333,9 @@ def rec_map_subarrays(
         f: Callable[[Any], Any],
         in_shape: Tuple[int, ...],
         out_shape: Tuple[int, ...],
-        ary: ArrayOrContainerT, *,
+        ary: ArrayOrContainer, *,
         scalar_cls: Optional[Union[type, Tuple[type]]] = None,
-        return_nested: bool = False) -> ArrayOrContainerT:
+        return_nested: bool = False) -> ArrayOrContainer:
     r"""
     Like :func:`map_subarrays`, but with support for
     :class:`arraycontext.ArrayContainer`\ s.

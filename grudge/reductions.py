@@ -63,9 +63,8 @@ from arraycontext import (
     make_loopy_program,
     map_array_container,
     serialize_container,
-    Scalar
+    Scalar, ArrayOrContainer
 )
-from arraycontext.container import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 
@@ -298,7 +297,7 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
 
 def _apply_elementwise_reduction(
         op_name: str, dcoll: DiscretizationCollection,
-        *args) -> ArrayOrContainerT:
+        *args) -> ArrayOrContainer:
     r"""Returns an array container whose entries contain
     the elementwise reductions in each cell.
 
@@ -374,7 +373,7 @@ def _apply_elementwise_reduction(
 
 
 def elementwise_sum(
-        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Returns a vector of DOFs with all entries on each element set
     to the sum of DOFs on that element.
 
@@ -401,7 +400,7 @@ def elementwise_sum(
 
 
 def elementwise_max(
-        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Returns a vector of DOFs with all entries on each element set
     to the maximum over all DOFs on that element.
 
@@ -429,7 +428,7 @@ def elementwise_max(
 
 
 def elementwise_min(
-        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Returns a vector of DOFs with all entries on each element set
     to the minimum over all DOFs on that element.
 
@@ -457,7 +456,7 @@ def elementwise_min(
 
 
 def elementwise_integral(
-        dcoll: DiscretizationCollection, *args) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom in
     each element of a discretization, given by *dd*.

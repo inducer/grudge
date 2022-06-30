@@ -60,15 +60,16 @@ from typing import List, Hashable, Optional, Type, Any, Sequence
 from pytools.persistent_dict import KeyBuilder
 
 from arraycontext import (
-        ArrayContainer,
-        ArrayContext,
-        with_container_arithmetic,
-        dataclass_array_container,
-        get_container_context_recursively,
-        flatten, to_numpy,
-        unflatten, from_numpy,
-        flat_size_and_dtype)
-from arraycontext.container import ArrayOrContainerT
+    ArrayContainer,
+    ArrayContext,
+    with_container_arithmetic,
+    dataclass_array_container,
+    get_container_context_recursively,
+    flatten, to_numpy,
+    unflatten, from_numpy,
+    flat_size_and_dtype,
+    ArrayOrContainer
+)
 
 from dataclasses import dataclass
 
@@ -123,8 +124,8 @@ class TracePair:
     exterior: ArrayContainer
 
     def __init__(self, dd: DOFDesc, *,
-            interior: ArrayOrContainerT,
-            exterior: ArrayOrContainerT):
+            interior: ArrayOrContainer,
+            exterior: ArrayOrContainer):
         if not isinstance(dd, DOFDesc):
             warn("Constructing a TracePair with a first argument that is not "
                     "exactly a DOFDesc (but convertible to one) is deprecated. "
@@ -363,9 +364,9 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
 
 def local_inter_volume_trace_pairs(
         dcoll: DiscretizationCollection,
-        self_volume_dd: DOFDesc, self_ary: ArrayOrContainerT,
-        other_volume_dd: DOFDesc, other_ary: ArrayOrContainerT,
-        ) -> ArrayOrContainerT:
+        self_volume_dd: DOFDesc, self_ary: ArrayOrContainer,
+        other_volume_dd: DOFDesc, other_ary: ArrayOrContainer,
+        ) -> ArrayOrContainer:
     if not isinstance(self_volume_dd.domain_tag, VolumeDomainTag):
         raise ValueError("self_volume_dd must describe a volume")
     if not isinstance(other_volume_dd.domain_tag, VolumeDomainTag):
@@ -412,9 +413,9 @@ def local_inter_volume_trace_pairs(
 
 
 def inter_volume_trace_pairs(dcoll: DiscretizationCollection,
-        self_volume_dd: DOFDesc, self_ary: ArrayOrContainerT,
-        other_volume_dd: DOFDesc, other_ary: ArrayOrContainerT,
-        comm_tag: Hashable = None) -> List[ArrayOrContainerT]:
+        self_volume_dd: DOFDesc, self_ary: ArrayOrContainer,
+        other_volume_dd: DOFDesc, other_ary: ArrayOrContainer,
+        comm_tag: Hashable = None) -> List[ArrayOrContainer]:
     """
     Note that :func:`local_inter_volume_trace_pairs` provides the rank-local
     contributions if those are needed in isolation. Similarly,
@@ -499,8 +500,8 @@ class _RankBoundaryCommunicationEager:
             *,
             local_part_id: PartitionID,
             remote_part_id: PartitionID,
-            local_bdry_data: ArrayOrContainerT,
-            send_data: ArrayOrContainerT,
+            local_bdry_data: ArrayOrContainer,
+            send_data: ArrayOrContainer,
             comm_tag: Optional[Hashable] = None):
 
         comm = dcoll.mpi_communicator
@@ -573,8 +574,8 @@ class _RankBoundaryCommunicationLazy:
             *,
             local_part_id: PartitionID,
             remote_part_id: PartitionID,
-            local_bdry_data: ArrayOrContainerT,
-            send_data: ArrayOrContainerT,
+            local_bdry_data: ArrayOrContainer,
+            send_data: ArrayOrContainer,
             comm_tag: Optional[Hashable] = None) -> None:
 
         if comm_tag is None:
@@ -633,7 +634,7 @@ class _RankBoundaryCommunicationLazy:
 # {{{ cross_rank_trace_pairs
 
 def cross_rank_trace_pairs(
-        dcoll: DiscretizationCollection, ary: ArrayOrContainerT,
+        dcoll: DiscretizationCollection, ary: ArrayOrContainer,
         tag: Hashable = None,
         *, comm_tag: Hashable = None,
         volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
@@ -753,8 +754,8 @@ def cross_rank_trace_pairs(
 
 def cross_rank_inter_volume_trace_pairs(
         dcoll: DiscretizationCollection,
-        self_volume_dd: DOFDesc, self_ary: ArrayOrContainerT,
-        other_volume_dd: DOFDesc, other_ary: ArrayOrContainerT,
+        self_volume_dd: DOFDesc, self_ary: ArrayOrContainer,
+        other_volume_dd: DOFDesc, other_ary: ArrayOrContainer,
         *, comm_tag: Hashable = None,
         ) -> List[TracePair]:
     # FIXME: Should this interface take in boundary data instead?
