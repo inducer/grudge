@@ -38,7 +38,7 @@ def main():
             "Topic :: Utilities",
         ],
         packages=find_packages(),
-        python_requires="~=3.6",
+        python_requires="~=3.8",
         install_requires=[
             "pytest>=2.3",
             "pytools>=2020.3",
