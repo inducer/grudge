@@ -32,6 +32,8 @@ Elementwise reductions
 .. autofunction:: elementwise_integral
 """
 
+from __future__ import annotations
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -84,7 +86,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
     by its vector of degrees of freedom *vec*.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg p: an integer denoting the order of the integral norm. Currently,
         only values of 2 or `numpy.inf` are supported.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -119,7 +121,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer`.
     :returns: a device scalar denoting the nodal sum.
     """
     comm = dcoll.mpi_communicator
@@ -142,7 +144,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a scalar denoting the rank-local nodal sum.
     """
     if not isinstance(vec, DOFArray):
@@ -164,7 +166,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal minimum.
     """
@@ -190,7 +192,7 @@ def nodal_min_loc(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
@@ -221,7 +223,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a device scalar denoting the nodal maximum.
     """
@@ -247,7 +249,7 @@ def nodal_max_loc(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer`.
     :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
@@ -278,7 +280,7 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a device scalar denoting the evaluated integral.
     """
     from grudge.op import _apply_mass_operator
@@ -312,9 +314,9 @@ def _apply_elementwise_reduction(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer`.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer`.
     """
     if len(args) == 1:
         vec, = args
@@ -380,7 +382,7 @@ def elementwise_sum(
     May be called with ``(vec)`` or ``(dd, vec)``.
 
     The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
-    an :class:`~arraycontext.container.ArrayContainer` with
+    an :class:`~arraycontext.ArrayContainer` with
     :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
     array context (see :class:`arraycontext.ArrayContext`) for *vec*
     supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
@@ -391,9 +393,9 @@ def elementwise_sum(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them
+        :class:`~arraycontext.ArrayContainer` of them
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
+        :class:`~arraycontext.ArrayContainer` like *vec* whose entries
         denote the element-wise sum of *vec*.
     """
     return _apply_elementwise_reduction("sum", dcoll, *args)
@@ -407,7 +409,7 @@ def elementwise_max(
     May be called with ``(vec)`` or ``(dd, vec)``.
 
     The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
-    an :class:`~arraycontext.container.ArrayContainer` with
+    an :class:`~arraycontext.ArrayContainer` with
     :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
     array context (see :class:`arraycontext.ArrayContext`) for *vec*
     supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
@@ -419,9 +421,9 @@ def elementwise_max(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer`.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
+        :class:`~arraycontext.ArrayContainer` like *vec* whose entries
         denote the element-wise max of *vec*.
     """
     return _apply_elementwise_reduction("max", dcoll, *args)
@@ -435,7 +437,7 @@ def elementwise_min(
     May be called with ``(vec)`` or ``(dd, vec)``.
 
     The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
-    an :class:`~arraycontext.container.ArrayContainer` with
+    an :class:`~arraycontext.ArrayContainer` with
     :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
     array context (see :class:`arraycontext.ArrayContext`) for *vec*
     supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
@@ -447,9 +449,9 @@ def elementwise_min(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec* whose entries
+        :class:`~arraycontext.ArrayContainer` like *vec* whose entries
         denote the element-wise min of *vec*.
     """
     return _apply_elementwise_reduction("min", dcoll, *args)
@@ -464,7 +466,7 @@ def elementwise_integral(
     May be called with ``(vec)`` or ``(dd, vec)``.
 
     The input *vec* can either be a :class:`~meshmode.dof_array.DOFArray` or
-    an :class:`~arraycontext.container.ArrayContainer` with
+    an :class:`~arraycontext.ArrayContainer` with
     :class:`~meshmode.dof_array.DOFArray` entries. If the underlying
     array context (see :class:`arraycontext.ArrayContext`) for *vec*
     supports nonscalar broadcasting, all :class:`~meshmode.dof_array.DOFArray`
@@ -476,9 +478,9 @@ def elementwise_integral(
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec* containing the
+        :class:`~arraycontext.ArrayContainer` like *vec* containing the
         elementwise integral if *vec*.
     """
     if len(args) == 1:

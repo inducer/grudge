@@ -7,6 +7,8 @@ Projections
 .. autofunction:: project
 """
 
+from __future__ import annotations
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -49,9 +51,9 @@ def project(
     :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec*.
+        :class:`~arraycontext.ArrayContainer` like *vec*.
     """
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
