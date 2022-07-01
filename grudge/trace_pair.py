@@ -205,17 +205,17 @@ def bdry_trace_pair(
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
     If the input arguments *interior* and *exterior* are
-    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    :class:`~arraycontext.ArrayContainer` objects, they must both
     have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
     :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them that contains data
+        :class:`~arraycontext.ArrayContainer` of them that contains data
         already on the boundary representing the interior value to be used
         for the flux.
     :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them that contains data
+        :class:`~arraycontext.ArrayContainer` of them that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -238,18 +238,18 @@ def bv_trace_pair(
     therefore be restricted to the boundary *dd* prior to creating a
     :class:`TracePair`.
     If the input arguments *interior* and *exterior* are
-    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    :class:`~arraycontext.ArrayContainer` objects, they must both
     have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
     :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.ArrayContainer` that contains data
         defined in the volume, which will be restricted to the boundary denoted
         by *dd*. The result will be used as the interior value
         for the flux.
     :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.ArrayContainer` that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -278,7 +278,7 @@ def local_interior_trace_pair(
     This does not include interior faces on different MPI ranks.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
 
     For certain applications, it may be useful to distinguish between
     rank-local and cross-rank trace pairs. For example, avoiding unnecessary
@@ -330,7 +330,7 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
     provides only the trace pairs defined on cross-rank boundaries.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
@@ -650,11 +650,11 @@ def cross_rank_trace_pairs(
 
     If *ary* is a number, rather than a
     :class:`~meshmode.dof_array.DOFArray` or an
-    :class:`~arraycontext.container.ArrayContainer` of them, it is assumed
+    :class:`~arraycontext.ArrayContainer` of them, it is assumed
     that the same number is being communicated on every rank.
 
     :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
 
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
