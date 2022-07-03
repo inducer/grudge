@@ -37,7 +37,11 @@ THE SOFTWARE.
 from arraycontext import ArrayOrContainer
 
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import as_dofdesc, VolumeDomainTag, ConvertibleToDOFDesc
+from grudge.dof_desc import (
+    as_dofdesc,
+    VolumeDomainTag,
+    BoundaryDomainTag,
+    ConvertibleToDOFDesc)
 
 from numbers import Number
 
@@ -64,6 +68,8 @@ def project(
     contextual_volume_tag = None
     if isinstance(src_dofdesc.domain_tag, VolumeDomainTag):
         contextual_volume_tag = src_dofdesc.domain_tag.tag
+    elif isinstance(src_dofdesc.domain_tag, BoundaryDomainTag):
+        contextual_volume_tag = src_dofdesc.domain_tag.volume_tag
 
     tgt_dofdesc = as_dofdesc(tgt, _contextual_volume_tag=contextual_volume_tag)
 
