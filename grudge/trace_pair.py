@@ -431,7 +431,7 @@ def local_inter_volume_trace_pairs(
                 if isinstance(ary, Number):
                     return ary
                 else:
-                    return other_to_self(ary)
+                    return other_to_self(ary)  # noqa: B023
 
             from arraycontext import rec_map_array_container
             from meshmode.dof_array import DOFArray
