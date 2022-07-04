@@ -383,8 +383,8 @@ def local_inter_volume_trace_pairs(
         if dcoll.mpi_communicator is not None
         else None)
 
-    self_part_id = (self_volume_dd.domain_tag.tag, rank)
-    other_part_id = (other_volume_dd.domain_tag.tag, rank)
+    self_part_id = PartID(self_volume_dd.domain_tag.tag, rank)
+    other_part_id = PartID(other_volume_dd.domain_tag.tag, rank)
 
     self_trace_dd = self_volume_dd.trace(BTAG_PARTITION(other_part_id))
     other_trace_dd = other_volume_dd.trace(BTAG_PARTITION(self_part_id))
@@ -451,8 +451,8 @@ def _connected_parts(
         connected_part_id
         for connected_part_id, part_id in dcoll._inter_part_connections.keys()
         if (
-            part_id[0] == self_volume_tag
-            and connected_part_id[0] == other_volume_tag)]
+            part_id.volume_tag == self_volume_tag
+            and connected_part_id.volume_tag == other_volume_tag)]
 
     return result
 
@@ -504,7 +504,7 @@ class _RankBoundaryCommunicationEager:
         comm = dcoll.mpi_communicator
         assert comm is not None
 
-        remote_rank = remote_part_id[1]
+        remote_rank = remote_part_id.rank
         assert remote_rank is not None
 
         self.dcoll = dcoll
@@ -585,7 +585,7 @@ class _RankBoundaryCommunicationLazy:
         self.local_part_id = local_part_id
         self.remote_part_id = remote_part_id
 
-        remote_rank = remote_part_id[1]
+        remote_rank = remote_part_id.rank
         assert remote_rank is not None
 
         self.local_bdry_data = local_bdry_data
@@ -690,7 +690,7 @@ def cross_rank_trace_pairs(
 
     rank = dcoll.mpi_communicator.Get_rank()
 
-    local_part_id = (volume_dd.domain_tag.tag, rank)
+    local_part_id = PartID(volume_dd.domain_tag.tag, rank)
 
     connected_part_ids = _connected_parts(
             dcoll, self_volume_tag=volume_dd.domain_tag.tag,
@@ -699,12 +699,12 @@ def cross_rank_trace_pairs(
     remote_part_ids = [
         part_id
         for part_id in connected_part_ids
-        if part_id[1] != rank]
+        if part_id.rank != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(remote_part_ids) == len({part_id[1] for part_id in remote_part_ids})
+    assert len(remote_part_ids) == len({part_id.rank for part_id in remote_part_ids})
 
     if isinstance(ary, Number):
         # NOTE: Assumes that the same number is passed on every rank
@@ -785,7 +785,7 @@ def cross_rank_inter_volume_trace_pairs(
 
     rank = dcoll.mpi_communicator.Get_rank()
 
-    local_part_id = (self_volume_dd.domain_tag.tag, rank)
+    local_part_id = PartID(self_volume_dd.domain_tag.tag, rank)
 
     connected_part_ids = _connected_parts(
             dcoll, self_volume_tag=self_volume_dd.domain_tag.tag,
@@ -794,12 +794,12 @@ def cross_rank_inter_volume_trace_pairs(
     remote_part_ids = [
         part_id
         for part_id in connected_part_ids
-        if part_id[1] != rank]
+        if part_id.rank != rank]
 
     # This asserts that there is only one data exchange per rank, so that
     # there is no risk of mismatched data reaching the wrong recipient.
     # (Since we have only a single tag.)
-    assert len(remote_part_ids) == len({part_id[1] for part_id in remote_part_ids})
+    assert len(remote_part_ids) == len({part_id.rank for part_id in remote_part_ids})
 
     actx = get_container_context_recursively(self_ary)
     assert actx is not None

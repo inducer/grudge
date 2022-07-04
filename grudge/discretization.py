@@ -7,6 +7,7 @@
 .. autofunction:: make_discretization_collection
 
 .. currentmodule:: grudge.discretization
+.. autoclass:: PartID
 """
 
 __copyright__ = """
@@ -38,7 +39,7 @@ from typing import Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
 
 from pytools import memoize_method, single_valued
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from grudge.dof_desc import (
         VTAG_ALL,
@@ -73,12 +74,26 @@ if TYPE_CHECKING:
     import mpi4py.MPI
 
 
-PartID = Tuple[VolumeTag, int]
+@dataclass(frozen=True)
+class PartID:
+    """Unique identifier for a piece of a partitioned mesh.
+
+    .. attribute:: volume_tag
+
+        The volume of the part.
+
+    .. attribute:: rank
+
+        The (optional) MPI rank of the part.
+
+    """
+    volume_tag: VolumeTag
+    rank: Optional[int] = None
 
 
 # {{{ part ID normalization
 
-def _normalize_mesh_part_ids(mesh, promote_to_part_id):
+def _normalize_mesh_part_ids(mesh, as_part_id):
     facial_adjacency_groups = mesh.facial_adjacency_groups
 
     new_facial_adjacency_groups = []
@@ -88,7 +103,7 @@ def _normalize_mesh_part_ids(mesh, promote_to_part_id):
         new_grp_list = []
         for fagrp in grp_list:
             if isinstance(fagrp, InterPartAdjacencyGroup):
-                part_id = promote_to_part_id(fagrp.boundary_tag.part_id)
+                part_id = as_part_id(fagrp.part_id)
                 new_fagrp = replace(
                     fagrp,
                     boundary_tag=BTAG_PARTITION(part_id),
@@ -242,13 +257,21 @@ class DiscretizationCollection:
             mesh = volume_discrs
 
             if mpi_communicator is not None:
-                def promote_to_part_id(key):
-                    return (VTAG_ALL, key)
+                # Accept PartID or rank
+                def as_part_id(mesh_part_id):
+                    if isinstance(mesh_part_id, PartID):
+                        return mesh_part_id
+                    elif isinstance(mesh_part_id, int):
+                        return PartID(VTAG_ALL, mesh_part_id)
+                    else:
+                        raise TypeError(
+                            f"Unable to convert {mesh_part_id} to PartID.")
             else:
-                def promote_to_part_id(key):
-                    return (VTAG_ALL, None)
+                # Shouldn't be called
+                def as_part_id(mesh_part_id):
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
 
-            mesh = _normalize_mesh_part_ids(mesh, promote_to_part_id)
+            mesh = _normalize_mesh_part_ids(mesh, as_part_id)
 
             discr_tag_to_group_factory = _normalize_discr_tag_to_group_factory(
                     dim=mesh.dim,
@@ -797,7 +820,7 @@ def _set_up_inter_part_connections(
         return cached_part_bdry_restrictions.setdefault(
             (self_part_id, other_part_id),
             make_face_restriction(
-                array_context, volume_discrs[self_part_id[0]],
+                array_context, volume_discrs[self_part_id.volume_tag],
                 base_group_factory,
                 boundary_tag=BTAG_PARTITION(other_part_id)))
 
@@ -808,12 +831,12 @@ def _set_up_inter_part_connections(
     irbis = []
 
     for vtag, volume_discr in volume_discrs.items():
-        part_id = (vtag, rank)
+        part_id = PartID(vtag, rank)
         connected_part_ids = get_connected_parts(volume_discr.mesh)
         for connected_part_id in connected_part_ids:
             bdry_restr = get_part_bdry_restriction(part_id, connected_part_id)
 
-            if connected_part_id[1] == rank:
+            if connected_part_id.rank == rank:
                 # {{{ rank-local interface between multiple volumes
 
                 rev_bdry_restr = get_part_bdry_restriction(
@@ -841,7 +864,7 @@ def _set_up_inter_part_connections(
                         InterRankBoundaryInfo(
                             local_part_id=part_id,
                             remote_part_id=connected_part_id,
-                            remote_rank=connected_part_id[1],
+                            remote_rank=connected_part_id.rank,
                             local_boundary_connection=bdry_restr))
 
                 # }}}
@@ -958,19 +981,36 @@ def make_discretization_collection(
     if VTAG_ALL not in volumes.keys():
         # Multi-volume
         if mpi_communicator is not None:
-            def promote_to_part_id(key):
-                return key
+            # Accept PartID
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
         else:
-            def promote_to_part_id(key):
-                return (key, None)
+            # Accept PartID or volume tag
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                elif mesh_part_id in volumes.keys():
+                    return PartID(mesh_part_id)
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
     else:
         # Single-volume
         if mpi_communicator is not None:
-            def promote_to_part_id(key):
-                return (VTAG_ALL, key)
+            # Accept PartID or rank
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                elif isinstance(mesh_part_id, int):
+                    return PartID(VTAG_ALL, mesh_part_id)
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
         else:
-            def promote_to_part_id(key):
-                return (VTAG_ALL, None)
+            # Shouldn't be called
+            def as_part_id(mesh_part_id):
+                raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
 
     if any(
             isinstance(mesh_or_discr, Discretization)
@@ -979,7 +1019,7 @@ def make_discretization_collection(
 
     volume_discrs = {
         vtag: Discretization(
-            array_context, _normalize_mesh_part_ids(mesh, promote_to_part_id),
+            array_context, _normalize_mesh_part_ids(mesh, as_part_id),
             discr_tag_to_group_factory[DISCR_TAG_BASE])
         for vtag, mesh in volumes.items()}
 
