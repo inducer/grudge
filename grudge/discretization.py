@@ -98,6 +98,7 @@ def _normalize_mesh_part_ids(
         volume_tags: Sequence[VolumeTag],
         mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None):
     """Convert a mesh's configuration-dependent "part ID" into a fixed type."""
+    from numbers import Integral
     if VTAG_ALL not in volume_tags:
         # Multi-volume
         if mpi_communicator is not None:
@@ -123,8 +124,8 @@ def _normalize_mesh_part_ids(
             def as_part_id(mesh_part_id):
                 if isinstance(mesh_part_id, PartID):
                     return mesh_part_id
-                elif isinstance(mesh_part_id, int):
-                    return PartID(VTAG_ALL, mesh_part_id)
+                elif isinstance(mesh_part_id, Integral):
+                    return PartID(VTAG_ALL, int(mesh_part_id))
                 else:
                     raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
         else:
