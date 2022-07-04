@@ -35,7 +35,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
+from typing import Sequence, Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
 
 from pytools import memoize_method, single_valued
 
@@ -93,7 +93,45 @@ class PartID:
 
 # {{{ part ID normalization
 
-def _normalize_mesh_part_ids(mesh, as_part_id):
+def _normalize_mesh_part_ids(
+        mesh: Mesh,
+        volume_tags: Sequence[VolumeTag],
+        mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None):
+    """Convert a mesh's configuration-dependent "part ID" into a fixed type."""
+    if VTAG_ALL not in volume_tags:
+        # Multi-volume
+        if mpi_communicator is not None:
+            # Accept PartID
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
+        else:
+            # Accept PartID or volume tag
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                elif mesh_part_id in volume_tags:
+                    return PartID(mesh_part_id)
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
+    else:
+        # Single-volume
+        if mpi_communicator is not None:
+            # Accept PartID or rank
+            def as_part_id(mesh_part_id):
+                if isinstance(mesh_part_id, PartID):
+                    return mesh_part_id
+                elif isinstance(mesh_part_id, int):
+                    return PartID(VTAG_ALL, mesh_part_id)
+                else:
+                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
+        else:
+            # Shouldn't be called
+            def as_part_id(mesh_part_id):
+                raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
+
     facial_adjacency_groups = mesh.facial_adjacency_groups
 
     new_facial_adjacency_groups = []
@@ -256,22 +294,8 @@ class DiscretizationCollection:
 
             mesh = volume_discrs
 
-            if mpi_communicator is not None:
-                # Accept PartID or rank
-                def as_part_id(mesh_part_id):
-                    if isinstance(mesh_part_id, PartID):
-                        return mesh_part_id
-                    elif isinstance(mesh_part_id, int):
-                        return PartID(VTAG_ALL, mesh_part_id)
-                    else:
-                        raise TypeError(
-                            f"Unable to convert {mesh_part_id} to PartID.")
-            else:
-                # Shouldn't be called
-                def as_part_id(mesh_part_id):
-                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
-
-            mesh = _normalize_mesh_part_ids(mesh, as_part_id)
+            mesh = _normalize_mesh_part_ids(
+                mesh, [VTAG_ALL], mpi_communicator=mpi_communicator)
 
             discr_tag_to_group_factory = _normalize_discr_tag_to_group_factory(
                     dim=mesh.dim,
@@ -978,40 +1002,6 @@ def make_discretization_collection(
 
     mpi_communicator = getattr(array_context, "mpi_communicator", None)
 
-    if VTAG_ALL not in volumes.keys():
-        # Multi-volume
-        if mpi_communicator is not None:
-            # Accept PartID
-            def as_part_id(mesh_part_id):
-                if isinstance(mesh_part_id, PartID):
-                    return mesh_part_id
-                else:
-                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
-        else:
-            # Accept PartID or volume tag
-            def as_part_id(mesh_part_id):
-                if isinstance(mesh_part_id, PartID):
-                    return mesh_part_id
-                elif mesh_part_id in volumes.keys():
-                    return PartID(mesh_part_id)
-                else:
-                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
-    else:
-        # Single-volume
-        if mpi_communicator is not None:
-            # Accept PartID or rank
-            def as_part_id(mesh_part_id):
-                if isinstance(mesh_part_id, PartID):
-                    return mesh_part_id
-                elif isinstance(mesh_part_id, int):
-                    return PartID(VTAG_ALL, mesh_part_id)
-                else:
-                    raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
-        else:
-            # Shouldn't be called
-            def as_part_id(mesh_part_id):
-                raise TypeError(f"Unable to convert {mesh_part_id} to PartID.")
-
     if any(
             isinstance(mesh_or_discr, Discretization)
             for mesh_or_discr in volumes.values()):
@@ -1019,7 +1009,9 @@ def make_discretization_collection(
 
     volume_discrs = {
         vtag: Discretization(
-            array_context, _normalize_mesh_part_ids(mesh, as_part_id),
+            array_context,
+            _normalize_mesh_part_ids(
+                mesh, volumes.keys(), mpi_communicator=mpi_communicator),
             discr_tag_to_group_factory[DISCR_TAG_BASE])
         for vtag, mesh in volumes.items()}
 
