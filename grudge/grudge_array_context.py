@@ -76,6 +76,7 @@ def set_memory_layout(program, order="F"):
             elif IsSepVecOpArray() in arg.tags:
                 program = lp.tag_array_axes(program, arg.name, "sep,c,c")
             elif IsFaceDOFArray() in arg.tags:
+                # Why is this the data layout with fortran ordering?
                 program = lp.tag_array_axes(program, arg.name, "N1,N0,N2")
             elif IsVecDOFArray() in arg.tags:
                 program = lp.tag_array_axes(program, arg.name, "N2,N0,N1")
@@ -811,6 +812,12 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             program = lp.split_iname(program, "i1", 32, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
 
+        elif "einsum3to1_kernel" in program.default_entrypoint.name:
+            program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
+            program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0")
+            program = lp.prioritize_loops(program, "f,j")
+
+
 
         #else:
             #print(program)
@@ -881,11 +888,20 @@ class COrderedGrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
             #program = lp.add_inames_for_unused_hw_axes(program)   
             #program = lp.set_options(program, "write_cl")
         elif "actx_special" in program.default_entrypoint.name: # Fixed
-            #program = set_memory_layout(program)
             # Sometimes sqrt is called on single values.
+
             if "i0" in program.default_entrypoint.inames:
-                program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
-                                        inner_tag="l.0", slabs=(0, 1))
+                program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
+                                           slabs=(0,1))
+                program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
+                                           inner_tag="l.0")
+                program = lp.split_iname(program, "i1", 32, outer_tag="g.1",
+                                           inner_tag="l.1", slabs=(0,1))
+
+                #program = lp.split_iname(program, "i0", 512, outer_tag="g.0",
+                #                        inner_tag="l.0", slabs=(0, 1))
+                #print(program)
+                #exit()
             #program = lp.split_iname(program, "i0", 128, outer_tag="g.0",
             #                           slabs=(0,1))
             #program = lp.split_iname(program, "i0_inner", 32, outer_tag="ilp",
@@ -928,7 +944,10 @@ class COrderedGrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
                                         inner_tag="l.0")
             program = lp.split_iname(program, "i1", 32, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
-
+        elif "einsum3to1_kernel" in program.default_entrypoint.name:
+            program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
+            program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0")
+            program = lp.prioritize_loops(program, "f,j")
 
         #else:
             #print(program)
@@ -1361,7 +1380,7 @@ class COrderedAutotuningArrayContext(COrderedGrudgeArrayContext):
         print(program)
 
         # These are the most compute intensive kernels
-        to_optimize = {}
+        to_optimize = {}#{"einsum5to3_kernel"}#{"einsum4to2_kernel", "resample_by_picking_group"}
         if program.default_entrypoint.name in to_optimize:
             print(program)
             for arg in program.default_entrypoint.args:

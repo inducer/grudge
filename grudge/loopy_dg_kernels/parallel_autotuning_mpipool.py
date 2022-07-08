@@ -18,65 +18,7 @@ from grudge.grudge_array_context import convert
 #from grudge.execution import diff_prg, elwise_linear
 import mpi4py.MPI as MPI
 from mpi4py.futures import MPIPoolExecutor, MPICommExecutor
-#from mpipool import MPIPool
-
-#from guppy import hpy
-#import gc
-#import linecache
-#import os
-#import tracemalloc
-#from mem_top import mem_top
-#import matplotlib.pyplot as plt
-
-data_dict = {}
-
-def display_top(snapshot, key_type='lineno', limit=10):
-    snapshot = snapshot.filter_traces((
-        tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
-        tracemalloc.Filter(False, "<frozen importlib._bootstrap_external>"),
-        tracemalloc.Filter(False, "<unknown>"),
-    ))
-    top_stats = snapshot.statistics(key_type)
-
-    print("Top %s lines" % limit)
-    for index, stat in enumerate(top_stats[:limit], 1):
-        frame = stat.traceback[0]
-        # replace "/path/to/module/file.py" with "module/file.py"
-        filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-        print("#%s: %s:%s: %.1f KiB"
-              % (index, filename, frame.lineno, stat.size / 1024))
-        line = linecache.getline(frame.filename, frame.lineno).strip()
-        d_str = filename + ":" + str(frame.lineno) + ": " + line
-        if d_str not in data_dict:
-            data_dict[d_str] = [stat.size]
-        else:
-            data_dict[d_str].append(stat.size)
-
-        if line:
-            print('    %s' % line)
-
-    fig = plt.figure(0)
-    fig.clear()
-    plt.ion()
-    plt.show()
-    dlist = sorted(data_dict.items(), key=lambda a: a[1][-1], reverse=True)[:10]
-    #print(dlist)
-    #exit()
-    for key, vals in dlist:
-        plt.plot(vals, label=key + " " + str(vals[-1]) + " bytes")
-    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), shadow=False, ncol=1)
-    plt.draw()
-    #plt.pause(1)
-    plt.savefig("memory_usage.png", bbox_inches="tight")
-
-    other = top_stats[limit:]
-    if other:
-        size = sum(stat.size for stat in other)
-        print("%s other: %.1f KiB" % (len(other), size / 1024))
-    total = sum(stat.size for stat in top_stats)
-    print("Total allocated size: %.1f KiB" % (total / 1024))
-
-
+from mpipool import MPIPool
 
 def get_queue(pe_num, platform_num):
     platforms = cl.get_platforms()
@@ -85,27 +27,16 @@ def get_queue(pe_num, platform_num):
     queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
     return queue
 
-# Assume using platform zero
 comm = MPI.COMM_WORLD # Assume we're using COMM_WORLD. May need to change this in the future
-# From MPI.PoolExecutor the communicator for the tasks is not COMM_WORLD
 queue = get_queue(comm.Get_rank(), 0)
 
-def test(args):
-    platform_id, knl, tlist_generator, params, test_fn = args
-    #comm = MPI.COMM_WORLD # Assume we're using COMM_WORLD. May need to change this in the future
-    # From MPI.PoolExecutor the communicator for the tasks is not COMM_WORLD
-    #queue = get_queue(comm.Get_rank(), platform_id)
-    result = run_single_param_set(queue, knl, tlist_generator, params, test_fn)
-    #print(mem_top())
-    #h = hpy()
-    #print(h.heap())
-    #snapshot = tracemalloc.take_snapshot()
-    #display_top(snapshot)
-    #del knl
-    #del args
 
-    #result = [10,10,10]
+def test(args):
+    #print(args)
+    platform_id, knl, tlist_generator, params, test_fn = args
+    result = run_single_param_set(queue, knl, tlist_generator, params, test_fn) 
     return result
+
 
 def unpickle_kernel(fname):
     from pickle import load
@@ -126,22 +57,19 @@ def autotune_pickled_kernels(path, platform_id, actx_class, comm):
             knl = unpickle_kernel(fname)
             knl_id = f.split(".")[0]
             knl_id = knl_id.split("_")[-1]
-
-            #assert knl_id == gac.unique_program_id(knl)
-
             print("Kernel ID", knl_id)
-            print("Calculated Kernel ID", gac.unique_program_id(knl))
-            # These should be baked into the kernel object already?
-            #knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
-            #knl = gac.set_memory_layout(knl)
-            #print("New kernel ID", gac.unique_program_id(knl))
-
+            print("New kernel ID", gac.unique_program_id(knl))
+            
+            assert knl_id == gac.unique_program_id(knl)
+            knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+            knl = gac.set_memory_layout(knl)
             assert knl_id == gac.unique_program_id(knl)
 
             print(knl)
-            #pid = gac.unique_program_id(knl)
-            hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{knl_id}.hjson"
+            pid = gac.unique_program_id(knl)
+            hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
             if not exists(hjson_file_str):
+
                 parallel_autotune(knl, platform_id, actx_class, comm)
             else:
                 print("hjson file exists, skipping")
@@ -153,7 +81,6 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
     platforms = cl.get_platforms()
     gpu_devices = platforms[platform_id].get_devices(device_type=cl.device_type.GPU)
     n_gpus = len(gpu_devices)
-    # Should just use get_queue
     ctx = cl.Context(devices=[gpu_devices[comm.Get_rank() % n_gpus]])
     profiling = cl.command_queue_properties.PROFILING_ENABLE
     queue = cl.CommandQueue(ctx, properties=profiling)    
@@ -165,10 +92,10 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)))
 
-    #knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
-    #knl = gac.set_memory_layout(knl)
+    knl = lp.set_options(knl, lp.Options(no_numpy=True, return_dict=True))
+    knl = gac.set_memory_layout(knl)
     pid = gac.unique_program_id(knl)
-    os.makedirs(os.getcwd() + "/hjson", exist_ok=True)
+    os.makedirs(os.path.dirname("./hjson"), exist_ok=True)
     hjson_file_str = f"hjson/{knl.default_entrypoint.name}_{pid}.hjson"
 
     #assert comm.Get_size() > 1
@@ -187,10 +114,11 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
     # Could make a massive list with all kernels and parameters
     args = [(platform_id, knl, tlist_generator, p, generic_test,) for p in params_list]
 
+
     # May help to balance workload
     # Should test if shuffling matters
-    #from random import shuffle
-    #shuffle(args)
+    from random import shuffle
+    shuffle(args)
 
 
     #a = Array(AutotuneTask, dims=(len(args)), args=args[0])
@@ -204,20 +132,11 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
 
     sort_key = lambda entry: entry[0]
     transformations = {}
-    comm = MPI.COMM_WORLD
-    #nranks = comm.Get_size()
-    if len(params_list) > 0: # Guard against empty list
-        #executor = MPIPoolExecutor(max_workers=1)
-        #results = list(executor.map(test, args))
-        #results.sort(key=sort_key)
-        #avg_time, transformations, data = results[0]
-        #for entry in results:
-        #    print(entry)
-        #exit()
-        #"""
-        with MPICommExecutor(comm, root=0) as mypool:
+    if len(args) > 0: # Guard against empty list
+        with MPIPool() as mypool:
+            mypool.workers_exit()
             if mypool is not None:
-                results = list(mypool.map(test, args, chunksize=1))
+                results = list(mypool.map(test, args))
                 results.sort(key=sort_key)
         
                 #for r in results:
@@ -231,11 +150,11 @@ def parallel_autotune(knl, platform_id, actx_class, comm):
                         break
 
                 avg_time, transformations, data = results[ret_index]
-                od = {"transformations": transformations}
-                out_file = open(hjson_file_str, "wt+")
-                hjson.dump(od, out_file,default=convert)
-                out_file.close()
-        #"""
+
+    od = {"transformations": transformations}
+    out_file = open(hjson_file_str, "wt+")
+    hjson.dump(od, out_file,default=convert)
+    out_file.close()
 
     return transformations
 
@@ -289,8 +208,6 @@ def main():
     from mirgecom.array_context import MirgecomAutotuningArrayContext as Maac
     comm = MPI.COMM_WORLD
     
-    #tracemalloc.start()
-    #gc.set_debug(gc.DEBUG_UNCOLLECTABLE)
     autotune_pickled_kernels("./pickled_programs", 0, Maac, comm)
 
     print("DONE!")

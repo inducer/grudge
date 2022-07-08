@@ -242,7 +242,6 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
             print(arg.dim_tags)
             fp_bytes = arg.dtype.numpy_dtype.itemsize
             strides = [fp_bytes*entry.stride for entry in arg.dim_tags]
-            print(strides)
 
             if True:#str(arg) not in cache_arg_dict:
                 if IsSepVecDOFArray() in arg.tags:
