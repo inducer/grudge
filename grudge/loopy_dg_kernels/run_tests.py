@@ -240,8 +240,8 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
         for arg in kern.default_entrypoint.args:
             print(arg)
             print(arg.dim_tags)
-            strides = [entry.stride for entry in arg.dim_tags]
             fp_bytes = arg.dtype.numpy_dtype.itemsize
+            strides = [fp_bytes*entry.stride for entry in arg.dim_tags]
             print(strides)
 
             if True:#str(arg) not in cache_arg_dict:
