@@ -35,7 +35,7 @@ THE SOFTWARE.
 from functools import partial
 
 from arraycontext import map_array_container
-from arraycontext.container import ArrayOrContainerT
+from arraycontext.context import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc

@@ -30,7 +30,7 @@ import numpy as np
 from pytools import levi_civita, product
 from typing import Tuple, Callable, Optional, Union, Any
 from functools import partial
-from arraycontext.container import ArrayOrContainerT
+from arraycontext.context import ArrayOrContainerT
 
 
 def is_zero(x):

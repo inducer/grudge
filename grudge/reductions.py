@@ -65,7 +65,7 @@ from arraycontext import (
     serialize_container,
     Scalar
 )
-from arraycontext.container import ArrayOrContainerT
+from arraycontext.context import ArrayOrContainerT
 
 from grudge.discretization import DiscretizationCollection
 

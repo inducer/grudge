@@ -63,7 +63,7 @@ from arraycontext import (
     flatten, to_numpy,
     unflatten, from_numpy
 )
-from arraycontext.container import ArrayOrContainerT
+from arraycontext.context import ArrayOrContainerT
 
 from dataclasses import dataclass
 

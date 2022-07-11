@@ -58,7 +58,7 @@ THE SOFTWARE.
 
 
 from arraycontext import ArrayContext, map_array_container
-from arraycontext.container import ArrayOrContainerT
+from arraycontext.context import ArrayOrContainerT
 
 from functools import partial
 
