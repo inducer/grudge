@@ -61,9 +61,9 @@ from arraycontext import (
     dataclass_array_container,
     get_container_context_recursively,
     flatten, to_numpy,
-    unflatten, from_numpy
+    unflatten, from_numpy,
+    ArrayOrContainer
 )
-from arraycontext.context import ArrayOrContainerT
 
 from dataclasses import dataclass
 
@@ -105,11 +105,6 @@ class TracePair:
     .. automethod:: __getattr__
     .. automethod:: __getitem__
     .. automethod:: __len__
-
-    .. note::
-
-        :class:`TracePair` is currently used both by the symbolic (deprecated)
-        and the current interfaces, with symbolic information or concrete data.
     """
 
     dd: dof_desc.DOFDesc
@@ -187,17 +182,17 @@ def bdry_trace_pair(
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
     If the input arguments *interior* and *exterior* are
-    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    :class:`~arraycontext.ArrayContainer` objects, they must both
     have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
     :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them that contains data
+        :class:`~arraycontext.ArrayContainer` of them that contains data
         already on the boundary representing the interior value to be used
         for the flux.
     :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them that contains data
+        :class:`~arraycontext.ArrayContainer` of them that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -212,18 +207,18 @@ def bv_trace_pair(
     therefore be restricted to the boundary *dd* prior to creating a
     :class:`TracePair`.
     If the input arguments *interior* and *exterior* are
-    :class:`~arraycontext.container.ArrayContainer` objects, they must both
+    :class:`~arraycontext.ArrayContainer` objects, they must both
     have the same internal structure.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one,
         which describes the boundary discretization.
     :arg interior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.ArrayContainer` that contains data
         defined in the volume, which will be restricted to the boundary denoted
         by *dd*. The result will be used as the interior value
         for the flux.
     :arg exterior: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` that contains data
+        :class:`~arraycontext.ArrayContainer` that contains data
         that already lives on the boundary representing the exterior value to
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
@@ -244,7 +239,7 @@ def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair
 
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
 
     For certain applications, it may be useful to distinguish between
     rank-local and cross-rank trace pairs. For example, avoiding unnecessary
@@ -294,7 +289,7 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
     provides only the trace pairs defined on cross-rank boundaries.
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
@@ -333,7 +328,7 @@ class _RankBoundaryCommunication:
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainerT,
+                 array_container: ArrayOrContainer,
                  remote_rank, comm_tag: Optional[int] = None):
         actx = get_container_context_recursively(array_container)
         btag = BTAG_PARTITION(remote_rank)
@@ -410,7 +405,7 @@ from pytato import make_distributed_recv, staple_distributed_send
 class _RankBoundaryCommunicationLazy:
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainerT,
+                 array_container: ArrayOrContainer,
                  remote_rank: int, comm_tag: Hashable):
         if comm_tag is None:
             raise ValueError("lazy communication requires 'tag' to be supplied")
@@ -429,7 +424,8 @@ class _RankBoundaryCommunicationLazy:
                     local_bdry_ary, dest_rank=remote_rank, comm_tag=ary_tag,
                     stapled_to=make_distributed_recv(
                         src_rank=remote_rank, comm_tag=ary_tag,
-                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype))
+                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype,
+                        axes=local_bdry_ary.axes))
 
         from arraycontext.container.traversal import rec_keyed_map_array_container
         self.remote_data = rec_keyed_map_array_container(
@@ -468,11 +464,11 @@ def cross_rank_trace_pairs(
 
     If *ary* is a number, rather than a
     :class:`~meshmode.dof_array.DOFArray` or an
-    :class:`~arraycontext.container.ArrayContainer` of them, it is assumed
+    :class:`~arraycontext.ArrayContainer` of them, it is assumed
     that the same number is being communicated on every rank.
 
     :arg ary: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
 
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify

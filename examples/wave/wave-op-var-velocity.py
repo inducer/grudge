@@ -29,7 +29,6 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
@@ -49,14 +48,14 @@ logger = logging.getLogger(__name__)
 
 # {{{ wave equation bits
 
-def wave_flux(dcoll, c, w_tpair):
+def wave_flux(actx, dcoll, c, w_tpair):
     dd = w_tpair.dd
     dd_quad = dd.with_discr_tag(DISCR_TAG_QUAD)
 
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = thaw(dcoll.normal(dd), u.int.array_context)
+    normal = actx.thaw(dcoll.normal(dd))
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -77,7 +76,7 @@ def wave_flux(dcoll, c, w_tpair):
     return op.project(dcoll, dd_quad, dd_allfaces_quad, c_quad*flux_quad)
 
 
-def wave_operator(dcoll, c, w):
+def wave_operator(actx, dcoll, c, w):
     u = w[0]
     v = w[1:]
 
@@ -105,13 +104,14 @@ def wave_operator(dcoll, c, w):
                 dcoll,
                 dd_allfaces_quad,
                 wave_flux(
+                    actx,
                     dcoll, c=c,
                     w_tpair=op.bdry_trace_pair(dcoll,
                                                BTAG_ALL,
                                                interior=dir_bval,
                                                exterior=dir_bc)
                 ) + sum(
-                    wave_flux(dcoll, c=c, w_tpair=tpair)
+                    wave_flux(actx, dcoll, c=c, w_tpair=tpair)
                     for tpair in op.interior_trace_pairs(dcoll, w)
                 )
             )
@@ -136,7 +136,7 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
     center = center[:dcoll.dim]
     source_omega = 3
 
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
     center_dist = flat_obj_array([
         nodes[i] - center[i]
         for i in range(dcoll.dim)
@@ -190,7 +190,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(dcoll, c=c, w=w)
+        return wave_operator(actx, dcoll, c=c, w=w)
 
     logger.info("dt = %g", dt)
 

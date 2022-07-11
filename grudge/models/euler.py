@@ -50,7 +50,6 @@ from abc import ABCMeta, abstractmethod
 
 from dataclasses import dataclass
 from arraycontext import (
-    thaw,
     dataclass_array_container,
     with_container_arithmetic
 )
@@ -191,7 +190,7 @@ class PrescribedBC(InviscidBCObject):
         return TracePair(
             dd_bc,
             interior=op.project(dcoll, dd_base, dd_bc, state),
-            exterior=self.prescribed_state(thaw(dcoll.nodes(dd_bc), actx), t=t)
+            exterior=self.prescribed_state(actx.thaw(dcoll.nodes(dd_bc)), t=t)
         )
 
 
@@ -204,7 +203,7 @@ class InviscidWallBC(InviscidBCObject):
             state: ConservedEulerField, t=0):
         actx = state.array_context
         dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
-        nhat = thaw(dcoll.normal(dd_bc), actx)
+        nhat = actx.thaw(dcoll.normal(dd_bc))
         interior = op.project(dcoll, dd_base, dd_bc, state)
 
         return TracePair(
@@ -271,7 +270,7 @@ def euler_numerical_flux(
         exterior=euler_volume_flux(dcoll, q_rr, gamma=gamma)
     )
     num_flux = flux_tpair.avg
-    normal = thaw(dcoll.normal(dd_intfaces), actx)
+    normal = actx.thaw(dcoll.normal(dd_intfaces))
 
     if lf_stabilization:
         from arraycontext import outer

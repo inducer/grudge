@@ -24,8 +24,6 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import thaw
-
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory
@@ -76,7 +74,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
         dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
         min_factors.append(
             actx.to_numpy(
-                op.nodal_min(dcoll, "vol", thaw(dt_geometric_factors(dcoll), actx)))
+                op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
         )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
@@ -88,7 +86,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     # Make sure it works with empty meshes
     mesh = builder.get_mesh(0, builder.mesh_order)
     dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-    factors = thaw(dt_geometric_factors(dcoll), actx)  # noqa: F841
+    factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -127,6 +125,28 @@ def test_non_geometric_factors(actx_factory, name):
 
     assert all(lower_bounds <= factors)
     assert all(factors <= upper_bounds)
+
+
+def test_build_jacobian(actx_factory):
+    actx = actx_factory()
+    import meshmode.mesh.generation as mgen
+
+    mesh = mgen.generate_regular_rect_mesh(a=[0], b=[1], nelements_per_axis=(3,))
+    assert mesh.dim == 1
+
+    dcoll = DiscretizationCollection(actx, mesh, order=1)
+
+    def rhs(x):
+        return 3*x**2 + 2*x + 5
+
+    from pytools.obj_array import make_obj_array
+    base_state = make_obj_array([dcoll.zeros(actx)+2])
+
+    from grudge.tools import build_jacobian
+    mat = build_jacobian(actx, rhs, base_state, 1e-5)
+
+    assert np.array_equal(mat, np.diag(np.diag(mat)))
+    assert np.allclose(np.diag(mat), 3*2*2 + 2)
 
 
 @pytest.mark.parametrize("dim", [1, 2])

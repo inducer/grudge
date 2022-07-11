@@ -578,19 +578,16 @@ class FortranOrderedArrayContext(ParameterFixingPyOpenCLArrayContext):
         return cl_a
 
 
-    @memoize_method
     def transform_loopy_program(self, program):
         #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
         program = set_memory_layout(program, order="F")
 
-        """
         # This should probably be a separate function
         #for arg in program.default_entrypoint.args:
         #    for tag in arg.tags:
         #        if isinstance(tag, ParameterValue):
         #            program = lp.fix_parameters(program, **{arg.name: tag.value})
 
-        program = set_memory_layout(program)
         # PyOpenCLArrayContext default transformations can't handle fortran ordering
         #program = super().transform_loopy_program(program)
         return program
@@ -713,7 +710,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
     def transform_loopy_program(self, program):
         #print(program.default_entrypoint.name)
 
-        program = super().transform_loopy_program(program)
         #program = lp.set_options(program, lp.Options(no_numpy=True, return_dict=True))
 
         
@@ -724,8 +720,6 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
         # This needs to be fixed for new resample by picking kernel
         ary_itemsize = 8 # Assume doubles
         if "resample_by_picking" in program.default_entrypoint.name:
-            
-            program = lp.set_options(program, "write_cl")
             for arg in program.default_entrypoint.args:
                 print(arg.name, arg.tags)
                 if arg.name == "nunit_dofs_tgt" or arg.name == "n_to_nodes":
@@ -829,6 +823,7 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
             #print(program)
             #print("USING FALLBACK TRANSORMATIONS FOR " + program.default_entrypoint.name)
             #    The PyOpenCLArrayContext transformations can fail when inames are fixed.
+        program = super().transform_loopy_program(program)
 
         return program
 

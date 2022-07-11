@@ -26,11 +26,6 @@ version = get_version()
 # The full version, including alpha/beta/rc tags.
 release = version
 
-autodoc_type_aliases = {
-    "DeviceScalar": "arraycontext.DeviceScalar",
-    "DeviceArray": "arraycontext.DeviceArray",
-    }
-
 intersphinx_mapping = {
     "https://docs.python.org/3/": None,
     "https://numpy.org/doc/stable/": None,

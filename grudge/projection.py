@@ -7,6 +7,8 @@ Projections
 .. autofunction:: project
 """
 
+from __future__ import annotations
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -32,21 +34,16 @@ THE SOFTWARE.
 """
 
 
-from functools import partial
-
-from arraycontext import map_array_container
-from arraycontext.context import ArrayOrContainerT
+from arraycontext import ArrayOrContainer
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
-
-from meshmode.dof_array import DOFArray
 
 from numbers import Number
 
 
 def project(
-        dcoll: DiscretizationCollection, src, tgt, vec) -> ArrayOrContainerT:
+        dcoll: DiscretizationCollection, src, tgt, vec) -> ArrayOrContainer:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
@@ -54,19 +51,14 @@ def project(
     :arg src: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg tgt: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` of them.
+        :class:`~arraycontext.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.container.ArrayContainer` like *vec*.
+        :class:`~arraycontext.ArrayContainer` like *vec*.
     """
     src = as_dofdesc(src)
     tgt = as_dofdesc(tgt)
 
     if isinstance(vec, Number) or src == tgt:
         return vec
-
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(project, dcoll, src, tgt), vec
-        )
 
     return dcoll.connection_from_dds(src, tgt)(vec)

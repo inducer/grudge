@@ -31,8 +31,6 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from arraycontext.container.traversal import thaw
-
 from meshmode import _acf           # noqa: F401
 
 from meshmode.dof_array import flat_norm
@@ -137,12 +135,12 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
         return actx.np.sin(x[0])**2
 
     volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    x_volm = thaw(volm_disc.nodes(), actx)
+    x_volm = actx.thaw(volm_disc.nodes())
     f_volm = f(x_volm)
     ones_volm = volm_disc.zeros(actx) + 1
 
     quad_disc = dcoll.discr_from_dd(dd_quad)
-    x_quad = thaw(quad_disc.nodes(), actx)
+    x_quad = actx.thaw(quad_disc.nodes())
     f_quad = f(x_quad)
     ones_quad = quad_disc.zeros(actx) + 1
 
@@ -316,7 +314,7 @@ def test_mass_operator_inverse(actx_factory, name):
             return actx.np.cos(4.0 * x[0])
 
         dd = dof_desc.DD_VOLUME
-        x_volm = thaw(volume_discr.nodes(), actx)
+        x_volm = actx.thaw(volume_discr.nodes())
         f_volm = f(x_volm)
         f_inv = op.inverse_mass(
             dcoll, op.mass(dcoll, dd, f_volm)
@@ -387,7 +385,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    face_normal_i = thaw(dcoll.normal(df), actx)
+    face_normal_i = actx.thaw(dcoll.normal(df))
     face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
 
     if mesh.ambient_dim == 3:
@@ -453,7 +451,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
         dcoll = DiscretizationCollection(actx, mesh, order=4)
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-        x = thaw(volume_discr.nodes(), actx)
+        x = actx.thaw(volume_discr.nodes())
 
         for axis in range(dim):
             df_num = op.local_grad(dcoll, f(x, axis))[axis]
@@ -495,7 +493,7 @@ def test_2d_gauss_theorem(actx_factory):
 
     dcoll = DiscretizationCollection(actx, mesh, order=2)
     volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    x_volm = thaw(volm_disc.nodes(), actx)
+    x_volm = actx.thaw(volm_disc.nodes())
 
     def f(x):
         return flat_obj_array(
@@ -507,7 +505,7 @@ def test_2d_gauss_theorem(actx_factory):
     int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
-    normal = thaw(dcoll.normal(BTAG_ALL), actx)
+    normal = actx.thaw(dcoll.normal(BTAG_ALL))
     int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
 
     assert abs(int_1 - int_2) < 1e-13
@@ -609,14 +607,14 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         ambient_dim = dcoll.ambient_dim
 
         # variables
-        f_num = f(thaw(dcoll.nodes(dd=dd), actx))
-        f_quad_num = f(thaw(dcoll.nodes(dd=dq), actx))
+        f_num = f(actx.thaw(dcoll.nodes(dd=dd)))
+        f_quad_num = f(actx.thaw(dcoll.nodes(dd=dq)))
 
         from grudge.geometry import normal, summed_curvature
 
         kappa = summed_curvature(actx, dcoll, dd=dq)
         normal = normal(actx, dcoll, dd=dq)
-        face_normal = thaw(dcoll.normal(df), actx)
+        face_normal = actx.thaw(dcoll.normal(df))
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
@@ -757,12 +755,12 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
                                 inflow_u=lambda t: u_analytic(
-                                    thaw(dcoll.nodes(dd=BTAG_ALL), actx),
+                                    actx.thaw(dcoll.nodes(dd=BTAG_ALL)),
                                     t=t
                                 ),
                                 flux_type=flux_type)
 
-        nodes = thaw(dcoll.nodes(), actx)
+        nodes = actx.thaw(dcoll.nodes())
         u = u_analytic(nodes, t=0)
 
         def rhs(t, u):
@@ -856,7 +854,7 @@ def test_convergence_maxwell(actx_factory,  order):
         def analytic_sol(x, t=0):
             return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
 
-        nodes = thaw(dcoll.nodes(), actx)
+        nodes = actx.thaw(dcoll.nodes())
         fields = analytic_sol(nodes, t=0)
 
         from grudge.models.em import MaxwellOperator
@@ -953,7 +951,7 @@ def test_improvement_quadrature(actx_factory, order):
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
 
-            nodes = thaw(dcoll.nodes(), actx)
+            nodes = actx.thaw(dcoll.nodes())
 
             def zero_inflow(dtag, t=0):
                 dd = dof_desc.DOFDesc(dtag, qtag)
@@ -1018,7 +1016,7 @@ def test_op_collector_order_determinism():
 
 # {{{ bessel
 
-
+@pytest.mark.xfail
 def test_bessel(actx_factory):
     actx = actx_factory()
 
@@ -1031,13 +1029,13 @@ def test_bessel(actx_factory):
 
     dcoll = DiscretizationCollection(actx, mesh, order=3)
 
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
     r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
 
     # FIXME: Bessel functions need to brought out of the symbolic
     # layer. Related issue: https://github.com/inducer/grudge/issues/93
     def bessel_j(actx, n, r):
-        from grudge import sym, bind
+        from grudge import sym, bind  # pylint: disable=no-name-in-module
         return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
@@ -1101,7 +1099,7 @@ def test_norm_real(actx_factory, p):
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, nodes[0], p)
     if p == 2:
@@ -1122,7 +1120,7 @@ def test_norm_complex(actx_factory, p):
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, (1 + 1j)*nodes[0], p)
     if p == 2:
@@ -1143,7 +1141,7 @@ def test_norm_obj_array(actx_factory, p):
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-    nodes = thaw(dcoll.nodes(), actx)
+    nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, nodes, p)
 

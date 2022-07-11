@@ -37,8 +37,6 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from arraycontext.container.traversal import thaw
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -89,7 +87,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
-        x = thaw(dcoll.nodes(), actx)
+        x = actx.thaw(dcoll.nodes())
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -99,7 +97,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(dcoll.normal(dd), actx)
+            normal = actx.thaw(dcoll.normal(dd))
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -213,7 +211,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             result = result + deriv
             return result
 
-        x = thaw(dcoll.nodes(), actx)
+        x = actx.thaw(dcoll.nodes())
 
         if vectorize:
             u = make_obj_array([(i+1)*f(x) for i in range(dim)])
@@ -225,7 +223,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = thaw(dcoll.normal(dd), actx)
+            normal = actx.thaw(dcoll.normal(dd))
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
