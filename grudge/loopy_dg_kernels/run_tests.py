@@ -7,6 +7,7 @@ import pyopencl.clrandom
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 from grudge.loopy_dg_kernels import apply_transformation_list
+from pyopencl.tools import ImmediateAllocator, MemoryPool
 #from loopy.kernel.data import AddressSpace
 
 """
@@ -21,7 +22,6 @@ from pycuda.curandom import rand as curand
 from modepy import equidistant_nodes
 from pytools.obj_array import make_obj_array
 
-from bs4 import UnicodeDammit
 import hjson
 import time
 #from math import ceil
@@ -151,6 +151,7 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
         prog = prog.build()
         ptx = prog.get_info(cl.program_info.BINARIES)[0]#.decode(
         #errors="ignore") #Breaks pocl
+        from bs4 import UnicodeDammit
         dammit = UnicodeDammit(ptx)
         #print(dammit.unicode_markup)
         f = open("ptx.ptx", "w")
@@ -191,6 +192,8 @@ def test_face_mass_merged(kern, backend="OPENCL", nruns=10, warmup=True):
 # distinguish between CUDA and OpenCL possibly
 # This hardcodes the memory layout, should probably instead retrieve it from somewhere on a per
 # tag basis
+
+#cache_arg_dict = {}
 def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
     kern = lp.set_options(kern, "no_numpy")
@@ -226,7 +229,6 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
         f.close()
         """
 
-        from pyopencl.tools import ImmediateAllocator, MemoryPool
         allocator = ImmediateAllocator(queue)
         mem_pool = MemoryPool(allocator)
 
@@ -234,67 +236,65 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
 
         # Fill arrays with random data
         # Could probably just read the strides from the kernel to get ordering
+        # Could probably move this to a separate function and memoize it
         for arg in kern.default_entrypoint.args:
-            if IsDOFArray() in arg.tags:
-                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, arg.dtype, order="F", allocator=mem_pool)
-                if not arg.is_output:
-                    cl.clrandom.fill_rand(arg_dict[arg.name], queue)
-            elif IsSepVecDOFArray() in arg.tags:
-                if arg.is_output:
-                    obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=mem_pool, order="F") for i in range(arg.shape[0])]
-                    arg_dict[arg.name] = make_obj_array(obj_array)
-                else:
-                    print("Input SepVecDOFArrays are not currently supported")
+            print(arg)
+            print(arg.dim_tags)
+            fp_bytes = arg.dtype.numpy_dtype.itemsize
+            strides = [fp_bytes*entry.stride for entry in arg.dim_tags]
+
+            if True:#str(arg) not in cache_arg_dict:
+                if IsSepVecDOFArray() in arg.tags:
+                    print(arg)
+                    print(arg.dim_tags)
+                    print("My strides:", strides)
+                    print("VERIFY IF STRIDES IS CORRECT FOR SEPVECDOFARRAY")
                     exit()
-            elif IsSepVecOpArray() in arg.tags:
-                obj_array = [cl.clrandom.rand(queue, arg.shape[1:], dtype=arg.dtype) for i in range(arg.shape[0])]
-                arg_dict[arg.name] = make_obj_array(obj_array)
-            elif IsOpArray() in arg.tags or IsVecOpArray() in arg.tags:
-                arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
-            elif IsFaceDOFArray() in arg.tags:
-                fp_bytes = arg.dtype.numpy_dtype.itemsize
-                nfaces, nelements, nface_nodes = arg.shape
-                strides = (fp_bytes*nelements, fp_bytes*1, fp_bytes*nelements*nfaces) #original
-                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
-                    strides=strides, allocator=mem_pool)
-                cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
-            elif IsFaceMassOpArray() in arg.tags:
-                # Are these strides correct?
-                arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
-            elif IsVecDOFArray() in arg.tags:
-                fp_bytes = arg.dtype.numpy_dtype.itemsize
-                nr, nelements, ndofs = arg.shape
-                strides = (fp_bytes*nelements*ndofs, fp_bytes, fp_bytes*nelements) #original
-                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
-                    strides=strides, allocator=mem_pool)
-                cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
-            elif IsFourAxisDOFArray() in arg.tags:
-                fp_bytes = arg.dtype.numpy_dtype.itemsize
-                nx, nr, nelements, ndofs = arg.shape
-                strides = (fp_bytes*nelements*ndofs*nr, fp_bytes*nelements*ndofs,
-                            fp_bytes, fp_bytes*nelements)
-                arg_dict[arg.name] = cl.array.Array(queue, arg.shape, dtype=arg.dtype, 
-                    strides=strides, allocator=mem_pool)
-                cl.clrandom.fill_rand(arg_dict[arg.name], queue=queue)
-            elif isinstance(arg, lp.ArrayArg):
-                print("No tags recognized. Assuming default data layout")
-                print(arg.name)
-                # Assume default layout
-                arg_dict[arg.name] = cl.clrandom.rand(queue, arg.shape, dtype=arg.dtype)
+                    obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, allocator=mem_pool, order="F") for i in range(arg.shape[0])]
+                    array = make_obj_array(obj_array)
+                elif IsSepVecOpArray() in arg.tags:
+                    print(arg)
+                    print(arg.dim_tags)
+                    print("My strides:", strides)
+                    print("VERIFY IF STRIDES IS CORRECT FOR SEPVECOPARRAY")
+                    exit()
+                    obj_array = [cl.array.Array(queue, arg.shape[1:], dtype=arg.dtype, order="C", allocator=mem_pool) for i in range(arg.shape[0])]
+                    array = make_obj_array(obj_array)
+                elif isinstance(arg, lp.ArrayArg):
+                    print(f"Giving '{arg.name}' strides {strides}")
+                    array = cl.array.Array(queue, arg.shape, arg.dtype, strides=strides, allocator=mem_pool)
+                    print(arg.name)
+
+                if not arg.is_output:
+                    if isinstance(array, cl.array.Array):
+                        #pass
+                        cl.clrandom.fill_rand(array, queue=queue)
+                    elif isinstance(array[0], cl.array.Array):
+                        for entry in array:
+                            #pass
+                            cl.clrandom.fill_rand(entry, queue=queue)
+                    else:
+                        raise TypeError
+
+                #cache_arg_dict[str(arg)] = array
                 #print(arg.name)
                 #print(arg.tags)
                 #print("Unknown Tag")
                 #exit()
+                   
+            #arg_dict[arg.name] = cache_arg_dict[str(arg)]
+            arg_dict[arg.name] = array
 
         if warmup:
             for i in range(2):
                 kern(queue, **arg_dict)
             queue.finish()
 
+        #"""
         sum_time = 0.0
         events = []
         for i in range(nruns):
-            evt, _ = kern(queue, **arg_dict)
+            evt, out = kern(queue, **arg_dict)
             events.append(evt)
 
         cl.wait_for_events(events)
@@ -302,6 +302,7 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
             sum_time += evt.profile.end - evt.profile.start
         sum_time = sum_time / 1e9        
         #queue.finish()
+        #"""
 
     avg_time = sum_time / nruns
 
@@ -529,7 +530,41 @@ def apply_transformations_and_run_test(queue, knl, test_fn, params, tgenerator, 
 	return result_saved
     """
 
-# Not tested yet
+def run_single_param_set(queue, knl_base, tlist_generator, params, test_fn, max_gflops=None, device_memory_bandwidth=None):
+    trans_list = tlist_generator(params, knl=knl_base)
+    knl = apply_transformation_list(knl_base, trans_list)
+    dev_arrays, avg_time = test_fn(queue, knl)
+
+    # Should this return the fraction of peak of should that be calculated in this function?
+    gflops, frac_peak_gflops = analyze_FLOPS(knl, avg_time, max_gflops=max_gflops)
+    bw = analyze_knl_bandwidth(knl, avg_time)
+
+    if device_memory_bandwidth is not None:  # noqa
+        bw = analyze_knl_bandwidth(knl, avg_time)
+        frac_peak_GBps = bw / device_memory_bandwidth
+        if frac_peak_GBps  >= bandwidth_cutoff:  # noqa
+            # Should validate result here
+            print("Performance is within tolerance of peak bandwith. Terminating search")  # noqa
+            return choices
+
+    # This is incorrect for general einsum kernels
+    if max_gflops is not None:
+        frac_peak_gflops = analyze_FLOPS(knl, max_gflops, avg_time)
+        if frac_peak_gflops >= gflops_cutoff:
+            # Should validate result here
+            print("Performance is within tolerance of peak bandwith or flop rate. Terminating search")  # noqa
+            return choices
+
+    data = None
+    if device_memory_bandwidth is not None and max_gflops is not None:
+        data = (frac_peak_GBps*device_memory_bandwidth, 
+                frac_peak_gflops*max_gflops, 
+                frac_peak_GBps, 
+                frac_peak_gflops)
+
+    return (avg_time, trans_list, data)
+
+
 def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator, time_limit=float("inf"), max_gflops=None, 
         device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None):
 
@@ -559,22 +594,10 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
     # Should probably make separate function for each.
     for params in params_list:
         print(f"Currently testing: {params}")
+        """
         trans_list = tlist_generator(params, knl=knl)
         knl = apply_transformation_list(knl_base, trans_list)
         dev_arrays, avg_time = test_fn(queue, knl)
-
-        #avg_time = apply_transformations_and_run_test(queue, knl, test_fn, trans_list, max_gflops=None,
-        #    device_memory_bandwidth=None, gflops_cutoff=0.95, bandwidth_cutoff=0.95, start_param=None)
-
-        #print(knl.default_entrypoint.name)
-        #print(trans_list)
-
-        # Execute and analyze the results
-        #dev_arrays, avg_time = test_fn(queue, knl)
-
-        #choices = param
-        #(kio, kii, iio, iii, ji) = param
-        #print(choices)
 
         # Should this return the fraction of peak of should that be calculated in this function?
         gflops, frac_peak_gflops = analyze_FLOPS(knl, avg_time, max_gflops=max_gflops)
@@ -602,7 +625,9 @@ def exhaustive_search_v2(queue, knl, test_fn, pspace_generator, tlist_generator,
                     frac_peak_gflops*max_gflops, 
                     frac_peak_GBps, 
                     frac_peak_gflops)
+        """
 
+        avg_time, trans_list, data = run_single_param_set(queue, knl_base, tlist_generator, params, test_fn, max_gflops=max_gflops, device_memory_bandwidth=device_memory_bandwidth)
         result_list.append((avg_time, trans_list, data))
         print(avg_time)
         #result_list.append(data)
@@ -1041,6 +1066,28 @@ def random_search(queue, knl, test_fn, time_limit=float("inf"), max_gflops=None,
     #return result_saved
     return result_saved_list
 
+def convert(o):
+    if isinstance(o, np.generic): return o.item()
+    raise TypeError
+
+
+def autotune_and_save(queue, search_fn, tlist_generator, pspace_generator,  hjson_file_str, time_limit=np.inf):
+    from hjson import dump
+    try:
+        avg_time, transformations, data = search_fn(queue, program, generic_test, 
+                                    pspace_generator, tlist_generator, time_limit=time_limit)
+    except cl._cl.RuntimeError as e:
+        print(e)
+        print("Profiling is not enabled and the PID does not match any transformation file. Turn on profiling and run again.")
+
+    od = {"transformations": transformations}
+    out_file = open(hjson_file_str, "wt+")
+
+    hjson.dump(od, out_file,default=convert)
+    out_file.close()
+    return transformations
+
+
 def get_transformation_id(device_id):
     hjson_file = open("device_mappings.hjson") 
     hjson_text = hjson_file.read()
@@ -1204,11 +1251,11 @@ if __name__ == "__main__":
 
     #"""
     # Test autotuner
-    knl = diff_prg(3, 1000000, 10, np.float64)
-    print(knl)
-    print(knl.default_entrypoint.domains)
-    print(knl.default_entrypoint.instructions)
-    exit()
+    knl = diff_prg(3, 1000000, 3, np.float64)
+    #print(knl)
+    #print(knl.default_entrypoint.domains)
+    #print(knl.default_entrypoint.instructions)
+    #exit()
     #knl = diff_prg(3, 196608, 10, np.float64)
     #knl = elwise_linear_prg(24576, 120, np.float64)
     #dofs = 84
@@ -1220,7 +1267,7 @@ if __name__ == "__main__":
 
     # Spock
     #result = exhaustive_search(queue, knl, generic_test, time_limit=np.inf, max_gflops=11540, device_memory_bandwidth=1047, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
-    #result = gen_autotune_list(queue, knl)
+    #pspace_generator = gen_autotune_list(queue, knl)
     #print(len(result))
 
     # Titan V
@@ -1228,4 +1275,6 @@ if __name__ == "__main__":
     #print(result)
     pspace_generator = gen_autotune_list
     tlist_generator = mxm_trans_list_generator 
-    result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+    result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)
+ 
+    #result = exhaustive_search_v2(queue, knl, generic_test, pspace_generator, tlist_generator, time_limit=np.inf, max_gflops=6144, device_memory_bandwidth=580, gflops_cutoff=0.95, bandwidth_cutoff=1.0, start_param=start_param)

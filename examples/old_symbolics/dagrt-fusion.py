@@ -244,7 +244,7 @@ def isolate_function_calls_in_phase(phase, stmt_id_gen, var_name_gen):
             stmt_id_gen=stmt_id_gen,
             var_name_gen=var_name_gen)
 
-    for stmt in sorted(phase.statements, key=lambda stmt: stmt.id):
+    for stmt in sorted(phase.statements, key=lambda stmt_: stmt_.id):
         new_deps = []
 
         from dagrt.language import Assign
@@ -797,7 +797,7 @@ class ExecutionMapperWithMemOpCounting(ExecutionMapperWrapper):
             for name, ary in dof_array_kwargs.items():
                 kwargs[name] = ary[grp.index]
 
-            _, knl_result = self.inner_mapper.array_context.call_loopy(
+            knl_result = self.inner_mapper.array_context.call_loopy(
                     kdescr.loopy_kernel, **kwargs)
 
             for name, val in knl_result.items():

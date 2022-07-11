@@ -67,11 +67,15 @@ def gen_autotune_list(queue, knl, start_param=None):
     nfaces = 1
 
     n_in = None
+    print(knl.default_entrypoint.name)
+    ndof_arrays = 0
     for arg in knl.default_entrypoint.args:
+        print(arg.name)
         if "resample_by_mat" not in knl.default_entrypoint.name:
             if IsDOFArray() in arg.tags:
                 n_elem, n_out = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
+                ndof_arrays += 1
             elif IsSepVecOpArray() in arg.tags:
                 n_mat, n_out, n_in = arg.shape
             elif IsOpArray() in arg.tags:
@@ -82,7 +86,7 @@ def gen_autotune_list(queue, knl, start_param=None):
             if IsOpArray() in arg.tags:
                 n_out, n_in = arg.shape
                 fp_bytes = arg.dtype.dtype.itemsize
-
+    ndof_arrays = max(ndof_arrays, 1)
     if n_in is None:
         n_in = n_out
 
@@ -94,11 +98,12 @@ def gen_autotune_list(queue, knl, start_param=None):
         kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
 
     # Iterate over five search dimensions
+    # Maybe there is a way to use islpy to do this? 
     parameter_list = []
     for kii in k_inner_inner_options(start_val=kii_s):
         # Should come up with a way to set the effective local memory size. It depends on the number of
         # arrays actually prefetched.
-        for kio in k_inner_outer_options(n_in*nfaces, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
+        for kio in k_inner_outer_options(n_in*nfaces, kii, local_mem_size // ndof_arrays, fp_bytes=fp_bytes,start_val=kio_s):
             kio_s = None # Set to None so will form the full set the next time around
             for iii in i_inner_inner_options(n_out, kii,
                     max_work_group_size=max_work_group_size, start_val=iii_s):
@@ -213,42 +218,54 @@ def grudge_elementwise_sum_knl_pspace_generator(queue, knl, start_param=None):
 
 def einsum3to2_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
-    knl = kwargs["knl"]
+    kio, kii, iio, iii, ji, lm_layout = params
+    if 0 not in params: # If there is a zero length dimension then don't transform
+        knl = kwargs["knl"]
 
-    trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["e_inner", kii], 
-        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["i_inner", iii], 
-        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-    # Should the i loop have (0,1) slabs for both?
+        if kio != kii:
+            trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+            trans_list.append(["split_iname", ["e_inner", kii], 
+                {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+            prefetch_str = "j,e_inner_outer,e_inner_inner"
+        else:
+            trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "inner_tag": "l.0", "slabs":(0,0)}])
+            prefetch_str = "j,e_inner"    
+        if iio != iii:
+            trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+            trans_list.append(["split_iname", ["i_inner", iii], 
+                {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+        else:
+            trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "inner_tag": "l.1", "slabs":(0,0)}])
+        # Should the i loop have (0,1) slabs for both?
 
-    for arg in knl.default_entrypoint.args:
+        for arg in knl.default_entrypoint.args:
 
-        if "vec" == arg.name:
-            trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"vecf", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
-        elif "jac" == arg.name:
-            trans_list.append(["add_prefetch", ["jac", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"jacf", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["jacf", "f,f"]])
-        elif "arg2" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch", ["arg2", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg2f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg2f", "f,f"]])
-        elif "arg1" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch", ["arg1", "j,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg1f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg1f", "f,f"]])
-        elif "arg0" == arg.name and IsDOFArray() in arg.tags:
-            trans_list.append(["add_prefetch",
-                ["arg0", "i_inner_outer,i_inner_inner,e_inner_outer,e_inner_inner"],
-                {"temporary_name":"arg0f", "default_tag":"l.auto"}])
-            trans_list.append(["tag_array_axes", ["arg0f", "f,f"]])
+            if "vec" == arg.name:
+                trans_list.append(["add_prefetch", ["vec", prefetch_str],
+                    {"temporary_name":"vecf", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["vecf", lm_layout]])
+            elif "jac" == arg.name:
+                trans_list.append(["add_prefetch", ["jac", prefetch_str],
+                    {"temporary_name":"jacf", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["jacf", lm_layout]])
+            elif "arg2" == arg.name and IsDOFArray() in arg.tags:
+                trans_list.append(["add_prefetch", ["arg2", prefetch_str],
+                    {"temporary_name":"arg2f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg2f", lm_layout]])
+            elif "arg1" == arg.name and IsDOFArray() in arg.tags:
+                trans_list.append(["add_prefetch", ["arg1", prefetch_str],
+                    {"temporary_name":"arg1f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg1f", lm_layout]])
+            elif "arg0" == arg.name and IsDOFArray() in arg.tags:
+                arg0_prefetch_str = "i_inner," if iio == iii else "i_inner_outer,i_inner_inner,"
+                arg0_prefetch_str += "e_inner" if kio == kii else "e_inner_outer,e_inner_inner"
+                trans_list.append(["add_prefetch",
+                    ["arg0", arg0_prefetch_str],
+                    {"temporary_name":"arg0f", "default_tag":"l.auto"}])
+                trans_list.append(["tag_array_axes", ["arg0f", lm_layout]])
 
-    trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+        trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
+
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
     return trans_list 
 
@@ -257,34 +274,45 @@ def einsum3to2_kernel_pspace_generator(queue, knl, start_param=None):
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
 
+    n_dof_arrays = 0
     for arg in knl.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
             n_elem, n_out = arg.shape
             fp_bytes = arg.dtype.dtype.itemsize
+            n_dof_arrays += 1
         elif IsOpArray() in arg.tags:
             n_out, n_in = arg.shape
 
     if start_param is not None:
-        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+        kio_s, kii_s, iio_s, iii_s, ji_s, lm_layout = start_param
     else:
-        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+        kio_s, kii_s, iio_s, iii_s, ji_s, lm_layout = (None, None, None, None, None, None)
 
-    # Iterate over five search dimensions
+    # Iterate over six search dimensions
     parameter_list = []
-    for kii in k_inner_inner_options(start_val=kii_s):
-        # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
-        for kio in k_inner_outer_options(n_in, kii, local_mem_size // 2,
-                    fp_bytes=fp_bytes,start_val=kio_s,nelem=n_elem):
-            kio_s = None # Set to None so will form the full set the next time around
-            for iii in i_inner_inner_options(n_out, kii,
-                    max_work_group_size=max_work_group_size, start_val=iii_s):
-                iii_s = None
-                for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
-                    iio_s = None
-                    for ji in j_inner_options(n_in, start_val=ji_s):
-                        ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
+
+    if n_elem*n_out <= 1024:
+        choices = (n_elem, n_elem, n_out, n_out, n_in, "c,c")
+        parameter_list.append(choices)
+        choices = (n_elem, n_elem, n_out, n_out, n_in, "f,f")
+        parameter_list.append(choices)
+    else:
+        for kii in k_inner_inner_options(start_val=kii_s):
+            # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
+            # Should check if jac is present
+            for kio in k_inner_outer_options(n_in, kii, local_mem_size // n_dof_arrays,
+                        fp_bytes=fp_bytes,start_val=kio_s,nelem=n_elem):
+                kio_s = None # Set to None so will form the full set the next time around
+                for iii in i_inner_inner_options(n_out, kii,
+                        max_work_group_size=max_work_group_size, start_val=iii_s):
+                    iii_s = None
+                    for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
+                        iio_s = None
+                        for ji in j_inner_options(n_in, start_val=ji_s):
+                            ji_s = None
+                            for lm_layout in ["f,f", "c,c"]:
+                                choices = (kio, kii, iio, iii, ji, lm_layout)
+                                parameter_list.append(choices)
 
     return parameter_list
 
@@ -294,13 +322,21 @@ def einsum2to2_kernel_tlist_generator(params, **kwargs):
     kio, kii, iio, iii = params
     knl = kwargs["knl"]
 
-    trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["e_inner", kii], 
-        {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
-    trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
-    trans_list.append(["split_iname", ["i_inner", iii], 
-        {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
-    # Should the i loop have (0,1) slabs for both?
+    if knl.default_entrypoint.name == "resample_by_picking_group":
+        trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["iel_inner", kii], 
+            {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["idof", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+        trans_list.append(["split_iname", ["idof_inner", iii], 
+            {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+    else:
+        trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["e_inner", kii], 
+            {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
+        trans_list.append(["split_iname", ["i", iio], {"outer_tag": "g.1", "slabs":(0,0)}])
+        trans_list.append(["split_iname", ["i_inner", iii], 
+            {"outer_tag": "ilp", "inner_tag":"l.1", "slabs":(0,1)}])
+        # Should the i loop have (0,1) slabs for both?
 
     # Prefetching probably matters not for this kernel
     #trans_list.append(["add_prefetch", ["arg1", "e_inner_outer,e_inner_inner,i_inner_outer,i_inner_inner"],
@@ -316,9 +352,15 @@ def einsum2to2_kernel_pspace_generator(queue, knl, start_param=None):
     local_mem_size = queue.device.local_mem_size
     max_work_group_size = queue.device.max_work_group_size    
 
+    n_elem = None
+    n_out = None
     for arg in knl.default_entrypoint.args:
         if IsDOFArray() in arg.tags:
-            n_elem, n_out = arg.shape
+            if n_elem is None:
+                n_elem, n_out = arg.shape
+            else: # Needed to handle resample_by_picking_group
+                n_elem = min(arg.shape[0], n_elem)
+                n_out = min(arg.shape[1], n_out)
             n_in = n_out
             fp_bytes = arg.dtype.dtype.itemsize
 
@@ -330,7 +372,6 @@ def einsum2to2_kernel_pspace_generator(queue, knl, start_param=None):
     # Iterate over five search dimensions
     parameter_list = []
     for kii in k_inner_inner_options(start_val=kii_s):
-        # Both jac and vec are prefetched so the available local_memory per prefetched array is halved
         for kio in k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
             kio_s = None # Set to None so will form the full set the next time around
             for iii in i_inner_inner_options(n_out, kii,
@@ -418,7 +459,7 @@ def einsum4to2_face_mass_kernel_pspace_generator(queue, knl, start_param=None):
 
 def einsum4to2_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
+    kio, kii, iio, iii, ji, o = params
     knl = kwargs["knl"]
     arg_names = {arg.name for arg in knl.default_entrypoint.args}
     inames = knl.default_entrypoint.inames.keys()
@@ -443,19 +484,20 @@ def einsum4to2_kernel_tlist_generator(params, **kwargs):
     if "inv_jac_t" in arg_names:
         trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "N0,N1"]])
+        trans_list.append(["tag_array_axes", ["vecf", "N0,N1" if o == "F" else "N1,N0"]])
  
         trans_list.append(["add_prefetch", ["inv_jac_t", "r,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N2,N0,N1"]])
+        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N2,N0,N1" if o == "F" else "N2,N1,N0"]])
     elif "jac_surf" in arg_names:
         trans_list.append(["add_prefetch", ["vec", "f,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"vecf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2"]])
+        # See if N2,N0,N1 works for "F" order, may need to change it in the array context
+        trans_list.append(["tag_array_axes", ["vecf", "N1,N0,N2" if o =="F" else "N2,N1,N0"]])
  
         trans_list.append(["add_prefetch", ["jac_surf", "f,j,e_inner_outer,e_inner_inner"],
             {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N1,N0,N2"]])
+        trans_list.append(["tag_array_axes", ["inv_jac_tf", "N1,N0,N2" if o == "F" else "N2,N1,N0"]])
  
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
@@ -502,15 +544,22 @@ def einsum4to2_kernel_pspace_generator(queue, knl, start_param=None):
                     iio_s = None
                     for ji in j_inner_options(n_in, start_val=ji_s):
                         ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
+                        for order in ["F","C"]:
+                            choices = (kio, kii, iio, iii, ji,order)
+                            parameter_list.append(choices)
 
     return parameter_list
 
 
 def einsum5to3_kernel_tlist_generator(params, **kwargs):
     trans_list = []
-    kio, kii, iio, iii, ji = params
+    kio, kii, iio, iii, ji, lm_ord = params
+    if lm_ord in "fF":
+        vecf_ord = "f,f"
+        inv_jac_tf_ord = "N3,N2,N0,N1"
+    else:
+        vecf_ord = "c,c"
+        inv_jac_tf_ord = "N3,N2,N1,N0"
     trans_list.append(["tag_inames", ["r: unr"]])
     trans_list.append(["tag_inames", ["x: ilp"]])
     trans_list.append(["split_iname", ["e", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
@@ -523,10 +572,10 @@ def einsum5to3_kernel_tlist_generator(params, **kwargs):
 
     trans_list.append(["add_prefetch", ["vec", "j,e_inner_outer,e_inner_inner"],
         {"temporary_name":"vecf", "default_tag":"l.auto"}])
-    trans_list.append(["tag_array_axes", ["vecf", "f,f"]])
+    trans_list.append(["tag_array_axes", ["vecf", vecf_ord]])
     trans_list.append(["add_prefetch", ["inv_jac_t", "x,r,j,e_inner_outer,e_inner_inner"],
         {"temporary_name":"inv_jac_tf", "default_tag":"l.auto"}])
-    trans_list.append(["tag_array_axes", ["inv_jac_tf", "N3,N2,N0,N1"]])
+    trans_list.append(["tag_array_axes", ["inv_jac_tf", inv_jac_tf_ord]])
 
     trans_list.append(["split_iname", ["j", ji], {"outer_tag":"for", "inner_tag":"for"}])
     trans_list.append(["add_inames_for_unused_hw_axes"]) 
@@ -548,9 +597,9 @@ def einsum5to3_kernel_pspace_generator(queue, knl, start_param=None):
             n_r, n_out, n_in = arg.shape
 
     if start_param is not None:
-        kio_s, kii_s, iio_s, iii_s, ji_s = start_param
+        kio_s, kii_s, iio_s, iii_s, ji_s, order = start_param
     else:
-        kio_s, kii_s, iio_s, iii_s, ji_s = (None, None, None, None, None)
+        kio_s, kii_s, iio_s, iii_s, ji_s, order = (None, None, None, None, None, None)
 
     # Iterate over five search dimensions
     parameter_list = []
@@ -565,7 +614,8 @@ def einsum5to3_kernel_pspace_generator(queue, knl, start_param=None):
                     iio_s = None
                     for ji in j_inner_options(n_in, start_val=ji_s):
                         ji_s = None
-                        choices = (kio, kii, iio, iii, ji)
-                        parameter_list.append(choices)
+                        for order in ["F", "C"]:  
+                            choices = (kio, kii, iio, iii, ji, order)
+                            parameter_list.append(choices)
 
     return parameter_list

@@ -46,7 +46,7 @@ THE SOFTWARE.
 import numpy as np
 import loopy as lp
 
-from arraycontext import ArrayContext, thaw, freeze, DeviceScalar
+from arraycontext import ArrayContext, thaw, freeze, Scalar
 from meshmode.transform_metadata import FirstAxisIsElementsTag
 
 from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
@@ -160,7 +160,7 @@ def dt_non_geometric_factors(
 
 @memoize_on_first_arg
 def h_max_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> "DeviceScalar":
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> Scalar:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -191,7 +191,7 @@ def h_max_from_volume(
 
 @memoize_on_first_arg
 def h_min_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> "DeviceScalar":
+        dcoll: DiscretizationCollection, dim=None, dd=None) -> Scalar:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -268,23 +268,21 @@ def dt_geometric_factors(
     )
 
     if dcoll.dim == 1:
-        return freeze(cell_vols)
+        # Inscribed "circle" radius is half the cell size
+        return freeze(cell_vols/2)
 
     dd_face = DOFDesc("all_faces", dd.discretization_tag)
     face_discr = dcoll.discr_from_dd(dd_face)
 
-    # To get a single value for the total surface area of a cell, we
-    # take the sum over the averaged face areas on each face.
-    # NOTE: The face areas are the *same* at each face nodal location.
-    # This assumes there are the *same* number of face nodes on each face.
-    surface_areas = abs(
+    # Compute areas of each face
+    face_areas = abs(
         op.elementwise_integral(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
         )
     )
 
     data = []
-    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, surface_areas):
+    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, face_areas):
 
         fp_format = face_ae_i.dtype
         Ne = vgrp.nelements
@@ -301,29 +299,61 @@ def dt_geometric_factors(
         ]
         kd_tag = KernelDataTag(kernel_data)
 
-        data.append(actx.einsum("fej->e",
-                    face_ae_i.reshape(Nf, Ne, Nj),
-                    tagged=(FirstAxisIsElementsTag(),kd_tag)) / afgrp.nunit_dofs)
+        if actx.supports_nonscalar_broadcasting:
+            data.append(actx.einsum("fej->e",
+                        face_ae_i.reshape(Nf, Ne, -1),
+                        #face_ae_i.reshape(Nf, Ne, Nj),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)))
+        else:
+            data.append(actx.einsum("fej->e",
+                        face_ae_i.reshape(Nf, Ne, -1),
+                        #face_ae_i.reshape(Nf, Ne, Nj),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)) / afgrp.nunit_dofs)
 
     surface_areas = DOFArray(actx, data=tuple(data))
 
     """
-    surface_areas = DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("fej->e",
-                        face_ae_i.reshape(
-                            vgrp.mesh_el_group.nfaces,
-                            vgrp.nelements,
-                            afgrp.nunit_dofs
-                        ),
-                        tagged=(FirstAxisIsElementsTag(),)) / afgrp.nunit_dofs
+    if actx.supports_nonscalar_broadcasting:
+        # Compute total surface area of an element by summing over the
+        # individual face areas
+        surface_areas = DOFArray(
+            actx,
+            data=tuple(
+                actx.einsum(
+                    "fej->e",
+                    face_ae_i.reshape(
+                        vgrp.mesh_el_group.nfaces,
+                        vgrp.nelements,
+                        face_ae_i.shape[-1]),
+                    tagged=(FirstAxisIsElementsTag(),))
 
-            for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
-                                              face_discr.groups,
-                                              surface_areas)
+                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)
+            )
         )
-    )
+    else:
+        surface_areas = DOFArray(
+            actx,
+            data=tuple(
+                # NOTE: Whenever the array context can't perform nonscalar
+                # broadcasting, elementwise reductions
+                # (like `elementwise_integral`) repeat the *same* scalar value of
+                # the reduction at each degree of freedom. To get a single
+                # value for the face area (per face),
+                # we simply average over the nodes, which gives the desired result.
+                actx.einsum(
+                    "fej->e",
+                    face_ae_i.reshape(
+                        vgrp.mesh_el_group.nfaces,
+                        vgrp.nelements,
+                        face_ae_i.shape[-1]
+                    ) / afgrp.nunit_dofs,
+                    tagged=(FirstAxisIsElementsTag(),))
+
+                for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
+                                                face_discr.groups,
+                                                face_areas)
+            )
+        )
     """
 
     data = []

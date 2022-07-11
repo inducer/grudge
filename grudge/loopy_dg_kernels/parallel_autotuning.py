@@ -58,6 +58,7 @@ def square(x):
 def main(args):
 
     # Create queue, assume all GPUs on the machine are the same
+    """
     platforms = cl.get_platforms()
     platform_id = 0
     gpu_devices = platforms[platform_id].get_devices(device_type=cl.device_type.GPU)
@@ -71,7 +72,8 @@ def main(args):
     # Check that it can assign one PE to each GPU
     # The first PE is used for scheduling
     # Not certain how this will work with multiple nodes
-    
+
+        
     from grudge.execution import diff_prg, elwise_linear_prg
     knl = diff_prg(3, 1000000, 10, np.float64)
     params = dgk.run_tests.gen_autotune_list(queue, knl)
@@ -97,14 +99,15 @@ def main(args):
     #autotune_list = gen_autotune_list(queue, knl) 
     #print(autotune_list)
 
-    #print(charm.numHosts())
+    """
 
-    #f = Future()
+    print(charm.numHosts(), charm.numPes())
+    f = Future()
     #a = Array(Test, a.numPes())
     #a.sayHi(f)
     #result = f.get()
     #print(result)
-    #print("All finished")
+    print("All finished")
     charm.exit()    
 
 charm.start(main)

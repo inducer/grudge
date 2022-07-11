@@ -34,6 +34,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 from arraycontext.container.traversal import thaw
 
 from meshmode import _acf           # noqa: F401
+
 from meshmode.dof_array import flat_norm
 import meshmode.mesh.generation as mgen
 
@@ -96,7 +97,6 @@ def test_inverse_metric(actx_factory, dim):
             assert err < 1.0e-12, (i, j, err)
 
 # }}}
-
 
 # {{{ mass operator trig integration
 
@@ -670,7 +670,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
-    ("disk", [0.1, 0.05]),
+    ("disk", [0.07, 0.02, 0.01]),
     ("rect2", [4, 8]),
     ("rect3", [4, 6]),
     ("warped2", [4, 8]),
@@ -768,6 +768,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         def rhs(t, u):
             return adv_operator.operator(t, u)
 
+        compiled_rhs = actx.compile(rhs)
+
         if dim == 3:
             final_time = 0.1
         else:
@@ -778,35 +780,35 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         h_max = h_max_from_volume(dcoll, dim=dcoll.ambient_dim)
         dt = actx.to_numpy(dt_factor * h_max/order**2)
         nsteps = (final_time // dt) + 1
-        dt = final_time/nsteps + 1e-15
+        tol = 1e-14
+        dt = final_time/nsteps + tol
 
-        from grudge.shortcuts import set_up_rk4
-        dt_stepper = set_up_rk4("u", dt, u, rhs)
-
-        last_u = None
-
-        from grudge.shortcuts import make_visualizer
+        from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
         vis = make_visualizer(dcoll)
 
         step = 0
+        t = 0
 
-        for event in dt_stepper.run(t_end=final_time):
-            if isinstance(event, dt_stepper.StateComputed):
-                step += 1
-                logger.debug("[%04d] t = %.5f", step, event.t)
+        while t < final_time - tol:
+            step += 1
+            logger.debug("[%04d] t = %.5f", step, t)
 
-                last_t = event.t
-                last_u = event.state_component
+            u = compiled_lsrk45_step(actx, u, t, dt, compiled_rhs)
 
-                if visualize:
-                    vis.write_vtk_file(
-                        "fld-%s-%04d.vtu" % (mesh_par, step),
-                        [("u", event.state_component)]
-                    )
+            if visualize:
+                vis.write_vtk_file(
+                    "fld-%s-%04d.vtu" % (mesh_par, step),
+                    [("u", u)]
+                )
+
+            t += dt
+
+            if t + dt >= final_time - tol:
+                dt = final_time-t
 
         error_l2 = op.norm(
             dcoll,
-            last_u - u_analytic(nodes, t=last_t),
+            u - u_analytic(nodes, t=t),
             2
         )
         logger.info("h_max %.5e error %.5e", actx.to_numpy(h_max), error_l2)

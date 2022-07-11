@@ -1,5 +1,3 @@
-"""Minimal example of a grudge driver."""
-
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -32,7 +30,7 @@ from grudge.grudge_array_context import GrudgeArrayContext
 import pyopencl.tools as cl_tools
 
 from arraycontext import thaw
-from grudge.array_context import PyOpenCLArrayContext
+from grudge.array_context import MPIPyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
 from grudge import DiscretizationCollection
@@ -48,17 +46,17 @@ logger = logging.getLogger(__name__)
 
 
 def main(ctx_factory, dim=2, order=4, visualize=False):
-    cl_ctx = cl.create_some_context()
-    queue = cl.CommandQueue(cl_ctx)
-    #actx = GrudgeArrayContext(queue)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
-
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
+
+    cl_ctx = cl.create_some_context()
+    queue = cl.CommandQueue(cl_ctx)
+    actx = MPIPyOpenCLArrayContext(
+            comm,
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+            )
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
@@ -81,8 +79,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     else:
         local_mesh = mesh_dist.receive_mesh_part()
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
-            mpi_communicator=comm)
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]

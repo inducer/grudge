@@ -26,10 +26,14 @@ import numpy as np
 
 from arraycontext import thaw
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    PytestPytatoPyOpenCLArrayContextFactory
+)
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+         PytestPytatoPyOpenCLArrayContextFactory])
 
 from grudge import DiscretizationCollection
 
@@ -41,6 +45,7 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -80,6 +85,11 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     ratios = min_factors[:-1] / min_factors[1:]
     assert np.all(np.isclose(ratios, 2))
 
+    # Make sure it works with empty meshes
+    mesh = builder.get_mesh(0, builder.mesh_order)
+    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    factors = thaw(dt_geometric_factors(dcoll), actx)  # noqa: F841
+
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
 def test_non_geometric_factors(actx_factory, name):
@@ -117,6 +127,74 @@ def test_non_geometric_factors(actx_factory, name):
 
     assert all(lower_bounds <= factors)
     assert all(factors <= upper_bounds)
+
+
+@pytest.mark.parametrize("dim", [1, 2])
+@pytest.mark.parametrize("degree", [2, 4])
+def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
+    actx = actx_factory()
+
+    import meshmode.mesh.generation as mgen
+
+    a = [0, 0, 0]
+    b = [1, 1, 1]
+    mesh = mgen.generate_regular_rect_mesh(
+            a=a[:dim], b=b[:dim],
+            nelements_per_axis=(3,)*dim)
+    assert mesh.dim == dim
+
+    dcoll = DiscretizationCollection(actx, mesh, order=degree)
+
+    from grudge.models.wave import WeakWaveOperator
+    wave_op = WeakWaveOperator(dcoll, c=1)
+    rhs = actx.compile(
+            lambda w: wave_op.operator(t=0, w=w))
+
+    from pytools.obj_array import make_obj_array
+    fields = make_obj_array([dcoll.zeros(actx) for i in range(dim+1)])
+
+    from grudge.tools import build_jacobian
+    mat = build_jacobian(actx, rhs, fields, 1)
+
+    import numpy.linalg as la
+    eigvals = la.eigvals(mat)
+
+    assert (eigvals.real <= 1e-12).all()
+
+    from leap.rk import stability_function, RK4MethodBuilder
+    import sympy as sp
+    stab_func = sp.lambdify(*stability_function(
+        RK4MethodBuilder.a_explicit,
+        RK4MethodBuilder.output_coeffs))
+
+    dt_est = actx.to_numpy(wave_op.estimate_rk4_timestep(actx, dcoll))
+
+    if visualize:
+        re, im = np.mgrid[-4:1:30j, -5:5:30j]
+        sf_grid = np.abs(stab_func(re+1j*im))
+
+        import matplotlib.pyplot as plt
+        plt.contour(re, im, sf_grid, [0.25, 0.5, 0.75, 0.9, 1, 1.1])
+        plt.colorbar()
+        plt.plot(dt_est * eigvals.real, dt_est * eigvals.imag, "x")
+        plt.grid()
+        plt.show()
+
+    thresh = 1+1e-8
+    max_stab = np.max(np.abs(stab_func(dt_est*eigvals)))
+    assert max_stab < thresh, max_stab
+
+    dt_factors = 2**np.linspace(0, 4, 40)[1:]
+    stable_dt_factors = [
+            dt_factor
+            for dt_factor in dt_factors
+            if np.max(np.abs(stab_func(dt_factor*dt_est*eigvals))) < thresh]
+
+    if stable_dt_factors:
+        print(f"Stable timestep is {max(stable_dt_factors):.2f}x the estimate")
+    else:
+        print("Stable timestep estimate appears to be sharp")
+    assert not stable_dt_factors or max(stable_dt_factors) < 1.5, stable_dt_factors
 
 
 # You can test individual routines by typing

@@ -32,6 +32,7 @@ Contents:
     geometry
     operators
     utils
+    models
     references
     misc
     🚀 Github <https://github.com/inducer/grudge>

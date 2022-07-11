@@ -34,7 +34,7 @@ from sys import intern
 from functools import reduce
 from loopy import ScalarCallable
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from meshmode.transform_metadata import IsDOFArray, ParameterValue
+from meshmode.transform_metadata import IsDOFArray
 
 # {{{ instructions
 
@@ -510,9 +510,6 @@ class Code:
                 insn, discardable_vars = self.get_next_step(
                     frozenset(list(context.keys())),
                     frozenset(done_insns))
-
-                print(type(insn))
-                #print(len(insn.operators))
 
                 done_insns.add(insn)
                 for name in discardable_vars:
@@ -1042,6 +1039,8 @@ class ToLoopyInstructionMapper:
                     no_numpy=True,
                     )
                 )
+        # Check if this is still needed
+        # Change this so kernels aren't modifed directly
         for arg in knl.default_entrypoint.args:
             if isinstance(arg, lp.ArrayArg):
                 arg.tags = IsDOFArray()
@@ -1157,19 +1156,6 @@ class OperatorCompiler(mappers.IdentityMapper):
     # {{{ collect various optemplate components
 
     def collect_diff_ops(self, expr):
-        """
-        mapper = mappers.BoundOperatorCollector(sym.RefDiffOperatorBase)
-        
-        import inspect
-        lines = inspect.getsource(mapper.__call__)
-        print(lines)
-        #print(expr.mapper_method)
-        print(expr)
-        #print(inspect.getsource(expr.mapper_method))
-        diff_ops = mapper(expr)
-        print(diff_ops)
-        return diff_ops        
-        """
         return mappers.BoundOperatorCollector(sym.RefDiffOperatorBase)(expr)
 
     # }}}
@@ -1343,16 +1329,6 @@ class OperatorCompiler(mappers.IdentityMapper):
                     for diff in self.diff_ops
                     if diff.op.equal_except_for_axis(expr.op)
                     and diff.field == expr.field]
-             
-            import traceback
-            #if len(all_diffs) == 1:
-            #    print("ONE OPERATOR")
-            #    traceback.print_stack()
-            #elif len(all_diffs) == 3:
-            #    print("THREE OPERATORS")
-            #    traceback.print_stack()
-            
-
 
             names = [self.name_gen("expr") for d in all_diffs]
 
