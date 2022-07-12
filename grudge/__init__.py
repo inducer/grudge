@@ -20,8 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import (
+        DiscretizationCollection, make_discretization_collection)
 
 __all__ = [
-    "DiscretizationCollection"
+    "DiscretizationCollection", "make_discretization_collection"
 ]

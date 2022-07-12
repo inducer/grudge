@@ -46,6 +46,7 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+import grudge.dof_desc as dof_desc
 
 
 class SimpleTag:
@@ -154,7 +155,10 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
         return (
             op.project(
                 dcoll, "int_faces", "all_faces",
-                dcoll.opposite_face_connection()(int_faces_func)
+                dcoll.opposite_face_connection(
+                    dof_desc.BoundaryDomainTag(
+                        dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+                    )(int_faces_func)
             )
             + sum(op.project(dcoll, tpair.dd, "all_faces", tpair.ext)
                   for tpair in op.cross_rank_trace_pairs(dcoll, myfunc,

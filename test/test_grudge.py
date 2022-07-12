@@ -38,7 +38,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array
 
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -386,7 +386,10 @@ def test_face_normal_surface(actx_factory, mesh_name):
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
     face_normal_i = actx.thaw(dcoll.normal(df))
-    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
+    face_normal_e = dcoll.opposite_face_connection(
+            dof_desc.BoundaryDomainTag(
+                dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+            )(face_normal_i)
 
     if mesh.ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
@@ -1090,6 +1093,8 @@ def test_function_symbol_array(actx_factory, array_type):
     """Test if `FunctionSymbol` distributed properly over object arrays."""
 
 
+# {{{ test norms
+
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_real(actx_factory, p):
     actx = actx_factory()
@@ -1153,6 +1158,10 @@ def test_norm_obj_array(actx_factory, p):
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
 
+# }}}
+
+
+# {{{ empty boundaries
 
 def test_empty_boundary(actx_factory):
     # https://github.com/inducer/grudge/issues/54
@@ -1171,6 +1180,35 @@ def test_empty_boundary(actx_factory):
     for component in normal:
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
+
+# }}}
+
+
+# {{{ multi-volume
+
+def test_multi_volume(actx_factory):
+    dim = 2
+    actx = actx_factory()
+
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(8,)*dim, order=4)
+
+    meg, = mesh.groups
+    x = mesh.vertices[0, meg.vertex_indices]
+    x_elem_avg = np.sum(x, axis=1)/x.shape[1]
+    volume_per_element = (x_elem_avg > 0).astype(np.int32)
+
+    from meshmode.distributed import membership_list_to_map
+    volume_to_elements = membership_list_to_map(volume_per_element)
+
+    from meshmode.mesh.processing import partition_mesh
+    volume_to_mesh = partition_mesh(mesh, volume_to_elements)
+
+    make_discretization_collection(actx, volume_to_mesh, order=4)
+
+# }}}
+
 
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
