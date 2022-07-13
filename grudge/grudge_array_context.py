@@ -421,7 +421,7 @@ class ParameterFixingPyOpenCLArrayContext(MPIPyOpenCLArrayContext):
                 dpl1, nunit_dofs_tgt = kwargs["dof_pick_lists"].shape
                 ary_bytes = kwargs["ary"].dtype.itemsize
                 dpl_bytes = kwargs["dof_pick_lists"].dtype.itemsize
-                dpli_bytes = kwargs["dof_pick_list_index"].dtype.itemsize
+                dpli_bytes = kwargs["dof_pick_list_indices"].dtype.itemsize
                 fei_bytes = kwargs["from_element_indices"].dtype.itemsize
                 # Data from source and target + the indirections arrays
                 # Assume indirection arrays and data arrays are fetched only once
