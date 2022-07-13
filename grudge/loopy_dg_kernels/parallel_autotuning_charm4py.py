@@ -57,11 +57,11 @@ def get_queue(pe_num, platform_num):
 # Breaks for some reason. Maybe because the tasks migrate and the underlying hardware
 # address changes so the queue is not for the correct device.
 # The memory will probably run out over time if many queues are created.
-#queue = get_queue(0,0)
+queue = get_queue(0,0)
 
 def test(args):
     platform_id, knl, tlist_generator, params, test_fn = args
-    queue = get_queue(charm.myPe(), platform_id)
+    #queue = get_queue(charm.myPe(), platform_id)
     result = run_single_param_set(queue, knl, tlist_generator, params, test_fn) 
     return result
 
