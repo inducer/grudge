@@ -761,6 +761,8 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                     slabs = (0,0) if l1 == n_to_nodes else (0,1)
                     program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
                                                 inner_tag="l.1", slabs=slabs)
+
+
             #program = lp.add_inames_for_unused_hw_axes(program)   
             #program = lp.set_options(program, "write_cl")
         elif "actx_special" in program.default_entrypoint.name: # Fixed
@@ -867,15 +869,18 @@ class COrderedGrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
 
             # Broken, plus if elements are fetched only once this helps not.
             #if nelements*n_to_nodes <= self.queue.device.local_mem_size // ary_itemsize:
-            #    program = lp.add_prefetch(program, "ary", "iel,idof", temporary_address_space=lp.AddressSpace.LOCAL, default_tag="l.auto")
- 
+
             #program = set_memory_layout(program)
+            #program = lp.add_prefetch(program, "dof_pick_lists", temporary_address_space=lp.AddressSpace.LOCAL)
             if nelements*n_to_nodes > 0:
                 if nelements*n_to_nodes <= self.queue.device.max_work_group_size:
                     program = lp.split_iname(program, "iel", nelements, outer_tag="g.0",
                                                 inner_tag="l.0", slabs=(0,0))
                     program = lp.split_iname(program, "idof", n_to_nodes, outer_tag="g.1",
                                                 inner_tag="l.1", slabs=(0,0))
+                    #program = lp.add_prefetch(program, "dof_pick_list_index", "iel_inner", default_tag="l.auto")
+                    #program = lp.add_prefetch(program, "from_element_indices", "iel_inner", default_tag="l.auto")
+                    #program = lp.add_prefetch(program, "dof_pick_lists", "", temporary_address_space=lp.AddressSpace.LOCAL)
                 else:
                     slabs = (0,0) if outer == nelements else (0,1)
                     program = lp.split_iname(program, "iel", outer, outer_tag="g.0",
@@ -885,7 +890,13 @@ class COrderedGrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
                     slabs = (0,0) if l1 == n_to_nodes else (0,1)
                     program = lp.split_iname(program, "idof", l1, outer_tag="g.1",
                                                 inner_tag="l.1", slabs=slabs)
-            #program = lp.add_inames_for_unused_hw_axes(program)   
+                    # Prefetching these two just slows the kernel, not sure about dof_pick_lists
+                    #program = lp.add_prefetch(program, "dof_pick_list_index", "iel_inner_outer,iel_inner_inner", default_tag="l.auto")
+                    #program = lp.add_prefetch(program, "from_element_indices", "iel_inner_outer,iel_inner_inner", default_tag="l.auto")
+                    #program = lp.add_prefetch(program, "dof_pick_lists", "idof_outer,idof_inner", \
+                    #        temporary_address_space=lp.AddressSpace.LOCAL, default_tag="l.auto")
+
+            program = lp.add_inames_for_unused_hw_axes(program)
             #program = lp.set_options(program, "write_cl")
         elif "actx_special" in program.default_entrypoint.name: # Fixed
             # Sometimes sqrt is called on single values.
@@ -1018,6 +1029,7 @@ autotuned_kernels = {"einsum3to2_kernel",
                      "diff", 
                      "lp_nodes",
                      "grudge_elementwise_sum_knl",
+                     "resample_by_picking_single_indirection",
                      #"resample_by_picking_group", # Will require implementing a special testing function
                      "smooth_comp" } # This last one is a mirgecom kernel. Should probably have some class variable.
 
@@ -1037,7 +1049,7 @@ class AutotuningArrayContext(GrudgeArrayContext):
         elif program.default_entrypoint.name == "einsum5to3_kernel":
             from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_tlist_generator as tlist_generator
             from grudge.loopy_dg_kernels.generators import einsum5to3_kernel_pspace_generator as pspace_generator
-        elif program.default_entrypoint.name == "einsum2to2_kernel" or program.default_entrypoint.name == "resample_by_picking_group":
+        elif program.default_entrypoint.name == "einsum2to2_kernel" or program.default_entrypoint.name == "resample_by_picking_single_indirection":
             from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_tlist_generator as tlist_generator
             from grudge.loopy_dg_kernels.generators import einsum2to2_kernel_pspace_generator as pspace_generator
         elif program.default_entrypoint.name == "grudge_elementwise_sum_knl":
