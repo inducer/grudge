@@ -189,10 +189,11 @@ def main(ctx_factory, dim=2, order=3,
     from grudge.array_context import get_reasonable_array_context_class
     actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
     if lazy:
-        actx = actx_class(comm, queue, mpi_base_tag=15000)
+        actx = actx_class(comm, queue, mpi_base_tag=15000,
+                allocator=cl_tools.SVMAllocator(cl_ctx, cl.svm_mem_flags.READ_WRITE, queue=queue))
     else:
         actx = actx_class(comm, queue,
-                allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+                allocator=cl_tools.SVMAllocator(cl_ctx, cl.svm_mem_flags.READ_WRITE, queue=queue),
                 force_device_scalars=True)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
