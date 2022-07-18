@@ -1109,14 +1109,14 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
 
         data.append(actx.einsum("ifj,fej,fej->ei",
                         ref_fm_mat,
-                        surf_ae_i.reshape(
+                        actx.tag_axis(1, DiscretizationElementAxisTag(), surf_ae_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                -1),
-                        vec_i.reshape(
+                                surf_ae_i.shape[-1])),
+                        actx.tag_axis(0, DiscretizationFaceAxisTag(), vec_i.reshape(
                                 vgrp.mesh_el_group.nfaces,
                                 vgrp.nelements,
-                                afgrp.nunit_dofs),
+                                afgrp.nunit_dofs)),
                         arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
                         tagged=(FirstAxisIsElementsTag(),kd_tag)))
         
