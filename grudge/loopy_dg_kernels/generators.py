@@ -372,18 +372,19 @@ def einsum2to2_kernel_pspace_generator(queue, knl, start_param=None):
 
     # Iterate over five search dimensions
     parameter_list = []
-    for kii in k_inner_inner_options(start_val=kii_s):
-        for kio in k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
-            kio_s = None # Set to None so will form the full set the next time around
-            for iii in i_inner_inner_options(n_out, kii,
-                    max_work_group_size=max_work_group_size, start_val=iii_s):
-                iii_s = None
-                for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
-                    iio_s = None
-                    #for ji in j_inner_options(n_in, start_val=ji_s):
-                    #    ji_s = None
-                    choices = (kio, kii, iio, iii)
-                    parameter_list.append(choices)
+    if n_elem > 0:
+        for kii in k_inner_inner_options(start_val=kii_s):
+            for kio in k_inner_outer_options(n_in, kii, local_mem_size, fp_bytes=fp_bytes,start_val=kio_s):
+                kio_s = None # Set to None so will form the full set the next time around
+                for iii in i_inner_inner_options(n_out, kii,
+                        max_work_group_size=max_work_group_size, start_val=iii_s):
+                    iii_s = None
+                    for iio in i_inner_outer_options(n_out, iii, start_val=iio_s):
+                        iio_s = None
+                        #for ji in j_inner_options(n_in, start_val=ji_s):
+                        #    ji_s = None
+                        choices = (kio, kii, iio, iii)
+                        parameter_list.append(choices)
 
     return parameter_list
 
