@@ -695,7 +695,7 @@ class COrderedKernelSavingArrayContext(ParameterFixingPyOpenCLArrayContext):
 
             else:
                 print("PICKLED FILE ALREADY EXISTS", file_path)
-        #else:
+
         program = super().transform_loopy_program(program)
 
         return program
@@ -815,11 +815,16 @@ class GrudgeArrayContext(FortranOrderedArrayContext):
                                         inner_tag="l.1", slabs=(0, 0))
 
         elif "einsum3to1_kernel" in program.default_entrypoint.name:
-            program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
-            program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0")
+
+            Ne = 0
+            for arg in program.default_entrypoint.args:
+                if arg.name == "Ne":
+                    Ne = arg.tags[0].value
+
+            if Ne != 0:
+                program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
+                program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
             program = lp.prioritize_loops(program, "f,j")
-
-
 
         #else:
             #print(program)
@@ -955,9 +960,18 @@ class COrderedGrudgeArrayContext(ParameterFixingPyOpenCLArrayContext):
                                         inner_tag="l.0")
             program = lp.split_iname(program, "i1", 32, outer_tag="g.1",
                                         inner_tag="l.1", slabs=(0, 0))
-        elif "einsum3to1_kernel" in program.default_entrypoint.name:
-            program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
-            program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0")
+        elif "einsum3to1_kernel" == program.default_entrypoint.name:
+
+            print("================EINSUM3TO1_KERNEL=====================")
+            #program = set_memory_layout(program, order="C")
+            Ne = 0
+            for arg in program.default_entrypoint.args:
+                if arg.name == "Ne":
+                    Ne = arg.tags[0].value
+
+            if Ne != 0:
+                program = lp.split_iname(program, "e", 128, outer_tag="g.0", slabs=(0,1))
+                program = lp.split_iname(program, "e_inner", 32, outer_tag="ilp", inner_tag="l.0", slabs=(0,1))
             program = lp.prioritize_loops(program, "f,j")
 
         #else:
