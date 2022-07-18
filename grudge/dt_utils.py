@@ -291,24 +291,25 @@ def dt_geometric_factors(
     )
 
     data = []
-    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, face_areas):
 
-        fp_format = face_ae_i.dtype
-        Ne = vgrp.nelements
-        Nf = vgrp.mesh_el_group.nfaces
-        Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
-        
-        kernel_data = [
-            lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
-            #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
-            lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
-            lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
-            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
-            ...
-        ]
-        kd_tag = KernelDataTag(kernel_data)
+    if actx.supports_nonscalar_broadcasting:
+        for vgrp, face_ae_i in zip(volm_discr.groups, face_areas):
 
-        if actx.supports_nonscalar_broadcasting:
+            fp_format = face_ae_i.dtype
+            Ne = vgrp.nelements
+            Nf = vgrp.mesh_el_group.nfaces
+            Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
+
+            kernel_data = [
+                lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+                #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
+                lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+                lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+                lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+                ...
+            ]
+            kd_tag = KernelDataTag(kernel_data)
+
             data.append(actx.einsum("fej->e",
                         tag_axes(actx, {
                             0: DiscretizationFaceAxisTag(),
@@ -318,7 +319,25 @@ def dt_geometric_factors(
                         #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1])),
                         face_ae_i.reshape(Nf, Ne, Nj)),
                         tagged=(FirstAxisIsElementsTag(),kd_tag)))
-        else:
+    else:
+
+        for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, face_areas):
+            fp_format = face_ae_i.dtype
+            Ne = vgrp.nelements
+            Nf = vgrp.mesh_el_group.nfaces
+            Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
+            
+            kernel_data = [
+                lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+                #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
+                lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+                lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+                lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+                ...
+            ]
+            kd_tag = KernelDataTag(kernel_data)
+
+
             data.append(actx.einsum("fej->e",
                         #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1]),
                         face_ae_i.reshape(Nf, Ne, Nj),
