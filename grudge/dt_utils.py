@@ -296,7 +296,7 @@ def dt_geometric_factors(
         fp_format = face_ae_i.dtype
         Ne = vgrp.nelements
         Nf = vgrp.mesh_el_group.nfaces
-        Nj = afgrp.nunit_dofs
+        Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
         
         kernel_data = [
             lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
@@ -310,13 +310,18 @@ def dt_geometric_factors(
 
         if actx.supports_nonscalar_broadcasting:
             data.append(actx.einsum("fej->e",
-                        face_ae_i.reshape(Nf, Ne, -1),
-                        #face_ae_i.reshape(Nf, Ne, Nj),
+                        tag_axes(actx, {
+                            0: DiscretizationFaceAxisTag(),
+                            1: DiscretizationElementAxisTag(),
+                            2: DiscretizationDOFAxisTag()
+                            },
+                        #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1])),
+                        face_ae_i.reshape(Nf, Ne, Nj)),
                         tagged=(FirstAxisIsElementsTag(),kd_tag)))
         else:
             data.append(actx.einsum("fej->e",
-                        face_ae_i.reshape(Nf, Ne, -1),
-                        #face_ae_i.reshape(Nf, Ne, Nj),
+                        #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1]),
+                        face_ae_i.reshape(Nf, Ne, Nj),
                         tagged=(FirstAxisIsElementsTag(),kd_tag)) / afgrp.nunit_dofs)
 
     surface_areas = DOFArray(actx, data=tuple(data))
