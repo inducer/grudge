@@ -6,6 +6,7 @@ def main():
 
     version_dict = {}
     init_filename = "grudge/version.py"
+
     exec(compile(open(init_filename, "r").read(), init_filename, "exec"),
             version_dict)
 
@@ -47,9 +48,12 @@ def main():
             "meshmode>=2020.2",
             "pyopencl>=2013.1",
             "pymbolic>=2013.2",
-            "loopy>=2020.2",
+            "loopy>=2020.2.2",
             "cgen>=2013.1.2",
-            "dataclasses>=0.7;python_version<='3.6'"
+            "hjson",
+            #"gmsh",
+            "import_resources; python_version<'3.7'",
+            "dataclasses>=0.7; python_version<='3.6'"
         ],
     )
 

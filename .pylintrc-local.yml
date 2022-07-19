@@ -1,14 +1,6 @@
 - arg: ignore
   val:
     - mappers
-    - gas_dynamics
-    - burgers.py
-    - diffusion.py
-    - dt_finding.py
-    - nd_calculus.py
-    - pml.py
-    - poisson.py
-    - second_order.py
 - arg: ignored-modules
   val:
   - sympy

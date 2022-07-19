@@ -38,18 +38,63 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array
 
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
 
 
 import pytest
+from meshmode.array_context import generate_pytest_generate_tests
+from grudge.grudge_array_context import GrudgeArrayContext
+pytest_generate_tests = generate_pytest_generate_tests(GrudgeArrayContext)
 
 import logging
 
 logger = logging.getLogger(__name__)
 
+
+# { {{ inverse metric
+
+@pytest.mark.parametrize("dim", [2, 3])
+def test_inverse_metric(actx_factory, dim):
+    actx = actx_factory()
+
+    mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(6,)*dim, order=4)
+
+    def m(x):
+        result = np.empty_like(x)
+        result[0] = (
+                1.5*x[0] + np.cos(x[0])
+                + 0.1*np.sin(10*x[1]))
+        result[1] = (
+                0.05*np.cos(10*x[0])
+                + 1.3*x[1] + np.sin(x[1]))
+        if len(x) == 3:
+            result[2] = x[2]
+        return result
+
+    from meshmode.mesh.processing import map_mesh
+    mesh = map_mesh(mesh, m)
+
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
+
+    from grudge.geometry import \
+        forward_metric_derivative_mat, inverse_metric_derivative_mat
+
+    mat = forward_metric_derivative_mat(actx, dcoll).dot(
+        inverse_metric_derivative_mat(actx, dcoll))
+
+    for i in range(mesh.dim):
+        for j in range(mesh.dim):
+            tgt = 1 if i == j else 0
+
+            err = flat_norm(mat[i, j] - tgt, ord=np.inf)
+            logger.info("error[%d, %d]: %.5e", i, j, err)
+            assert err < 1.0e-12, (i, j, err)
+
+# }}}
 
 # {{{ mass operator trig integration
 
@@ -341,7 +386,10 @@ def test_face_normal_surface(actx_factory, mesh_name):
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
     face_normal_i = actx.thaw(dcoll.normal(df))
-    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
+    face_normal_e = dcoll.opposite_face_connection(
+            dof_desc.BoundaryDomainTag(
+                dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+            )(face_normal_i)
 
     if mesh.ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
@@ -618,9 +666,8 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
             or eoc_local.order_estimate() > order - 0.5
 
 # }}}
-
-
 # {{{ models: advection
+
 
 @pytest.mark.parametrize(("mesh_name", "mesh_pars"), [
     ("segment", [8, 16, 32]),
@@ -780,8 +827,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
 # }}}
 
-
 # {{{ models: maxwell
+
 
 @pytest.mark.parametrize("order", [3, 4, 5])
 def test_convergence_maxwell(actx_factory,  order):
@@ -857,8 +904,8 @@ def test_convergence_maxwell(actx_factory,  order):
 
 # }}}
 
-
 # {{{ models: variable coefficient advection oversampling
+
 
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
@@ -941,6 +988,34 @@ def test_improvement_quadrature(actx_factory, order):
 
 # }}}
 
+# {{{ operator collector determinism
+
+
+def test_op_collector_order_determinism():
+    class TestOperator(sym.Operator):
+
+        def __init__(self):
+            sym.Operator.__init__(self, dof_desc.DD_VOLUME, dof_desc.DD_VOLUME)
+
+        mapper_method = "map_test_operator"
+
+    from grudge.symbolic.mappers import BoundOperatorCollector
+
+    class TestBoundOperatorCollector(BoundOperatorCollector):
+
+        def map_test_operator(self, expr):
+            return self.map_operator(expr)
+
+    v0 = sym.var("v0")
+    ob0 = sym.OperatorBinding(TestOperator(), v0)
+
+    v1 = sym.var("v1")
+    ob1 = sym.OperatorBinding(TestOperator(), v1)
+
+    # The output order isn't significant, but it should always be the same.
+    assert list(TestBoundOperatorCollector(TestOperator)(ob0 + ob1)) == [ob0, ob1]
+
+# }}}
 
 # {{{ bessel
 
@@ -978,6 +1053,47 @@ def test_bessel(actx_factory):
 
 # }}}
 
+# {{{ function symbol
+
+
+def test_external_call(actx_factory):
+    actx = actx_factory()
+
+    def double(queue, x):
+        return 2 * x
+
+    dims = 2
+
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(0,) * dims, b=(1,) * dims, nelements_per_axis=(4,) * dims)
+    discr = DiscretizationCollection(actx, mesh, order=1)
+
+    ones = sym.Ones(dof_desc.DD_VOLUME)
+    op = (
+            ones * 3
+            + sym.FunctionSymbol("double")(ones))
+
+    from grudge.function_registry import (
+            base_function_registry, register_external_function)
+
+    freg = register_external_function(
+            base_function_registry,
+            "double",
+            implementation=double,
+            dd=dof_desc.DD_VOLUME)
+
+    bound_op = bind(discr, op, function_registry=freg)
+
+    result = bound_op(actx, double=double)
+    assert actx.to_numpy(flatten(result) == 5).all()
+
+
+@pytest.mark.parametrize("array_type", ["scalar", "vector"])
+def test_function_symbol_array(actx_factory, array_type):
+    """Test if `FunctionSymbol` distributed properly over object arrays."""
+
+
+# {{{ test norms
 
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_real(actx_factory, p):
@@ -1042,6 +1158,10 @@ def test_norm_obj_array(actx_factory, p):
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
 
+# }}}
+
+
+# {{{ empty boundaries
 
 def test_empty_boundary(actx_factory):
     # https://github.com/inducer/grudge/issues/54
@@ -1061,9 +1181,38 @@ def test_empty_boundary(actx_factory):
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
 
+# }}}
+
+
+# {{{ multi-volume
+
+def test_multi_volume(actx_factory):
+    dim = 2
+    actx = actx_factory()
+
+    mesh = mgen.generate_regular_rect_mesh(
+            a=(-0.5,)*dim, b=(0.5,)*dim,
+            nelements_per_axis=(8,)*dim, order=4)
+
+    meg, = mesh.groups
+    x = mesh.vertices[0, meg.vertex_indices]
+    x_elem_avg = np.sum(x, axis=1)/x.shape[1]
+    volume_per_element = (x_elem_avg > 0).astype(np.int32)
+
+    from meshmode.distributed import membership_list_to_map
+    volume_to_elements = membership_list_to_map(volume_per_element)
+
+    from meshmode.mesh.processing import partition_mesh
+    volume_to_mesh = partition_mesh(mesh, volume_to_elements)
+
+    make_discretization_collection(actx, volume_to_mesh, order=4)
+
+# }}}
+
 
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
+
 
 if __name__ == "__main__":
     import sys

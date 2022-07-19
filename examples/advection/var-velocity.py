@@ -31,6 +31,7 @@ import pyopencl.tools as cl_tools
 
 from grudge.array_context import PyOpenCLArrayContext
 
+from grudge.grudge_array_context import GrudgeArrayContext
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
 
@@ -100,6 +101,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
         flux_type="upwind"):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+    #actx = GrudgeArrayContext(queue)
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),

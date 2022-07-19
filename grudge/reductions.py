@@ -94,7 +94,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
     :returns: a nonegative scalar denoting the norm.
     """
     if dd is None:
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
 
     from arraycontext import get_container_context_recursively
     actx = get_container_context_recursively(vec)
@@ -128,7 +128,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     if comm is None:
         return nodal_sum_loc(dcoll, dd, vec)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
 
     from arraycontext import get_container_context_recursively
@@ -174,7 +174,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     if comm is None:
         return nodal_min_loc(dcoll, dd, vec, initial=initial)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
     actx = vec.array_context
 
@@ -231,7 +231,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     if comm is None:
         return nodal_max_loc(dcoll, dd, vec, initial=initial)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
     actx = vec.array_context
 
@@ -320,7 +320,7 @@ def _apply_elementwise_reduction(
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -335,6 +335,7 @@ def _apply_elementwise_reduction(
 
     actx = vec.array_context
 
+    import loopy as lp
     if actx.supports_nonscalar_broadcasting:
         return DOFArray(
             actx,
@@ -344,11 +345,12 @@ def _apply_elementwise_reduction(
             )
         )
     else:
-        @memoize_in(actx, (_apply_elementwise_reduction,
-                        "elementwise_%s_prg" % op_name))
-        def elementwise_prg():
+        @memoize_in(actx, (_apply_elementwise_reduction, dd,
+                           "elementwise_%s_prg" % op_name))
+        def elementwise_prg(nelements, ndofs, fp_format):
             # FIXME: This computes the reduction value redundantly for each
             # output DOF.
+            from grudge.grudge_tags import IsDOFArray, ParameterValue
             t_unit = make_loopy_program(
                 [
                     "{[iel]: 0 <= iel < nelements}",
@@ -357,21 +359,31 @@ def _apply_elementwise_reduction(
                 """
                     result[iel, idof] = %s(jdof, operand[iel, jdof])
                 """ % op_name,
+                kernel_data=[
+                    lp.GlobalArg("result", fp_format, shape=("nelements", "ndofs"),
+                        tags=[IsDOFArray()]),
+                    lp.GlobalArg("operand", fp_format, shape=("nelements", "ndofs"),
+                        tags=[IsDOFArray()]),
+                    lp.ValueArg("ndofs", tags=[ParameterValue(ndofs)]),
+                    lp.ValueArg("nelements", tags=[ParameterValue(nelements)]),
+                    ...
+                ],
                 name="grudge_elementwise_%s_knl" % op_name
             )
-            import loopy as lp
             from meshmode.transform_metadata import (
                     ConcurrentElementInameTag, ConcurrentDOFInameTag)
             return lp.tag_inames(t_unit, {
                 "iel": ConcurrentElementInameTag(),
                 "idof": ConcurrentDOFInameTag()})
 
-        return actx.tag_axis(1, DiscretizationDOFAxisTag(),
-                DOFArray(
-                    actx,
-                    data=tuple(
-                        actx.call_loopy(elementwise_prg(), operand=vec_i)["result"]
-                        for vec_i in vec)))
+        data = []
+        for vec_i in vec:
+            iel, jdof = vec_i.shape
+            fp_format = vec_i.dtype
+            data.append(actx.call_loopy(elementwise_prg(iel, jdof, fp_format),
+                            operand=vec_i)["result"])
+
+        return actx.tag_axis(1, DiscretizationDOFAxisTag(), DOFArray(actx, data=tuple(data)))
 
 
 def elementwise_sum(
@@ -485,7 +497,7 @@ def elementwise_integral(
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:

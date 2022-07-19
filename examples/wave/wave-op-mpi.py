@@ -29,6 +29,9 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
+from grudge.grudge_array_context import (AutotuningArrayContext, 
+    GrudgeArrayContext, ParameterFixingPyOpenCLArrayContext)
 from arraycontext import (
     with_container_arithmetic,
     dataclass_array_container
@@ -181,7 +184,22 @@ def bump(actx, dcoll, t=0):
 def main(ctx_factory, dim=2, order=3,
          visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False):
     cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
+    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+    if lazy:
+        actx = PytatoPyOpenCLArrayContext(queue)
+    else:
+        #actx = ParameterFixingPyOpenCLArrayContext(
+        actx = AutotuningArrayContext(
+        #actx = GrudgeArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+            force_device_scalars=True,
+        )
+        #actx = PyOpenCLArrayContext(
+        #    queue,
+        #    allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
+        #    force_device_scalars=True,
+        #)
 
     comm = MPI.COMM_WORLD
     num_parts = comm.Get_size()
@@ -198,7 +216,9 @@ def main(ctx_factory, dim=2, order=3,
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
     mesh_dist = MPIMeshDistributor(comm)
 
-    nel_1d = 16
+    order=2
+    dim = 3
+    nel_1d = 2**5
 
     if mesh_dist.is_mananger_rank():
         if use_nonaffine_mesh:
@@ -271,6 +291,8 @@ def main(ctx_factory, dim=2, order=3,
     t = 0
     t_final = 3
     istep = 0
+    end_step = 10
+
     while t < t_final:
         start = time.time()
 

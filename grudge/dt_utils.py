@@ -43,7 +43,9 @@ THE SOFTWARE.
 """
 
 
+from typing import Optional, Sequence
 import numpy as np
+import loopy as lp
 
 from arraycontext import ArrayContext, Scalar, tag_axes
 from arraycontext.metadata import NameHint
@@ -52,8 +54,10 @@ from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationFaceAxisTag,
                                          DiscretizationElementAxisTag)
 
-from grudge.dof_desc import DD_VOLUME, DOFDesc, as_dofdesc
+from grudge.dof_desc import (
+        DD_VOLUME_ALL, DOFDesc, as_dofdesc, BoundaryDomainTag, FACE_RESTR_ALL)
 from grudge.discretization import DiscretizationCollection
+from grudge.grudge_tags import KernelDataTag, ParameterValue, IsFaceDOFArray, IsDOFArray
 
 import grudge.op as op
 
@@ -63,7 +67,8 @@ from pytools import memoize_on_first_arg, memoize_in
 
 
 def characteristic_lengthscales(
-        actx: ArrayContext, dcoll: DiscretizationCollection) -> DOFArray:
+        actx: ArrayContext, dcoll: DiscretizationCollection,
+        dd: Optional[DOFDesc] = None) -> DOFArray:
     r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
     each node. The characteristic length scale is mainly useful for estimating
     the stable time step size. E.g. for a hyperbolic system, an estimate of the
@@ -79,7 +84,7 @@ def characteristic_lengthscales(
     node distance on the reference cell (see :func:`dt_non_geometric_factors`),
     and :math:`r_D` is the inradius of the cell (see :func:`dt_geometric_factors`).
 
-    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing a
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing a
         characteristic lengthscale for each element, at each nodal location.
 
     .. note::
@@ -91,7 +96,7 @@ def characteristic_lengthscales(
         methods has been used as a guide. Any concrete time integrator will
         likely require scaling of the values returned by this routine.
     """
-    @memoize_in(dcoll, (characteristic_lengthscales,
+    @memoize_in(dcoll, (characteristic_lengthscales, dd,
                         "compute_characteristic_lengthscales"))
     def _compute_characteristic_lengthscales():
         return actx.freeze(
@@ -103,15 +108,16 @@ def characteristic_lengthscales(
                             # corresponding group non-geometric factor
                             cng * geo_facts
                             for cng, geo_facts in zip(
-                                dt_non_geometric_factors(dcoll),
-                                actx.thaw(dt_geometric_factors(dcoll)))))))
+                                dt_non_geometric_factors(dcoll, dd),
+                                actx.thaw(dt_geometric_factors(dcoll, dd)))))))
 
     return actx.thaw(_compute_characteristic_lengthscales())
 
 
 @memoize_on_first_arg
 def dt_non_geometric_factors(
-        dcoll: DiscretizationCollection, dd=None) -> list:
+        dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None
+        ) -> Sequence[float]:
     r"""Computes the non-geometric scale factors following [Hesthaven_2008]_,
     section 6.4, for each element group in the *dd* discretization:
 
@@ -128,7 +134,7 @@ def dt_non_geometric_factors(
         node distance on the reference element for each group.
     """
     if dd is None:
-        dd = DD_VOLUME
+        dd = DD_VOLUME_ALL
 
     discr = dcoll.discr_from_dd(dd)
     min_delta_rs = []
@@ -160,7 +166,8 @@ def dt_non_geometric_factors(
 
 @memoize_on_first_arg
 def h_max_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> Scalar:
+        dcoll: DiscretizationCollection, dim=None,
+        dd: Optional[DOFDesc] = None) -> Scalar:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -175,7 +182,7 @@ def h_max_from_volume(
     from grudge.reductions import nodal_max, elementwise_sum
 
     if dd is None:
-        dd = DD_VOLUME
+        dd = DD_VOLUME_ALL
     dd = as_dofdesc(dd)
 
     if dim is None:
@@ -191,7 +198,8 @@ def h_max_from_volume(
 
 @memoize_on_first_arg
 def h_min_from_volume(
-        dcoll: DiscretizationCollection, dim=None, dd=None) -> Scalar:
+        dcoll: DiscretizationCollection, dim=None,
+        dd: Optional[DOFDesc] = None) -> Scalar:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -206,7 +214,7 @@ def h_min_from_volume(
     from grudge.reductions import nodal_min, elementwise_sum
 
     if dd is None:
-        dd = DD_VOLUME
+        dd = DD_VOLUME_ALL
     dd = as_dofdesc(dd)
 
     if dim is None:
@@ -221,7 +229,7 @@ def h_min_from_volume(
 
 
 def dt_geometric_factors(
-        dcoll: DiscretizationCollection, dd=None) -> DOFArray:
+        dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
     section 6.4, defined as the inradius (radius of an inscribed circle/sphere).
 
@@ -244,7 +252,7 @@ def dt_geometric_factors(
     from meshmode.discretization.poly_element import SimplexElementGroupBase
 
     if dd is None:
-        dd = DD_VOLUME
+        dd = DD_VOLUME_ALL
 
     actx = dcoll._setup_actx
     volm_discr = dcoll.discr_from_dd(dd)
@@ -271,7 +279,8 @@ def dt_geometric_factors(
         # Inscribed "circle" radius is half the cell size
         return actx.freeze(cell_vols/2)
 
-    dd_face = DOFDesc("all_faces", dd.discretization_tag)
+    dd_face = dd.with_domain_tag(
+            BoundaryDomainTag(FACE_RESTR_ALL, dd.domain_tag.tag))
     face_discr = dcoll.discr_from_dd(dd_face)
 
     # Compute areas of each face
@@ -281,6 +290,62 @@ def dt_geometric_factors(
         )
     )
 
+    data = []
+
+    if actx.supports_nonscalar_broadcasting:
+        for vgrp, face_ae_i in zip(volm_discr.groups, face_areas):
+
+            fp_format = face_ae_i.dtype
+            Ne = vgrp.nelements
+            Nf = vgrp.mesh_el_group.nfaces
+            Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
+
+            kernel_data = [
+                lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+                #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
+                lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+                lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+                lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+                ...
+            ]
+            kd_tag = KernelDataTag(kernel_data)
+
+            data.append(actx.einsum("fej->e",
+                        tag_axes(actx, {
+                            0: DiscretizationFaceAxisTag(),
+                            1: DiscretizationElementAxisTag(),
+                            2: DiscretizationDOFAxisTag()
+                            },
+                        #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1])),
+                        face_ae_i.reshape(Nf, Ne, Nj)),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)))
+    else:
+
+        for vgrp, afgrp, face_ae_i in zip(volm_discr.groups, face_discr.groups, face_areas):
+            fp_format = face_ae_i.dtype
+            Ne = vgrp.nelements
+            Nf = vgrp.mesh_el_group.nfaces
+            Nj = face_ae_i.shape[-1]#afgrp.nunit_dofs
+            
+            kernel_data = [
+                lp.GlobalArg("arg0", fp_format, strides=lp.auto, shape=(Nf, Ne, Nj), tags=[IsFaceDOFArray()]), 
+                #lp.GlobalArg("out", fp_format, is_output=True), # Specifying causes wrong soln
+                lp.ValueArg("Nf", tags=[ParameterValue(Nf)]),
+                lp.ValueArg("Nj", tags=[ParameterValue(Nj)]),
+                lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+                ...
+            ]
+            kd_tag = KernelDataTag(kernel_data)
+
+
+            data.append(actx.einsum("fej->e",
+                        #face_ae_i.reshape(Nf, Ne, face_ae_i.shape[-1]),
+                        face_ae_i.reshape(Nf, Ne, Nj),
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)) / afgrp.nunit_dofs)
+
+    surface_areas = DOFArray(actx, data=tuple(data))
+
+    """
     if actx.supports_nonscalar_broadcasting:
         # Compute total surface area of an element by summing over the
         # individual face areas
@@ -325,14 +390,30 @@ def dt_geometric_factors(
                                                   face_areas)
             )
         )
+    """
 
-    return actx.freeze(
-            actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),
-                DOFArray(actx,
-                    data=tuple(
-                        actx.einsum("e,ei->ei", 1/sae_i, cv_i,
-                            tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
-                        for cv_i, sae_i in zip(cell_vols, surface_areas)))))
+    data = []
+    for cv_i, sae_i, in zip(cell_vols, surface_areas):
+
+        fp_format = cv_i.dtype
+        Ne, Ni = cv_i.shape
+ 
+        kernel_data = [
+            lp.GlobalArg("arg0", sae_i.dtype, shape=(Ne,), strides=lp.auto), 
+            lp.GlobalArg("arg1", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()]), 
+            lp.GlobalArg("out", fp_format, shape=(Ne, Ni), tags=[IsDOFArray()], is_output=True),
+            lp.ValueArg("Ni", tags=[ParameterValue(Ni)]),
+            lp.ValueArg("Ne", tags=[ParameterValue(Ne)]),
+            ...
+        ]
+        kd_tag = KernelDataTag(kernel_data)
+
+        data.append(actx.einsum("e,ei->ei",
+                        1/sae_i,
+                        cv_i,
+                        tagged=(FirstAxisIsElementsTag(),kd_tag)) * dcoll.dim)
+
+    return actx.freeze(actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),DOFArray(actx, data=tuple(data))))
 
 # }}}
 

@@ -32,12 +32,14 @@ import pyopencl.tools as cl_tools
 
 from grudge.array_context import PyOpenCLArrayContext
 
+from grudge.grudge_array_context import GrudgeArrayContext
 from grudge import DiscretizationCollection, shortcuts
 
 
 def main(write_output=True):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
+    #actx = GrudgeArrayContext(queue)
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),

@@ -35,7 +35,11 @@ from grudge import DiscretizationCollection
 
 from pytools.obj_array import flat_obj_array
 
+<<<<<<< HEAD
+from grudge.grudge_array_context import GrudgeArrayContext
+=======
 import grudge.op as op
+>>>>>>> upstream/main
 
 import logging
 logger = logging.getLogger(__name__)
@@ -44,12 +48,18 @@ logger = logging.getLogger(__name__)
 def main(ctx_factory, dim=2, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+<<<<<<< HEAD
+    actx = GrudgeArrayContext(queue)
+
+    dims = 3
+=======
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,
     )
 
+>>>>>>> upstream/main
     from meshmode.mesh.generation import generate_regular_rect_mesh
     mesh = generate_regular_rect_mesh(
             a=(-0.5,)*dim,

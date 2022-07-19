@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+from grudge.grudge_array_context import GrudgeArrayContext
 import pyopencl.tools as cl_tools
 
 from grudge.array_context import MPIPyOpenCLArrayContext
@@ -41,10 +42,6 @@ import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-class WaveTag:
-    pass
 
 
 def main(ctx_factory, dim=2, order=4, visualize=False):

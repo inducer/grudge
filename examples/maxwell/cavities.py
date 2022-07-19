@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 def main(ctx_factory, dim=3, order=4, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
+
     actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),

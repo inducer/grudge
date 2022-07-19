@@ -1,0 +1,8 @@
+{
+  # The idea with mapping devices to uuids is that multiple devices can map to 
+  # a single set of transformations.
+	"NVIDIA Titan V": 72a3ce98-5d21-48bf-b402-6ee96bafd1b6 
+	"NVIDIA GTX Titan X": 1d7cab16-19bd-4474-95f2-44ed1c0e60df
+}
+
+

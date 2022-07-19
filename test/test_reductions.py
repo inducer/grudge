@@ -149,7 +149,7 @@ def test_elementwise_reductions(actx_factory):
         min_res = np.empty(grp_f.shape)
         max_res = np.empty(grp_f.shape)
         sum_res = np.empty(grp_f.shape)
-        for eidx in range(dcoll.mesh.nelements):
+        for eidx in range(mesh.nelements):
             element_data = actx.to_numpy(grp_f[eidx])
             min_res[eidx, :] = np.min(element_data)
             max_res[eidx, :] = np.max(element_data)
@@ -272,7 +272,7 @@ def test_elementwise_reductions_with_container(actx_factory):
             min_res = np.empty(grp_f.shape)
             max_res = np.empty(grp_f.shape)
             sum_res = np.empty(grp_f.shape)
-            for eidx in range(dcoll.mesh.nelements):
+            for eidx in range(mesh.nelements):
                 element_data = actx.to_numpy(grp_f[eidx])
                 min_res[eidx, :] = np.min(element_data)
                 max_res[eidx, :] = np.max(element_data)

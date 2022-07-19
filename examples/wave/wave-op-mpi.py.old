@@ -1,3 +1,5 @@
+"""Minimal example of a grudge driver."""
+
 __copyright__ = """
 Copyright (C) 2020 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -29,33 +31,32 @@ import numpy.linalg as la  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
+from arraycontext import thaw
 from grudge.array_context import PyOpenCLArrayContext
 
-from grudge.grudge_array_context import GrudgeArrayContext, AutoTuningArrayContext
+from grudge.grudge_array_context import GrudgeArrayContext
 from pytools.obj_array import flat_obj_array
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
-from grudge.shortcuts import make_visualizer, rk4_step
+from grudge.shortcuts import make_visualizer
 
 import grudge.op as op
 
 import logging
 logger = logging.getLogger(__name__)
 
+from mpi4py import MPI
+
 
 # {{{ wave equation bits
 
-def wave_flux(actx, dcoll, c, w_tpair):
-    dd = w_tpair.dd
-    dd_quad = dd.with_discr_tag(DISCR_TAG_QUAD)
-
+def wave_flux(dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = thaw(dcoll.normal(w_tpair.dd), u.int.array_context)
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),
@@ -63,20 +64,16 @@ def wave_flux(actx, dcoll, c, w_tpair):
             )
 
     # upwind
+    v_jump = np.dot(normal, v.ext-v.int)
     flux_weak += flat_obj_array(
             0.5*(u.ext-u.int),
-            0.5*normal*np.dot(normal, v.ext-v.int),
+            0.5*normal*v_jump,
             )
 
-    # FIXME this flux is only correct for continuous c
-    dd_allfaces_quad = dd_quad.with_dtag("all_faces")
-    c_quad = op.project(dcoll, "vol", dd_quad, c)
-    flux_quad = op.project(dcoll, dd, dd_quad, flux_weak)
-
-    return op.project(dcoll, dd_quad, dd_allfaces_quad, c_quad*flux_quad)
+    return op.project(dcoll, w_tpair.dd, "all_faces", c*flux_weak)
 
 
-def wave_operator(actx, dcoll, c, w):
+def wave_operator(dcoll, c, w):
     u = w[0]
     v = w[1:]
 
@@ -85,33 +82,23 @@ def wave_operator(actx, dcoll, c, w):
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
-    dd_quad = DOFDesc("vol", DISCR_TAG_QUAD)
-    c_quad = op.project(dcoll, "vol", dd_quad, c)
-    w_quad = op.project(dcoll, "vol", dd_quad, w)
-    u_quad = w_quad[0]
-    v_quad = w_quad[1:]
-
-    dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
-
     return (
         op.inverse_mass(
             dcoll,
             flat_obj_array(
-                -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
-                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
-                # pylint: disable=invalid-unary-operand-type
-            ) + op.face_mass(
+                -c*op.weak_local_div(dcoll, v),
+                -c*op.weak_local_grad(dcoll, u)
+            )
+            + op.face_mass(
                 dcoll,
-                dd_allfaces_quad,
                 wave_flux(
-                    actx,
                     dcoll, c=c,
                     w_tpair=op.bdry_trace_pair(dcoll,
                                                BTAG_ALL,
                                                interior=dir_bval,
                                                exterior=dir_bc)
                 ) + sum(
-                    wave_flux(actx, dcoll, c=c, w_tpair=tpair)
+                    wave_flux(dcoll, c=c, w_tpair=tpair)
                     for tpair in op.interior_trace_pairs(dcoll, w)
                 )
             )
@@ -119,6 +106,14 @@ def wave_operator(actx, dcoll, c, w):
     )
 
 # }}}
+
+
+def rk4_step(y, t, h, f):
+    k1 = f(t, y)
+    k2 = f(t+h/2, y + h/2*k1)
+    k3 = f(t+h/2, y + h/2*k2)
+    k4 = f(t+h, y + h*k3)
+    return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
 def estimate_rk4_timestep(actx, dcoll, c):
@@ -129,16 +124,14 @@ def estimate_rk4_timestep(actx, dcoll, c):
     return op.nodal_min(dcoll, "vol", local_dts)
 
 
-def bump(actx, dcoll, t=0, width=0.05, center=None):
-    if center is None:
-        center = np.array([0.2, 0.35, 0.1])
-
-    center = center[:dcoll.dim]
+def bump(actx, dcoll, t=0):
+    source_center = np.array([0.2, 0.35, 0.1])[:dcoll.dim]
+    source_width = 0.05
     source_omega = 3
 
-    nodes = actx.thaw(dcoll.nodes())
+    nodes = thaw(dcoll.nodes(), actx)
     center_dist = flat_obj_array([
-        nodes[i] - center[i]
+        nodes[i] - source_center[i]
         for i in range(dcoll.dim)
         ])
 
@@ -146,53 +139,63 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
         np.cos(source_omega*t)
         * actx.np.exp(
             -np.dot(center_dist, center_dist)
-            / width**2))
+            / source_width**2))
 
 
 def main(ctx_factory, dim=2, order=3, visualize=False):
     cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-    actx = GrudgeArrayContext(
+    queue = cl.CommandQueue(cl_ctx)
+    #actx = GrudgeArrayContext(queue)
+    actx = PyOpenCLArrayContext(
         queue,
         allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         force_device_scalars=True,
     )
 
+    comm = MPI.COMM_WORLD
+    num_parts = comm.Get_size()
+
+    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    mesh_dist = MPIMeshDistributor(comm)
+
     nel_1d = 16
-    from meshmode.mesh.generation import generate_regular_rect_mesh
-    mesh = generate_regular_rect_mesh(
-            a=(-0.5,)*dim,
-            b=(0.5,)*dim,
-            nelements_per_axis=(nel_1d,)*dim)
 
-    logger.info("%d elements", mesh.nelements)
+    if mesh_dist.is_mananger_rank():
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+        mesh = generate_regular_rect_mesh(
+                a=(-0.5,)*dim,
+                b=(0.5,)*dim,
+                nelements_per_axis=(nel_1d,)*dim)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
-    dcoll = DiscretizationCollection(
-        actx, mesh,
-        discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(3*order),
-        }
-    )
+        logger.info("%d elements", mesh.nelements)
 
-    # bounded above by 1
-    c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
-    dt = actx.to_numpy(0.5 * estimate_rk4_timestep(actx, dcoll, c=1))
+        part_per_element = get_partition_by_pymetis(mesh, num_parts)
+
+        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+
+        del mesh
+
+    else:
+        local_mesh = mesh_dist.receive_mesh_part()
+
+    dcoll = DiscretizationCollection(actx, local_mesh, order=order,
+                    mpi_communicator=comm)
 
     fields = flat_obj_array(
-            bump(actx, dcoll, ),
+            bump(actx, dcoll),
             [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
+
+    c = 1
+    dt = 0.45 * estimate_rk4_timestep(actx, dcoll, c)
 
     vis = make_visualizer(dcoll)
 
     def rhs(t, w):
-        return wave_operator(actx, dcoll, c=c, w=w)
+        return wave_operator(dcoll, c=c, w=w)
 
-    logger.info("dt = %g", dt)
+    if comm.rank == 0:
+        logger.info("dt = %g", dt)
 
     t = 0
     t_final = 3
@@ -200,22 +203,23 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     while t < t_final:
         fields = rk4_step(fields, t, dt, rhs)
 
-        l2norm = actx.to_numpy(op.norm(dcoll, fields[0], 2))
+        l2norm = op.norm(dcoll, fields[0], 2)
 
         if istep % 10 == 0:
-            linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
-            nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
-            nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
-            logger.info(f"step: {istep} t: {t} "
-                        f"L2: {l2norm} "
-                        f"Linf: {linfnorm} "
-                        f"sol max: {nodalmax} "
-                        f"sol min: {nodalmin}")
+            linfnorm = op.norm(dcoll, fields[0], np.inf)
+            nodalmax = op.nodal_max(dcoll, "vol", fields[0])
+            nodalmin = op.nodal_min(dcoll, "vol", fields[0])
+            if comm.rank == 0:
+                logger.info(f"step: {istep} t: {t} "
+                            f"L2: {l2norm} "
+                            f"Linf: {linfnorm} "
+                            f"sol max: {nodalmax} "
+                            f"sol min: {nodalmin}")
             if visualize:
-                vis.write_vtk_file(
-                    f"fld-wave-eager-var-velocity-{istep:04d}.vtu",
+                vis.write_parallel_vtk_file(
+                    comm,
+                    f"fld-wave-eager-mpi-{{rank:03d}}-{istep:04d}.vtu",
                     [
-                        ("c", c),
                         ("u", fields[0]),
                         ("v", fields[1:]),
                     ]
