@@ -322,7 +322,7 @@ def einsum2to2_kernel_tlist_generator(params, **kwargs):
     kio, kii, iio, iii = params
     knl = kwargs["knl"]
 
-    if knl.default_entrypoint.name == "resample_by_picking_group":
+    if knl.default_entrypoint.name == "resample_by_picking_single_indirection":
         trans_list.append(["split_iname", ["iel", kio], {"outer_tag": "g.0", "slabs":(0,1)}])
         trans_list.append(["split_iname", ["iel_inner", kii], 
             {"outer_tag": "ilp", "inner_tag":"l.0", "slabs":(0,1)}])
