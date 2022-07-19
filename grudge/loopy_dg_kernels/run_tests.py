@@ -268,7 +268,23 @@ def generic_test(queue, kern, backend="OPENCL", nruns=10, warmup=True):
                 if not arg.is_output:
                     if isinstance(array, cl.array.Array):
                         #pass
-                        cl.clrandom.fill_rand(array, queue=queue)
+                        #if arg.dtype.dtype == np.int8:
+                        #    data = np.random.randint(0, array.shape)
+                        #    array.set(data)
+                        #else:
+
+                        # Handle generating random indices for resampling kernels
+                        # This functionality should probably be moved to a separate
+                        # test function.
+                        if arg.name == "indices":
+                            data_arg_shape = None
+                            for data_arg in kern.default_entrypoint.args:
+                                if data_arg.name == "ary":
+                                    data_arg_shape = data_arg.shape[0]
+                            
+                            cl.clrandom.fill_rand(array, queue=queue, a=0, b=data_arg_shape)
+                        else:
+                            cl.clrandom.fill_rand(array, queue=queue)
                     elif isinstance(array[0], cl.array.Array):
                         for entry in array:
                             #pass
