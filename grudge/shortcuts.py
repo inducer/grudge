@@ -23,6 +23,23 @@ THE SOFTWARE.
 
 from pytools import memoize_in
 
+def euler_step(y, t, h, f):
+    return y + h*f(t, y)
+
+def _euler_update(y, h, rhs_val):
+    return y + h*rhs_val
+    
+
+def compiled_euler_step(actx, y, t, h, f):
+    @memoize_in(actx, (compiled_euler_step, "update"))
+    def get_state_updater():
+        return actx.compile(_euler_update)
+
+    update = get_state_updater()
+
+    rhs_val = f(t, y)
+    y = update(y, h, rhs_val)
+    return y
 
 def rk4_step(y, t, h, f):
     k1 = f(t, y)
