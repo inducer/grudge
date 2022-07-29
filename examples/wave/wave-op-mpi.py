@@ -190,10 +190,10 @@ def main(ctx_factory, dim=2, order=3,
     actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
     if lazy:
         actx = actx_class(comm, queue, mpi_base_tag=15000,
-                allocator=cl_tools.SVMAllocator(cl_ctx, cl.svm_mem_flags.READ_WRITE, queue=queue))
+                allocator=cl_tools.SVMPool(cl_tools.SVMAllocator(cl_ctx, alignment=0, queue=queue)))
     else:
         actx = actx_class(comm, queue,
-                allocator=cl_tools.SVMAllocator(cl_ctx, cl.svm_mem_flags.READ_WRITE, queue=queue),
+                allocator=cl_tools.SVMPool(cl_tools.SVMAllocator(cl_ctx, alignment=0, queue=queue)),
                 force_device_scalars=True)
 
     from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
