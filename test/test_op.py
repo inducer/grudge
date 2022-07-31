@@ -156,7 +156,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
     print("L^inf error:")
     print(eoc_rec)
-    assert(eoc_rec.order_estimate() >= order - 0.5
+    assert (eoc_rec.order_estimate() >= order - 0.5
                 or eoc_rec.max_error() < 1e-11)
 
 # }}}
@@ -272,7 +272,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
 
     print("L^inf error:")
     print(eoc_rec)
-    assert(eoc_rec.order_estimate() >= order - 0.5
+    assert (eoc_rec.order_estimate() >= order - 0.5
                 or eoc_rec.max_error() < 1e-11)
 
 # }}}
