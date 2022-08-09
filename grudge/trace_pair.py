@@ -918,7 +918,7 @@ def cross_rank_inter_volume_trace_pairs(
     # }}}
 
     if dcoll.mpi_communicator is None:
-        return []
+        return {}
 
     rank = dcoll.mpi_communicator.Get_rank()
 
