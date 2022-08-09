@@ -228,8 +228,9 @@ def h_min_from_volume(
 
 def dt_geometric_factors(
         dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None) -> DOFArray:
-    r"""Computes a geometric scaling factor for each cell following [Hesthaven_2008]_,
-    section 6.4, defined as the inradius (radius of an inscribed circle/sphere).
+    r"""Computes a geometric scaling factor for each cell following
+    [Hesthaven_2008]_, section 6.4, defined as the inradius (radius of an
+    inscribed circle/sphere).
 
     Specifically, the inradius for each element is computed using the following
     formula from [Shewchuk_2002]_, Table 1, for simplicial cells
