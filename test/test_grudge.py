@@ -1086,10 +1086,9 @@ def test_multi_volume(actx_factory):
     meg, = mesh.groups
     x = mesh.vertices[0, meg.vertex_indices]
     x_elem_avg = np.sum(x, axis=1)/x.shape[1]
-    volume_per_element = (x_elem_avg > 0).astype(np.int32)
-
-    from meshmode.distributed import membership_list_to_map
-    volume_to_elements = membership_list_to_map(volume_per_element)
+    volume_to_elements = {
+        0: np.where(x_elem_avg <= 0)[0],
+        1: np.where(x_elem_avg > 0)[0]}
 
     from meshmode.mesh.processing import partition_mesh
     volume_to_mesh = partition_mesh(mesh, volume_to_elements)
