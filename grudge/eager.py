@@ -47,14 +47,14 @@ class EagerDGDiscretization(DiscretizationCollection):
     def project(self, src, tgt, vec):
         return op.project(self, src, tgt, vec)
 
-    def grad(self, vec):
-        return op.local_grad(self, vec)
+    def grad(self, *args):
+        return op.local_grad(self, *args)
 
-    def d_dx(self, xyz_axis, vec):
-        return op.local_d_dx(self, xyz_axis, vec)
+    def d_dx(self, xyz_axis, *args):
+        return op.local_d_dx(self, xyz_axis, *args)
 
-    def div(self, vecs):
-        return op.local_div(self, vecs)
+    def div(self, *args):
+        return op.local_div(self, *args)
 
     def weak_grad(self, *args):
         return op.weak_local_grad(self, *args)
@@ -68,8 +68,8 @@ class EagerDGDiscretization(DiscretizationCollection):
     def mass(self, *args):
         return op.mass(self, *args)
 
-    def inverse_mass(self, vec):
-        return op.inverse_mass(self, vec)
+    def inverse_mass(self, *args):
+        return op.inverse_mass(self, *args)
 
     def face_mass(self, *args):
         return op.face_mass(self, *args)

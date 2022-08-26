@@ -38,7 +38,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array
 
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -341,7 +341,10 @@ def test_face_normal_surface(actx_factory, mesh_name):
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
     face_normal_i = actx.thaw(dcoll.normal(df))
-    face_normal_e = dcoll.opposite_face_connection()(face_normal_i)
+    face_normal_e = dcoll.opposite_face_connection(
+            dof_desc.BoundaryDomainTag(
+                dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
+            )(face_normal_i)
 
     if mesh.ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
@@ -1066,6 +1069,29 @@ def test_empty_boundary(actx_factory):
     for component in normal:
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
+
+# }}}
+
+
+# {{{ multi-volume
+
+def test_multiple_independent_volumes(actx_factory):
+    dim = 2
+    actx = actx_factory()
+
+    mesh1 = mgen.generate_regular_rect_mesh(
+            a=(-2,)*dim, b=(-1,)*dim,
+            nelements_per_axis=(4,)*dim, order=4)
+
+    mesh2 = mgen.generate_regular_rect_mesh(
+            a=(1,)*dim, b=(2,)*dim,
+            nelements_per_axis=(8,)*dim, order=4)
+
+    volume_to_mesh = {
+        "vol1": mesh1,
+        "vol2": mesh2}
+
+    make_discretization_collection(actx, volume_to_mesh, order=4)
 
 # }}}
 

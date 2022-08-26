@@ -37,13 +37,19 @@ THE SOFTWARE.
 from arraycontext import ArrayOrContainer
 
 from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import as_dofdesc
+from grudge.dof_desc import (
+    as_dofdesc,
+    VolumeDomainTag,
+    BoundaryDomainTag,
+    ConvertibleToDOFDesc)
 
 from numbers import Number
 
 
 def project(
-        dcoll: DiscretizationCollection, src, tgt, vec) -> ArrayOrContainer:
+        dcoll: DiscretizationCollection,
+        src: "ConvertibleToDOFDesc",
+        tgt: "ConvertibleToDOFDesc", vec) -> ArrayOrContainer:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
@@ -55,10 +61,24 @@ def project(
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer` like *vec*.
     """
-    src = as_dofdesc(src)
-    tgt = as_dofdesc(tgt)
+    # {{{ process dofdesc arguments
 
-    if isinstance(vec, Number) or src == tgt:
+    src_dofdesc = as_dofdesc(src)
+
+    contextual_volume_tag = None
+    if isinstance(src_dofdesc.domain_tag, VolumeDomainTag):
+        contextual_volume_tag = src_dofdesc.domain_tag.tag
+    elif isinstance(src_dofdesc.domain_tag, BoundaryDomainTag):
+        contextual_volume_tag = src_dofdesc.domain_tag.volume_tag
+
+    tgt_dofdesc = as_dofdesc(tgt, _contextual_volume_tag=contextual_volume_tag)
+
+    del src
+    del tgt
+
+    # }}}
+
+    if isinstance(vec, Number) or src_dofdesc == tgt_dofdesc:
         return vec
 
-    return dcoll.connection_from_dds(src, tgt)(vec)
+    return dcoll.connection_from_dds(src_dofdesc, tgt_dofdesc)(vec)
