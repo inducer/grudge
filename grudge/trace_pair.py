@@ -51,6 +51,7 @@ THE SOFTWARE.
 """
 
 
+from warnings import warn
 from typing import List, Hashable, Optional, Type, Any
 
 from pytools.persistent_dict import KeyBuilder
@@ -70,7 +71,6 @@ from dataclasses import dataclass
 from numbers import Number
 
 from pytools import memoize_on_first_arg
-from pytools.obj_array import obj_array_vectorize
 
 from grudge.discretization import DiscretizationCollection
 from grudge.projection import project
@@ -78,7 +78,13 @@ from grudge.projection import project
 from meshmode.mesh import BTAG_PARTITION
 
 import numpy as np
+
 import grudge.dof_desc as dof_desc
+from grudge.dof_desc import (
+        DOFDesc, DD_VOLUME_ALL, FACE_RESTR_INTERIOR, DISCR_TAG_BASE,
+        VolumeDomainTag,
+        ConvertibleToDOFDesc,
+        )
 
 
 # {{{ trace pair container class
@@ -107,12 +113,22 @@ class TracePair:
     .. automethod:: __len__
     """
 
-    dd: dof_desc.DOFDesc
+    dd: DOFDesc
     interior: ArrayContainer
     exterior: ArrayContainer
 
-    def __init__(self, dd, *, interior, exterior):
-        object.__setattr__(self, "dd", dof_desc.as_dofdesc(dd))
+    def __init__(self, dd: DOFDesc, *,
+            interior: ArrayOrContainer,
+            exterior: ArrayOrContainer):
+        if not isinstance(dd, DOFDesc):
+            warn("Constructing a TracePair with a first argument that is not "
+                    "exactly a DOFDesc (but convertible to one) is deprecated. "
+                    "This will stop working in July 2022. "
+                    "Pass an actual DOFDesc instead.",
+                    DeprecationWarning, stacklevel=2)
+            dd = dof_desc.as_dofdesc(dd)
+
+        object.__setattr__(self, "dd", dd)
         object.__setattr__(self, "interior", interior)
         object.__setattr__(self, "exterior", exterior)
 
@@ -178,7 +194,8 @@ class TracePair:
 # {{{ boundary trace pairs
 
 def bdry_trace_pair(
-        dcoll: DiscretizationCollection, dd, interior, exterior) -> TracePair:
+        dcoll: DiscretizationCollection, dd: "ConvertibleToDOFDesc",
+        interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
     If the input arguments *interior* and *exterior* are
@@ -197,11 +214,19 @@ def bdry_trace_pair(
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
     """
+    if not isinstance(dd, DOFDesc):
+        warn("Calling  bdry_trace_pair with a first argument that is not "
+                "exactly a DOFDesc (but convertible to one) is deprecated. "
+                "This will stop working in July 2022. "
+                "Pass an actual DOFDesc instead.",
+                DeprecationWarning, stacklevel=2)
+        dd = dof_desc.as_dofdesc(dd)
     return TracePair(dd, interior=interior, exterior=exterior)
 
 
 def bv_trace_pair(
-        dcoll: DiscretizationCollection, dd, interior, exterior) -> TracePair:
+        dcoll: DiscretizationCollection, dd: "ConvertibleToDOFDesc",
+        interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. The interior
     argument is assumed to be defined on the volume discretization, and will
     therefore be restricted to the boundary *dd* prior to creating a
@@ -223,20 +248,28 @@ def bv_trace_pair(
         be used for the flux.
     :returns: a :class:`TracePair` on the boundary.
     """
+    if not isinstance(dd, DOFDesc):
+        warn("Calling  bv_trace_pair with a first argument that is not "
+                "exactly a DOFDesc (but convertible to one) is deprecated. "
+                "This will stop working in July 2022. "
+                "Pass an actual DOFDesc instead.",
+                DeprecationWarning, stacklevel=2)
+        dd = dof_desc.as_dofdesc(dd)
     return bdry_trace_pair(
-        dcoll, dd, project(dcoll, "vol", dd, interior), exterior
-    )
+        dcoll, dd, project(dcoll, dd.domain_tag.volume_tag, dd, interior), exterior)
 
 # }}}
 
 
 # {{{ interior trace pairs
 
-def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+def local_interior_trace_pair(
+        dcoll: DiscretizationCollection, vec, *,
+        volume_dd: Optional[DOFDesc] = None,
+        ) -> TracePair:
     r"""Return a :class:`TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
-
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer` of them.
@@ -250,21 +283,33 @@ def local_interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair
     computation.
     :returns: a :class:`TracePair` object.
     """
-    i = project(dcoll, "vol", "int_faces", vec)
+    if volume_dd is None:
+        volume_dd = DD_VOLUME_ALL
 
-    def get_opposite_face(el):
-        if isinstance(el, Number):
-            return el
+    assert isinstance(volume_dd.domain_tag, VolumeDomainTag)
+    trace_dd = volume_dd.trace(FACE_RESTR_INTERIOR)
+
+    interior = project(dcoll, volume_dd, trace_dd, vec)
+
+    opposite_face_conn = dcoll.opposite_face_connection(trace_dd.domain_tag)
+
+    def get_opposite_trace(ary):
+        if isinstance(ary, Number):
+            return ary
         else:
-            return dcoll.opposite_face_connection()(el)
+            return opposite_face_conn(ary)
 
-    e = obj_array_vectorize(get_opposite_face, i)
+    from arraycontext import rec_map_array_container
+    from meshmode.dof_array import DOFArray
+    exterior = rec_map_array_container(
+        get_opposite_trace,
+        interior,
+        leaf_class=DOFArray)
 
-    return TracePair("int_faces", interior=i, exterior=e)
+    return TracePair(trace_dd, interior=interior, exterior=exterior)
 
 
 def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
-    from warnings import warn
     warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
          "in version 2022.x. Use `local_interior_trace_pair` "
          "instead, or `interior_trace_pairs` which also includes contributions "
@@ -274,7 +319,8 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
 
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
-        comm_tag: Hashable = None, tag: Hashable = None) -> List[TracePair]:
+        comm_tag: Hashable = None, tag: Hashable = None,
+        volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
@@ -293,7 +339,6 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
     """
 
     if tag is not None:
-        from warnings import warn
         warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
                 "Specify 'comm_tag' instead.", DeprecationWarning, stacklevel=2)
         if comm_tag is not None:
@@ -302,46 +347,97 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
             comm_tag = tag
     del tag
 
+    if volume_dd is None:
+        volume_dd = DD_VOLUME_ALL
+
     return (
-        [local_interior_trace_pair(dcoll, vec)]
-        + cross_rank_trace_pairs(dcoll, vec, comm_tag=comm_tag)
+        [local_interior_trace_pair(
+            dcoll, vec, volume_dd=volume_dd)]
+        + cross_rank_trace_pairs(
+            dcoll, vec, comm_tag=comm_tag, volume_dd=volume_dd)
     )
 
 # }}}
 
 
-# {{{ distributed-memory functionality
+# {{{ distributed: helper functions
+
+class _TagKeyBuilder(KeyBuilder):
+    def update_for_type(self, key_hash, key: Type[Any]):
+        self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
+
 
 @memoize_on_first_arg
-def connected_ranks(dcoll: DiscretizationCollection):
+def connected_ranks(
+        dcoll: DiscretizationCollection,
+        volume_dd: Optional[DOFDesc] = None):
+    if volume_dd is None:
+        volume_dd = DD_VOLUME_ALL
+
     from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(dcoll._volume_discr.mesh)
+    return get_connected_partitions(
+        dcoll._volume_discrs[volume_dd.domain_tag.tag].mesh)
 
 
-class _RankBoundaryCommunication:
+def _sym_tag_to_num_tag(comm_tag: Optional[Hashable]) -> Optional[int]:
+    if comm_tag is None:
+        return comm_tag
+
+    if isinstance(comm_tag, int):
+        return comm_tag
+
+    # FIXME: This isn't guaranteed to be correct.
+    # See here for discussion:
+    # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716  # noqa
+    # - https://github.com/inducer/grudge/pull/222
+
+    from mpi4py import MPI
+    tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+    key_builder = _TagKeyBuilder()
+    digest = key_builder(comm_tag)
+
+    num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
+
+    warn("Encountered unknown symbolic tag "
+            f"'{comm_tag}', assigning a value of '{num_tag}'. "
+            "This is a temporary workaround, please ensure that "
+            "tags are sufficiently distinct for your use case.")
+
+    return num_tag
+
+# }}}
+
+
+# {{{ eager rank-boundary communication
+
+class _RankBoundaryCommunicationEager:
     base_comm_tag = 1273
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainer,
-                 remote_rank, comm_tag: Optional[int] = None):
+                 remote_rank, comm_tag: Optional[int] = None,
+                 volume_dd=DD_VOLUME_ALL):
         actx = get_container_context_recursively(array_container)
-        btag = BTAG_PARTITION(remote_rank)
+        bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
 
-        local_bdry_data = project(dcoll, "vol", btag, array_container)
+        local_bdry_data = project(dcoll, volume_dd, bdry_dd, array_container)
         comm = dcoll.mpi_communicator
+        assert comm is not None
 
         self.dcoll = dcoll
         self.array_context = actx
-        self.remote_btag = btag
-        self.bdry_discr = dcoll.discr_from_dd(btag)
+        self.remote_bdry_dd = bdry_dd
+        self.bdry_discr = dcoll.discr_from_dd(bdry_dd)
         self.local_bdry_data = local_bdry_data
         self.local_bdry_data_np = \
             to_numpy(flatten(self.local_bdry_data, actx), actx)
 
         self.comm_tag = self.base_comm_tag
+        comm_tag = _sym_tag_to_num_tag(comm_tag)
         if comm_tag is not None:
             self.comm_tag += comm_tag
+        del comm_tag
 
         # Here, we initialize both send and recieve operations through
         # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
@@ -382,36 +478,42 @@ class _RankBoundaryCommunication:
         remote_bdry_data = unflatten(self.local_bdry_data,
                                      remote_bdry_data_flat, actx)
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
+            self.remote_bdry_dd)
         swapped_remote_bdry_data = bdry_conn(remote_bdry_data)
 
         # Complete the nonblocking send request associated with communicating
         # `self.local_bdry_data_np`
         self.send_req.Wait()
 
-        return TracePair(self.remote_btag,
+        return TracePair(self.remote_bdry_dd,
                          interior=self.local_bdry_data,
                          exterior=swapped_remote_bdry_data)
 
+# }}}
 
-from pytato import make_distributed_recv, staple_distributed_send
 
+# {{{ lazy rank-boundary communication
 
 class _RankBoundaryCommunicationLazy:
     def __init__(self,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainer,
-                 remote_rank: int, comm_tag: Hashable):
+                 remote_rank: int, comm_tag: Hashable,
+                 volume_dd=DD_VOLUME_ALL):
         if comm_tag is None:
             raise ValueError("lazy communication requires 'tag' to be supplied")
 
+        bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
+
         self.dcoll = dcoll
         self.array_context = get_container_context_recursively(array_container)
-        self.remote_btag = BTAG_PARTITION(remote_rank)
-        self.bdry_discr = dcoll.discr_from_dd(self.remote_btag)
+        self.remote_bdry_dd = bdry_dd
+        self.bdry_discr = dcoll.discr_from_dd(self.remote_bdry_dd)
 
         self.local_bdry_data = project(
-            dcoll, "vol", self.remote_btag, array_container)
+            dcoll, volume_dd, bdry_dd, array_container)
+
+        from pytato import make_distributed_recv, staple_distributed_send
 
         def communicate_single_array(key, local_bdry_ary):
             ary_tag = (comm_tag, key)
@@ -428,22 +530,22 @@ class _RankBoundaryCommunicationLazy:
 
     def finish(self):
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            dof_desc.as_dofdesc(dof_desc.DTAG_BOUNDARY(self.remote_btag)))
+            self.remote_bdry_dd)
 
-        return TracePair(self.remote_btag,
+        return TracePair(self.remote_bdry_dd,
                          interior=self.local_bdry_data,
                          exterior=bdry_conn(self.remote_data))
 
+# }}}
 
-class _TagKeyBuilder(KeyBuilder):
-    def update_for_type(self, key_hash, key: Type[Any]):
-        self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
 
+# {{{ cross_rank_trace_pairs
 
 def cross_rank_trace_pairs(
-        dcoll: DiscretizationCollection, ary,
-        comm_tag: Hashable = None,
-        tag: Hashable = None) -> List[TracePair]:
+        dcoll: DiscretizationCollection, ary: ArrayOrContainer,
+        tag: Hashable = None,
+        *, comm_tag: Hashable = None,
+        volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
@@ -472,57 +574,48 @@ def cross_rank_trace_pairs(
 
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
+    # {{{ process arguments
+
+    if volume_dd is None:
+        volume_dd = DD_VOLUME_ALL
+
+    if not isinstance(volume_dd.domain_tag, VolumeDomainTag):
+        raise TypeError(f"expected a volume DOFDesc, got '{volume_dd}'")
+    if volume_dd.discretization_tag != DISCR_TAG_BASE:
+        raise TypeError(f"expected a base-discretized DOFDesc, got '{volume_dd}'")
+
     if tag is not None:
-        from warnings import warn
         warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
-                "Specify 'comm_tag' instead.", DeprecationWarning, stacklevel=2)
+                "Specify 'comm_tag' (keyword-only) instead.",
+                DeprecationWarning, stacklevel=2)
         if comm_tag is not None:
             raise TypeError("may only specify one of 'tag' and 'comm_tag'")
         else:
             comm_tag = tag
     del tag
 
+    # }}}
+
     if isinstance(ary, Number):
         # NOTE: Assumed that the same number is passed on every rank
-        return [TracePair(BTAG_PARTITION(remote_rank), interior=ary, exterior=ary)
-                for remote_rank in connected_ranks(dcoll)]
+        return [TracePair(
+                volume_dd.trace(BTAG_PARTITION(remote_rank)),
+                interior=ary, exterior=ary)
+            for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)]
 
     actx = get_container_context_recursively(ary)
 
     from grudge.array_context import MPIPytatoArrayContextBase
 
     if isinstance(actx, MPIPytatoArrayContextBase):
-        rbc = _RankBoundaryCommunicationLazy
+        rbc_class = _RankBoundaryCommunicationLazy
     else:
-        rbc = _RankBoundaryCommunication
-        if comm_tag is not None:
-            num_tag: Optional[int] = None
-            if isinstance(comm_tag, int):
-                num_tag = comm_tag
-
-            if num_tag is None:
-                # FIXME: This isn't guaranteed to be correct.
-                # See here for discussion:
-                # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716  # noqa
-                # - https://github.com/inducer/grudge/pull/222
-                from mpi4py import MPI
-                tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
-                key_builder = _TagKeyBuilder()
-                digest = key_builder(comm_tag)
-                num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
-
-                from warnings import warn
-                warn("Encountered unknown symbolic tag "
-                        f"'{comm_tag}', assigning a value of '{num_tag}'. "
-                        "This is a temporary workaround, please ensure that "
-                        "tags are sufficiently distinct for your use case.")
-
-            comm_tag = num_tag
+        rbc_class = _RankBoundaryCommunicationEager
 
     # Initialize and post all sends/receives
     rank_bdry_communcators = [
-        rbc(dcoll, ary, remote_rank, comm_tag=comm_tag)
-        for remote_rank in connected_ranks(dcoll)
+        rbc_class(dcoll, ary, remote_rank, comm_tag=comm_tag, volume_dd=volume_dd)
+        for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)
     ]
 
     # Complete send/receives and return communicated data

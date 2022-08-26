@@ -94,7 +94,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
     :returns: a nonegative scalar denoting the norm.
     """
     if dd is None:
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
 
     from arraycontext import get_container_context_recursively
     actx = get_container_context_recursively(vec)
@@ -128,7 +128,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
     if comm is None:
         return nodal_sum_loc(dcoll, dd, vec)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
 
     from arraycontext import get_container_context_recursively
@@ -174,7 +174,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     if comm is None:
         return nodal_min_loc(dcoll, dd, vec, initial=initial)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
     actx = vec.array_context
 
@@ -231,7 +231,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     if comm is None:
         return nodal_max_loc(dcoll, dd, vec, initial=initial)
 
-    # NOTE: Don't move this
+    # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
     actx = vec.array_context
 
@@ -320,7 +320,7 @@ def _apply_elementwise_reduction(
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:
@@ -344,7 +344,7 @@ def _apply_elementwise_reduction(
             )
         )
     else:
-        @memoize_in(actx, (_apply_elementwise_reduction,
+        @memoize_in(actx, (_apply_elementwise_reduction, dd,
                         "elementwise_%s_prg" % op_name))
         def elementwise_prg():
             # FIXME: This computes the reduction value redundantly for each
@@ -485,7 +485,7 @@ def elementwise_integral(
     """
     if len(args) == 1:
         vec, = args
-        dd = dof_desc.DOFDesc("vol", dof_desc.DISCR_TAG_BASE)
+        dd = dof_desc.DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:
