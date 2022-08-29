@@ -79,8 +79,8 @@ def characteristic_lengthscales(
     node distance on the reference cell (see :func:`dt_non_geometric_factors`),
     and :math:`r_D` is the inradius of the cell (see :func:`dt_geometric_factors`).
 
-    :returns: a frozen :class:`~meshmode.dof_array.DOFArray` containing a
-        characteristic lengthscale for each element, at each nodal location.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` containing a characteristic
+        lengthscale for each element, at each nodal location.
 
     .. note::
 
