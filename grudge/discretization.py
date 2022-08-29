@@ -477,15 +477,6 @@ class DiscretizationCollection:
 
     # {{{ group_factory_for_discretization_tag
 
-    def group_factory_for_quadrature_tag(self, discretization_tag):
-        warn("`DiscretizationCollection.group_factory_for_quadrature_tag` "
-             "is deprecated and will go away in 2022. Use "
-             "`DiscretizationCollection.group_factory_for_discretization_tag` "
-             "instead.",
-             DeprecationWarning, stacklevel=2)
-
-        return self.group_factory_for_discretization_tag(discretization_tag)
-
     def group_factory_for_discretization_tag(self, discretization_tag):
         """
         OK to override in user code to control mode/node choice.
