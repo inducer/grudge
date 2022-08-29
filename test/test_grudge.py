@@ -979,6 +979,8 @@ def test_bessel(actx_factory):
 # }}}
 
 
+# {{{ test norms
+
 @pytest.mark.parametrize("p", [2, np.inf])
 def test_norm_real(actx_factory, p):
     actx = actx_factory()
@@ -1042,6 +1044,10 @@ def test_norm_obj_array(actx_factory, p):
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
 
+# }}}
+
+
+# {{{ empty boundaries
 
 def test_empty_boundary(actx_factory):
     # https://github.com/inducer/grudge/issues/54
@@ -1060,6 +1066,8 @@ def test_empty_boundary(actx_factory):
     for component in normal:
         assert isinstance(component, DOFArray)
         assert len(component) == len(dcoll.discr_from_dd(BTAG_NONE).groups)
+
+# }}}
 
 
 # You can test individual routines by typing

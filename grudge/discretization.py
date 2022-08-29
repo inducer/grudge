@@ -707,6 +707,8 @@ class DiscretizationCollection:
     # }}}
 
 
+# {{{ modal group factory
+
 def _generate_modal_group_factory(nodal_group_factory):
     from meshmode.discretization.poly_element import (
         ModalSimplexGroupFactory,
@@ -725,5 +727,8 @@ def _generate_modal_group_factory(nodal_group_factory):
         raise ValueError(
             f"Unknown mesh element group: {mesh_group_cls}"
         )
+
+# }}}
+
 
 # vim: foldmethod=marker
