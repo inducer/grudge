@@ -302,6 +302,9 @@ class DOFDesc:
     def with_domain_tag(self, dtag) -> "DOFDesc":
         return replace(self, domain_tag=dtag)
 
+    def with_discr_tag(self, discr_tag) -> "DOFDesc":
+        return replace(self, discretization_tag=discr_tag)
+
     def trace(self, btag: BoundaryTag) -> "DOFDesc":
         """Return a :class:`DOFDesc` for the restriction of the volume
         descriptor *self* to the boundary named by *btag*.
@@ -313,9 +316,6 @@ class DOFDesc:
             raise ValueError(f"must originate on volume, got '{self.domain_tag}'")
         return replace(self,
                 domain_tag=BoundaryDomainTag(btag, volume_tag=self.domain_tag.tag))
-
-    def with_discr_tag(self, discr_tag) -> "DOFDesc":
-        return replace(self, discretization_tag=discr_tag)
 
     def as_identifier(self) -> str:
         """Returns a descriptive string for this :class:`DOFDesc` that is usable
