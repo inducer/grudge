@@ -28,116 +28,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
-from pytools import levi_civita, product
-from typing import Tuple, Callable, Optional, Union, Any
 from functools import partial
-from arraycontext import ArrayOrContainer
+from typing import Tuple, Callable, Optional, Union, Any
+
+import numpy as np
+
+from pytools import product
+from arraycontext import ArrayContext, ArrayOrContainer, ArrayT
 
 
-def is_zero(x):
-    # DO NOT try to replace this with an attempted "== 0" comparison.
-    # This will become an elementwise numpy operation and not do what
-    # you want.
+# {{{ build_jacobian
 
-    if np.isscalar(x):
-        return x == 0
-    else:
-        return False
-
-
-# {{{ SubsettableCrossProduct
-
-class SubsettableCrossProduct:
-    """A cross product that can operate on an arbitrary subsets of its
-    two operands and return an arbitrary subset of its result.
-    """
-
-    full_subset = (True, True, True)
-
-    def __init__(self, op1_subset=full_subset, op2_subset=full_subset,
-            result_subset=full_subset):
-        """Construct a subset-able cross product.
-        :param op1_subset: The subset of indices of operand 1 to be taken into
-            account.  Given as a 3-sequence of bools.
-        :param op2_subset: The subset of indices of operand 2 to be taken into
-            account.  Given as a 3-sequence of bools.
-        :param result_subset: The subset of indices of the result that are
-            calculated.  Given as a 3-sequence of bools.
-        """
-        def subset_indices(subset):
-            return [i for i, use_component in enumerate(subset)
-                    if use_component]
-
-        self.op1_subset = op1_subset
-        self.op2_subset = op2_subset
-        self.result_subset = result_subset
-
-        import pymbolic
-        op1 = pymbolic.var("x")
-        op2 = pymbolic.var("y")
-
-        self.functions = []
-        self.component_lcjk = []
-        for i, use_component in enumerate(result_subset):
-            if use_component:
-                this_expr = 0
-                this_component = []
-                for j, j_real in enumerate(subset_indices(op1_subset)):
-                    for k, k_real in enumerate(subset_indices(op2_subset)):
-                        lc = levi_civita((i, j_real, k_real))
-                        if lc != 0:
-                            this_expr += lc*op1.index(j)*op2.index(k)
-                            this_component.append((lc, j, k))
-                self.functions.append(pymbolic.compile(this_expr,
-                    variables=[op1, op2]))
-                self.component_lcjk.append(this_component)
-
-    def __call__(self, x, y, three_mult=None):
-        """Compute the subsetted cross product on the indexables *x* and *y*.
-        :param three_mult: a function of three arguments *sign, xj, yk*
-          used in place of the product *sign*xj*yk*. Defaults to just this
-          product if not given.
-        """
-        from pytools.obj_array import flat_obj_array
-        if three_mult is None:
-            return flat_obj_array(*[f(x, y) for f in self.functions])
-        else:
-            return flat_obj_array(
-                    *[sum(three_mult(lc, x[j], y[k]) for lc, j, k in lcjk)
-                    for lcjk in self.component_lcjk])
-
-
-cross = SubsettableCrossProduct()
-
-# }}}
-
-
-def count_subset(subset):
-    from pytools import len_iterable
-    return len_iterable(uc for uc in subset if uc)
-
-
-def partial_to_all_subset_indices(subsets, base=0):
-    """Takes a sequence of bools and generates it into an array of indices
-    to be used to insert the subset into the full set.
-    Example:
-    >>> list(partial_to_all_subset_indices([[False, True, True], [True,False,True]]))
-    [array([0 1]), array([2 3]
-    """
-
-    idx = base
-    for subset in subsets:
-        result = []
-        for is_in in subset:
-            if is_in:
-                result.append(idx)
-                idx += 1
-
-        yield np.array(result, dtype=np.intp)
-
-
-def build_jacobian(actx, f, base_state, stepsize):
+def build_jacobian(
+        actx: ArrayContext,
+        f: Callable[[ArrayT], ArrayT],
+        base_state: ArrayOrContainer,
+        stepsize: float) -> np.ndarray:
     """Returns a Jacobian matrix of *f* determined by a one-sided finite
     difference approximation with *stepsize*.
 
@@ -168,11 +74,15 @@ def build_jacobian(actx, f, base_state, stepsize):
 
     return mat
 
+# }}}
+
+
+# {{{ map_subarrays
 
 def map_subarrays(
         f: Callable[[Any], Any],
         in_shape: Tuple[int, ...], out_shape: Tuple[int, ...],
-        ary: Any, *, return_nested=False) -> Any:
+        ary: Any, *, return_nested: bool = False) -> Any:
     """
     Apply a function *f* to subarrays of shape *in_shape* of an
     :class:`numpy.ndarray`, typically (but not necessarily) of dtype
@@ -257,6 +167,10 @@ def map_subarrays(
                         result[idx + out_slice] = result_entries[idx]
                     return result
 
+# }}}
+
+
+# {{{ rec_map_subarrays
 
 def rec_map_subarrays(
         f: Callable[[Any], Any],
@@ -297,5 +211,6 @@ def rec_map_subarrays(
                 return_nested=return_nested),
             ary)
 
+# }}}
 
 # vim: foldmethod=marker
