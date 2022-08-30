@@ -34,25 +34,25 @@ from typing import Tuple, Callable, Optional, Union, Any
 import numpy as np
 
 from pytools import product
-from arraycontext import ArrayContext, ArrayOrContainer, ArrayT
+from arraycontext import ArrayContext, ArrayOrContainer, ArrayOrContainerT
 
 
 # {{{ build_jacobian
 
 def build_jacobian(
         actx: ArrayContext,
-        f: Callable[[ArrayT], ArrayT],
-        base_state: ArrayOrContainer,
+        f: Callable[[ArrayOrContainerT], ArrayOrContainerT],
+        base_state: ArrayOrContainerT,
         stepsize: float) -> np.ndarray:
     """Returns a Jacobian matrix of *f* determined by a one-sided finite
     difference approximation with *stepsize*.
 
-    :param f: a callable with a single argument, any array or
+    :arg f: a callable with a single argument, any array or
         :class:`arraycontext.ArrayContainer` supported by *actx*.
-    :param base_state: The point at which the Jacobian is to be
+    :arg base_state: The point at which the Jacobian is to be
         calculated. May be any array or :class:`arraycontext.ArrayContainer`
         supported by *actx*.
-    :returns: a two-dimensional :class:`numpy.ndarray`
+    :returns: a two-dimensional :class:`numpy.ndarray`.
     """
     from arraycontext import flatten, unflatten
     flat_base_state = flatten(base_state, actx)
@@ -113,12 +113,12 @@ def map_subarrays(
     will instead produce an array of shape ``(3,)`` with each entry containing an
     array of shape ``(2, 2)``.
 
-    :param f: the function to be called.
-    :param in_shape: the shape of any inputs to *f*.
-    :param out_shape: the shape of the result of calling *f* on an array of shape
+    :arg f: the function to be called.
+    :arg in_shape: the shape of any inputs to *f*.
+    :arg out_shape: the shape of the result of calling *f* on an array of shape
         *in_shape*.
-    :param ary: a :class:`numpy.ndarray` instance.
-    :param return_nested: if *out_shape* is nontrivial, this flag indicates whether
+    :arg ary: a :class:`numpy.ndarray` instance.
+    :arg return_nested: if *out_shape* is nontrivial, this flag indicates whether
         to return a nested array (containing one entry for each application of *f*),
         or to return a single, higher-dimensional array.
 
@@ -183,7 +183,7 @@ def rec_map_subarrays(
     Like :func:`map_subarrays`, but with support for
     :class:`arraycontext.ArrayContainer`\ s.
 
-    :param scalar_cls: An array container of this type will be considered a scalar
+    :arg scalar_cls: An array container of this type will be considered a scalar
         and arrays of it will be passed to *f* without further destructuring.
     """
     if scalar_cls is not None:
