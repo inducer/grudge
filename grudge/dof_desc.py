@@ -228,6 +228,8 @@ class DOFDesc:
     .. automethod:: with_domain_tag
     .. automethod:: with_discr_tag
     .. automethod:: trace
+    .. automethod:: untrace
+    .. automethod:: with_boundary_tag
 
     .. automethod:: __eq__
     .. automethod:: __ne__
@@ -316,6 +318,30 @@ class DOFDesc:
             raise ValueError(f"must originate on volume, got '{self.domain_tag}'")
         return replace(self,
                 domain_tag=BoundaryDomainTag(btag, volume_tag=self.domain_tag.tag))
+
+    def untrace(self) -> "DOFDesc":
+        """Return a :class:`DOFDesc` for the volume associated with the boundary
+        descriptor *self*.
+
+        An error is raised if this method is called on a non-boundary instance of
+        :class:`DOFDesc`.
+        """
+        if not isinstance(self.domain_tag, BoundaryDomainTag):
+            raise ValueError(f"must originate on boundary, got '{self.domain_tag}'")
+        return replace(self,
+                domain_tag=VolumeDomainTag(self.domain_tag.volume_tag))
+
+    def with_boundary_tag(self, btag: BoundaryTag) -> "DOFDesc":
+        """Return a :class:`DOFDesc` representing a boundary named by *btag*
+        on the same volume as *self*.
+
+        An error is raised if this method is called on a non-boundary instance of
+        :class:`DOFDesc`.
+        """
+        if not isinstance(self.domain_tag, BoundaryDomainTag):
+            raise ValueError(f"must originate on boundary, got '{self.domain_tag}'")
+        return replace(self,
+                domain_tag=replace(self.domain_tag, tag=btag))
 
     def as_identifier(self) -> str:
         """Returns a descriptive string for this :class:`DOFDesc` that is usable
