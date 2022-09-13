@@ -121,10 +121,7 @@ DTAG_SCALAR = ScalarDomainTag()
 
 @dataclass(frozen=True, eq=True, init=True)
 class VolumeDomainTag:
-    """A domain tag referring to a volume identified by the
-    volume tag :attr:`tag`. These volume identifiers are only used
-    when the :class:`~grudge.discretization.DiscretizationCollection` contains
-    more than one volume.
+    """A domain tag referring to a volume identified by the volume tag :attr:`tag`.
 
     .. attribute:: tag
 
