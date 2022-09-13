@@ -123,7 +123,7 @@ class TracePair:
         if not isinstance(dd, DOFDesc):
             warn("Constructing a TracePair with a first argument that is not "
                     "exactly a DOFDesc (but convertible to one) is deprecated. "
-                    "This will stop working in July 2022. "
+                    "This will stop working in December 2022. "
                     "Pass an actual DOFDesc instead.",
                     DeprecationWarning, stacklevel=2)
             dd = dof_desc.as_dofdesc(dd)
@@ -217,7 +217,7 @@ def bdry_trace_pair(
     if not isinstance(dd, DOFDesc):
         warn("Calling  bdry_trace_pair with a first argument that is not "
                 "exactly a DOFDesc (but convertible to one) is deprecated. "
-                "This will stop working in July 2022. "
+                "This will stop working in December 2022. "
                 "Pass an actual DOFDesc instead.",
                 DeprecationWarning, stacklevel=2)
         dd = dof_desc.as_dofdesc(dd)
@@ -251,7 +251,7 @@ def bv_trace_pair(
     if not isinstance(dd, DOFDesc):
         warn("Calling  bv_trace_pair with a first argument that is not "
                 "exactly a DOFDesc (but convertible to one) is deprecated. "
-                "This will stop working in July 2022. "
+                "This will stop working in December 2022. "
                 "Pass an actual DOFDesc instead.",
                 DeprecationWarning, stacklevel=2)
         dd = dof_desc.as_dofdesc(dd)
