@@ -34,12 +34,131 @@ from grudge.models import HyperbolicOperator
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
-from pytools import memoize_method
+from pytools import memoize_method, levi_civita
 from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.op as op
 import numpy as np
 
+
+# {{{ helpers
+
+# NOTE: Hack for getting the derivative operators to play nice
+# with grudge.tools.SubsettableCrossProduct
+class _Dx:
+    def __init__(self, dcoll, i):
+        self.dcoll = dcoll
+        self.i = i
+
+    def __mul__(self, other):
+        return op.local_d_dx(self.dcoll, self.i, other)
+
+
+def is_zero(x):
+    # DO NOT try to replace this with an attempted "== 0" comparison.
+    # This will become an elementwise numpy operation and not do what
+    # you want.
+
+    if np.isscalar(x):
+        return x == 0
+    else:
+        return False
+
+
+def count_subset(subset):
+    from pytools import len_iterable
+    return len_iterable(uc for uc in subset if uc)
+
+
+def partial_to_all_subset_indices(subsets, base=0):
+    """Takes a sequence of bools and generates it into an array of indices
+    to be used to insert the subset into the full set.
+    Example:
+    >>> list(partial_to_all_subset_indices([[False, True, True], [True,False,True]]))
+    [array([0 1]), array([2 3]
+    """
+
+    idx = base
+    for subset in subsets:
+        result = []
+        for is_in in subset:
+            if is_in:
+                result.append(idx)
+                idx += 1
+
+        yield np.array(result, dtype=np.intp)
+
+# }}}
+
+
+# {{{ SubsettableCrossProduct
+
+class SubsettableCrossProduct:
+    """A cross product that can operate on an arbitrary subsets of its
+    two operands and return an arbitrary subset of its result.
+    """
+
+    full_subset = (True, True, True)
+
+    def __init__(self, op1_subset=full_subset, op2_subset=full_subset,
+            result_subset=full_subset):
+        """Construct a subset-able cross product.
+        :param op1_subset: The subset of indices of operand 1 to be taken into
+            account.  Given as a 3-sequence of bools.
+        :param op2_subset: The subset of indices of operand 2 to be taken into
+            account.  Given as a 3-sequence of bools.
+        :param result_subset: The subset of indices of the result that are
+            calculated.  Given as a 3-sequence of bools.
+        """
+        def subset_indices(subset):
+            return [i for i, use_component in enumerate(subset)
+                    if use_component]
+
+        self.op1_subset = op1_subset
+        self.op2_subset = op2_subset
+        self.result_subset = result_subset
+
+        import pymbolic
+        op1 = pymbolic.var("x")
+        op2 = pymbolic.var("y")
+
+        self.functions = []
+        self.component_lcjk = []
+        for i, use_component in enumerate(result_subset):
+            if use_component:
+                this_expr = 0
+                this_component = []
+                for j, j_real in enumerate(subset_indices(op1_subset)):
+                    for k, k_real in enumerate(subset_indices(op2_subset)):
+                        lc = levi_civita((i, j_real, k_real))
+                        if lc != 0:
+                            this_expr += lc*op1.index(j)*op2.index(k)
+                            this_component.append((lc, j, k))
+                self.functions.append(pymbolic.compile(this_expr,
+                    variables=[op1, op2]))
+                self.component_lcjk.append(this_component)
+
+    def __call__(self, x, y, three_mult=None):
+        """Compute the subsetted cross product on the indexables *x* and *y*.
+        :param three_mult: a function of three arguments *sign, xj, yk*
+          used in place of the product *sign*xj*yk*. Defaults to just this
+          product if not given.
+        """
+        from pytools.obj_array import flat_obj_array
+        if three_mult is None:
+            return flat_obj_array(*[f(x, y) for f in self.functions])
+        else:
+            return flat_obj_array(
+                    *[sum(three_mult(lc, x[j], y[k]) for lc, j, k in lcjk)
+                    for lcjk in self.component_lcjk])
+
+
+cross = SubsettableCrossProduct()
+
+# }}}
+
+
+# {{{ MaxwellOperator
 
 class MaxwellOperator(HyperbolicOperator):
     """A strong-form 3D Maxwell operator which supports fixed or variable
@@ -81,7 +200,6 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
 
-        from grudge.tools import SubsettableCrossProduct
         self.space_cross_e = SubsettableCrossProduct(
                 op1_subset=space_subset,
                 op2_subset=e_subset,
@@ -253,11 +371,8 @@ class MaxwellOperator(HyperbolicOperator):
         # physically meaningless anyway (are there exceptions to this?)
 
         e, h = self.split_eh(w)
-
-        from grudge.tools import count_subset
         fld_cnt = count_subset(self.get_eh_subset())
 
-        from grudge.tools import is_zero
         incident_bc_data = self.incident_bc_data(self, e, h)
         if is_zero(incident_bc_data):
             return make_obj_array([0]*fld_cnt)
@@ -271,8 +386,6 @@ class MaxwellOperator(HyperbolicOperator):
         Combines the relevant operator templates for spatial
         derivatives, flux, boundary conditions etc.
         """
-        from grudge.tools import count_subset
-
         elec_components = count_subset(self.get_eh_subset()[0:3])
         mag_components = count_subset(self.get_eh_subset()[3:6])
 
@@ -316,9 +429,7 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
 
-        from grudge.tools import partial_to_all_subset_indices
-        return tuple(partial_to_all_subset_indices(
-            [e_subset, h_subset]))
+        return tuple(partial_to_all_subset_indices([e_subset, h_subset]))
 
     def split_eh(self, w):
         """Splits an array into E and H components"""
@@ -349,17 +460,10 @@ class MaxwellOperator(HyperbolicOperator):
             self.absorb_tag,
             self.incident_tag])
 
+# }}}
 
-# NOTE: Hack for getting the derivative operators to play nice
-# with grudge.tools.SubsettableCrossProduct
-class _Dx:
-    def __init__(self, dcoll, i):
-        self.dcoll = dcoll
-        self.i = i
 
-    def __mul__(self, other):
-        return op.local_d_dx(self.dcoll, self.i, other)
-
+# {{{ TMMaxwellOperator
 
 class TMMaxwellOperator(MaxwellOperator):
     """A 2D TM Maxwell operator with PEC boundaries.
@@ -375,6 +479,10 @@ class TMMaxwellOperator(MaxwellOperator):
                 + (True, True, False)  # hx and hy
                 )
 
+# }}}
+
+
+# {{{ TEMaxwellOperator
 
 class TEMaxwellOperator(MaxwellOperator):
     """A 2D TE Maxwell operator.
@@ -390,6 +498,10 @@ class TEMaxwellOperator(MaxwellOperator):
                 + (False, False, True)  # only hz
                 )
 
+# }}}
+
+
+# {{{ TE1DMaxwellOperator
 
 class TE1DMaxwellOperator(MaxwellOperator):
     """A 1D TE Maxwell operator.
@@ -405,6 +517,10 @@ class TE1DMaxwellOperator(MaxwellOperator):
                 + (False, False, True)
                 )
 
+# }}}
+
+
+# {{{ SourceFree1DMaxwellOperator
 
 class SourceFree1DMaxwellOperator(MaxwellOperator):
     """A 1D TE Maxwell operator.
@@ -420,6 +536,10 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
                 + (False, False, True)
                 )
 
+# }}}
+
+
+# {{{ get_rectangular_cavity_mode
 
 def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N803
     """A rectangular TM cavity mode for a rectangle / cube
@@ -477,3 +597,7 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         )
 
     return result
+
+# }}}
+
+# vim: foldmethod=marker

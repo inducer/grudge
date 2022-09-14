@@ -25,10 +25,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 
-class Operator(metaclass=ABCMeta):
+class Operator(ABC):  # noqa: B024
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present
