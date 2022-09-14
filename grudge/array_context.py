@@ -381,7 +381,7 @@ class _DistributedCompiledFunction:
 
 class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
-            self, mpi_communicator, queue, *, mpi_base_tag, allocator=None,
+            self, mpi_communicator, queue, mpi_base_tag, *, allocator=None,
             compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
             = None) -> None:
         """
