@@ -224,6 +224,30 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_grads]))
             for xyz_axis in range(out_discr.ambient_dim)])
 
+
+def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
+        *, metric_in_matvec):
+    # See _single_axis_derivative_kernel for comments on the usage scenarios
+    # (both strong and weak derivative) and their differences.
+    per_group_divs = [
+        # r for rst axis
+        # x for xyz axis
+        actx.einsum("xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
+                    ijm_i,
+                    get_diff_mat(
+                        actx,
+                        out_element_group=out_grp,
+                        in_element_group=in_grp
+                    ),
+                    vec_i,
+                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),))
+        for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec,
+            inv_jac_mat)]
+
+    return DOFArray(actx, data=tuple(per_group_divs))
+
 # }}}
 
 
@@ -445,6 +469,29 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
             metric_in_matvec=True)
 
 
+def _weak_scalar_div(dcoll, dd_in, vecs):
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+    from arraycontext import (get_container_context_recursively,
+                              serialize_container)
+
+    assert isinstance(vecs, np.ndarray)
+    assert vecs.shape == (dcoll.ambient_dim,)
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_in.with_discr_tag(DISCR_TAG_BASE))
+
+    actx = get_container_context_recursively(vecs)
+    vec = actx.np.stack([v for k, v in serialize_container(vecs)])
+
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+            times_area_element=True,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _divergence_kernel(actx, out_discr, in_discr,
+            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+            metric_in_matvec=True)
+
+
 def weak_local_grad(
         dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainer:
     r"""Return the element-local weak gradient of the volume function
@@ -583,9 +630,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        lambda vec: sum(
-            weak_local_d_dx(dcoll, dd_in, i, vec_i)
-            for i, vec_i in enumerate(vec)),
+        lambda vec: _weak_scalar_div(dcoll, dd_in, vec),
         (dcoll.ambient_dim,), (),
         vecs, scalar_cls=DOFArray)
 
