@@ -87,7 +87,8 @@ class EagerDGDiscretization(DiscretizationCollection):
         return op.nodal_max(self, dd, vec)
 
 
-connected_ranks = op.connected_ranks
+# FIXME: Deprecate connected_ranks instead of removing
+connected_parts = op.connected_parts
 interior_trace_pair = op.interior_trace_pair
 cross_rank_trace_pairs = op.cross_rank_trace_pairs
 
