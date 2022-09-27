@@ -173,7 +173,7 @@ class _DistributedPartProgramID:
     part_id: Any
 
     def __str__(self):
-        name = self.f.__name__
+        name = getattr(self.f, "__name__", "<anonymous>")
         if not name.isidentifier():
             name = _to_identifier(name)
 
