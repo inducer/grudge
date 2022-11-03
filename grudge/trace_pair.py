@@ -525,6 +525,7 @@ def _sym_tag_to_num_tag(comm_tag: Optional[Hashable]) -> Optional[int]:
 
     num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
 
+    # FIXME: This prints the wrong numerical tag because of base_comm_tag below
     warn("Encountered unknown symbolic tag "
             f"'{comm_tag}', assigning a value of '{num_tag}'. "
             "This is a temporary workaround, please ensure that "
