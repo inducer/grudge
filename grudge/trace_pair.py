@@ -915,7 +915,7 @@ def cross_rank_inter_volume_trace_pairs(
     """
     # {{{ process arguments
 
-    for vol_dd_pair in pairwise_volume_data.keys():
+    for vol_dd_pair, vol_data_pair in pairwise_volume_data.items():
         for vol_dd in vol_dd_pair:
             if not isinstance(vol_dd.domain_tag, VolumeDomainTag):
                 raise ValueError(
@@ -925,6 +925,9 @@ def cross_rank_inter_volume_trace_pairs(
                 raise ValueError(
                     "expected base-discretized DOFDesc in pairwise_volume_data, "
                     f"got '{vol_dd}'")
+        # FIXME: This check could probably be made more robust
+        if type(vol_data_pair[0]) != type(vol_data_pair[1]):  # noqa: E721
+            raise ValueError("heterogeneous inter-volume data not supported.")
 
     # }}}
 
