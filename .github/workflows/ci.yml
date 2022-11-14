@@ -137,7 +137,7 @@ jobs:
                     # Examples - runs mirgecom examples
                     # LazyAccuracy - checks lazy vs. eager numerical results
                     # Production - runs mirgecom's production/prediction tests
-                    scripts/run_integrated_tests.sh --all
+                    scripts/run-integrated-tests.sh --all
                 else
                     test_py_project
                 fi
