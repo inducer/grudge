@@ -142,7 +142,7 @@ jobs:
                     # FIXME: Production testing stomps on `requirements.txt`
                     # git stash   # FIXME: Sync/Marry requirements.txt@production w/local
                     # scripts/run-integrated-tests --all
-                    scripts/run-integrated-tests.sh --lazy --examples
+                    scripts/run-integrated-tests.sh --lazy-accuracy --examples
                 else
                     test_py_project
                 fi
