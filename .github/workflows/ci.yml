@@ -137,6 +137,7 @@ jobs:
                     # Examples - runs mirgecom examples
                     # LazyAccuracy - checks lazy vs. eager numerical results
                     # Production - runs mirgecom's production/prediction tests
+                    git stash   # FIXME: Sync/Marry requirements.txt@production w/local
                     scripts/run-integrated-tests.sh --all
                 else
                     test_py_project
