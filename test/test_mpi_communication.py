@@ -72,7 +72,7 @@ def run_test_with_mpi(num_ranks, f, *args):
         "mpiexec", "-np", str(num_ranks),
         "-x", "RUN_WITHIN_MPI=1",
         "-x", f"INVOCATION_INFO={invocation_info}",
-        sys.executable, __file__])
+        sys.executable, "-m", "mpi4py", __file__])
 
 
 def run_test_with_mpi_inner():
