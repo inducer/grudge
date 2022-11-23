@@ -101,7 +101,7 @@ from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCall
 if TYPE_CHECKING:
     import pytato as pt
     from pytato.partition import PartId
-    from pytato.distributed import DistributedGraphPartition
+    from pytato import DistributedGraphPartition
     import pyopencl
     import pyopencl.tools
     from mpi4py import MPI
@@ -256,7 +256,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         self.actx._compile_trace_callback(self.f, "pre_number_distributed_tags",
                 distributed_partition)
 
-        from pytato.distributed import number_distributed_tags
+        from pytato import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
 
         # type-ignore-reason: 'PytatoPyOpenCLArrayContext' has no 'mpi_communicator'
@@ -366,7 +366,7 @@ class _DistributedCompiledFunction:
         input_args_for_prg = _args_to_device_buffers(
                 self.actx, self.input_id_to_name_in_program, arg_id_to_arg)
 
-        from pytato.distributed import execute_distributed_partition
+        from pytato import execute_distributed_partition
         out_dict = execute_distributed_partition(
                 self.distributed_partition, self.part_id_to_prg,
                 self.actx.queue, self.actx.mpi_communicator,
