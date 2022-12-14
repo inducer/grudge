@@ -194,6 +194,13 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
 
         from pytools import ProcessLogger
 
+        if __debug__:
+            # pylint-ignore-reason:
+            # '_BasePytatoArrayContext' has no 'mpi_communicator' member
+            pt.verify_distributed_dag_pre_partition(
+                self.actx.mpi_communicator,  # pylint: disable=no-member
+                dict_of_named_arrays)
+
         self.actx._compile_trace_callback(self.f, "pre_deduplicate_data_wrappers",
                 dict_of_named_arrays)
 
