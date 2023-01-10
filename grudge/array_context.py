@@ -232,7 +232,15 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         self.actx._compile_trace_callback(self.f, "pre_find_distributed_partition",
                 dict_of_named_arrays)
 
-        distributed_partition = pt.find_distributed_partition(dict_of_named_arrays)
+        try:
+            distributed_partition = pt.find_distributed_partition(
+                                        dict_of_named_arrays)
+        except TypeError:
+            # https://github.com/inducer/pytato/pull/393 changes the
+            # function signature
+            distributed_partition = pt.find_distributed_partition(
+                                        self.actx.mpi_communicator,
+                                        dict_of_named_arrays)
 
         if __debug__:
             # pylint-ignore-reason:
