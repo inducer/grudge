@@ -23,8 +23,8 @@ Mass, inverse mass, and face mass operators
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
 
-Working around documentation tool akwardness
---------------------------------------------
+Working around documentation tool awkwardness
+---------------------------------------------
 
 .. class:: TracePair
 
@@ -244,7 +244,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
                 actx.tag_axis(
                     1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
-                        np.asarray([dfmat for dfmat in diff_matrices(grp)]))))
+                        np.asarray(list(diff_matrices(grp))))))
     return get_ref_derivative_mats(out_element_group)
 
 
