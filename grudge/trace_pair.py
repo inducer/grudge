@@ -570,7 +570,7 @@ def cross_rank_trace_pairs(
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
-        tags to arbitary, potentially composite objects.
+        tags to arbitrary, potentially composite objects.
 
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
@@ -615,13 +615,13 @@ def cross_rank_trace_pairs(
         rbc_class = _RankBoundaryCommunicationEager
 
     # Initialize and post all sends/receives
-    rank_bdry_communcators = [
+    rank_bdry_communicators = [
         rbc_class(dcoll, ary, remote_rank, comm_tag=comm_tag, volume_dd=volume_dd)
         for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)
     ]
 
     # Complete send/receives and return communicated data
-    return [rc.finish() for rc in rank_bdry_communcators]
+    return [rc.finish() for rc in rank_bdry_communicators]
 
 # }}}
 
