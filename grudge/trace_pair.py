@@ -609,6 +609,8 @@ def cross_rank_trace_pairs(
 
     if isinstance(actx, MPIPytatoArrayContextBase):
         rbc_class = _RankBoundaryCommunicationLazy
+        if comm_tag is None:
+            raise ValueError("comm_tag=None is invalid in lazy evaluation")
     else:
         rbc_class = _RankBoundaryCommunicationEager
 
