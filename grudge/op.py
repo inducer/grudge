@@ -256,7 +256,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 def _reference_derivative_matrices(actx: ArrayContext,
         out_element_group, in_element_group):
     # We're accepting in_element_group for interface consistency with
-    # _reference_stiffness_transpose_matrix.
+    # _reference_stiffness_transpose_matrices.
     assert out_element_group is in_element_group
 
     @keyed_memoize_in(
@@ -409,10 +409,10 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 # {{{ Weak derivative operators
 
-def _reference_stiffness_transpose_matrix(
+def _reference_stiffness_transpose_matrices(
         actx: ArrayContext, out_element_group, in_element_group):
     @keyed_memoize_in(
-        actx, _reference_stiffness_transpose_matrix,
+        actx, _reference_stiffness_transpose_matrices,
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
@@ -465,7 +465,7 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _gradient_kernel(actx, out_discr, in_discr,
-            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+            _reference_stiffness_transpose_matrices, inverse_jac_mat, vec,
             metric_in_matvec=True)
 
 
@@ -488,7 +488,7 @@ def _weak_scalar_div(dcoll, dd_in, vecs):
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _divergence_kernel(actx, out_discr, in_discr,
-            _reference_stiffness_transpose_matrix, inverse_jac_mat, vec,
+            _reference_stiffness_transpose_matrices, inverse_jac_mat, vec,
             metric_in_matvec=True)
 
 
@@ -586,7 +586,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
-            actx, out_discr, in_discr, _reference_stiffness_transpose_matrix,
+            actx, out_discr, in_discr, _reference_stiffness_transpose_matrices,
             inverse_jac_mat, xyz_axis, vec,
             metric_in_matvec=True)
 
