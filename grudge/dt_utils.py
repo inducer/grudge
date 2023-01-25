@@ -338,7 +338,10 @@ def dt_geometric_factors(
             actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),
                 DOFArray(actx,
                     data=tuple(
-                        actx.einsum("e,ei->ei", 1/sae_i, cv_i,
+                        actx.einsum(
+                            "e,ei->ei",
+                            1/sae_i,
+                            actx.tag_axis(1, DiscretizationDOFAxisTag(), cv_i),
                             tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
                         for cv_i, sae_i in zip(cell_vols, surface_areas)))))
 
