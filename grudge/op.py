@@ -287,6 +287,27 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
             metric_in_matvec=False)
 
 
+def _strong_scalar_div(dcoll, dd, vecs):
+    from grudge.geometry import inverse_surface_metric_derivative_mat
+    from arraycontext import (get_container_context_recursively,
+                              serialize_container)
+
+    assert isinstance(vecs, np.ndarray)
+    assert vecs.shape == (dcoll.ambient_dim,)
+
+    discr = dcoll.discr_from_dd(dd)
+
+    actx = get_container_context_recursively(vecs)
+    vec = actx.np.stack([v for k, v in serialize_container(vecs)])
+
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _divergence_kernel(actx, discr, discr,
+            _reference_derivative_matrices, inverse_jac_mat, vec,
+            metric_in_matvec=False)
+
+
 def local_grad(
         dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainer:
     r"""Return the element-local gradient of a function :math:`f` represented
@@ -376,7 +397,7 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
         \nabla|_E \cdot \mathbf{f} = \sum_{i=1}^d \partial_{x_i}|_E \mathbf{f}_i
 
-    May be called with ``(vec)`` or ``(dd, vec)``.
+    May be called with ``(vecs)`` or ``(dd, vecs)``.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -389,20 +410,18 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
         :class:`~arraycontext.ArrayContainer` of them.
     """
     if len(args) == 1:
-        vec, = args
+        vecs, = args
         dd = DD_VOLUME_ALL
     elif len(args) == 2:
-        dd, vec = args
+        dd, vecs = args
     else:
         raise TypeError("invalid number of arguments")
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        lambda vec: sum(
-            local_d_dx(dcoll, i, dd, vec_i)
-            for i, vec_i in enumerate(vec)),
+        lambda vec: _strong_scalar_div(dcoll, dd, vec),
         (dcoll.ambient_dim,), (),
-        vec, scalar_cls=DOFArray)
+        vecs, scalar_cls=DOFArray)
 
 # }}}
 
