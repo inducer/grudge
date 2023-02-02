@@ -394,11 +394,20 @@ class MaxwellOperator(HyperbolicOperator):
             material_divisor = (
                     [self.epsilon]*elec_components+[self.mu]*mag_components)
 
-        tags_and_bcs = [
-                (self.pec_tag, self.pec_bc(w)),
-                (self.pmc_tag, self.pmc_bc(w)),
-                (self.absorb_tag, self.absorbing_bc(w)),
-                (self.incident_tag, self.incident_bc(w)),
+        actx = get_container_context_recursively(w)
+
+        tags_and_bcs_real = [
+                (self.pec_tag, self.pec_bc(actx.np.real(w))),
+                (self.pmc_tag, self.pmc_bc(actx.np.real(w))),
+                (self.absorb_tag, self.absorbing_bc(actx.np.real(w))),
+                (self.incident_tag, self.incident_bc(actx.np.real(w))),
+                ]
+
+        tags_and_bcs_imag = [
+                (self.pec_tag, self.pec_bc(actx.np.imag(w))),
+                (self.pmc_tag, self.pmc_bc(actx.np.imag(w))),
+                (self.absorb_tag, self.absorbing_bc(actx.np.imag(w))),
+                (self.incident_tag, self.incident_bc(actx.np.imag(w))),
                 ]
 
         dcoll = self.dcoll
@@ -407,14 +416,26 @@ class MaxwellOperator(HyperbolicOperator):
             return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
 
         return (
-            - self.local_derivatives(w)
+            - self.local_derivatives(actx.np.real(w))
+            - 1j*self.local_derivatives(actx.np.imag(w))
             - op.inverse_mass(
                 dcoll,
                 op.face_mass(
                     dcoll,
-                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
-                    + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
-                          for tag, bc in tags_and_bcs)
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(
+                        dcoll, actx.np.real(w)))
+                    + sum(flux(op.bv_trace_pair(dcoll, tag, actx.np.real(w), bc))
+                          for tag, bc in tags_and_bcs_real)
+                )
+            )
+            - 1j*op.inverse_mass(
+                dcoll,
+                op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(
+                        dcoll, actx.np.imag(w)))
+                    + sum(flux(op.bv_trace_pair(dcoll, tag, actx.np.imag(w), bc))
+                          for tag, bc in tags_and_bcs_imag)
                 )
             )
         ) / material_divisor
