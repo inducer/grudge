@@ -215,26 +215,19 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                 dict_of_named_arrays)
 
         # FIXME: Remove the import failure handling once this is in upstream grudge
-        try:
-            # pytest: disable=no-name-in-module,import-error
-            from meshmode.pytato_utils import unify_discretization_entity_tags
-        except ImportError:
-            from warnings import warn
-            warn("'unify_discretization_entity_tags' is unavailable in meshmode, "
-                    "skipping. Certain array contexts may require this "
-                    "transformation for acceptable results.")
+        self.actx._compile_trace_callback(self.f, "pre_infer_axes_tags",
+                dict_of_named_arrays)
 
-        else:
-            self.actx._compile_trace_callback(self.f, "pre_infer_axes_tags",
-                    dict_of_named_arrays)
+        with ProcessLogger(logger,
+                           "transform_dag.infer_axes_tags[pre-partition]"):
+            from meshmode.transform_metadata import DiscretizationEntityAxisTag
+            dict_of_named_arrays = pt.unify_axes_tags(
+                dict_of_named_arrays,
+                tag_t=DiscretizationEntityAxisTag,
+            )
 
-            with ProcessLogger(logger,
-                               "transform_dag.infer_axes_tags[pre-partition]"):
-                dict_of_named_arrays = unify_discretization_entity_tags(
-                    dict_of_named_arrays)
-
-            self.actx._compile_trace_callback(self.f, "post_infer_axes_tags",
-                    dict_of_named_arrays)
+        self.actx._compile_trace_callback(self.f, "post_infer_axes_tags",
+                dict_of_named_arrays)
 
         self.actx._compile_trace_callback(self.f, "pre_find_distributed_partition",
                 dict_of_named_arrays)
