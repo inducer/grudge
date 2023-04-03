@@ -8,6 +8,7 @@
 
 .. currentmodule:: grudge.discretization
 .. autoclass:: PartID
+.. autofunction:: filter_part_boundaries
 """
 
 __copyright__ = """
@@ -35,7 +36,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Sequence, Mapping, Optional, Union, Tuple, TYPE_CHECKING, Any
+from typing import (
+    Sequence, Mapping, Optional, Union, List, Tuple, TYPE_CHECKING, Any)
 
 from pytools import memoize_method, single_valued
 
@@ -1011,6 +1013,46 @@ def make_discretization_collection(
                 mpi_communicator=mpi_communicator,
                 volume_discrs=volume_discrs,
                 base_group_factory=discr_tag_to_group_factory[DISCR_TAG_BASE]))
+
+# }}}
+
+
+# {{{ filter_part_boundaries
+
+def filter_part_boundaries(
+        dcoll: DiscretizationCollection,
+        *,
+        volume_dd: DOFDesc = DD_VOLUME_ALL,
+        neighbor_volume_dd: Optional[DOFDesc] = None,
+        neighbor_rank: Optional[int] = None) -> List[DOFDesc]:
+    """
+    Retrieve tags of part boundaries that match *neighbor_volume_dd* and/or
+    *neighbor_rank*.
+    """
+    vol_mesh = dcoll.discr_from_dd(volume_dd).mesh
+
+    from meshmode.mesh import InterPartAdjacencyGroup
+    filtered_part_bdry_dds = [
+        volume_dd.trace(fagrp.boundary_tag)
+        for fagrp_list in vol_mesh.facial_adjacency_groups
+        for fagrp in fagrp_list
+        if isinstance(fagrp, InterPartAdjacencyGroup)]
+
+    if neighbor_volume_dd is not None:
+        filtered_part_bdry_dds = [
+            bdry_dd
+            for bdry_dd in filtered_part_bdry_dds
+            if (
+                bdry_dd.domain_tag.tag.part_id.volume_tag
+                == neighbor_volume_dd.domain_tag.tag)]
+
+    if neighbor_rank is not None:
+        filtered_part_bdry_dds = [
+            bdry_dd
+            for bdry_dd in filtered_part_bdry_dds
+            if bdry_dd.domain_tag.tag.part_id.rank == neighbor_rank]
+
+    return filtered_part_bdry_dds
 
 # }}}
 
