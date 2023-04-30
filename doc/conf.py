@@ -27,16 +27,16 @@ version = get_version()
 release = version
 
 intersphinx_mapping = {
-    "https://docs.python.org/3/": None,
-    "https://numpy.org/doc/stable/": None,
-    "https://documen.tician.de/pyopencl/": None,
-    "https://documen.tician.de/modepy/": None,
-    "https://documen.tician.de/pymbolic/": None,
-    "https://documen.tician.de/arraycontext/": None,
-    "https://documen.tician.de/meshmode/": None,
-    "https://documen.tician.de/loopy/": None,
-    "https://mpi4py.readthedocs.io/en/stable": None,
-    }
+        "python": ("https://docs.python.org/3/", None),
+        "numpy": ("https://numpy.org/doc/stable/", None),
+        "pyopencl": ("https://documen.tician.de/pyopencl/", None),
+        "modepy": ("https://documen.tician.de/modepy/", None),
+        "pymbolic": ("https://documen.tician.de/pymbolic/", None),
+        "arraycontext": ("https://documen.tician.de/arraycontext/", None),
+        "meshmode": ("https://documen.tician.de/meshmode/", None),
+        "loopy": ("https://documen.tician.de/loopy/", None),
+        "mpi4py": ("https://mpi4py.readthedocs.io/en/stable", None),
+        }
 
 # index-page demo uses pyopencl via plot_directive
 import os
