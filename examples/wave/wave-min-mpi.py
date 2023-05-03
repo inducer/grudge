@@ -49,7 +49,7 @@ class WaveTag:
 
 def main(ctx_factory, dim=2, order=4, visualize=False):
     comm = MPI.COMM_WORLD
-    num_parts = comm.Get_size()
+    num_parts = comm.size
 
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
@@ -60,10 +60,10 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             force_device_scalars=True,
             )
 
-    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
-    mesh_dist = MPIMeshDistributor(comm)
+    from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
+    from meshmode.mesh.processing import partition_mesh
 
-    if mesh_dist.is_mananger_rank():
+    if comm.rank == 0:
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(
                 a=(-0.5,)*dim,
@@ -72,14 +72,16 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         logger.info("%d elements", mesh.nelements)
 
-        part_per_element = get_partition_by_pymetis(mesh, num_parts)
-
-        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+        part_id_to_part = partition_mesh(mesh,
+                       membership_list_to_map(
+                           get_partition_by_pymetis(mesh, num_parts)))
+        parts = [part_id_to_part[i] for i in range(num_parts)]
+        local_mesh = comm.scatter(parts)
 
         del mesh
 
     else:
-        local_mesh = mesh_dist.receive_mesh_part()
+        local_mesh = comm.scatter(None)
 
     dcoll = DiscretizationCollection(actx, local_mesh, order=order)
 

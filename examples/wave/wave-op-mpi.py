@@ -184,7 +184,7 @@ def main(ctx_factory, dim=2, order=3,
     queue = cl.CommandQueue(cl_ctx)
 
     comm = MPI.COMM_WORLD
-    num_parts = comm.Get_size()
+    num_parts = comm.size
 
     from grudge.array_context import get_reasonable_array_context_class
     actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
@@ -195,12 +195,12 @@ def main(ctx_factory, dim=2, order=3,
                 allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
                 force_device_scalars=True)
 
-    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
-    mesh_dist = MPIMeshDistributor(comm)
+    from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
+    from meshmode.mesh.processing import partition_mesh
 
     nel_1d = 16
 
-    if mesh_dist.is_mananger_rank():
+    if comm.rank == 0:
         if use_nonaffine_mesh:
             from meshmode.mesh.generation import generate_warped_rect_mesh
             # FIXME: *generate_warped_rect_mesh* in meshmode warps a
@@ -218,14 +218,17 @@ def main(ctx_factory, dim=2, order=3,
 
         logger.info("%d elements", mesh.nelements)
 
-        part_per_element = get_partition_by_pymetis(mesh, num_parts)
+        part_id_to_part = partition_mesh(mesh,
+                       membership_list_to_map(
+                           get_partition_by_pymetis(mesh, num_parts)))
+        parts = [part_id_to_part[i] for i in range(num_parts)]
 
-        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+        local_mesh = comm.scatter(parts)
 
         del mesh
 
     else:
-        local_mesh = mesh_dist.receive_mesh_part()
+        local_mesh = comm.scatter(None)
 
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
