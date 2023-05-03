@@ -115,24 +115,26 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
 
     comm = actx.mpi_communicator
 
-    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
+    from meshmode.distributed import (
+            get_partition_by_pymetis, membership_list_to_map)
     from meshmode.mesh import BTAG_ALL
+    from meshmode.mesh.processing import partition_mesh
 
-    num_parts = comm.Get_size()
+    num_parts = comm.size
 
-    mesh_dist = MPIMeshDistributor(comm)
-
-    if mesh_dist.is_mananger_rank():
+    if comm.rank == 0:
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-1,)*2,
                                           b=(1,)*2,
                                           nelements_per_axis=(2,)*2)
 
-        part_per_element = get_partition_by_pymetis(mesh, num_parts)
-
-        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+        part_id_to_part = partition_mesh(mesh,
+                       membership_list_to_map(
+                           get_partition_by_pymetis(mesh, num_parts)))
+        parts = [part_id_to_part[i] for i in range(num_parts)]
+        local_mesh = comm.scatter(parts)
     else:
-        local_mesh = mesh_dist.receive_mesh_part()
+        local_mesh = comm.scatter(None)
 
     dcoll = DiscretizationCollection(actx, local_mesh, order=5)
 
@@ -188,28 +190,30 @@ def test_mpi_wave_op(actx_class, num_ranks):
 
 def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     comm = actx.mpi_communicator
-    i_local_rank = comm.Get_rank()
-    num_parts = comm.Get_size()
+    num_parts = comm.size
 
-    from meshmode.distributed import MPIMeshDistributor, get_partition_by_pymetis
-    mesh_dist = MPIMeshDistributor(comm)
+    from meshmode.distributed import (
+            get_partition_by_pymetis, membership_list_to_map)
+    from meshmode.mesh.processing import partition_mesh
 
     dim = 2
     order = 4
 
-    if mesh_dist.is_mananger_rank():
+    if comm.rank == 0:
         from meshmode.mesh.generation import generate_regular_rect_mesh
         mesh = generate_regular_rect_mesh(a=(-0.5,)*dim,
                                           b=(0.5,)*dim,
                                           nelements_per_axis=(16,)*dim)
 
-        part_per_element = get_partition_by_pymetis(mesh, num_parts)
-
-        local_mesh = mesh_dist.send_mesh_parts(mesh, part_per_element, num_parts)
+        part_id_to_part = partition_mesh(mesh,
+                       membership_list_to_map(
+                           get_partition_by_pymetis(mesh, num_parts)))
+        parts = [part_id_to_part[i] for i in range(num_parts)]
+        local_mesh = comm.scatter(parts)
 
         del mesh
     else:
-        local_mesh = mesh_dist.receive_mesh_part()
+        local_mesh = comm.scatter(None)
 
     dcoll = DiscretizationCollection(actx, local_mesh, order=order)
 
@@ -270,7 +274,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
 
     final_t = 4
     nsteps = int(final_t/dt)
-    logger.info("[%04d] dt %.5e nsteps %4d", i_local_rank, dt, nsteps)
+    logger.info("[%04d] dt %.5e nsteps %4d", comm.rank, dt, nsteps)
 
     step = 0
 
@@ -308,7 +312,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
 
     logmgr.tick_after()
     logmgr.close()
-    logger.info("Rank %d exiting", i_local_rank)
+    logger.info("Rank %d exiting", comm.rank)
 
 # }}}
 
