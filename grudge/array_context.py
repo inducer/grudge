@@ -281,7 +281,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         from pytato import DictOfNamedArrays
         for part in distributed_partition.parts.values():
             d = DictOfNamedArrays(
-                        {var_name: distributed_partition.var_name_to_result[var_name]
+                        {var_name: distributed_partition.name_to_output[var_name]
                             for var_name in part.output_names
                          })
             (
