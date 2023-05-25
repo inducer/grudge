@@ -65,6 +65,7 @@ from arraycontext import (
     make_loopy_program,
     map_array_container,
     serialize_container,
+    tag_axes,
     Scalar, ArrayOrContainer
 )
 
@@ -73,7 +74,9 @@ from grudge.discretization import DiscretizationCollection
 from pytools import memoize_in
 
 from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import DiscretizationDOFAxisTag
+from meshmode.transform_metadata import (
+    DiscretizationElementAxisTag,
+    DiscretizationDOFAxisTag)
 
 import numpy as np
 import grudge.dof_desc as dof_desc
@@ -339,7 +342,10 @@ def _apply_elementwise_reduction(
         return DOFArray(
             actx,
             data=tuple(
-                getattr(actx.np, op_name)(vec_i, axis=1).reshape(-1, 1)
+                tag_axes(actx, {
+                        0: DiscretizationElementAxisTag(),
+                        1: DiscretizationDOFAxisTag()},
+                    getattr(actx.np, op_name)(vec_i, axis=1).reshape(-1, 1))
                 for vec_i in vec
             )
         )
