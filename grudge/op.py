@@ -95,7 +95,7 @@ from grudge.dof_desc import (
 )
 
 from grudge.interpolation import interp
-from grudge.projection import project
+from grudge.projection import project, volume_quadrature_project
 
 from grudge.reductions import (
     norm,
@@ -1062,6 +1062,5 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     return _apply_face_mass_operator(dcoll, dd_in, vec)
 
 # }}}
-
 
 # vim: foldmethod=marker

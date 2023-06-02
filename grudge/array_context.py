@@ -38,7 +38,9 @@ from dataclasses import dataclass
 from pytools.tag import Tag
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
-        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
+        # TODO: Get SingleGridWorkBalancingPytatoArrayContext merged into main
+        SingleGridWorkBalancingPytatoArrayContext as _PytatoPyOpenCLArrayContextBase,
+        )
 from pyrsistent import pmap
 from warnings import warn
 
