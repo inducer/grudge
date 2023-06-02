@@ -132,9 +132,17 @@ jobs:
                 build_py_project_in_conda_env
 
                 if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
-                    # Test main branch
-                    # Only test examples, not pytest tests, as those take too much time.
-                    examples/run_examples.sh ./examples
+                    # Test main ~~(and production) branch~~
+                    # 
+                    # -a|--all: runs all of examples, lazyaccuracy, production
+                    # -e|--examples: Examples - runs mirgecom examples
+                    # -l|--lazy-accuracy: LazyAccuracy - checks lazy vs. eager numerical results
+                    # -p|--production: Production - runs mirgecom's production/prediction tests
+                    #
+                    # FIXME: Production testing stomps on `requirements.txt`
+                    # git stash   # FIXME: Sync/Marry requirements.txt@production w/local
+                    # scripts/run-integrated-tests --all
+                    scripts/run-integrated-tests.sh --lazy-accuracy --examples
                 else
                     test_py_project
                 fi
