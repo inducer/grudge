@@ -40,4 +40,5 @@ intersphinx_mapping = {
 
 # index-page demo uses pyopencl via plot_directive
 import os
-os.environ["PYOPENCL_TEST"] = "port:pthread"
+# switch to "port:cpu" once we're firmly migrated to pocl 4.0
+os.environ["PYOPENCL_TEST"] = "port:0"
