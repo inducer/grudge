@@ -1,7 +1,7 @@
 Python 3 POCL:
   script:
   - export PY_EXE=python3
-  - export PYOPENCL_TEST=portable:pthread
+  - export PYOPENCL_TEST=portable:cpu
   - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
@@ -36,7 +36,7 @@ Python 3 Intel:
 Python 3 POCL Examples:
   script:
   - export PY_EXE=python3
-  - export PYOPENCL_TEST=portable:pthread
+  - export PYOPENCL_TEST=portable:cpu
   - export EXTRA_INSTALL="pybind11 numpy mako mpi4py pyvisfile pymetis"
   - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"
