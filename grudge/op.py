@@ -95,7 +95,7 @@ from grudge.dof_desc import (
 )
 
 from grudge.interpolation import interp
-from grudge.projection import project
+from grudge.projection import project, volume_quadrature_project
 
 from grudge.reductions import (
     norm,
@@ -127,6 +127,7 @@ from grudge.trace_pair import (
 
 __all__ = (
     "project",
+    "volume_quadrature_project",
     "interp",
 
     "norm",
