@@ -202,19 +202,33 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
+    from meshmode.mesh import TensorProductElementGroup
+
+    def compute_tensor_product_grad(actx, diff_mat, vec):
+        """Exploits tensor product structure to differentiate each coordinate
+        axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
+        """
+        pass
+
     per_group_grads = [
+
+        compute_tensor_product_grad(actx, get_diff_mat, vec_i)
+        if isinstance(in_grp, TensorProductElementGroup)
+
         # r for rst axis
         # x for xyz axis
-        actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
-                    ijm_i,
-                    get_diff_mat(
-                        actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
-                    ),
-                    vec_i,
-                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),))
+        else actx.einsum(
+            "xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
+            ijm_i,
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp
+            ),
+            vec_i,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
             inv_jac_mat)]
