@@ -259,16 +259,35 @@ def _reference_derivative_matrices(actx: ArrayContext,
     # _reference_stiffness_transpose_matrices.
     assert out_element_group is in_element_group
 
+    from meshmode.mesh import TensorProductElementGroup
+
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
-        from meshmode.discretization.poly_element import diff_matrices
-        return actx.freeze(
-                actx.tag_axis(
-                    1, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(diff_matrices(grp)))))
+
+        if isinstance(grp, TensorProductElementGroup):
+            import modepy as mp
+            import numpy.linalg as la
+
+            space1d = grp.space.bases[0]
+            shape1d = grp.shape.bases[0]
+
+            nodes1d = mp.edge_clustered_nodes_for_space(space1d, shape1d)
+            basis1d = mp.basis_for_space(space1d, shape1d)
+
+            vdm1d = mp.vandermonde(basis1d.functions, nodes1d)
+            vdm_p1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
+
+            return actx.freeze(actx.from_numpy(vdm_p1d @ la.inv(vdm1d)))
+
+        else:
+            from meshmode.discretization.poly_element import diff_matrices
+            return actx.freeze(
+                    actx.tag_axis(
+                        1, DiscretizationDOFAxisTag(),
+                        actx.from_numpy(
+                            np.asarray(diff_matrices(grp)))))
     return get_ref_derivative_mats(out_element_group)
 
 
