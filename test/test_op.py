@@ -32,6 +32,7 @@ from grudge.dof_desc import DOFDesc
 
 import pytest
 
+from grudge.discretization import make_discretization_collection
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
@@ -158,6 +159,73 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     print(eoc_rec)
     assert (eoc_rec.order_estimate() >= order - 0.5
                 or eoc_rec.max_error() < 1e-11)
+
+
+@pytest.mark.parametrize("form", ["strong"])
+@pytest.mark.parametrize("dim", [2])
+@pytest.mark.parametrize("order", [2])
+@pytest.mark.parametrize(("vectorize", "nested"), [
+    (False, False)
+    ])
+def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
+                                 nested, visualize=False):
+
+    actx = actx_factory()
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    from meshmode.mesh import TensorProductElementGroup
+    from meshmode.discretization.poly_element import \
+        LegendreGaussLobattoTensorProductGroupFactory as LGL
+    for n in [4, 6, 8]:
+        mesh = mgen.generate_regular_rect_mesh(
+                a=(-1,)*dim,
+                b=(1,)*dim,
+                nelements_per_axis=(n,)*dim,
+                group_cls=TensorProductElementGroup)
+
+        import grudge.dof_desc as dd
+        dcoll = make_discretization_collection(
+                actx,
+                mesh,
+                discr_tag_to_group_factory={
+                    dd.DISCR_TAG_BASE: LGL(order)})
+
+
+        def f(x):
+            ret = actx.np.cos(np.pi*x[0]) + actx.np.sin(np.pi*x[1])
+
+            if dim == 3:
+                ret = ret + actx.np.sin(np.pi*x[2])
+
+            return ret
+
+
+        def grad_f(x):
+            ret = make_obj_array([dcoll.zeros(actx) for _ in range(dim)])
+
+            ret[0] = -np.pi*actx.np.sin(np.pi*x[0])
+            ret[1] = np.pi*actx.np.cos(np.pi*x[1])
+
+            if dim == 3:
+                ret[2] = np.pi*actx.np.cos(np.pi*x[2])
+
+            return ret
+
+
+        x = actx.thaw(dcoll.nodes())
+        u = f(x)
+        ref_grad = grad_f(x)
+        grad = op.local_grad(dcoll, u)
+
+        rel_linf_error = actx.to_numpy(op.norm(dcoll, ref_grad - grad, np.inf) /
+                                       op.norm(dcoll, ref_grad, np.inf))
+        eoc_rec.add_data_point(1./n, rel_linf_error)
+
+    print("L^inf error:")
+    print(eoc_rec)
+    assert (eoc_rec.order_estimate() >= order - 0.5 or
+            eoc_rec.max_error() < 1e-11)
 
 # }}}
 

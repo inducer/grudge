@@ -166,6 +166,36 @@ __all__ = (
     )
 
 
+# {{{ Temporary tools for tensor product operators
+from pytools.tag import Tag
+class OutputIsTensorProductDOFArrayOrdered(Tag):
+    pass
+
+
+from grudge.array_context import PyOpenCLArrayContext
+class TensorProductArrayContext(PyOpenCLArrayContext):
+    def transform_loopy_program(self, t_unit):
+        if len(t_unit.callables_table) == 1:
+            knl = t_unit.default_entrypoint
+            if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+                new_args = []
+                for arg in knl.args:
+                    if arg.is_output:
+                        arg = arg.copy(dim_tags=(
+                            f"N{len(arg.shape)-1},"
+                            + ",".join(f"N{i}"
+                                       for i in range(len(arg.shape)-1))
+                            ))
+
+                    new_args.append(arg)
+
+                knl = knl.copy(args=new_args)
+                t_unit = t_unit.with_kernel(knl)
+
+        return super().transform_loopy_program(t_unit)
+# }}}
+
+
 # {{{ common derivative "kernels"
 
 def _single_axis_derivative_kernel(
@@ -202,28 +232,30 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
-    from meshmode.mesh import TensorProductElementGroup
 
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm):
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
 
+        actx_tp = TensorProductArrayContext(
+                actx.queue,
+                allocator=actx.allocator,
+                force_device_scalars=actx._force_device_scalars)
+
         from modepy.tools import (
                 reshape_array_for_tensor_product_space,
                 unreshape_array_for_tensor_product_space)
 
         # reshape u to expose tensor product structure
-        vec = make_obj_array([
-            reshape_array_for_tensor_product_space(grp.space, vec[i])
-            for i in range(vec.shape[0])
-            ])
+        vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
         # apply differentiation matrix to vec
-        if vec.shape[0] == 2:
+        # check len(vec.shape) since shape is expected to be (nelements, ndofs)
+        if len(vec.shape) == 3:
             specs = ["il,elj->eij",
                      "jl,eil->eij"]
-        elif vec.shape[1] == 3:
+        elif len(vec.shape) == 4:
             specs = ["il,eljk->eijk",
                      "jl,eilk->eijk",
                      "kl,eijl->eijk"]
@@ -231,31 +263,34 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             specs = None
         assert specs is not None
 
+        diff_mat = get_diff_mat(actx, grp, grp)
         grad = make_obj_array([
-            make_obj_array([
-                actx.einsum(
+                actx_tp.einsum(
                     spec,
                     diff_mat,
-                    vec[i],
+                    vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered()))
-                    for i in range(vec.shape[0])
-                    ])
             for spec in specs
             ])
 
         # unreshape grad to apply geometric factors
         # NOTE: In a future version, do not reshape before application of
-        # geometric factors. Can possibly "chain" the einsum as it is below
+        # geometric factors. Can possibly "chain" the einsum. For example, the
+        # simplicial case below has einsum with spec
+        #                       ("xrei,rij,ei->ei")
+        # for the strong local gradient case
         grad = make_obj_array([
-            unreshape_array_for_tensor_product_space(grp.space, grad[i][0])
+            unreshape_array_for_tensor_product_space(grp.space, grad[i])
             for i in range(grad.shape[0])
             ])
 
         # apply geometric factors to current grad
+        # FIXME: using einsum spec ("xrei,xei->xei") throws error:
+        # "Loopy does not directly support object arrays"
         grad = make_obj_array([
-            actx.einsum(
+            actx_tp.einsum(
                 "rei,ei->ei",
                 ijm[i],
                 grad[i],
@@ -265,10 +300,12 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         return grad
 
+    from meshmode.discretization.poly_element import \
+        TensorProductElementGroupBase
     per_group_grads = [
 
         compute_tensor_product_grad(actx, in_grp, get_diff_mat, vec_i, ijm_i)
-        if isinstance(in_grp, TensorProductElementGroup)
+        if isinstance(in_grp, TensorProductElementGroupBase)
 
         # r for rst axis
         # x for xyz axis
@@ -335,7 +372,9 @@ def _reference_derivative_matrices(actx: ArrayContext,
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
 
-        if isinstance(grp, TensorProductElementGroup):
+        from meshmode.discretization.poly_element import \
+                TensorProductElementGroupBase
+        if isinstance(grp, TensorProductElementGroupBase):
             import modepy as mp
             import numpy.linalg as la
 
