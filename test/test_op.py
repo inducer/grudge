@@ -162,14 +162,16 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
 
 @pytest.mark.parametrize("form", ["strong"])
-@pytest.mark.parametrize("dim", [2])
-@pytest.mark.parametrize("order", [2])
+@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False)
     ])
 def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
                                  nested, visualize=False):
-
+    """A "one-dimensional tensor product element" does not make sense, so the
+    one-dimensional case is excluded from this test.
+    """
     actx = actx_factory()
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -193,10 +195,14 @@ def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
 
 
         def f(x):
-            ret = actx.np.cos(np.pi*x[0]) + actx.np.sin(np.pi*x[1])
-
-            if dim == 3:
-                ret = ret + actx.np.sin(np.pi*x[2])
+            if dim == 2:
+                ret = actx.np.cos(np.pi*x[0]) + actx.np.sin(np.pi*x[1])
+            elif dim == 3:
+                ret = actx.np.cos(np.pi*x[0]) + actx.np.sin(np.pi*x[1]) \
+                        + actx.np.sin(np.pi*x[2])
+            else:
+                ret = None
+            assert ret is not None
 
             return ret
 
@@ -204,10 +210,12 @@ def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
         def grad_f(x):
             ret = make_obj_array([dcoll.zeros(actx) for _ in range(dim)])
 
-            ret[0] = -np.pi*actx.np.sin(np.pi*x[0])
-            ret[1] = np.pi*actx.np.cos(np.pi*x[1])
-
-            if dim == 3:
+            if dim == 2:
+                ret[0] = -np.pi*actx.np.sin(np.pi*x[0])
+                ret[1] = np.pi*actx.np.cos(np.pi*x[1])
+            elif dim == 3:
+                ret[0] = -np.pi*actx.np.sin(np.pi*x[0])
+                ret[1] = np.pi*actx.np.cos(np.pi*x[1])
                 ret[2] = np.pi*actx.np.cos(np.pi*x[2])
 
             return ret
