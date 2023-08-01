@@ -204,15 +204,70 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     # (both strong and weak derivative) and their differences.
     from meshmode.mesh import TensorProductElementGroup
 
-    def compute_tensor_product_grad(actx, diff_mat, vec):
+    def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm):
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
-        pass
+
+        from modepy.tools import (
+                reshape_array_for_tensor_product_space,
+                unreshape_array_for_tensor_product_space)
+
+        # reshape u to expose tensor product structure
+        vec = make_obj_array([
+            reshape_array_for_tensor_product_space(grp.space, vec[i])
+            for i in range(vec.shape[0])
+            ])
+
+        # apply differentiation matrix to vec
+        if vec.shape[0] == 2:
+            specs = ["il,elj->eij",
+                     "jl,eil->eij"]
+        elif vec.shape[1] == 3:
+            specs = ["il,eljk->eijk",
+                     "jl,eilk->eijk",
+                     "kl,eijl->eijk"]
+        else:
+            specs = None
+        assert specs is not None
+
+        grad = make_obj_array([
+            make_obj_array([
+                actx.einsum(
+                    spec,
+                    diff_mat,
+                    vec[i],
+                    arg_names=("diff_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
+                    for i in range(vec.shape[0])
+                    ])
+            for spec in specs
+            ])
+
+        # unreshape grad to apply geometric factors
+        # NOTE: In a future version, do not reshape before application of
+        # geometric factors. Can possibly "chain" the einsum as it is below
+        grad = make_obj_array([
+            unreshape_array_for_tensor_product_space(grp.space, grad[i][0])
+            for i in range(grad.shape[0])
+            ])
+
+        # apply geometric factors to current grad
+        grad = make_obj_array([
+            actx.einsum(
+                "rei,ei->ei",
+                ijm[i],
+                grad[i],
+                tagged=(FirstAxisIsElementsTag(),))
+            for i in range(grad.shape[0])
+            ])
+
+        return grad
 
     per_group_grads = [
 
-        compute_tensor_product_grad(actx, get_diff_mat, vec_i)
+        compute_tensor_product_grad(actx, in_grp, get_diff_mat, vec_i, ijm_i)
         if isinstance(in_grp, TensorProductElementGroup)
 
         # r for rst axis
