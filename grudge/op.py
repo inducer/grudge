@@ -167,6 +167,8 @@ __all__ = (
 
 
 # {{{ Temporary tools for tensor product operators
+# NOTE: Will possibly be removed in a future version of tensor product operator
+# development since (I think) it is not entirely necessary
 from pytools.tag import Tag
 class OutputIsTensorProductDOFArrayOrdered(Tag):
     pass
@@ -251,7 +253,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
         # apply differentiation matrix to vec
-        # check len(vec.shape) since shape is expected to be (nelements, ndofs)
+        # check len(vec.shape) since shape is expected to be
+        # (nelements, nnodes1d, nnodes1d)
         if len(vec.shape) == 3:
             specs = ["il,elj->eij",
                      "jl,eil->eij"]
@@ -294,7 +297,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 "rei,ei->ei",
                 ijm[i],
                 grad[i],
-                tagged=(FirstAxisIsElementsTag(),))
+                tagged=(FirstAxisIsElementsTag(),)),
+                arg_names=("inv_jac_t", "vec")
             for i in range(grad.shape[0])
             ])
 
