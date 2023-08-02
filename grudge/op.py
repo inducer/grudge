@@ -297,8 +297,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 "rei,ei->ei",
                 ijm[i],
                 grad[i],
-                tagged=(FirstAxisIsElementsTag(),)),
-                arg_names=("inv_jac_t", "vec")
+                tagged=(FirstAxisIsElementsTag(),),
+                arg_names=("inv_jac_t", "vec"))
             for i in range(grad.shape[0])
             ])
 
@@ -339,19 +339,91 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
+
+
+     def compute_tensor_product_div(actx, grp, diff_mat, vec, ijm):
+        """Exploits tensor product structure to differentiate each coordinate
+        axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
+        """
+
+        actx_tp = TensorProductArrayContext(
+                actx.queue,
+                allocator=actx.allocator,
+                force_device_scalars=actx._force_device_scalars)
+
+        from modepy.tools import (
+                reshape_array_for_tensor_product_space,
+                unreshape_array_for_tensor_product_space)
+
+        # reshape u to expose tensor product structure
+        vec = reshape_array_for_tensor_product_space(grp.space, vec)
+
+        # define specs to extract dr, ds, dt
+        if len(vec.shape) == 3:
+            specs = ["il,elj->eij",
+                     "jl,eil->eij"]
+        elif len(vec.shape) == 4:
+            specs = ["il,eljk->eijk",
+                     "jl,eilk->eijk",
+                     "kl,eijl->eijk"]
+        else:
+            specs = None
+        assert specs is not None
+
+        diff_mat = get_diff_mat(actx, grp, grp)
+        drdsdt = make_obj_array([
+                actx_tp.einsum(
+                    spec,
+                    diff_mat,
+                    vec,
+                    arg_names=("diff_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
+            for spec in specs
+            ])
+
+        pu.db
+        if len(vec) == 3:
+            div = drdsdt[0] + drdsdt[1]
+        elif len(vec) == 4:
+            div = drdsdt[0] + drdsdt[1] + drdsdt[2]
+        else:
+            div = None
+        assert div is not None
+
+        # see compute_tensor_product_grad for note on reshape before applying
+        # geometric factors
+        div = unreshape_array_for_tensor_product_space(grp.space, div)
+
+        div = actx.einsum("xrei,ej->ej",
+                ijm,
+                div,
+                tagged=(FirstAxisIsElementsTag(),),
+                arg_names=("inv_jac_t", "vec"))
+
+        return div
+
+
+    from meshmode.discretization.poly_element import \
+            TensorProductElementGroupBase
     per_group_divs = [
+
+        compute_tensor_product_div(actx, in_grp, get_diff_mat, vec_i, ijm_i)
+        if isinstance(in_grp, TensorProductElementGroupBase)
         # r for rst axis
         # x for xyz axis
-        actx.einsum("xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
-                    ijm_i,
-                    get_diff_mat(
-                        actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
-                    ),
-                    vec_i,
-                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),))
+        else actx.einsum(
+            "xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
+            ijm_i,
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp
+            ),
+            vec_i,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
             inv_jac_mat)]
