@@ -42,7 +42,6 @@ these symbols correctly.)
 """
 
 from __future__ import annotations
-from re import I
 
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
