@@ -351,6 +351,84 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
     assert (eoc_rec.order_estimate() >= order - 0.5
                 or eoc_rec.max_error() < 1e-11)
 
+
+@pytest.mark.parametrize("form", ["strong"])
+@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize(("vectorize", "nested"), [
+    (False, False)
+    ])
+def test_tensor_product_divergence(actx_factory, form, dim, order, vectorize,
+                                 nested, visualize=False):
+    """A "one-dimensional tensor product element" does not make sense, so the
+    one-dimensional case is excluded from this test.
+    """
+    actx = actx_factory()
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    from meshmode.mesh import TensorProductElementGroup
+    from meshmode.discretization.poly_element import \
+        LegendreGaussLobattoTensorProductGroupFactory as LGL
+    for n in [4, 6, 8]:
+        mesh = mgen.generate_regular_rect_mesh(
+                a=(-1,)*dim,
+                b=(1,)*dim,
+                nelements_per_axis=(n,)*dim,
+                group_cls=TensorProductElementGroup)
+
+        import grudge.dof_desc as dd
+        dcoll = make_discretization_collection(
+                actx,
+                mesh,
+                discr_tag_to_group_factory={
+                    dd.DISCR_TAG_BASE: LGL(order)})
+
+
+        def f(x):
+            if dim == 2:
+                ret = make_obj_array([dcoll.empty(actx) for _ in range(dim)])
+                ret[0] = actx.np.cos(np.pi*x[0])
+                ret[1] = actx.np.sin(np.pi*x[1])
+
+                return ret
+            elif dim == 3:
+                ret = make_obj_array([dcoll.empty(actx) for _ in range(dim)])
+                ret[0] = actx.np.cos(np.pi*x[0])
+                ret[1] = actx.np.sin(np.pi*x[1])
+                ret[2] = actx.np.sin(np.pi*x[2])
+
+                return ret
+
+
+        def div_f(x):
+
+            if dim == 2:
+                ret = -np.pi*actx.np.sin(np.pi*x[0]) + \
+                        np.pi*actx.np.cos(np.pi*x[1])
+                return ret
+            elif dim == 3:
+                ret = -np.pi*actx.np.sin(np.pi*x[0]) + \
+                        np.pi*actx.np.cos(np.pi*x[1]) + \
+                        np.pi*actx.np.cos(np.pi*x[2])
+
+                return ret
+
+
+        x = actx.thaw(dcoll.nodes())
+        u = f(x)
+        ref_div = div_f(x)
+        div = op.local_div(dcoll, u)
+
+        rel_linf_error = actx.to_numpy(op.norm(dcoll, ref_div - div, np.inf) /
+                                       op.norm(dcoll, ref_div, np.inf))
+        eoc_rec.add_data_point(1./n, rel_linf_error)
+
+    print("L^inf error:")
+    print(eoc_rec)
+    assert (eoc_rec.order_estimate() >= order - 0.5 or
+            eoc_rec.max_error() < 1e-11)
+
 # }}}
 
 

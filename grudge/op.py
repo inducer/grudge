@@ -42,6 +42,7 @@ these symbols correctly.)
 """
 
 from __future__ import annotations
+from re import I
 
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
@@ -79,6 +80,7 @@ from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationDOFAxisTag,
                                          DiscretizationElementAxisTag,
                                          DiscretizationFaceAxisTag)
+from meshmode.discretization.poly_element import TensorProductElementGroupBase
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
@@ -235,6 +237,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
 
+
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm):
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
@@ -263,8 +266,9 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                      "jl,eilk->eijk",
                      "kl,eijl->eijk"]
         else:
-            specs = None
-        assert specs is not None
+            raise Exception("found dimension = {len(vec.shape)-1}. Special-case"
+                            " tensor product operations are only valid for "
+                            " 2 <= dimension <= 3.")
 
         diff_mat = get_diff_mat(actx, grp, grp)
         grad = make_obj_array([
@@ -274,7 +278,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
+                        OutputIsTensorProductDOFArrayOrdered()))
             for spec in specs
             ])
 
@@ -304,8 +308,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         return grad
 
-    from meshmode.discretization.poly_element import \
-        TensorProductElementGroupBase
+
     per_group_grads = [
 
         compute_tensor_product_grad(actx, in_grp, get_diff_mat, vec_i, ijm_i)
@@ -341,7 +344,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
     # (both strong and weak derivative) and their differences.
 
 
-     def compute_tensor_product_div(actx, grp, diff_mat, vec, ijm):
+    def compute_tensor_product_div(actx, grp, diff_mat, vec, ijm):
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
@@ -358,58 +361,73 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         # reshape u to expose tensor product structure
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
-        # define specs to extract dr, ds, dt
-        if len(vec.shape) == 3:
-            specs = ["il,elj->eij",
-                     "jl,eil->eij"]
-        elif len(vec.shape) == 4:
-            specs = ["il,eljk->eijk",
-                     "jl,eilk->eijk",
-                     "kl,eijl->eijk"]
+        # apply differentiation matrix to vec
+        # check len(vec.shape) since shape is expected to be
+        # (nelements, nnodes1d, nnodes1d)
+        # FIXME: make this "dimension independent"
+        if len(vec.shape) == 4:
+            specs = ["il,xelj->eij",
+                     "jl,xeil->eij"]
+        elif len(vec.shape) == 5:
+            specs = ["il,xeljk->eijk",
+                     "jl,xeilk->eijk",
+                     "kl,xeijl->eijk"]
         else:
-            specs = None
-        assert specs is not None
+            raise Exception("found dimension = {len(vec.shape)-2}. Special-case"
+                            " tensor product operations are only valid for "
+                            " 2 <= dimension <= 3.")
 
         diff_mat = get_diff_mat(actx, grp, grp)
-        drdsdt = make_obj_array([
-                actx_tp.einsum(
+
+        # get partial derivatives for each ref. coord. axis
+        partials = make_obj_array([
+            actx_tp.einsum(
                     spec,
                     diff_mat,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
-            for spec in specs
+                        OutputIsTensorProductDOFArrayOrdered()))
+                for spec in specs
+                ])
+
+        # unreshape partials to apply geometric factors
+        # NOTE: In a future version, do not reshape before application of
+        # geometric factors. Can possibly "chain" the einsum. For example, the
+        # simplicial case below has einsum with spec
+        #                       ("xrei,rij,xej->ei")
+        # for the strong local divergence case
+        partials = make_obj_array([
+            unreshape_array_for_tensor_product_space(grp.space, partials[i])
+            for i in range(partials.shape[0])
             ])
 
-        pu.db
-        if len(vec) == 3:
-            div = drdsdt[0] + drdsdt[1]
-        elif len(vec) == 4:
-            div = drdsdt[0] + drdsdt[1] + drdsdt[2]
-        else:
-            div = None
-        assert div is not None
-
-        # see compute_tensor_product_grad for note on reshape before applying
-        # geometric factors
-        div = unreshape_array_for_tensor_product_space(grp.space, div)
-
-        div = actx.einsum("xrei,ej->ej",
-                ijm,
-                div,
+        # apply geometric factors to partial derivatives
+        # FIXME: using einsum spec ("xrei,xei->xei") throws error:
+        # "Loopy does not directly support object arrays"
+        partials = make_obj_array([
+            actx_tp.einsum(
+                "rei,ei->ei",
+                ijm[i],
+                partials[i],
                 tagged=(FirstAxisIsElementsTag(),),
                 arg_names=("inv_jac_t", "vec"))
+            for i in range(partials.shape[0])
+            ])
+
+        if partials.shape[0] == 2:
+            div = partials[0] + partials[1]
+        else:
+            div = partials[0] + partials[1] + partials[2]
 
         return div
 
 
-    from meshmode.discretization.poly_element import \
-            TensorProductElementGroupBase
     per_group_divs = [
 
         compute_tensor_product_div(actx, in_grp, get_diff_mat, vec_i, ijm_i)
         if isinstance(in_grp, TensorProductElementGroupBase)
+
         # r for rst axis
         # x for xyz axis
         else actx.einsum(
@@ -441,24 +459,16 @@ def _reference_derivative_matrices(actx: ArrayContext,
     # _reference_stiffness_transpose_matrices.
     assert out_element_group is in_element_group
 
-    from meshmode.mesh import TensorProductElementGroup
-
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
         lambda grp: grp.discretization_key())
     def get_ref_derivative_mats(grp):
-
-        from meshmode.discretization.poly_element import \
-                TensorProductElementGroupBase
         if isinstance(grp, TensorProductElementGroupBase):
             import modepy as mp
             import numpy.linalg as la
 
-            space1d = grp.space.bases[0]
-            shape1d = grp.shape.bases[0]
-
-            nodes1d = mp.edge_clustered_nodes_for_space(space1d, shape1d)
-            basis1d = mp.basis_for_space(space1d, shape1d)
+            nodes1d = grp.unit_nodes_1d
+            basis1d = grp.basis_1d_obj()
 
             vdm1d = mp.vandermonde(basis1d.functions, nodes1d)
             vdm_p1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
