@@ -479,7 +479,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
             vdm_1d = mp.vandermonde(basis1d.functions, nodes1d)
             vdm_p_1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
 
-            return actx.freeze(actx.from_numpy(vdm_p1d @ la.inv(vdm1d)))
+            return actx.freeze(actx.from_numpy(vdm_p_1d @ la.inv(vdm_1d)))
 
         else:
             from meshmode.discretization.poly_element import diff_matrices
