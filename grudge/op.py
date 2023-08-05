@@ -254,31 +254,36 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         # reshape u to expose tensor product structure
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
-        # apply differentiation matrix to vec
-        # check len(vec.shape) since shape is expected to be
-        # (nelements, nnodes1d, nnodes1d)
-        if len(vec.shape) == 3:
-            specs = ["il,elj->eij",
-                     "jl,eil->eij"]
-        elif len(vec.shape) == 4:
-            specs = ["il,eljk->eijk",
-                     "jl,eilk->eijk",
-                     "kl,eijl->eijk"]
-        else:
-            raise Exception("found dimension = {len(vec.shape)-1}. Special-case"
-                            " tensor product operations are only valid for "
-                            " 2 <= dimension <= 3.")
+        # apply differentiation matrix to function data
+        def pre_dims(axis):
+            return "ijk"[0:axis]
+
+
+        def post_dims(axis):
+            return "ijk"[axis+1:grp.dim]
+
+
+        def out_dims():
+            return "ijk"[:grp.dim]
+
+
+        def axis(i):
+            return "ijk"[i]
+
 
         diff_mat = get_diff_mat(actx, grp, grp)
+        # einsum specs will look something like:
+        #   "il,eljk->eijk" (3D first coordinate partial)
+        #   "jl,eil->eij"   (2D second coordinate partial)
         grad = make_obj_array([
                 actx_tp.einsum(
-                    spec,
+                    f"{axis(i)}l,e{pre_dims(i)}l{post_dims(i)}->e{out_dims()}",
                     diff_mat,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
-            for spec in specs
+            for i in range(grp.dim)
             ])
 
         # unreshape grad to apply geometric factors
@@ -289,7 +294,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         # for the strong local gradient case
         grad = make_obj_array([
             unreshape_array_for_tensor_product_space(grp.space, grad[i])
-            for i in range(grad.shape[0])
+            for i in range(grp.dim)
             ])
 
         # apply geometric factors to current grad
@@ -360,34 +365,36 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         # reshape u to expose tensor product structure
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
-        # apply differentiation matrix to vec
-        # check len(vec.shape) since shape is expected to be
-        # (nelements, nnodes1d, nnodes1d)
-        # FIXME: make this "dimension independent"
-        if len(vec.shape) == 4:
-            specs = ["il,xelj->eij",
-                     "jl,xeil->eij"]
-        elif len(vec.shape) == 5:
-            specs = ["il,xeljk->eijk",
-                     "jl,xeilk->eijk",
-                     "kl,xeijl->eijk"]
-        else:
-            raise Exception("found dimension = {len(vec.shape)-2}. Special-case"
-                            " tensor product operations are only valid for "
-                            " 2 <= dimension <= 3.")
+        # apply differentiation matrix to function data
+        def pre_dims(axis):
+            return "ijk"[0:axis]
 
-        diff_mat = get_diff_mat(actx, grp, grp)
+
+        def post_dims(axis):
+            return "ijk"[axis+1:grp.dim]
+
+
+        def out_dims():
+            return "ijk"[:grp.dim]
+
+
+        def axis(i):
+            return "ijk"[i]
+
 
         # get partial derivatives for each ref. coord. axis
+        diff_mat = get_diff_mat(actx, grp, grp)
+
+        # see comment on einsum spec in `compute_tensor_product_grad`
         partials = make_obj_array([
             actx_tp.einsum(
-                    spec,
+                    f"{axis(i)}l,xe{pre_dims(i)}l{post_dims(i)}->e{out_dims()}",
                     diff_mat,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
-                for spec in specs
+                for i in range(grp.dim)
                 ])
 
         # unreshape partials to apply geometric factors
@@ -469,8 +476,8 @@ def _reference_derivative_matrices(actx: ArrayContext,
             nodes1d = grp.unit_nodes_1d
             basis1d = grp.basis_1d_obj()
 
-            vdm1d = mp.vandermonde(basis1d.functions, nodes1d)
-            vdm_p1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
+            vdm_1d = mp.vandermonde(basis1d.functions, nodes1d)
+            vdm_p_1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
 
             return actx.freeze(actx.from_numpy(vdm_p1d @ la.inv(vdm1d)))
 
