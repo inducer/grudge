@@ -254,36 +254,18 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         # reshape u to expose tensor product structure
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
-        # apply differentiation matrix to function data
-        def pre_dims(axis):
-            return "ijk"[0:axis]
-
-
-        def post_dims(axis):
-            return "ijk"[axis+1:grp.dim]
-
-
-        def out_dims():
-            return "ijk"[:grp.dim]
-
-
-        def axis(i):
-            return "ijk"[i]
-
-
+        # apply operators to function data
+        dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
-        # einsum specs will look something like:
-        #   "il,eljk->eijk" (3D first coordinate partial)
-        #   "jl,eil->eij"   (2D second coordinate partial)
         grad = make_obj_array([
                 actx_tp.einsum(
-                    f"{axis(i)}l,e{pre_dims(i)}l{post_dims(i)}->e{out_dims()}",
+                    f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
-            for i in range(grp.dim)
+            for i in range(dim)
             ])
 
         # unreshape grad to apply geometric factors
@@ -366,35 +348,17 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
         # apply differentiation matrix to function data
-        def pre_dims(axis):
-            return "ijk"[0:axis]
-
-
-        def post_dims(axis):
-            return "ijk"[axis+1:grp.dim]
-
-
-        def out_dims():
-            return "ijk"[:grp.dim]
-
-
-        def axis(i):
-            return "ijk"[i]
-
-
-        # get partial derivatives for each ref. coord. axis
+        dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
-
-        # see comment on einsum spec in `compute_tensor_product_grad`
         partials = make_obj_array([
             actx_tp.einsum(
-                    f"{axis(i)}l,xe{pre_dims(i)}l{post_dims(i)}->e{out_dims()}",
+                    f"ij,xe{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
                     vec,
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
-                for i in range(grp.dim)
+                for i in range(dim)
                 ])
 
         # unreshape partials to apply geometric factors
