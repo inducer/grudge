@@ -408,14 +408,11 @@ def _reference_derivative_matrices(actx: ArrayContext,
             import modepy as mp
             import numpy.linalg as la
 
-            # not functional in current state
             nodes1d = grp.unit_nodes_1d
             bases_1d = grp.bases_1d()
 
-            diff_mats = []
-            for i in range(len(bases_1d)):
-                vdm_1d = mp.vandermonde(bases_1d.functions, nodes1d)
-                vdm_p_1d = mp.vandermonde(bases_1d.gradients, nodes1d)[0]
+            vdm_1d = mp.vandermonde(bases_1d.functions, nodes1d)
+            vdm_p_1d = mp.vandermonde(bases_1d.gradients, nodes1d)[0]
 
             return actx.freeze(actx.from_numpy(vdm_p_1d @ la.inv(vdm_1d)))
 
