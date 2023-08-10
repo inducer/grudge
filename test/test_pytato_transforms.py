@@ -37,7 +37,7 @@ class _IndexeeArraysMaterializedChecker(CombineMapper[bool]):
         from grudge.pytato_transforms.pytato_indirection_transforms import (
             _is_materialized)
         return self.combine(
-            _is_materialized(expr.array) or isinstance(expr.array, BasicIndex),
+            _is_materialized(expr.array) or isinstance(expr, BasicIndex),
             self.rec(expr.array)
         )
 
@@ -227,6 +227,7 @@ def _compute_flux_2(dcoll, actx, u):
     normal_on_bdry_faces = actx.thaw(dcoll.normal(BTAG_ALL))
     flux_on_interior_faces = u_interior_tpair.avg * normal_on_interior_faces
     flux_on_bdry = op.project(dcoll, "vol", BTAG_ALL, u) * normal_on_bdry_faces
+
     flux_on_all_faces = (
         op.project(dcoll,
                    FACE_RESTR_INTERIOR,
@@ -245,21 +246,23 @@ def test_resampling_indirections_are_fused_2(ctx_factory):
     cl_ctx = ctx_factory()
     cq = cl.CommandQueue(cl_ctx)
 
-    ref_actx = PyOpenCLArrayContext(cq)
+    from grudge.array_context import get_reasonable_array_context_class
+
+    ref_actx = get_reasonable_array_context_class(lazy=True, distributed=False)(cq)
     actx = FluxOptimizerActx(cq)
 
-    dim = 2
-    nel_1d = 4
+    dim = 3
+    nel_1d = 16
+    order = 4
     mesh = generate_regular_rect_mesh(
         a=(-0.5,)*dim,
         b=(0.5,)*dim,
         nelements_per_axis=(nel_1d,)*dim,
-        boundary_tag_to_face={"bdry": ["-x", "+x",
-                                       "-y", "+y"]}
     )
-    dcoll = grudge.make_discretization_collection(ref_actx, mesh, order=2)
-
-    x, _ = dcoll.nodes()
+    dcoll = grudge.make_discretization_collection(
+        ref_actx, mesh,
+        order=order)
+    x, _, _ = dcoll.nodes()
     compiled_flux_2 = actx.compile(lambda ary: _compute_flux_2(dcoll, actx, ary))
 
     ref_output = ref_actx.to_numpy(
