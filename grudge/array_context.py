@@ -127,6 +127,45 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
 # }}}
 
+# {{{ Tensor product array context
+
+class OutputIsTensorProductDOFArrayOrdered(Tag):
+    """Signify that the strides will not be of order "C" or "F". See
+    :class:`grudge.array_context.TensorProductArrayContext` for more details.
+    """
+    pass
+
+
+class TensorProductArrayContext(_PyOpenCLArrayContextBase):
+    """Specialized array context for use with tensor product elements.
+
+    The strides for the arrays containing tensor product element data are of the
+    form (slow, fastest, faster, fast). These strides are not "C" or "F" order.
+    Hence, this specialized array context takes care of specifying the
+    particular strides required.
+    """
+
+    def transform_loopy_program(self, t_unit):
+        if len(t_unit.callables_table) == 1:
+            knl = t_unit.default_entrypoint
+            if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+                new_args = []
+                for arg in knl.args:
+                    if arg.is_output:
+                        arg = arg.copy(dim_tags=(
+                            f"N{len(arg.shape)-1},"
+                            + ",".join(f"N{i}"
+                                       for i in range(len(arg.shape)-1))
+                            ))
+
+                    new_args.append(arg)
+
+                knl = knl.copy(args=new_args)
+                t_unit = t_unit.with_kernel(knl)
+
+        return super().transform_loopy_program(t_unit)
+# }}}
+
 
 # {{{ pytato
 

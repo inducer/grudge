@@ -83,6 +83,9 @@ from meshmode.discretization.poly_element import TensorProductElementGroupBase
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
+from grudge.array_context import (
+        TensorProductArrayContext,
+        OutputIsTensorProductDOFArrayOrdered)
 
 from pytools import keyed_memoize_in
 from pytools.obj_array import make_obj_array
@@ -165,38 +168,6 @@ __all__ = (
     "inverse_mass",
     "face_mass",
     )
-
-
-# {{{ Temporary tools for tensor product operators
-# NOTE: Will possibly be removed in a future version of tensor product operator
-# development since (I think) it is not entirely necessary
-from pytools.tag import Tag
-class OutputIsTensorProductDOFArrayOrdered(Tag):
-    pass
-
-
-from grudge.array_context import PyOpenCLArrayContext
-class TensorProductArrayContext(PyOpenCLArrayContext):
-    def transform_loopy_program(self, t_unit):
-        if len(t_unit.callables_table) == 1:
-            knl = t_unit.default_entrypoint
-            if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
-                new_args = []
-                for arg in knl.args:
-                    if arg.is_output:
-                        arg = arg.copy(dim_tags=(
-                            f"N{len(arg.shape)-1},"
-                            + ",".join(f"N{i}"
-                                       for i in range(len(arg.shape)-1))
-                            ))
-
-                    new_args.append(arg)
-
-                knl = knl.copy(args=new_args)
-                t_unit = t_unit.with_kernel(knl)
-
-        return super().transform_loopy_program(t_unit)
-# }}}
 
 
 # {{{ common derivative "kernels"
@@ -437,11 +408,14 @@ def _reference_derivative_matrices(actx: ArrayContext,
             import modepy as mp
             import numpy.linalg as la
 
+            # not functional in current state
             nodes1d = grp.unit_nodes_1d
-            basis1d = grp.basis_1d_obj()
+            bases_1d = grp.bases_1d()
 
-            vdm_1d = mp.vandermonde(basis1d.functions, nodes1d)
-            vdm_p_1d = mp.vandermonde(basis1d.gradients, nodes1d)[0]
+            diff_mats = []
+            for i in range(len(bases_1d)):
+                vdm_1d = mp.vandermonde(bases_1d.functions, nodes1d)
+                vdm_p_1d = mp.vandermonde(bases_1d.gradients, nodes1d)[0]
 
             return actx.freeze(actx.from_numpy(vdm_p_1d @ la.inv(vdm_1d)))
 
