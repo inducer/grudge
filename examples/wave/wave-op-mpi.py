@@ -47,6 +47,7 @@ from grudge.discretization import DiscretizationCollection
 from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
 
 import grudge.op as op
+import grudge.geometry as geo
 
 import logging
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
     v = w_tpair.v
     dd = w_tpair.dd
 
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = geo.normal(actx, dcoll, dd)
 
     flux_weak = WaveState(
         u=v.avg @ normal,

@@ -40,6 +40,7 @@ from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+import grudge.geometry as geo
 
 import logging
 logger = logging.getLogger(__name__)
@@ -237,7 +238,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
         df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
-        face_normal = actx.thaw(dcoll.normal(dd=df))
+        face_normal = geo.normal(actx, dcoll, dd=df)
 
         from meshmode.discretization.visualization import make_visualizer
         vis = make_visualizer(actx, face_discr)

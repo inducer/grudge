@@ -33,6 +33,7 @@ import pyopencl.tools as cl_tools
 from grudge.array_context import PyOpenCLArrayContext
 
 from grudge import DiscretizationCollection, shortcuts
+import grudge.geometry as geo
 
 
 def main(write_output=True):
@@ -52,7 +53,7 @@ def main(write_output=True):
 
     nodes = actx.thaw(dcoll.nodes())
     bdry_nodes = actx.thaw(dcoll.nodes(dd=BTAG_ALL))
-    bdry_normals = actx.thaw(dcoll.normal(dd=BTAG_ALL))
+    bdry_normals = geo.normal(actx, dcoll, dd=BTAG_ALL)
 
     if write_output:
         vis = shortcuts.make_visualizer(dcoll)

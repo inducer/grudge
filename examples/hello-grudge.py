@@ -12,6 +12,7 @@ import numpy as np
 import pyopencl as cl
 from grudge.discretization import DiscretizationCollection
 import grudge.op as op
+import grudge.geometry as geo
 from meshmode.mesh.generation import generate_box_mesh
 from meshmode.array_context import PyOpenCLArrayContext
 from grudge.dof_desc import BoundaryDomainTag, FACE_RESTR_INTERIOR
@@ -42,7 +43,7 @@ def left_boundary_condition(x, t):
 def flux(dcoll, u_tpair):
     dd = u_tpair.dd
     velocity = np.array([2 * np.pi])
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = geo.normal(actx, dcoll, dd)
 
     v_dot_n = np.dot(velocity, normal)
     u_upwind = actx.np.where(v_dot_n > 0,

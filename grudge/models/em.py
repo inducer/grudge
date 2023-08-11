@@ -38,6 +38,7 @@ from pytools import memoize_method, levi_civita
 from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.op as op
+import grudge.geometry as geo
 import numpy as np
 
 
@@ -239,7 +240,7 @@ class MaxwellOperator(HyperbolicOperator):
         """
 
         actx = get_container_context_recursively(wtpair)
-        normal = actx.thaw(self.dcoll.normal(wtpair.dd))
+        normal = geo.normal(actx, self.dcoll, wtpair.dd)
 
         if self.fixed_material:
             e, h = self.split_eh(wtpair)
@@ -340,7 +341,7 @@ class MaxwellOperator(HyperbolicOperator):
         """
 
         actx = get_container_context_recursively(w)
-        absorb_normal = actx.thaw(self.dcoll.normal(dd=self.absorb_tag))
+        absorb_normal = geo.normal(actx, self.dcoll, dd=self.absorb_tag)
 
         e, h = self.split_eh(w)
 
