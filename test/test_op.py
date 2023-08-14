@@ -429,12 +429,13 @@ def test_tensor_product_divergence(actx_factory, form, dim, order, vectorize,
         LegendreGaussLobattoTensorProductGroupFactory as LGL
     for n in [4, 6, 8]:
         mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
+                a=(-1,)*dim,
+                b=(1,)*dim,
                 nelements_per_axis=(n,)*dim,
                 group_cls=TensorProductElementGroup)
 
         import grudge.dof_desc as dd
-        dcoll = DiscretizationCollection(
+        dcoll = make_discretization_collection(
                 actx,
                 mesh,
                 discr_tag_to_group_factory={

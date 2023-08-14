@@ -250,18 +250,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             for i in range(grp.dim)
             ])
 
-        # apply geometric factors to current grad
-        # FIXME: using einsum spec ("xrei,xei->xei") throws error:
-        # "Loopy does not directly support object arrays"
-        grad = make_obj_array([
-            actx_tp.einsum(
-                "rei,ei->ei",
-                ijm[i],
-                grad[i],
-                tagged=(FirstAxisIsElementsTag(),),
-                arg_names=("inv_jac_t", "vec"))
-            for i in range(grad.shape[0])
-            ])
+        # apply geometric factors
+        grad = actx.np.stack([grad[i] for i in range(dim)])
+        grad = actx.einsum(
+                "xrei,xei->xei",
+                ijm,
+                grad,
+                arg_names=("inv_jac_t", "vec"),
+                tagged=(FirstAxisIsElementsTag(),))
 
         return grad
 
@@ -305,7 +301,6 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
-
         actx_tp = TensorProductArrayContext(
                 actx.queue,
                 allocator=actx.allocator,
@@ -323,9 +318,9 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         diff_mat = get_diff_mat(actx, grp, grp)
         partials = make_obj_array([
             actx_tp.einsum(
-                    f"ij,xe{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                    f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
-                    vec,
+                    vec[i],
                     arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
@@ -343,23 +338,14 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
             for i in range(partials.shape[0])
             ])
 
-        # apply geometric factors to partial derivatives
-        # FIXME: using einsum spec ("xrei,xei->xei") throws error:
-        # "Loopy does not directly support object arrays"
-        partials = make_obj_array([
-            actx_tp.einsum(
-                "rei,ei->ei",
-                ijm[i],
-                partials[i],
-                tagged=(FirstAxisIsElementsTag(),),
-                arg_names=("inv_jac_t", "vec"))
-            for i in range(partials.shape[0])
-            ])
-
-        if partials.shape[0] == 2:
-            div = partials[0] + partials[1]
-        else:
-            div = partials[0] + partials[1] + partials[2]
+        # apply geometric factors
+        partials = actx.np.stack([partials[i] for i in range(dim)])
+        div = actx.einsum(
+                "xrei,xei->ei",
+                ijm,
+                partials,
+                arg_names=("inv_jac_t", "vec"),
+                tagged=(FirstAxisIsElementsTag(),))
 
         return div
 
