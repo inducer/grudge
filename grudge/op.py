@@ -240,17 +240,13 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             ])
 
         # unreshape grad to apply geometric factors
-        # NOTE: In a future version, do not reshape before application of
-        # geometric factors. Can possibly "chain" the einsum. For example, the
-        # simplicial case below has einsum with spec
-        #                       ("xrei,rij,ei->ei")
-        # for the strong local gradient case
         grad = make_obj_array([
             unreshape_array_for_tensor_product_space(grp.space, grad[i])
             for i in range(grp.dim)
             ])
 
         # apply geometric factors
+        # TODO: chain the einsum above with the einsum below
         grad = actx.np.stack([grad[i] for i in range(dim)])
         grad = actx.einsum(
                 "xrei,xei->xei",
@@ -328,11 +324,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                 ])
 
         # unreshape partials to apply geometric factors
-        # NOTE: In a future version, do not reshape before application of
-        # geometric factors. Can possibly "chain" the einsum. For example, the
-        # simplicial case below has einsum with spec
-        #                       ("xrei,rij,xej->ei")
-        # for the strong local divergence case
+        # TODO: chain the einsum above with the einsum below
         partials = make_obj_array([
             unreshape_array_for_tensor_product_space(grp.space, partials[i])
             for i in range(partials.shape[0])
@@ -579,7 +571,28 @@ def _reference_stiffness_transpose_matrices(
             from meshmode.discretization.poly_element import \
                 mass_matrix, diff_matrices
 
+            if isinstance(out_grp, TensorProductElementGroupBase):
+                import modepy as mp
+                import numpy.linalg as la
+
+                basis_1d = out_grp.bases_1d()
+                nodes_1d = out_grp.unit_nodes_1d
+
+                vdm = mp.vandermonde(basis_1d.functions, nodes_1d)
+                vdm_p = mp.vandermonde(basis_1d.gradients, nodes_1d)[0]
+
+                # NOTE: possibly work special-case matrices like differentiation
+                # matrix, mass matrix, into modepy
+                mmat = la.inv(vdm @ vdm.T)
+                diff_mat = vdm_p @ la.inv(vdm)
+                return actx.freeze(
+                        actx.tag_axis(1, DiscretizationDOFAxisTag(),
+                            actx.from_numpy(
+                                np.asarray(
+                                    diff_mat.T @ mmat.T))))
+
             mmat = mass_matrix(out_grp)
+
             return actx.freeze(
                 actx.tag_axis(1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
