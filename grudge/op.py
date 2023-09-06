@@ -213,10 +213,10 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
 
-        actx_tp = TensorProductArrayContext(
-                actx.queue,
-                allocator=actx.allocator,
-                force_device_scalars=actx._force_device_scalars)
+        # actx_tp = TensorProductArrayContext(
+        #         actx.queue,
+        #         allocator=actx.allocator,
+        #         force_device_scalars=actx._force_device_scalars)
 
         from modepy.tools import (
                 reshape_array_for_tensor_product_space,
@@ -229,7 +229,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
         grad = make_obj_array([
-                actx_tp.einsum(
+                actx.einsum(
                     f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
                     vec,
