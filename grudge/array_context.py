@@ -278,9 +278,9 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         name_in_program_to_tags = pmap()
         name_in_program_to_axes = pmap()
 
-        from pytato import DictOfNamedArrays
+        from pytato import make_dict_of_named_arrays
         for part in distributed_partition.parts.values():
-            d = DictOfNamedArrays(
+            d = make_dict_of_named_arrays(
                         {var_name: distributed_partition.name_to_output[var_name]
                             for var_name in part.output_names
                          })
