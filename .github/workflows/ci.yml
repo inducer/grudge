@@ -86,6 +86,7 @@ jobs:
 
                 # Work around regression introduced in
                 # https://github.com/sphinx-doc/sphinx/pull/11645
+                # see also https://github.com/sphinx-doc/sphinx/issues/11662
                 export CI_SUPPORT_SPHINX_VERSION_SPECIFIER="<7.2.5"
 
                 . ci-support.sh
