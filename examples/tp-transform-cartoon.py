@@ -48,7 +48,7 @@ def main():
 
     u = f(x)
 
-    op.local_grad(dcoll, u)
+    grad_u = op.local_grad(dcoll, u)
 
 
 if __name__ == "__main__":
