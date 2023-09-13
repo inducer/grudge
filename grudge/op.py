@@ -213,11 +213,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
 
-        actx_tp = TensorProductArrayContext(
-                actx.queue,
-                allocator=actx.allocator,
-                force_device_scalars=actx._force_device_scalars)
-
         from modepy.tools import (
                 reshape_array_for_tensor_product_space,
                 unreshape_array_for_tensor_product_space)
@@ -229,7 +224,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
         grad = make_obj_array([
-                actx_tp.einsum(
+                actx.einsum(
                     f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
                     vec,
@@ -247,8 +242,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # apply geometric factors
         # TODO: chain the einsum above with the einsum below
-        grad = actx_tp.np.stack([grad[i] for i in range(dim)])
-        grad = actx_tp.einsum(
+        grad = actx.np.stack([grad[i] for i in range(dim)])
+        grad = actx.einsum(
                 "xrei,xei->xei",
                 ijm,
                 grad,
@@ -297,10 +292,6 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
-        actx_tp = TensorProductArrayContext(
-                actx.queue,
-                allocator=actx.allocator,
-                force_device_scalars=actx._force_device_scalars)
 
         from modepy.tools import (
                 reshape_array_for_tensor_product_space,
@@ -313,7 +304,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
         partials = make_obj_array([
-            actx_tp.einsum(
+            actx.einsum(
                     f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
                     diff_mat,
                     vec[i],
@@ -321,14 +312,14 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
                 for i in range(dim)
-                ])
+        ])
 
         # unreshape partials to apply geometric factors
         # TODO: chain the einsum above with the einsum below
         partials = make_obj_array([
             unreshape_array_for_tensor_product_space(grp.space, partials[i])
             for i in range(partials.shape[0])
-            ])
+        ])
 
         # apply geometric factors
         partials = actx.np.stack([partials[i] for i in range(dim)])

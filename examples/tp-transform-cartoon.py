@@ -3,11 +3,32 @@ import pyopencl as cl
 from meshmode.array_context import PytatoPyOpenCLArrayContext
 import meshmode.mesh.generation as mgen
 from grudge import op, DiscretizationCollection
+from grudge.array_context import OutputIsTensorProductDOFArrayOrdered
 from pytools.obj_array import make_obj_array
 
 
-class MyArrayContext(PytatoPyOpenCLArrayContext):
-    pass
+class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
+    def transform_loopy_program(self, t_unit):
+
+        if len(t_unit.callables_table) == 1:
+            knl = t_unit.default_entrypoint
+
+            if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+                new_args = []
+                for arg in knl.args:
+                    if arg.is_output:
+                        arg = arg.copy(dim_tags=(
+                            f"N{len(arg.shape)-1},"
+                            + ",".join(f"N{i}"
+                                       for i in range(len(arg.shape)-1))
+                            ))
+
+                    new_args.append(arg)
+
+                knl = knl.copy(args=new_args)
+                t_unit = t_unit.with_kernel(knl)
+
+        return super().transform_loopy_program(t_unit)
 
 
 def main():
@@ -15,7 +36,7 @@ def main():
 
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
-    actx = MyArrayContext(queue)
+    actx = PytatoTensorProductArrayContext(queue)
 
     dim = 3
     n = 5
@@ -50,6 +71,7 @@ def main():
 
     grad_u = op.local_grad(dcoll, u)
 
+    pu.db
 
 if __name__ == "__main__":
     main()

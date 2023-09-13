@@ -169,13 +169,18 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     (True, False),
     (True, True)
     ])
-def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
+def test_tensor_product_gradient(form, dim, order, vectorize,
                                  nested, visualize=False):
     """A "one-dimensional tensor product element" does not make sense, so the
     one-dimensional case is excluded from this test.
     """
 
-    actx = actx_factory()
+    import pyopencl as cl
+    from grudge.array_context import TensorProductArrayContext
+
+    ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+    actx = TensorProductArrayContext(queue)
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
@@ -303,9 +308,7 @@ def test_tensor_product_gradient(actx_factory, form, dim, order, vectorize,
     (True, True)
     ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
-    actx = actx_factory()
-
+        visualize=False):    
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
@@ -414,12 +417,17 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
     (True, False),
     (True, True)
     ])
-def test_tensor_product_divergence(actx_factory, form, dim, order, vectorize,
+def test_tensor_product_divergence(form, dim, order, vectorize,
                                    nested, visualize=False):
     """A "one-dimensional tensor product element" does not make sense, so the
     one-dimensional case is excluded from this test.
     """
-    actx = actx_factory()
+    import pyopencl as cl
+    from grudge.array_context import TensorProductArrayContext
+
+    ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+    actx = TensorProductArrayContext(queue)
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
