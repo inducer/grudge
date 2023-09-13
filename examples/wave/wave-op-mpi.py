@@ -42,7 +42,7 @@ from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
 from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-from grudge.trace_pair import TracePair
+from grudge.trace_pair import TracePair, CommTag
 from grudge.discretization import DiscretizationCollection
 from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
 
@@ -95,7 +95,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
     return op.project(dcoll, dd, dd.with_dtag("all_faces"), c*flux_weak)
 
 
-class _WaveStateTag:
+class _WaveStateTag(CommTag):
     pass
 
 
@@ -144,7 +144,7 @@ def wave_operator(actx, dcoll, c, w, quad_tag=None):
                 ) + sum(
                     wave_flux(actx, dcoll, c=c, w_tpair=interp_to_surf_quad(tpair))
                     for tpair in op.interior_trace_pairs(dcoll, w,
-                        comm_tag=_WaveStateTag)
+                        comm_tag=_WaveStateTag())
                 )
             )
         )
