@@ -22,7 +22,7 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.trace_pair import TracePair
+from grudge.trace_pair import TracePair, CommTag
 import meshmode.mesh.generation as mgen
 from meshmode.dof_array import DOFArray
 
@@ -67,3 +67,22 @@ def test_trace_pair(actx_factory):
     assert op.norm(dcoll, tpair.diff - (exterior - interior), np.inf) == 0
     assert op.norm(dcoll, tpair.int - interior, np.inf) == 0
     assert op.norm(dcoll, tpair.ext - exterior, np.inf) == 0
+
+
+def test_commtag(actx_factory):
+
+    class DerivedCommTag(CommTag):
+        pass
+
+    x = CommTag()
+    x2 = CommTag()
+    y = DerivedCommTag()
+
+    assert hash(x) == hash(x2)
+    assert hash(x) != hash(y)
+    assert hash(x) == 4644528671524962420
+    assert hash(y) == -1013583671995716582
+
+    assert hash((x, 123)) == -578844573019921397
+    assert hash((y, 123)) == -8009406276367324841
+    assert hash((y, x)) == 6599529611285265043
