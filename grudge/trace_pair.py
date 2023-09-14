@@ -6,6 +6,7 @@ Container class and auxiliary functionality
 -------------------------------------------
 
 .. autoclass:: TracePair
+.. autoclass:: CommTag
 
 .. currentmodule:: grudge.op
 
@@ -22,7 +23,6 @@ Interior and cross-rank trace functions
 ---------------------------------------
 
 .. autofunction:: interior_trace_pairs
-.. autoclass:: CommTag
 .. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
 """
@@ -343,10 +343,11 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
 
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer` of them.
-    :arg comm_tag: a :class:`CommTag` used to match sent and received data
-        across ranks. Communication will only match if both endpoints specify
-        objects that compare equal. A generalization of MPI communication
-        tags to arbitrary, potentially composite objects.
+    :arg comm_tag: a :class:`~grudge.trace_pair.CommTag` used to match
+        sent and received data across ranks. Communication will only match
+        if both endpoints specify objects that compare equal. A
+        generalization of MPI communication tags to arbitrary, potentially
+        composite objects.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
 
