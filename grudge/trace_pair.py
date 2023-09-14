@@ -319,6 +319,7 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return local_interior_trace_pair(dcoll, vec)
 
 
+@dataclass(frozen=True)  # for KeyBuilder support
 class CommTag:
     """A communication tag with a hash value that is stable across
     runs, even without setting ``PYTHONHASHSEED``."""
