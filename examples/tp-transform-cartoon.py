@@ -1,5 +1,7 @@
 import numpy as np
 import pyopencl as cl
+import pytato as pt
+import loopy as lp
 from meshmode.array_context import PytatoPyOpenCLArrayContext
 import meshmode.mesh.generation as mgen
 from grudge import op, DiscretizationCollection
@@ -24,7 +26,6 @@ class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
 
             knl = knl.copy(args=new_args)
             t_unit = t_unit.with_kernel(knl)
-
         return super().transform_loopy_program(t_unit)
 
 
@@ -67,7 +68,12 @@ def main():
     u = f(x)
 
     grad_u = op.local_grad(dcoll, u)
+    grad_u = actx.np.stack(grad_u)[0]
 
+    prg = pt.generate_loopy(grad_u).program
+    code = lp.generate_code_v2(prg).device_code()
+
+    print(code)
     pu.db
 
 if __name__ == "__main__":
