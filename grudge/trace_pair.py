@@ -327,9 +327,6 @@ class CommTag:
     def __hash__(self):
         return hash(tuple(str(type(self)).encode("ascii")))
 
-    def __eq__(self, other):
-        return isinstance(other, type(self))
-
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
         comm_tag: Optional[Hashable] = None, tag: Hashable = None,
