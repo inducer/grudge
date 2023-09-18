@@ -242,13 +242,15 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # apply geometric factors
         # TODO: chain the einsum above with the einsum below
+        from arraycontext.metadata import NameHint
         grad = actx.np.stack([grad[i] for i in range(dim)])
         grad = actx.einsum(
                 "xrei,xei->xei",
                 ijm,
                 grad,
                 arg_names=("inv_jac_t", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
+                tagged=(FirstAxisIsElementsTag(),
+                        NameHint("tp_gradient"),))
 
         return grad
 
@@ -383,7 +385,14 @@ def _reference_derivative_matrices(actx: ArrayContext,
             vdm_1d = mp.vandermonde(bases_1d.functions, nodes1d)
             vdm_p_1d = mp.vandermonde(bases_1d.gradients, nodes1d)[0]
 
-            return actx.freeze(actx.from_numpy(vdm_p_1d @ la.inv(vdm_1d)))
+            diff_mat = actx.from_numpy(vdm_p_1d @ la.inv(vdm_1d))
+
+            from arraycontext.metadata import NameHint
+            return actx.freeze(
+                    actx.tag(NameHint("tp_diff_mat_1d"),
+                             tag_axes(actx, {
+                                1: DiscretizationDOFAxisTag()},
+                                diff_mat)))
 
         else:
             from meshmode.discretization.poly_element import diff_matrices

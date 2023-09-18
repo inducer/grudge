@@ -1,17 +1,31 @@
+import loopy as lp
+
+import meshmode.mesh.generation as mgen
+
 import numpy as np
 import pyopencl as cl
 import pytato as pt
-import loopy as lp
-from meshmode.array_context import PytatoPyOpenCLArrayContext
-import meshmode.mesh.generation as mgen
-from grudge import op, DiscretizationCollection
+
+from grudge import op
 from grudge.array_context import OutputIsTensorProductDOFArrayOrdered
+from grudge.discretization import make_discretization_collection
+
+from meshmode.array_context import PytatoPyOpenCLArrayContext
 
 
 class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
-    def transform_loopy_program(self, t_unit):
+    def transform_dag(self, dag):
+        if "dag_dots" not in dir(self):
+            self.dag_dots = []
 
+        self.dag_dots.append(pt.get_dot_graph(dag))
+
+        return super().transform_dag(dag)
+
+    def transform_loopy_program(self, t_unit):
         knl = t_unit.default_entrypoint
+
+        # {{{ adjust strides according to tensor product structure
         if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
             new_args = []
             for arg in knl.args:
@@ -25,19 +39,31 @@ class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
                 new_args.append(arg)
 
             knl = knl.copy(args=new_args)
-            t_unit = t_unit.with_kernel(knl)
+        # }}}
+
+        # {{{ prefetch
+        # }}}
+
+        # {{{ tile
+        # }}}
+
+        # FIXME: remove this (eventually)
+        knl = lp.set_options(knl, insert_gbarriers=True)
+        t_unit = t_unit.with_kernel(knl)
+        self.dev_code = lp.generate_code_v2(t_unit).device_code()
+
         return super().transform_loopy_program(t_unit)
 
 
 def main():
-    order = 4
+    order = 1
 
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
     actx = PytatoTensorProductArrayContext(queue)
 
     dim = 3
-    res = 5
+    res = 2
 
     from meshmode.mesh import TensorProductElementGroup
     from meshmode.discretization.poly_element import \
@@ -49,7 +75,7 @@ def main():
             group_cls=TensorProductElementGroup)
 
     import grudge.dof_desc as dd
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
             actx,
             mesh,
             discr_tag_to_group_factory={
@@ -69,12 +95,7 @@ def main():
 
     grad_u = op.local_grad(dcoll, u)
     grad_u = actx.np.stack(grad_u)[0]
-
-    prg = pt.generate_loopy(grad_u).program
-    code = lp.generate_code_v2(prg).device_code()
-
-    print(code)
-    pu.db
+    pt.show_dot_graph(grad_u)
 
 if __name__ == "__main__":
     main()
