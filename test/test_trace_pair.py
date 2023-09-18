@@ -87,7 +87,13 @@ def test_commtag(actx_factory):
     dct2 = DerivedCommTag()
     ddct = DerivedDerivedCommTag()
 
-    assert _sym_tag_to_num_tag(ct) == 441551355
+    try:
+        from mpi4py import MPI
+    except ModuleNotFoundError:
+        pass
+    else:
+        tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+        assert _sym_tag_to_num_tag(ct) == (1549868734841116283675 % tag_ub)
 
     assert ct == ct2
     assert ct != dct
