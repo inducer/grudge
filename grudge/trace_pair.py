@@ -319,13 +319,20 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return local_interior_trace_pair(dcoll, vec)
 
 
-@dataclass(frozen=True)  # for KeyBuilder support
 class CommTag:
     """A communication tag with a hash value that is stable across
     runs, even without setting ``PYTHONHASHSEED``."""
+
     @memoize_method
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(tuple(str(type(self)).encode("ascii")))
+
+    def __eq__(self, other: object) -> bool:
+        return type(self) is type(other)
+
+    def update_persistent_hash(self, key_hash, key_builder):
+        key_builder.rec(key_hash, (self.__class__.__module__,
+                                   self.__class__.__qualname__))
 
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,

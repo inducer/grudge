@@ -22,10 +22,9 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.trace_pair import TracePair, CommTag
+from grudge.trace_pair import TracePair
 import meshmode.mesh.generation as mgen
 from meshmode.dof_array import DOFArray
-from dataclasses import dataclass
 
 from grudge import DiscretizationCollection
 
@@ -72,6 +71,8 @@ def test_trace_pair(actx_factory):
 
 def test_commtag(actx_factory):
 
+    from grudge.trace_pair import CommTag, _sym_tag_to_num_tag
+
     class DerivedCommTag(CommTag):
         pass
 
@@ -85,6 +86,8 @@ def test_commtag(actx_factory):
     dct = DerivedCommTag()
     dct2 = DerivedCommTag()
     ddct = DerivedDerivedCommTag()
+
+    assert _sym_tag_to_num_tag(ct) == 441551355
 
     assert ct == ct2
     assert ct != dct
@@ -108,29 +111,5 @@ def test_commtag(actx_factory):
     assert hash((ct, 123)) == -578844573019921397
     assert hash((dct, 123)) == -8009406276367324841
     assert hash((dct, ct)) == 6599529611285265043
-
-    # }}}
-
-    # {{{ test using derived dataclasses
-
-    @dataclass(frozen=True)
-    class DataCommTag(CommTag):
-        data: int
-
-    @dataclass(frozen=True)
-    class DataCommTag2(CommTag):
-        data: int
-
-    d1 = DataCommTag(1)
-    d2 = DataCommTag(2)
-    d3 = DataCommTag(1)
-
-    assert d1 != d2
-    assert hash(d1) != hash(d2)
-    assert d1 == d3
-    assert hash(d1) == hash(d3)
-
-    d4 = DataCommTag2(1)
-    assert d1 != d4
 
     # }}}
