@@ -456,7 +456,7 @@ class _RankBoundaryCommunicationEager:
             self.comm_tag += comm_tag
         del comm_tag
 
-        # Here, we initialize both send and recieve operations through
+        # Here, we initialize both send and receive operations through
         # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
         # and comm.Irecv (MPI_Irecv) respectively. These initiate non-blocking
         # point-to-point communication requests and require explicit management

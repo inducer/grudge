@@ -87,14 +87,6 @@ def test_commtag(actx_factory):
     dct2 = DerivedCommTag()
     ddct = DerivedDerivedCommTag()
 
-    try:
-        from mpi4py import MPI
-    except ModuleNotFoundError:
-        pass
-    else:
-        tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
-        assert _sym_tag_to_num_tag(ct) == (1549868734841116283675 % tag_ub)
-
     assert ct == ct2
     assert ct != dct
     assert dct == dct2
@@ -104,7 +96,10 @@ def test_commtag(actx_factory):
 
     assert hash(ct) == hash(ct2)
     assert hash(ct) != hash(dct)
+    assert hash(dct) == hash(dct2)
     assert hash(dct) != hash(ddct)
+    assert hash(ddct) != hash(dct)
+    assert hash((ct, dct)) != hash((dct, ct))
 
     # }}}
 
@@ -117,5 +112,17 @@ def test_commtag(actx_factory):
     assert hash((ct, 123)) == -578844573019921397
     assert hash((dct, 123)) == -8009406276367324841
     assert hash((dct, ct)) == 6599529611285265043
+
+    # }}}
+
+    # {{{ test _sym_tag_to_num_tag
+
+    try:
+        from mpi4py import MPI
+    except ModuleNotFoundError:
+        pass
+    else:
+        tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+        assert _sym_tag_to_num_tag(ct) == (1549868734841116283675 % tag_ub)
 
     # }}}
