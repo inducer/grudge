@@ -381,37 +381,128 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         # reshape u to expose tensor product structure
         vec = reshape_array_for_tensor_product_space(grp.space, vec)
 
-        # apply differentiation matrix to function data
         dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
-        partials = make_obj_array([
-            actx.einsum(
-                    f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
-                    diff_mat,
-                    vec[i],
-                    arg_names=("diff_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),
-                        OutputIsTensorProductDOFArrayOrdered()))
+
+        # weak form
+        if metric_in_matvec:
+            stiff_1D, mass_1D = diff_mat
+
+            if dim == 3:
+                weak_x = actx.einsum(
+                        "estu,ps,qt,ru->epqr",
+                        vec[0],
+                        stiff_1D,
+                        mass_1D,
+                        mass_1D,
+                        arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+
+                weak_y = actx.einsum(
+                        "estu,ps,qt,ru->epqr",
+                        vec[1],
+                        mass_1D,
+                        stiff_1D,
+                        mass_1D,
+                        arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+
+                weak_z = actx.einsum(
+                        "estu,ps,qt,ru->epqr",
+                        vec[2],
+                        mass_1D,
+                        mass_1D,
+                        stiff_1D,
+                        arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+
+                partials = make_obj_array([
+                    weak_x, weak_y, weak_z
+                ])
+
+            elif dim == 2:
+                weak_x = actx.einsum(
+                        "est,ps,qt->epq",
+                        vec[0],
+                        stiff_1D,
+                        mass_1D,
+                        arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+
+                weak_y = actx.einsum(
+                        "est,ps,qt->epq",
+                        vec[1],
+                        mass_1D,
+                        stiff_1D,
+                        arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+
+                partials = make_obj_array([
+                    weak_x, weak_y
+                ])
+
+            else:
+                raise Exception("Dimensions of 2 and 3 are supported by "
+                                "tensor product elements. Found dim = {dim}")
+
+
+            partials = make_obj_array([
+                unreshape_array_for_tensor_product_space(grp.space, partials[i])
                 for i in range(dim)
-        ])
+            ])
 
-        # unreshape partials to apply geometric factors
-        # TODO: chain the einsum above with the einsum below
-        partials = make_obj_array([
-            unreshape_array_for_tensor_product_space(grp.space, partials[i])
-            for i in range(partials.shape[0])
-        ])
+            partials = actx.np.stack(partials)
 
-        # apply geometric factors
-        partials = actx.np.stack([partials[i] for i in range(dim)])
-        div = actx.einsum(
-                "xrei,xei->ei",
-                ijm,
-                partials,
-                arg_names=("inv_jac_t", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
+            div = make_obj_array([
+                actx.einsum("rei,ei->ei",
+                              ijm[i],
+                              partials[i],
+                              arg_names=("inv_jac_t", "vec"),
+                              tagged=(FirstAxisIsElementsTag(),))
+                for i in range(dim)
+            ])
 
-        return div
+            ret = 0
+            for i in range(dim):
+                ret += div[i]
+            return ret
+
+        # strong form
+        else:
+            partials = make_obj_array([
+                actx.einsum(
+                        f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                        diff_mat,
+                        vec[i],
+                        arg_names=("diff_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
+                    for i in range(dim)
+            ])
+
+            # unreshape partials to apply geometric factors
+            # TODO: chain the einsum above with the einsum below
+            partials = make_obj_array([
+                unreshape_array_for_tensor_product_space(grp.space, partials[i])
+                for i in range(partials.shape[0])
+            ])
+
+            # apply geometric factors
+            partials = actx.np.stack([partials[i] for i in range(dim)])
+
+            div = actx.einsum(
+                    "xrei,xei->ei",
+                    ijm,
+                    partials,
+                    arg_names=("inv_jac_t", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),))
+
+            return div
 
 
     per_group_divs = [
