@@ -161,7 +161,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 or eoc_rec.max_error() < 1e-11)
 
 
-@pytest.mark.parametrize("form", ["strong"])
+@pytest.mark.parametrize("form", ["weak"])
 @pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
@@ -308,7 +308,7 @@ def test_tensor_product_gradient(form, dim, order, vectorize,
     (True, True)
     ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):    
+        visualize=False):
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
