@@ -62,7 +62,7 @@ def main():
     queue = cl.CommandQueue(ctx)
     actx = PytatoTensorProductArrayContext(queue)
 
-    dim = 3
+    dim = 2
     res = 2
 
     from meshmode.mesh import TensorProductElementGroup
