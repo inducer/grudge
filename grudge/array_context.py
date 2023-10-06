@@ -39,7 +39,6 @@ from pytools.tag import Tag
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
-from pyrsistent import pmap
 from warnings import warn
 
 import logging
@@ -275,8 +274,8 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         # }}}
 
         part_id_to_prg = {}
-        name_in_program_to_tags = pmap()
-        name_in_program_to_axes = pmap()
+        name_in_program_to_tags = {}
+        name_in_program_to_axes = {}
 
         from pytato import make_dict_of_named_arrays
         for part in distributed_partition.parts.values():
@@ -295,19 +294,18 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                         & set(part_prg_name_to_tags.keys()))
             assert not (set(name_in_program_to_axes.keys())
                         & set(part_prg_name_to_axes.keys()))
-            name_in_program_to_tags = name_in_program_to_tags.update(
-                part_prg_name_to_tags)
-            name_in_program_to_axes = name_in_program_to_axes.update(
-                part_prg_name_to_axes)
+            name_in_program_to_tags.update(part_prg_name_to_tags)
+            name_in_program_to_axes.update(part_prg_name_to_axes)
 
+        from immutabledict import immutabledict
         return _DistributedCompiledFunction(
                 actx=self.actx,
                 distributed_partition=distributed_partition,
                 part_id_to_prg=part_id_to_prg,
                 input_id_to_name_in_program=input_id_to_name_in_program,
                 output_id_to_name_in_program=output_id_to_name_in_program,
-                name_in_program_to_tags=name_in_program_to_tags,
-                name_in_program_to_axes=name_in_program_to_axes,
+                name_in_program_to_tags=immutabledict(name_in_program_to_tags),
+                name_in_program_to_axes=immutabledict(name_in_program_to_axes),
                 output_template=output_template)
 
 

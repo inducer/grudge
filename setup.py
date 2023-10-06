@@ -49,7 +49,7 @@ def main():
             "pymbolic>=2013.2",
             "loopy>=2020.2",
             "cgen>=2013.1.2",
-            "dataclasses>=0.7;python_version<='3.6'"
+            "immutabledict",
         ],
     )
 
