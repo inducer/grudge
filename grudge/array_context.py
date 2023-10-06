@@ -39,7 +39,7 @@ from pytools.tag import Tag
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
-from pyrsistent import pmap
+from immutabledict import immutabledict
 from warnings import warn
 
 import logging
@@ -275,8 +275,8 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         # }}}
 
         part_id_to_prg = {}
-        name_in_program_to_tags = pmap()
-        name_in_program_to_axes = pmap()
+        name_in_program_to_tags = immutabledict()
+        name_in_program_to_axes = immutabledict()
 
         from pytato import make_dict_of_named_arrays
         for part in distributed_partition.parts.values():
