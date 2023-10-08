@@ -231,7 +231,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             if dim == 3:
                 weak_x = actx.einsum(
-                        "estu,ps,qt,ru->epqr",
+                        "eltu,pl,qt,ru->epqr",
                         vec,
                         stiff_1D,
                         mass_1D,
@@ -241,21 +241,21 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                                 OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_y = actx.einsum(
-                        "estu,ps,qt,ru->epqr",
+                        "eslu,pl,qs,ru->eqpr",
                         vec,
-                        mass_1D,
                         stiff_1D,
+                        mass_1D,
                         mass_1D,
                         arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_z = actx.einsum(
-                        "estu,ps,qt,ru->epqr",
+                        "estl,pl,qs,rt->eqrp",
                         vec,
-                        mass_1D,
-                        mass_1D,
                         stiff_1D,
+                        mass_1D,
+                        mass_1D,
                         arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
@@ -268,7 +268,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             elif dim == 2:
                 weak_x = actx.einsum(
-                        "est,ps,qt->epq",
+                        "elt,pl,qt->epq",
                         vec,
                         stiff_1D,
                         mass_1D,
@@ -277,10 +277,10 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                                 OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_y = actx.einsum(
-                        "est,ps,qt->epq",
+                        "esl,pl,qs->eqp",
                         vec,
-                        mass_1D,
                         stiff_1D,
+                        mass_1D,
                         arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
