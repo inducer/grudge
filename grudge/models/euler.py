@@ -64,6 +64,7 @@ from grudge.trace_pair import TracePair
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
+import grudge.geometry as geo
 
 
 # {{{ Array containers for the Euler model
@@ -203,7 +204,7 @@ class InviscidWallBC(InviscidBCObject):
             state: ConservedEulerField, t=0):
         actx = state.array_context
         dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
-        nhat = actx.thaw(dcoll.normal(dd_bc))
+        nhat = geo.normal(actx, dcoll, dd_bc)
         interior = op.project(dcoll, dd_base, dd_bc, state)
 
         return TracePair(
@@ -270,7 +271,7 @@ def euler_numerical_flux(
         exterior=euler_volume_flux(dcoll, q_rr, gamma=gamma)
     )
     num_flux = flux_tpair.avg
-    normal = actx.thaw(dcoll.normal(dd_intfaces))
+    normal = geo.normal(actx, dcoll, dd_intfaces)
 
     if lf_stabilization:
         from arraycontext import outer

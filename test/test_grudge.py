@@ -42,6 +42,7 @@ from grudge import DiscretizationCollection, make_discretization_collection
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+import grudge.geometry as geo
 
 
 import pytest
@@ -340,7 +341,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    face_normal_i = actx.thaw(dcoll.normal(df))
+    face_normal_i = geo.normal(actx, dcoll, df)
     face_normal_e = dcoll.opposite_face_connection(
             dof_desc.BoundaryDomainTag(
                 dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
@@ -463,7 +464,7 @@ def test_2d_gauss_theorem(actx_factory):
     int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
-    normal = actx.thaw(dcoll.normal(BTAG_ALL))
+    normal = geo.normal(actx, dcoll, BTAG_ALL)
     int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
 
     assert abs(int_1 - int_2) < 1e-13
@@ -572,7 +573,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         kappa = summed_curvature(actx, dcoll, dd=dq)
         normal = normal(actx, dcoll, dd=dq)
-        face_normal = actx.thaw(dcoll.normal(df))
+        face_normal = geo.normal(actx, dcoll, df)
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
@@ -1064,7 +1065,7 @@ def test_empty_boundary(actx_factory):
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
     dcoll = DiscretizationCollection(actx, mesh, order=4)
-    normal = dcoll.normal(BTAG_NONE)
+    normal = geo.normal(actx, dcoll, BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)

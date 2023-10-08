@@ -83,6 +83,12 @@ jobs:
             run: |
                 echo "- matplotlib" >> .test-conda-env-py3.yml
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/ci-support.sh
+
+                # Work around regression introduced in
+                # https://github.com/sphinx-doc/sphinx/pull/11645
+                # see also https://github.com/sphinx-doc/sphinx/issues/11662
+                export CI_SUPPORT_SPHINX_VERSION_SPECIFIER="<7.2.5"
+
                 . ci-support.sh
                 build_py_project_in_conda_env
                 build_docs

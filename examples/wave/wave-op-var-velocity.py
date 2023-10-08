@@ -40,6 +40,7 @@ from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
 from grudge.shortcuts import make_visualizer, rk4_step
 
 import grudge.op as op
+import grudge.geometry as geo
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
     u = w_tpair[0]
     v = w_tpair[1:]
 
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = geo.normal(actx, dcoll, dd)
 
     flux_weak = flat_obj_array(
             np.dot(v.avg, normal),

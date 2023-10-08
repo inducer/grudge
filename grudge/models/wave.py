@@ -35,6 +35,7 @@ from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+import grudge.geometry as geo
 
 
 # {{{ constant-velocity
@@ -91,7 +92,7 @@ class WeakWaveOperator(HyperbolicOperator):
         u = wtpair[0]
         v = wtpair[1:]
         actx = u.int.array_context
-        normal = actx.thaw(self.dcoll.normal(wtpair.dd))
+        normal = geo.normal(actx, self.dcoll, wtpair.dd)
 
         central_flux_weak = -self.c*flat_obj_array(
                 np.dot(v.avg, normal),
@@ -134,7 +135,7 @@ class WeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = actx.thaw(dcoll.normal(dd=self.radiation_tag))
+        rad_normal = geo.normal(actx, dcoll, dd=self.radiation_tag)
 
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
@@ -244,7 +245,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         u = wtpair[1]
         v = wtpair[2:]
         actx = u.int.array_context
-        normal = actx.thaw(self.dcoll.normal(wtpair.dd))
+        normal = geo.normal(actx, self.dcoll, wtpair.dd)
 
         flux_central_weak = -0.5 * flat_obj_array(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
@@ -296,7 +297,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
-        rad_normal = actx.thaw(dcoll.normal(dd=self.radiation_tag))
+        rad_normal = geo.normal(actx, dcoll, dd=self.radiation_tag)
 
         rad_c = op.project(dcoll, "vol", self.radiation_tag, c)
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)

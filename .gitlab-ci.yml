@@ -92,10 +92,15 @@ Python 3 Conda Examples:
     run_examples
 
 Documentation:
-  script:
-  - EXTRA_INSTALL="pybind11 numpy matplotlib"
-  - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
-  - ". ./build-docs.sh"
+  script: |
+    # Work around regression introduced in
+    # https://github.com/sphinx-doc/sphinx/pull/11645
+    # see also https://github.com/sphinx-doc/sphinx/issues/11662
+    export CI_SUPPORT_SPHINX_VERSION_SPECIFIER="<7.2.5"
+
+    EXTRA_INSTALL="pybind11 numpy matplotlib"
+    curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
+    . ./build-docs.sh
   tags:
   - python3
 
