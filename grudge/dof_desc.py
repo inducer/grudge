@@ -375,7 +375,7 @@ class DOFDesc:
             raise ValueError(f"unexpected domain tag: '{self.domain_tag}'")
 
         if isinstance(self.discretization_tag, str):
-            discr_id = _to_identifier(name)
+            discr_id = _to_identifier(self.discretization_tag)
         elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             discr_id = "_quad"
         elif self.discretization_tag is DISCR_TAG_BASE:
