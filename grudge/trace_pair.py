@@ -334,6 +334,9 @@ class CommTag:
         key_builder.rec(key_hash, (self.__class__.__module__,
                                    self.__class__.__qualname__))
 
+    def __repr__(self) -> str:
+        return self.__class__.__module__ + "." + self.__class__.__qualname__
+
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
         comm_tag: Optional[Hashable] = None, tag: Hashable = None,
