@@ -450,7 +450,6 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                 raise Exception("Dimensions of 2 and 3 are supported by "
                                 "tensor product elements. Found dim = {dim}")
 
-
             partials = make_obj_array([
                 unreshape_array_for_tensor_product_space(grp.space, partials[i])
                 for i in range(dim)

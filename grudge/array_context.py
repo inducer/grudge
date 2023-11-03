@@ -655,18 +655,6 @@ class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
             knl = knl.copy(args=new_args)
         # }}}
 
-        # {{{ prefetch
-        # }}}
-
-        # {{{ tile
-        # }}}
-
-        import loopy as lp
-        # FIXME: remove this (eventually)
-        knl = lp.set_options(knl, insert_gbarriers=True)
-        t_unit = t_unit.with_kernel(knl)
-        self.dev_code = lp.generate_code_v2(t_unit).device_code()
-
         return super().transform_loopy_program(t_unit)
 # }}}
 
