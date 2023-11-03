@@ -281,7 +281,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                         vec,
                         stiff_1D,
                         mass_1D,
-                        arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
+                        arg_names=("vec", "mass_1D_r", "stiff_1D_s"),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
 
