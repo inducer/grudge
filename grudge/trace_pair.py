@@ -523,10 +523,6 @@ class _RankBoundaryCommunicationLazy:
         if comm_tag is None:
             raise ValueError("lazy communication requires 'comm_tag' to be supplied")
 
-        if not isinstance(comm_tag, CommTag):
-            from warnings import warn
-            warn(f"comm_tag {comm_tag} should be an instance of CommTag")
-
         bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
 
         self.dcoll = dcoll

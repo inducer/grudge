@@ -76,6 +76,9 @@ def test_commtag(actx_factory):
     class DerivedCommTag(CommTag):
         pass
 
+    class AnotherCommTag(CommTag):
+        pass
+
     class DerivedDerivedCommTag(DerivedCommTag):
         pass
 
@@ -83,11 +86,13 @@ def test_commtag(actx_factory):
 
     ct = CommTag()
     ct2 = CommTag()
+    at = AnotherCommTag()
     dct = DerivedCommTag()
     dct2 = DerivedCommTag()
     ddct = DerivedDerivedCommTag()
 
     assert ct == ct2
+    assert ct != at
     assert ct != dct
     assert dct == dct2
     assert dct != ddct
@@ -106,6 +111,7 @@ def test_commtag(actx_factory):
     # {{{ test hash stability
 
     assert hash(ct) == 4644528671524962420
+    assert hash(at) == -4411382095663051025
     assert hash(dct) == -1013583671995716582
     assert hash(ddct) == 626392264874077479
 
