@@ -319,7 +319,7 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
 
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
-        comm_tag: Hashable = None, tag: Hashable = None,
+        comm_tag: Optional[Hashable] = None, tag: Hashable = None,
         volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
@@ -334,7 +334,7 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
-        tags to arbitary, potentially composite objects.
+        tags to arbitrary, potentially composite objects.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
 
@@ -439,7 +439,7 @@ class _RankBoundaryCommunicationEager:
             self.comm_tag += comm_tag
         del comm_tag
 
-        # Here, we initialize both send and recieve operations through
+        # Here, we initialize both send and receive operations through
         # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
         # and comm.Irecv (MPI_Irecv) respectively. These initiate non-blocking
         # point-to-point communication requests and require explicit management
@@ -501,7 +501,7 @@ class _RankBoundaryCommunicationLazy:
                  remote_rank: int, comm_tag: Hashable,
                  volume_dd=DD_VOLUME_ALL):
         if comm_tag is None:
-            raise ValueError("lazy communication requires 'tag' to be supplied")
+            raise ValueError("lazy communication requires 'comm_tag' to be supplied")
 
         bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
 
@@ -570,7 +570,7 @@ def cross_rank_trace_pairs(
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
-        tags to arbitary, potentially composite objects.
+        tags to arbitrary, potentially composite objects.
 
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
@@ -613,13 +613,13 @@ def cross_rank_trace_pairs(
         rbc_class = _RankBoundaryCommunicationEager
 
     # Initialize and post all sends/receives
-    rank_bdry_communcators = [
+    rank_bdry_communicators = [
         rbc_class(dcoll, ary, remote_rank, comm_tag=comm_tag, volume_dd=volume_dd)
         for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)
     ]
 
     # Complete send/receives and return communicated data
-    return [rc.finish() for rc in rank_bdry_communcators]
+    return [rc.finish() for rc in rank_bdry_communicators]
 
 # }}}
 
