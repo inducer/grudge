@@ -568,18 +568,16 @@ def _signed_face_ones(
         actx, dtype=dcoll.real_dtype
     ) + 1
 
-    from arraycontext import to_numpy, from_numpy
-
-    _signed_face_ones_numpy = to_numpy(signed_ones, actx)
+    _signed_face_ones_numpy = actx.to_numpy(signed_ones)
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
-            i = to_numpy(actx.thaw(batch.to_element_indices), actx)
+            i = actx.to_numpy(actx.thaw(batch.to_element_indices))
             grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
                 (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
 
-    return from_numpy(_signed_face_ones_numpy, actx)
+    return actx.from_numpy(_signed_face_ones_numpy)
 
 
 def parametrization_derivative(

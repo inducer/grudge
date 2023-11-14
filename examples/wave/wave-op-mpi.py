@@ -41,12 +41,13 @@ from pytools.obj_array import flat_obj_array, make_obj_array
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 
-from grudge.dof_desc import as_dofdesc, DOFDesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
+from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
 from grudge.trace_pair import TracePair
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
 
 import grudge.op as op
+import grudge.geometry as geo
 
 import logging
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
     v = w_tpair.v
     dd = w_tpair.dd
 
-    normal = actx.thaw(dcoll.normal(dd))
+    normal = geo.normal(actx, dcoll, dd)
 
     flux_weak = WaveState(
         u=v.avg @ normal,
@@ -91,7 +92,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
         v=0.5 * v_jump * normal,
     )
 
-    return op.project(dcoll, dd, dd.with_dtag("all_faces"), c*flux_weak)
+    return op.project(dcoll, dd, dd.with_domain_tag("all_faces"), c*flux_weak)
 
 
 class _WaveStateTag:
@@ -100,8 +101,8 @@ class _WaveStateTag:
 
 def wave_operator(actx, dcoll, c, w, quad_tag=None):
     dd_base = as_dofdesc("vol")
-    dd_vol = DOFDesc("vol", quad_tag)
-    dd_faces = DOFDesc("all_faces", quad_tag)
+    dd_vol = as_dofdesc("vol", quad_tag)
+    dd_faces = as_dofdesc("all_faces", quad_tag)
     dd_btag = as_dofdesc(BTAG_ALL).with_discr_tag(quad_tag)
 
     def interp_to_surf_quad(utpair):
@@ -179,7 +180,8 @@ def bump(actx, dcoll, t=0):
 
 
 def main(ctx_factory, dim=2, order=3,
-         visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False):
+         visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False,
+         no_diagnostics=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -233,7 +235,7 @@ def main(ctx_factory, dim=2, order=3,
     from meshmode.discretization.poly_element import \
             QuadratureSimplexGroupFactory, \
             default_simplex_group_factory
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, local_mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
@@ -281,7 +283,7 @@ def main(ctx_factory, dim=2, order=3,
 
         if istep % 10 == 0:
             stop = time.time()
-            if args.no_diagnostics:
+            if no_diagnostics:
                 if comm.rank == 0:
                     logger.info(f"step: {istep} t: {t} "
                                 f"wall: {stop-start} ")
@@ -339,6 +341,7 @@ if __name__ == "__main__":
          visualize=args.visualize,
          lazy=args.lazy,
          use_quad=args.quad,
-         use_nonaffine_mesh=args.nonaffine)
+         use_nonaffine_mesh=args.nonaffine,
+         no_diagnostics=args.no_diagnostics)
 
 # vim: foldmethod=marker

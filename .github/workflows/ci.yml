@@ -83,6 +83,12 @@ jobs:
             run: |
                 echo "- matplotlib" >> .test-conda-env-py3.yml
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/ci-support.sh
+
+                # Work around regression introduced in
+                # https://github.com/sphinx-doc/sphinx/pull/11645
+                # see also https://github.com/sphinx-doc/sphinx/issues/11662
+                export CI_SUPPORT_SPHINX_VERSION_SPECIFIER="<7.2.5"
+
                 . ci-support.sh
                 build_py_project_in_conda_env
                 build_docs
@@ -102,42 +108,10 @@ jobs:
                 curl -L -O -k https://tiker.net/ci-support-v0
                 . ./ci-support-v0
 
-                if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
-                    if [[ "$GITHUB_HEAD_REF" = "nodal-reduction-device-scalar" ]]; then
-                        git clone "https://github.com/majosm/$DOWNSTREAM_PROJECT.git" -b "nodal-reduction-device-scalar"
-                    else
-                        git clone "https://github.com/illinois-ceesd/$DOWNSTREAM_PROJECT.git"
-                    fi
-                else
-                    git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
-                fi
-                cd "$DOWNSTREAM_PROJECT"
-                echo "*** $DOWNSTREAM_PROJECT version: $(git rev-parse --short HEAD)"
+                # https://github.com/inducer/grudge/issues/211
+                export CISUPPORT_PARALLEL_PYTEST=no
 
-                transfer_requirements_git_urls ../requirements.txt ./requirements.txt
-                edit_requirements_txt_for_downstream_in_subdir
-
-                # Avoid slow or complicated tests in downstream projects
-                export PYTEST_ADDOPTS="-k 'not (slowtest or octave or mpi)'"
-                if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
-                    # can't turn off MPI in mirgecom
-                    export CONDA_ENVIRONMENT=conda-env.yml
-                    echo "- mpi4py" >> "$CONDA_ENVIRONMENT"
-
-                    # https://github.com/inducer/grudge/issues/211
-                    export CISUPPORT_PARALLEL_PYTEST=no
-                else
-                    sed -i "/mpi4py/ d" requirements.txt
-                fi
-                build_py_project_in_conda_env
-
-                if test "$DOWNSTREAM_PROJECT" = "mirgecom"; then
-                    # Test main branch
-                    # Only test examples, not pytest tests, as those take too much time.
-                    examples/run_examples.sh ./examples
-                else
-                    test_py_project
-                fi
+                test_downstream "$DOWNSTREAM_PROJECT"
 
 
 # vim: sw=4

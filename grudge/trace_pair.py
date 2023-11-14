@@ -323,7 +323,7 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
 
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
-        comm_tag: Hashable = None, tag: Hashable = None,
+        comm_tag: Optional[Hashable] = None, tag: Hashable = None,
         volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
@@ -338,7 +338,7 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
-        tags to arbitary, potentially composite objects.
+        tags to arbitrary, potentially composite objects.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
 
@@ -583,6 +583,20 @@ class _RankBoundaryCommunicationEager:
         self.recv_comm_tag = _generate_num_comm_tag(recv_sym_comm_tag)
         del comm_tag
 
+        # Here, we initialize both send and receive operations through
+        # mpi4py `Request` (MPI_Request) instances for comm.Isend (MPI_Isend)
+        # and comm.Irecv (MPI_Irecv) respectively. These initiate non-blocking
+        # point-to-point communication requests and require explicit management
+        # via the use of wait (MPI_Wait, MPI_Waitall, MPI_Waitany, MPI_Waitsome),
+        # test (MPI_Test, MPI_Testall, MPI_Testany, MPI_Testsome), and cancel
+        # (MPI_Cancel). The rank-local data `self.local_bdry_data_np` will have its
+        # associated memory buffer sent across connected ranks and must not be
+        # modified at the Python level during this process. Completion of the
+        # requests is handled in :meth:`finish`.
+        #
+        # For more details on the mpi4py semantics, see:
+        # https://mpi4py.readthedocs.io/en/stable/overview.html#nonblocking-communications
+        #
         # NOTE: mpi4py currently (2021-11-03) holds a reference to the send
         # memory buffer for (i.e. `self.local_bdry_data_np`) until the send
         # requests is complete, however it is not clear that this is documented
@@ -801,7 +815,7 @@ def cross_rank_trace_pairs(
     :arg comm_tag: a hashable object used to match sent and received data
         across ranks. Communication will only match if both endpoints specify
         objects that compare equal. A generalization of MPI communication
-        tags to arbitary, potentially composite objects.
+        tags to arbitrary, potentially composite objects.
 
     :returns: a :class:`list` of :class:`TracePair` objects.
     """

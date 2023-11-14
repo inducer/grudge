@@ -795,8 +795,15 @@ class DiscretizationCollection:
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
         :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
         """
-        from grudge.geometry import normal
+        warn("DiscretizationCollection.normal is deprecated and "
+             "will stop working in 2024. "
+             "Use grudge.geometry.normal instead. "
+             "DiscretizationCollection.normal may provide non-P^0 normals "
+             "even when this would otherwise be possible, see "
+             "https://github.com/inducer/grudge/issues/314 for details.",
+             DeprecationWarning, stacklevel=2)
 
+        from grudge.geometry import normal
         return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}

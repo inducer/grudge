@@ -27,7 +27,7 @@ import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import make_obj_array
 
-from grudge import op, DiscretizationCollection
+from grudge import op, geometry as geo, DiscretizationCollection
 from grudge.dof_desc import DOFDesc
 
 import pytest
@@ -97,7 +97,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = actx.thaw(dcoll.normal(dd))
+            normal = geo.normal(actx, dcoll, dd)
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -223,7 +223,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = actx.thaw(dcoll.normal(dd))
+            normal = geo.normal(actx, dcoll, dd)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
