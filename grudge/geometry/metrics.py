@@ -561,8 +561,9 @@ def _signed_face_ones(
 
     # NOTE: ignore quadrature_tags on dd, since we only care about
     # the face_id here
+    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
     all_faces_conn = dcoll.connection_from_dds(
-        DD_VOLUME_ALL, DOFDesc(dd.domain_tag, DISCR_TAG_BASE)
+        dd_base.untrace(), dd_base
     )
     signed_ones = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE)).zeros(
         actx, dtype=dcoll.real_dtype
@@ -758,10 +759,10 @@ def mv_normal(
             from grudge.op import project
 
             volm_normal = MultiVector(
-                project(dcoll, DD_VOLUME_ALL, dd,
+                project(dcoll, dd.untrace(), dd,
                         rel_mv_normal(
                             actx, dcoll,
-                            dd=DD_VOLUME_ALL,
+                            dd=dd.untrace(),
                             _use_geoderiv_connection=_use_geoderiv_connection
                         ).as_vector(dtype=object))
             )
