@@ -67,3 +67,68 @@ def test_trace_pair(actx_factory):
     assert op.norm(dcoll, tpair.diff - (exterior - interior), np.inf) == 0
     assert op.norm(dcoll, tpair.int - interior, np.inf) == 0
     assert op.norm(dcoll, tpair.ext - exterior, np.inf) == 0
+
+
+def test_commtag(actx_factory):
+
+    from grudge.trace_pair import CommTag, _sym_tag_to_num_tag
+
+    class DerivedCommTag(CommTag):
+        pass
+
+    class AnotherCommTag(CommTag):
+        pass
+
+    class DerivedDerivedCommTag(DerivedCommTag):
+        pass
+
+    # {{{ test equality and hash consistency
+
+    ct = CommTag()
+    ct2 = CommTag()
+    at = AnotherCommTag()
+    dct = DerivedCommTag()
+    dct2 = DerivedCommTag()
+    ddct = DerivedDerivedCommTag()
+
+    assert ct == ct2
+    assert ct != at
+    assert ct != dct
+    assert dct == dct2
+    assert dct != ddct
+    assert ddct != dct
+    assert (ct, dct) != (dct, ct)
+
+    assert hash(ct) == hash(ct2)
+    assert hash(ct) != hash(dct)
+    assert hash(dct) == hash(dct2)
+    assert hash(dct) != hash(ddct)
+    assert hash(ddct) != hash(dct)
+    assert hash((ct, dct)) != hash((dct, ct))
+
+    # }}}
+
+    # {{{ test hash stability
+
+    assert hash(ct) == 4644528671524962420
+    assert hash(at) == -4411382095663051025
+    assert hash(dct) == -1013583671995716582
+    assert hash(ddct) == 626392264874077479
+
+    assert hash((ct, 123)) == -578844573019921397
+    assert hash((dct, 123)) == -8009406276367324841
+    assert hash((dct, ct)) == 6599529611285265043
+
+    # }}}
+
+    # {{{ test _sym_tag_to_num_tag
+
+    try:
+        from mpi4py import MPI
+    except ModuleNotFoundError:
+        pass
+    else:
+        tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+        assert _sym_tag_to_num_tag(ct) == (1549868734841116283675 % tag_ub)
+
+    # }}}

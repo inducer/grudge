@@ -6,6 +6,7 @@ Container class and auxiliary functionality
 -------------------------------------------
 
 .. autoclass:: TracePair
+.. autoclass:: CommTag
 
 .. currentmodule:: grudge.op
 
@@ -70,7 +71,7 @@ from dataclasses import dataclass
 
 from numbers import Number
 
-from pytools import memoize_on_first_arg
+from pytools import memoize_on_first_arg, memoize_method
 
 from grudge.discretization import DiscretizationCollection
 from grudge.projection import project
@@ -316,6 +317,25 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
          "from different MPI ranks.",
          DeprecationWarning, stacklevel=2)
     return local_interior_trace_pair(dcoll, vec)
+
+
+class CommTag:
+    """A communication tag with a hash value that is stable across
+    runs, even without setting ``PYTHONHASHSEED``."""
+
+    @memoize_method
+    def __hash__(self) -> int:
+        return hash(tuple(str(type(self)).encode("ascii")))
+
+    def __eq__(self, other: object) -> bool:
+        return type(self) is type(other)
+
+    def update_persistent_hash(self, key_hash, key_builder):
+        key_builder.rec(key_hash, (self.__class__.__module__,
+                                   self.__class__.__qualname__))
+
+    def __repr__(self) -> str:
+        return self.__class__.__module__ + "." + self.__class__.__qualname__
 
 
 def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
