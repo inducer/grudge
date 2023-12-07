@@ -182,20 +182,50 @@ def _single_axis_derivative_kernel(
     # - whether the chain rule terms ("inv_jac_mat") sit outside (strong)
     #   or inside (weak) the matrix-vector product that carries out the
     #   derivative, cf. "metric_in_matvec".
+
+
+    # {{{ tensor product single axis derivative
+
+    def compute_tensor_product_derivative(actx, in_grp, out_grp,
+                                          get_diff_mat, vec, ijm,
+                                          xyz_axis, metric_in_matvec):
+        return compute_simplicial_derivative(actx, in_grp, out_grp,
+                                             get_diff_mat, vec, ijm,
+                                             xyz_axis, metric_in_matvec)
+
+    # }}}
+
+
+    # {{{ simplicial single axis derivative
+
+    def compute_simplicial_derivative(actx, in_grp, out_grp,
+                                      get_diff_mat, vec_i, ijm_i,
+                                      xyz_axis, metric_in_matvec):
+        # r for rst axis
+        return actx.einsum(
+            "rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
+            ijm_i[xyz_axis],
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp),
+            vec_i,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
+            tagged=(FirstAxisIsElementsTag(),))
+
+    # }}}
+
+
     return DOFArray(
         actx,
         data=tuple(
-            # r for rst axis
-            actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
-                        ijm_i[xyz_axis],
-                        get_diff_mat(
-                            actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp),
-                        vec_i,
-                        arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
-                        tagged=(FirstAxisIsElementsTag(),))
-
+            compute_tensor_product_derivative(actx, in_grp, out_grp,
+                                              get_diff_mat, vec_i, ijm_i,
+                                              xyz_axis, metric_in_matvec)
+            if isinstance(in_grp, TensorProductElementGroupBase)
+            else compute_simplicial_derivative(actx, in_grp, out_grp,
+                                               get_diff_mat, vec_i, ijm_i,
+                                               xyz_axis, metric_in_matvec)
             for out_grp, in_grp, vec_i, ijm_i in zip(
                 out_discr.groups, in_discr.groups, vec,
                 inv_jac_mat)))
@@ -205,6 +235,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
+
 
     # {{{ tensor product gradient
 
@@ -575,6 +606,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
             import modepy as mp
             import numpy.linalg as la
 
+            #FIXME: Can be gotten rid of by updating meshmode
             nodes1d = grp.unit_nodes_1d
             bases_1d = grp.bases_1d()
 
@@ -773,6 +805,7 @@ def _reference_stiffness_transpose_matrices(
                 import modepy as mp
                 import numpy.linalg as la
 
+                # FIXME: can be gotten rid of by updating meshmode operators
                 basis_1d = out_grp.bases_1d()
                 nodes_1d = out_grp.unit_nodes_1d
 
