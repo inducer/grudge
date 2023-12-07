@@ -84,7 +84,6 @@ from meshmode.discretization.poly_element import TensorProductElementGroupBase
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 from grudge.array_context import (
-        TensorProductArrayContext,
         OutputIsTensorProductDOFArrayOrdered)
 
 from pytools import keyed_memoize_in
@@ -207,6 +206,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
 
+    # {{{ tensor product gradient
+
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
         """Exploits tensor product structure to differentiate each coordinate
@@ -231,34 +232,34 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             if dim == 3:
                 weak_x = actx.einsum(
-                        "eltu,pl,qt,ru->epqr",
-                        vec,
-                        stiff_1D,
-                        mass_1D,
-                        mass_1D,
-                        arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()))
+                    "eltu,pl,qt,ru->epqr",
+                    vec,
+                    stiff_1D,
+                    mass_1D,
+                    mass_1D,
+                    arg_names=("vec", "stiff_1D_r", "mass_1D_s", "mass_1D_t"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_y = actx.einsum(
-                        "eslu,pl,qs,ru->eqpr",
-                        vec,
-                        stiff_1D,
-                        mass_1D,
-                        mass_1D,
-                        arg_names=("vec", "mass_1D_r", "stiff_1D_s", "mass_1D_t"),
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()))
+                    "eslu,pl,qs,ru->eqpr",
+                    vec,
+                    stiff_1D,
+                    mass_1D,
+                    mass_1D,
+                    arg_names=("vec", "mass_1D_r", "stiff_1D_s", "mass_1D_t"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_z = actx.einsum(
-                        "estl,pl,qs,rt->eqrp",
-                        vec,
-                        stiff_1D,
-                        mass_1D,
-                        mass_1D,
-                        arg_names=("vec", "mass_1D_r", "mass_1D_s", "stiff_1D_t"),
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()))
+                    "estl,pl,qs,rt->eqrp",
+                    vec,
+                    stiff_1D,
+                    mass_1D,
+                    mass_1D,
+                    arg_names=("vec", "mass_1D_r", "mass_1D_s", "stiff_1D_t"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
 
                 grad = make_obj_array([
                     weak_x,
@@ -268,22 +269,22 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             elif dim == 2:
                 weak_x = actx.einsum(
-                        "elt,pl,qt->epq",
-                        vec,
-                        stiff_1D,
-                        mass_1D,
-                        arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()))
+                    "elt,pl,qt->epq",
+                    vec,
+                    stiff_1D,
+                    mass_1D,
+                    arg_names=("vec", "stiff_1D_r", "mass_1D_s"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
 
                 weak_y = actx.einsum(
-                        "esl,pl,qs->eqp",
-                        vec,
-                        stiff_1D,
-                        mass_1D,
-                        arg_names=("vec", "mass_1D_r", "stiff_1D_s"),
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()))
+                    "esl,pl,qs->eqp",
+                    vec,
+                    stiff_1D,
+                    mass_1D,
+                    arg_names=("vec", "mass_1D_r", "stiff_1D_s"),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered()))
 
                 grad = make_obj_array([
                     weak_x,
@@ -294,14 +295,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         #   x partial: einsum("il,eljk->eijk", D, f)
         else:
             grad = make_obj_array([
-                    actx.einsum(
-                        f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
-                        diff_mat,
-                        vec,
-                        arg_names=("diff_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
-                    for i in range(dim)
+                actx.einsum(
+                    f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                    diff_mat,
+                    vec,
+                    arg_names=("diff_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered()))
+                for i in range(dim)
             ])
 
         # unreshape grad to apply geometric factors
@@ -334,15 +335,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         return grad
 
-    per_group_grads = [
+    # }}}
 
-        compute_tensor_product_grad(actx, in_grp, get_diff_mat, vec_i, ijm_i,
-                                    metric_in_matvec)
-        if isinstance(in_grp, TensorProductElementGroupBase)
 
-        # r for rst axis
-        # x for xyz axis
-        else actx.einsum(
+    # {{{ simplicial grad
+
+    def compute_simplicial_grad(actx, in_grp, out_grp, get_diff_mat, vec_i,
+                                ijm_i, metric_in_matvec):
+        return actx.einsum(
             "xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
             ijm_i,
             get_diff_mat(
@@ -354,9 +354,20 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
             tagged=(FirstAxisIsElementsTag(),))
 
+    # }}}
+
+
+    per_group_grads = [
+        compute_tensor_product_grad(actx, in_grp, get_diff_mat, vec_i, ijm_i,
+                                    metric_in_matvec)
+        if isinstance(in_grp, TensorProductElementGroupBase)
+        else compute_simplicial_grad(actx, in_grp, out_grp, get_diff_mat, vec_i,
+                                     ijm_i, metric_in_matvec)
+
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+            inv_jac_mat)
+    ]
 
     return make_obj_array([
             DOFArray(
@@ -368,6 +379,9 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
+
+
+    # {{{ tensor product div
 
     def compute_tensor_product_div(actx, grp, diff_mat, vec, ijm):
         """Exploits tensor product structure to differentiate each coordinate
@@ -503,15 +517,14 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 
             return div
 
+    # }}}
 
-    per_group_divs = [
 
-        compute_tensor_product_div(actx, in_grp, get_diff_mat, vec_i, ijm_i)
-        if isinstance(in_grp, TensorProductElementGroupBase)
+    # {{{ simplicial div
 
-        # r for rst axis
-        # x for xyz axis
-        else actx.einsum(
+    def compute_simplicial_div(actx, in_grp, out_grp, get_diff_mat, vec_i,
+                               ijm_i, metric_in_matvec):
+        return actx.einsum(
             "xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
             ijm_i,
             get_diff_mat(
@@ -523,9 +536,23 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
             arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
             tagged=(FirstAxisIsElementsTag(),))
 
+    # }}}
+
+
+    per_group_divs = [
+
+        compute_tensor_product_div(actx, in_grp, get_diff_mat, vec_i, ijm_i)
+        if isinstance(in_grp, TensorProductElementGroupBase)
+
+        # r for rst axis
+        # x for xyz axis
+        else compute_simplicial_div(actx, in_grp, out_grp, get_diff_mat, vec_i,
+                                    ijm_i, metric_in_matvec)
+
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+            inv_jac_mat)
+    ]
 
     return DOFArray(actx, data=tuple(per_group_divs))
 
