@@ -81,6 +81,10 @@ from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationFaceAxisTag)
 from meshmode.discretization.poly_element import TensorProductElementGroupBase
 
+from modepy.tools import (
+        reshape_array_for_tensor_product_space as fold,
+        unreshape_array_for_tensor_product_space as unfold)
+
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
 from grudge.array_context import (
@@ -244,12 +248,9 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         """Exploits tensor product structure to differentiate each coordinate
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
-        from modepy.tools import (
-                reshape_array_for_tensor_product_space,
-                unreshape_array_for_tensor_product_space)
 
         # reshape u to expose tensor product structure
-        vec = reshape_array_for_tensor_product_space(grp.space, vec)
+        vec = fold(grp.space, vec)
 
         # apply operators to function data
         dim = grp.dim
@@ -325,12 +326,17 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         # strong form case:
         #   x partial: einsum("il,eljk->eijk", D, f)
         else:
+            inv_jac_mat_tp = fold(grp.space, inv_jac_mat[0])
             grad = make_obj_array([
                 actx.einsum(
-                    f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                    f"re{'kl'[:i]}i{'mn'[:dim-i-1]}," +
+                    "ij," +
+                    f"e{'kl'[:i]}j{'mn'[:dim-i-1]}->" +
+                    f"e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                    inv_jac_mat_tp[i],
                     diff_mat,
                     vec,
-                    arg_names=("diff_mat", "vec"),
+                    arg_names=("inv_jac_mat", "diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
                 for i in range(dim)
@@ -338,12 +344,11 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # unreshape grad to apply geometric factors
         grad = make_obj_array([
-            unreshape_array_for_tensor_product_space(grp.space, grad[i])
+            unfold(grp.space, grad[i])
             for i in range(grp.dim)
         ])
 
         # apply geometric factors in strong case
-        from arraycontext.metadata import NameHint
         if metric_in_matvec:
             grad = make_obj_array([
                 actx.einsum(
@@ -354,15 +359,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 tagged=FirstAxisIsElementsTag())
                 for i in range(dim)
                 ])
-        else:
-            grad = actx.np.stack([grad[i] for i in range(dim)])
-            grad = actx.einsum(
-                    "xrei,xei->xei",
-                    ijm,
-                    grad,
-                    arg_names=("inv_jac_t", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),
-                            NameHint("tp_gradient"),))
 
         return grad
 
@@ -419,12 +415,8 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
         """
 
-        from modepy.tools import (
-                reshape_array_for_tensor_product_space,
-                unreshape_array_for_tensor_product_space)
-
         # reshape u to expose tensor product structure
-        vec = reshape_array_for_tensor_product_space(grp.space, vec)
+        vec = fold(grp.space, vec)
 
         dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
@@ -496,7 +488,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                                 "tensor product elements. Found dim = {dim}")
 
             partials = make_obj_array([
-                unreshape_array_for_tensor_product_space(grp.space, partials[i])
+                unfold(grp.space, partials[i])
                 for i in range(dim)
             ])
 
@@ -518,32 +510,32 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 
         # strong form
         else:
+            inv_jac_mat_tp = fold(grp.space, inv_jac_mat[0])
             partials = make_obj_array([
                 actx.einsum(
-                        f"ij,e{'kl'[:i]}j{'mn'[:dim-i-1]}->e{'kl'[:i]}i{'mn'[:dim-i-1]}",
-                        diff_mat,
-                        vec[i],
-                        arg_names=("diff_mat", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
-                    for i in range(dim)
+                    f"re{'kl'[:i]}i{'mn'[:dim-i-1]}," +
+                    "ij," +
+                    f"e{'kl'[:i]}j{'mn'[:dim-i-1]}->" +
+                    f"e{'kl'[:i]}i{'mn'[:dim-i-1]}",
+                    inv_jac_mat_tp[i],
+                    diff_mat,
+                    vec[i],
+                    arg_names=("inv_jac_mat", "diff_mat", "vec"),
+                    tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered()))
+                for i in range(dim)
             ])
 
-            # unreshape partials to apply geometric factors
-            # TODO: chain the einsum above with the einsum below
             partials = make_obj_array([
-                unreshape_array_for_tensor_product_space(grp.space, partials[i])
+                unfold(grp.space, partials[i])
                 for i in range(partials.shape[0])
             ])
 
-            # apply geometric factors
             partials = actx.np.stack([partials[i] for i in range(dim)])
-
             div = actx.einsum(
-                    "xrei,xei->ei",
-                    ijm,
+                    "xei->ei",
                     partials,
-                    arg_names=("inv_jac_t", "vec"),
+                    arg_names=("inv_jac_t",),
                     tagged=(FirstAxisIsElementsTag(),))
 
             return div
