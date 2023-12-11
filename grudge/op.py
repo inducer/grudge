@@ -246,6 +246,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
+        # TODO: add note about inverse mass simplification, point to
+        # op.inverse_mass (assuming this is where the explanation will live)
         """
         Exploits tensor product structure to reduce complexity. Applies a
         differentiation operator containing 1D information to a tensor of DOF
@@ -266,7 +268,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             \partial_x \mathbf{f}_{ij} = \sum_{\ell,b} \mathbf{J}^e_{\ell b}
             \mathbf{f}_{\ell b} \mathbf{S}^e_{i\ell} \mathbf{M}^e_{jb}
-
         """
 
         # reshape u to expose tensor product structure
