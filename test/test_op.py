@@ -21,6 +21,7 @@ THE SOFTWARE.
 """
 
 
+from meshmode.mesh.processing import affine_map
 import numpy as np
 
 import meshmode.mesh.generation as mgen
@@ -95,6 +96,15 @@ def test_gradient(actx_factory, discr_type, form, dim, order, vectorize, nested,
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
+
+        alpha = 0.3
+        rot_mat = np.array([
+                [np.cos(alpha), np.sin(alpha), 0],
+                [-np.sin(alpha), np.cos(alpha), 0],
+                [0, 0, 1],
+        ])[:dim, :dim]
+
+        mesh = affine_map(mesh, A=rot_mat)
 
         def grad_f(x):
             result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
