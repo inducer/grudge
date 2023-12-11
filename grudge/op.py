@@ -247,37 +247,31 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
         """
-        Exploits tensor product structure to carry out differentiation with a
-        differentiation operator containing only 1D information. For example,
-        in the 2D strong form case, this computes partial derivatives in a
-        similar manner to
+        Exploits tensor product structure to reduce complexity. Applies a
+        differentiation operator containing 1D information to a tensor of DOF
+        data. For example, in the 2D strong form case, this computes partial
+        derivatives in a similar manner to
 
-            .. math::
+        .. math::
 
-                \partial_x \mathbf{f}_{ij} =
-                \sum_{\ell,j}^n \mathbf{J}^e_{i\ell} \mathbf{D}_{i\ell}
-                \mathbf{f}_{\ell j}
+            \partial_x \mathbf{f}_{ij} = \sum_{\ell} \mathbf{J}^e_{ij}
+            \mathbf{D}_{i\ell} \mathbf{f}_{\ell j}
 
         where $\mathbf{D}$ is a 1D differentiation operator, $\mathbf{f}$ is a
         vector of function data, $\mathbf{J}^e$ is the element Jacobian matrix.
-        The weak form uses a 1D mass operator and a 1D stiffness operator using
-        the fact that
+        The weak form uses a 1D element mass operator and a 1D element stiffness
+        operator to perform the contraction
 
-            .. math::
+        .. math::
 
-                \mathbf{M}^{2D}_{pq,rs} = \int_{\Omega} \phi_p(x) \phi_q(y)
-                \phi_r(x) \phi_s(y) d\Omega = \int_{\Omega_x} \phi_p(x)
-                \phi_r(x) dx \int_{\Omega_y}  \phi_q(y) \phi_s(y) dy =
-                \mathbf{M}^{1D} \otimes \mathbf{M}^{1D}
+            \partial_x \mathbf{f}_{ij} = \sum_{\ell,b} \mathbf{J}^e_{\ell b}
+            \mathbf{f}_{\ell b} \mathbf{S}^e_{i\ell} \mathbf{M}^e_{jb}
 
         """
 
         # reshape u to expose tensor product structure
         vec = fold(grp.space, vec)
         inv_jac_mat_tp = fold(grp.space, ijm)
-
-        # apply operators to function data
-        dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
 
         # weak form case:
@@ -285,7 +279,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         #                      f, stiff_1D, mass_1D, mass_1D)
         if metric_in_matvec:
             stiff_1D, mass_1D = diff_mat
-            if dim == 3:
+            if grp.dim == 3:
                 weak_x = actx.einsum(
                     "rejbd,ejbd,ij,ab,cd->eiac",
                     inv_jac_mat_tp[0],
@@ -328,24 +322,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     weak_z
                 ])
 
-                # FIXME: causes an error: static maximum not found for PwAff ...
-                # grad = make_obj_array([
-                #     actx.einsum(
-                #         f"re{'bd'[:i]}j{'bd'[i:]}," +
-                #         f"e{'bd'[:i]}j{'bd'[i:]}," +
-                #         "ij,ab,cd->" +
-                #         f"e{'ac'[:i]}i{'ac'[i:]}",
-                #         vec,
-                #         stiff_1D,
-                #         mass_1D,
-                #         mass_1D,
-                #         arg_names=("inv_jac_mat", "vec", "stiff_1D", "mass_1D", "mass_1D"),
-                #         tagged=(FirstAxisIsElementsTag(),
-                #                 OutputIsTensorProductDOFArrayOrdered()))
-                #     for i in range(grp.dim)
-                # ])
-
-            elif dim == 2:
+            elif grp.dim == 2:
                 weak_x = actx.einsum(
                     "rejb,ejb,ij,ab->eia",
                     inv_jac_mat_tp[0],
@@ -371,22 +348,42 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     weak_y
                 ])
 
+            # FIXME: causes an error: static maximum not found for PwAff ...
+            # grad = make_obj_array([
+            #     actx.einsum(
+            #         f"re{'bd'[:i]}j{'bd'[i:]}," +
+            #         f"e{'bd'[:i]}j{'bd'[i:]}," +
+            #         "ij,ab,cd->" +
+            #         f"e{'ac'[:i]}i{'ac'[i:]}",
+            #         vec,
+            #         stiff_1D,
+            #         mass_1D,
+            #         mass_1D,
+            #         arg_names=("inv_jac_mat", "vec", "stiff_1D", "mass_1D",
+            #                    "mass_1D"),
+            #         tagged=(FirstAxisIsElementsTag(),
+            #                 OutputIsTensorProductDOFArrayOrdered()))
+            #     for i in range(grp.dim)
+            # ])
+
         # Carries out, e.g., 3D strong form contraction
         #   x partial: einsum("il,eljk->eijk", D, f)
         else:
+            # FIXME: actually test that all of these dimensions work! (dim 2 and
+            # 3 work)
             grad = make_obj_array([
                 actx.einsum(
-                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:dim-i-1]}," +
+                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
                     "yz," +
-                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:dim-i-1]}->" +
-                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:dim-i-1]}",
+                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
+                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
                     inv_jac_mat_tp[i],
                     diff_mat,
                     vec,
                     arg_names=("inv_jac_mat", "diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
-                for i in range(dim)
+                for i in range(grp.dim)
             ])
 
         # unreshape grad
@@ -446,21 +443,20 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
     # {{{ tensor product div
 
     def compute_tensor_product_div(actx, grp, diff_mat, vec, ijm):
-        """Exploits tensor product structure to differentiate each coordinate
-        axis using a single differentiation matrix of shape (nnodes1d, nnodes1d)
+        """
+        Exploits tensor product structure to reduce complexity. See
+        `_gradient_kernel.compute_tensor_product_grad` for more details.
         """
 
         # reshape u to expose tensor product structure
         vec = fold(grp.space, vec)
         inv_jac_mat_tp = fold(grp.space, ijm[0])
-
-        dim = grp.dim
         diff_mat = get_diff_mat(actx, grp, grp)
 
         # weak form
         if metric_in_matvec:
             stiff_1D, mass_1D = diff_mat
-            if dim == 3:
+            if grp.dim == 3:
                 weak_x = actx.einsum(
                     "rejbd,ejbd,ij,ab,cd->eiac",
                     inv_jac_mat_tp[0],
@@ -503,23 +499,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     weak_z
                 ])
 
-                # FIXME: causes an error: static maximum not found for PwAff ...
-                # grad = make_obj_array([
-                #     actx.einsum(
-                #         f"re{'bd'[:i]}j{'bd'[i:]}," +
-                #         "ij,ab,cd->" +
-                #         f"e{'ac'[:i]}i{'ac'[i:]}",
-                #         vec,
-                #         stiff_1D,
-                #         mass_1D,
-                #         mass_1D,
-                #         arg_names=("inv_jac_mat", "vec", "stiff_1D", "mass_1D", "mass_1D"),
-                #         tagged=(FirstAxisIsElementsTag(),
-                #                 OutputIsTensorProductDOFArrayOrdered()))
-                #     for i in range(grp.dim)
-                # ])
-
-            elif dim == 2:
+            elif grp.dim == 2:
                 weak_x = actx.einsum(
                     "rejb,ejb,ij,ab->eia",
                     inv_jac_mat_tp[0],
@@ -545,38 +525,53 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     weak_y
                 ])
 
-            else:
-                raise Exception("Dimensions of 2 and 3 are supported by "
-                                "tensor product elements. Found dim = {dim}")
+            # FIXME: causes an error: static maximum not found for PwAff ...
+            # partials = make_obj_array([
+            #     actx.einsum(
+            #         f"re{'bd'[:i]}j{'bd'[i:]}," +
+            #         "ij,ab,cd->" +
+            #         f"e{'ac'[:i]}i{'ac'[i:]}",
+            #         vec,
+            #         stiff_1D,
+            #         mass_1D,
+            #         mass_1D,
+            #         arg_names=("inv_jac_mat", "vec", "stiff_1D", "mass_1D",
+            #                    "mass_1D"),
+            #         tagged=(FirstAxisIsElementsTag(),
+            #                 OutputIsTensorProductDOFArrayOrdered()))
+            #     for i in range(grp.dim)
+            # ])
 
         # strong form
         else:
+            # FIXME: actually test that all of these dimensions work! (dim 2 and
+            # 3 work)
             partials = make_obj_array([
                 actx.einsum(
-                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:dim-i-1]}," +
+                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
                     "yz," +
-                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:dim-i-1]}->" +
-                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:dim-i-1]}",
+                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
+                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
                     inv_jac_mat_tp[i],
                     diff_mat,
                     vec,
                     arg_names=("inv_jac_mat", "diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
-                        OutputIsTensorProductDOFArrayOrdered()))
-                for i in range(dim)
+                            OutputIsTensorProductDOFArrayOrdered()))
+                for i in range(grp.dim)
             ])
 
         partials = make_obj_array([
             unfold(grp.space, partials[i])
-            for i in range(partials.shape[0])
+            for i in range(grp.dim)
         ])
 
-        partials = actx.np.stack([partials[i] for i in range(dim)])
+        partials = actx.np.stack([partials[i] for i in range(grp.dim)])
         div = actx.einsum(
-                "xei->ei",
-                partials,
-                arg_names=("partials",),
-                tagged=(FirstAxisIsElementsTag(),))
+            "xei->ei",
+            partials,
+            arg_names=("partials",),
+            tagged=(FirstAxisIsElementsTag(),))
 
         return div
 
