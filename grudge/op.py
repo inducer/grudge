@@ -331,7 +331,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 # FIXME: causes an error: static maximum not found for PwAff ...
                 # grad = make_obj_array([
                 #     actx.einsum(
-                #         f"e{'bd'[:i]}j{'bd'[i:]}," +
+                #         f"re{'bd'[:i]}j{'bd'[i:]}," +
                 #         f"e{'bd'[:i]}j{'bd'[i:]}," +
                 #         "ij,ab,cd->" +
                 #         f"e{'ac'[:i]}i{'ac'[i:]}",
@@ -502,6 +502,22 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     weak_y,
                     weak_z
                 ])
+
+                # FIXME: causes an error: static maximum not found for PwAff ...
+                # grad = make_obj_array([
+                #     actx.einsum(
+                #         f"re{'bd'[:i]}j{'bd'[i:]}," +
+                #         "ij,ab,cd->" +
+                #         f"e{'ac'[:i]}i{'ac'[i:]}",
+                #         vec,
+                #         stiff_1D,
+                #         mass_1D,
+                #         mass_1D,
+                #         arg_names=("inv_jac_mat", "vec", "stiff_1D", "mass_1D", "mass_1D"),
+                #         tagged=(FirstAxisIsElementsTag(),
+                #                 OutputIsTensorProductDOFArrayOrdered()))
+                #     for i in range(grp.dim)
+                # ])
 
             elif dim == 2:
                 weak_x = actx.einsum(
