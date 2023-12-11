@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 from meshmode.discretization.poly_element import LegendreGaussLobattoTensorProductGroupFactory
 from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+from meshmode.mesh.processing import affine_map
 import numpy as np
 
 from grudge.array_context import (
@@ -81,6 +82,15 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad, group_cls):
 
         from meshmode.mesh.processing import map_mesh
         mesh = map_mesh(mesh, m)
+    else:
+        alpha = 0.3
+        rot_mat = np.array([
+                [np.cos(alpha), np.sin(alpha), 0],
+                [-np.sin(alpha), np.cos(alpha), 0],
+                [0, 0, 1],
+        ])[:dim, :dim]
+
+        mesh = affine_map(mesh, A=rot_mat)
 
     from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
     from meshmode.discretization.poly_element import \
