@@ -23,6 +23,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from meshmode.discretization.poly_element import LegendreGaussLobattoTensorProductGroupFactory
+from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 import numpy as np
 
 from grudge.array_context import (
@@ -51,12 +53,18 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("nonaffine", [False, True])
 @pytest.mark.parametrize("use_quad", [False, True])
-def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
+@pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
+    TensorProductElementGroup
+])
+def test_inverse_metric(actx_factory, dim, nonaffine, use_quad, group_cls):
     actx = actx_factory()
 
     order = 3
-    mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
-            nelements_per_axis=(6,)*dim, order=order)
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-0.5,)*dim, b=(0.5,)*dim,
+        nelements_per_axis=(6,)*dim, order=order,
+        group_cls=group_cls)
 
     if nonaffine:
         def m(x):
@@ -79,13 +87,21 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
             QuadratureSimplexGroupFactory, \
             default_simplex_group_factory
 
-    dcoll = DiscretizationCollection(
-        actx, mesh,
-        discr_tag_to_group_factory={
+    if group_cls is SimplexElementGroup:
+        discr_tag_to_group_factory = {
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order + 1),
         }
-    )
+    elif group_cls is TensorProductElementGroup:
+        discr_tag_to_group_factory = {
+            DISCR_TAG_BASE: LegendreGaussLobattoTensorProductGroupFactory(order=order),
+            DISCR_TAG_QUAD: LegendreGaussLobattoTensorProductGroupFactory(order=3*order),
+        }
+    else:
+        raise AssertionError()
+
+    dcoll = DiscretizationCollection(
+        actx, mesh, discr_tag_to_group_factory=discr_tag_to_group_factory)
 
     from grudge.geometry import \
         forward_metric_derivative_mat, inverse_metric_derivative_mat
