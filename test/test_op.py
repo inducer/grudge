@@ -33,7 +33,6 @@ from grudge.dof_desc import DOFDesc
 
 import pytest
 
-from grudge.discretization import make_discretization_collection
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
@@ -241,6 +240,14 @@ def test_divergence(actx_factory, discr_type, form, dim, order, vectorize, neste
 
             dcoll = DiscretizationCollection(actx, mesh, order=order)
 
+        alpha = 0.3
+        rot_mat = np.array([
+                [np.cos(alpha), np.sin(alpha), 0],
+                [-np.sin(alpha), np.cos(alpha), 0],
+                [0, 0, 1],
+        ])[:dim, :dim]
+
+        mesh = affine_map(mesh, A=rot_mat)
         def f(x):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
