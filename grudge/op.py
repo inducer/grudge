@@ -416,20 +416,23 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         if metric_in_matvec:
             stiff_1D, mass_1D = diff_mat
             partials = make_obj_array([
-                actx.einsum(
-                    f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
-                    "ij," +
-                    ("ab,cd" if grp.dim == 3 else "ab") +
-                    "->"
-                    f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
-                    vec[i],
-                    stiff_1D,
-                    *(mass_1D,)*(grp.dim-1),
-                    arg_names=("vec", "stiff_1D",
-                               *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
-                    tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
-                for i in range(grp.dim)
+                make_obj_array([
+                    actx.einsum(
+                        f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+                        "ij," +
+                        ("ab,cd" if grp.dim == 3 else "ab") +
+                        "->"
+                        f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
+                        vec[func_axis],
+                        stiff_1D,
+                        *(mass_1D,)*(grp.dim-1),
+                        arg_names=("vec", "stiff_1D",
+                                   *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+                    for i in range(grp.dim)
+                ])
+                for func_axis in range(grp.dim)
             ])
 
         # strong form
