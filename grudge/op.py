@@ -281,7 +281,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # reshape u to expose tensor product structure
         vec = fold(grp.space, vec)
-        inv_jac_mat_tp = fold(grp.space, ijm)
         diff_mat = get_diff_mat(actx, grp, grp)
 
         # weak form case:
@@ -293,17 +292,15 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             stiff_1D, mass_1D = diff_mat
             grad = make_obj_array([
                 actx.einsum(
-                    f"re{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
                     f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
                     "ij," +
                     ("ab,cd" if grp.dim == 3 else "ab") +
                     "->"
                     f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
-                    inv_jac_mat_tp[i],
                     vec,
                     stiff_1D,
                     *(mass_1D,)*(grp.dim-1),
-                    arg_names=("inv_jac_mat", "vec", "stiff_1D",
+                    arg_names=("vec", "stiff_1D",
                                *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
                     tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered()))
@@ -315,24 +312,34 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         else:
             grad = make_obj_array([
                 actx.einsum(
-                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
                     "yz," +
                     f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
                     f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
-                    inv_jac_mat_tp[i],
                     diff_mat,
                     vec,
-                    arg_names=("inv_jac_mat", "diff_mat", "vec"),
+                    arg_names=("diff_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()))
                 for i in range(grp.dim)
             ])
 
-        # unreshape grad
-        grad = make_obj_array([
-            unfold(grp.space, grad[i])
-            for i in range(grp.dim)
+        # {{{ unreshape grad and apply geometric factors
+
+        # TODO: Chain einsums together with geometric factors
+        grad = actx.np.stack([
+            unfold(grp.space, grad[rst_axis])
+            for rst_axis in range(grp.dim)
         ])
+
+        grad = actx.einsum(
+            "xrej,rej->xej",
+            ijm,
+            grad,
+            arg_names=("inv_jac_mat", "grad"),
+            tagged=(FirstAxisIsElementsTag(),)
+        )
+
+        # }}}
 
         return grad
 
@@ -399,26 +406,26 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                                           metric_in_matvec)
 
         # reshape u to expose tensor product structure
-        vec = fold(grp.space, vec)
-        inv_jac_mat_tp = fold(grp.space, ijm)
         diff_mat = get_diff_mat(actx, grp, grp)
+        vec = make_obj_array([
+            fold(grp.space, vec[xyz_axis])
+            for xyz_axis in range(grp.dim)
+        ])
 
         # weak form
         if metric_in_matvec:
             stiff_1D, mass_1D = diff_mat
             partials = make_obj_array([
                 actx.einsum(
-                    f"re{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
                     f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
                     "ij," +
                     ("ab,cd" if grp.dim == 3 else "ab") +
                     "->"
                     f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
-                    inv_jac_mat_tp[i],
-                    vec,
+                    vec[i],
                     stiff_1D,
                     *(mass_1D,)*(grp.dim-1),
-                    arg_names=("inv_jac_mat", "vec", "stiff_1D",
+                    arg_names=("vec", "stiff_1D",
                                *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
                     tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered()))
@@ -428,31 +435,47 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         # strong form
         else:
             partials = make_obj_array([
-                actx.einsum(
-                    f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
-                    "yz," +
-                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
-                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
-                    inv_jac_mat_tp[i],
-                    diff_mat,
-                    vec[i],
-                    arg_names=("inv_jac_mat", "diff_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
-                for i in range(grp.dim)
+                make_obj_array([
+                    actx.einsum(
+                        "yz," +
+                        f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
+                        f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
+                        diff_mat,
+                        vec[func_axis],
+                        arg_names=("diff_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()))
+                    for i in range(grp.dim)
+                ])
+                for func_axis in range(grp.dim)
             ])
 
-        partials = make_obj_array([
-            unfold(grp.space, partials[i])
-            for i in range(grp.dim)
+        # {{{ unreshape, apply geometric factors, and sum over partials
+
+        # TODO: Chain einsums together with geometric factors
+        partials = actx.np.stack([
+            unfold(grp.space, partials[xyz_axis][rst_axis])
+            for xyz_axis in range(grp.dim)
+            for rst_axis in range(grp.dim)
         ])
 
-        partials = actx.np.stack([partials[i] for i in range(grp.dim)])
+        try:
+            partials = partials.reshape(
+                grp.dim, grp.dim, partials.shape[1], partials.shape[2])
+        except IndexError:
+            partials = partials.reshape(
+                grp.dim, grp.dim, partials.shape[1]
+            )
+
         div = actx.einsum(
-            "xei->ei",
+            "xrej,xrej->ej",
+            ijm,
             partials,
-            arg_names=("partials",),
-            tagged=(FirstAxisIsElementsTag(),))
+            arg_names=("inv_jac_mat", "partials",),
+            tagged=(FirstAxisIsElementsTag(),)
+        )
+
+        # }}}
 
         return div
 

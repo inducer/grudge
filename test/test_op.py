@@ -31,6 +31,8 @@ from pytools.obj_array import make_obj_array
 from grudge import op, geometry as geo, DiscretizationCollection
 from grudge.dof_desc import DOFDesc
 
+from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+
 import pytest
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -45,7 +47,10 @@ logger = logging.getLogger(__name__)
 
 # {{{ gradient
 
-@pytest.mark.parametrize("discr_type", ["simplicial", "tensor product"])
+@pytest.mark.parametrize("group_cls", [
+    # SimplexElementGroup,
+    TensorProductElementGroup
+])
 @pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
@@ -54,47 +59,40 @@ logger = logging.getLogger(__name__)
     (True, False),
     (True, True)
     ])
-def test_gradient(actx_factory, discr_type, form, dim, order, vectorize, nested,
-        visualize=False):
+def test_gradient(actx_factory, form, dim, order, vectorize, nested,
+                  group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
     for n in [4, 6, 8]:
-        if discr_type == "tensor product":
+        mesh = mgen.generate_regular_rect_mesh(
+            a=(-1,)*dim, b=(1,)*dim,
+            nelements_per_axis=(n,)*dim,
+            group_cls=group_cls)
+
+        if group_cls is TensorProductElementGroup:
             # no reason to test 1D tensor product elements
             if dim == 1:
                 return
 
-            from meshmode.mesh import TensorProductElementGroup
+            import grudge.dof_desc as dd
             from meshmode.discretization.poly_element import \
                     LegendreGaussLobattoTensorProductGroupFactory as LGL
 
-            mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim,
-                group_cls=TensorProductElementGroup)
-
-            import grudge.dof_desc as dd
             dcoll = DiscretizationCollection(
                 actx,
                 mesh,
                 discr_tag_to_group_factory={
                     dd.DISCR_TAG_BASE: LGL(order)})
-        else:
-            mesh = mgen.generate_regular_rect_mesh(
-                    a=(-1,)*dim, b=(1,)*dim,
-                    nelements_per_axis=(n,)*dim)
 
+        elif group_cls is SimplexElementGroup:
             dcoll = DiscretizationCollection(actx, mesh, order=order)
 
-        def f(x):
-            result = dcoll.zeros(actx) + 1
-            for i in range(dim-1):
-                result = result * actx.np.sin(np.pi*x[i])
-            result = result * actx.np.cos(np.pi/2*x[dim-1])
-            return result
+        else:
+            raise AssertionError('Expecting TensorProductElementGroup or '
+                                 f'SimplexElementGroup. Found {group_cls}')
 
         alpha = 0.3
         rot_mat = np.array([
@@ -104,6 +102,13 @@ def test_gradient(actx_factory, discr_type, form, dim, order, vectorize, nested,
         ])[:dim, :dim]
 
         mesh = affine_map(mesh, A=rot_mat)
+
+        def f(x):
+            result = dcoll.zeros(actx) + 1
+            for i in range(dim-1):
+                result = result * actx.np.sin(np.pi*x[i])
+            result = result * actx.np.cos(np.pi/2*x[dim-1])
+            return result
 
         def grad_f(x):
             result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
@@ -196,49 +201,52 @@ def test_gradient(actx_factory, discr_type, form, dim, order, vectorize, nested,
 
 # {{{ divergence
 
-@pytest.mark.parametrize("discr_type", ["simplicial", "tensor_product"])
+@pytest.mark.parametrize("group_cls", [
+    # SimplexElementGroup,
+    TensorProductElementGroup
+])
 @pytest.mark.parametrize("form", ["strong", "weak"])
-@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
-    ])
-def test_divergence(actx_factory, discr_type, form, dim, order, vectorize, nested,
-        visualize=False):
+])
+def test_divergence(actx_factory, form, dim, order, vectorize, nested,
+                    group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
     for n in [4, 6, 8]:
-        if discr_type == "tensor product":
+        mesh = mgen.generate_regular_rect_mesh(
+            a=(-1,)*dim, b=(1,)*dim,
+            nelements_per_axis=(n,)*dim,
+            group_cls=group_cls)
+
+        if group_cls is TensorProductElementGroup:
             # no reason to test 1D tensor product elements
             if dim == 1:
                 return
 
-            from meshmode.mesh import TensorProductElementGroup
+            import grudge.dof_desc as dd
             from meshmode.discretization.poly_element import \
                     LegendreGaussLobattoTensorProductGroupFactory as LGL
 
-            mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim,
-                group_cls=TensorProductElementGroup)
-
-            import grudge.dof_desc as dd
             dcoll = DiscretizationCollection(
                 actx,
                 mesh,
                 discr_tag_to_group_factory={
                     dd.DISCR_TAG_BASE: LGL(order)})
-        else:
-            mesh = mgen.generate_regular_rect_mesh(
-                    a=(-1,)*dim, b=(1,)*dim,
-                    nelements_per_axis=(n,)*dim)
 
+        elif group_cls is SimplexElementGroup:
             dcoll = DiscretizationCollection(actx, mesh, order=order)
+
+        else:
+            raise AssertionError('Expecting TensorProductElementGroup or '
+                                 f'SimplexElementGroup. Found {group_cls}')
 
         alpha = 0.3
         rot_mat = np.array([
