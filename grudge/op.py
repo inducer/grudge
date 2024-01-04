@@ -246,8 +246,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
-        # TODO: add note about inverse mass simplification, point to
-        # op.inverse_mass (assuming this is where the explanation will live)
         """
         Exploits tensor product structure to reduce complexity. Applies a
         differentiation operator containing 1D information to a tensor of DOF
@@ -281,65 +279,53 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # reshape u to expose tensor product structure
         vec = fold(grp.space, vec)
-        diff_mat = get_diff_mat(actx, grp, grp)
+        ijm = fold(grp.space, ijm)
 
-        # weak form case:
-        #   3D weak_x: einsum("estu,ps,qt,ru->epqr",
-        #                      f, stiff_1D, mass_1D, mass_1D)
-        # TODO:? make this more general, maybe offload to a function that
-        # generates argnames and einsum specs
         if metric_in_matvec:
-            stiff_1D, mass_1D = diff_mat
+            stiff_1d, mass_1d = get_diff_mat(actx, grp, grp)
+
+            # TODO:? make this more general, maybe offload to a function that
+            # generates argnames and einsum specs
             grad = make_obj_array([
-                actx.einsum(
-                    f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
-                    "ij," +
-                    ("ab,cd" if grp.dim == 3 else "ab") +
-                    "->"
-                    f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
-                    vec,
-                    stiff_1D,
-                    *(mass_1D,)*(grp.dim-1),
-                    arg_names=("vec", "stiff_1D",
-                               *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
-                    tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered()))
+                unfold(
+                    grp.space,
+                    actx.einsum(
+                        f"re{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+                        f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+                        "ij," +
+                        ("ab,cd" if grp.dim == 3 else "ab") +
+                        "->"
+                        f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
+                        ijm[i],
+                        vec,
+                        stiff_1d,
+                        *(mass_1d,)*(grp.dim-1),
+                        arg_names=("inv_jac_t", "vec", "stiff_1d",
+                                   *(("mass_1d_1", "mass_1d_2")[:grp.dim-1])),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered())))
                 for i in range(grp.dim)
             ])
 
-        # Carries out, e.g., 3D strong form contraction
-        #   x partial: einsum("il,eljk->eijk", D, f)
         else:
+            diff_mat = get_diff_mat(actx, grp, grp)
+
             grad = make_obj_array([
-                actx.einsum(
-                    "yz," +
-                    f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
-                    f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
-                    diff_mat,
-                    vec,
-                    arg_names=("diff_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),
-                        OutputIsTensorProductDOFArrayOrdered()))
+                unfold(
+                    grp.space,
+                    actx.einsum(
+                        f"re{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
+                        "yz," +
+                        f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
+                        f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
+                        ijm[i],
+                        diff_mat,
+                        vec,
+                        arg_names=("inv_jac_t", "diff_mat", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered())))
                 for i in range(grp.dim)
             ])
-
-        # {{{ unreshape grad and apply geometric factors
-
-        # TODO: Chain einsums together with geometric factors
-        grad = actx.np.stack([
-            unfold(grp.space, grad[rst_axis])
-            for rst_axis in range(grp.dim)
-        ])
-
-        grad = actx.einsum(
-            "xrej,rej->xej",
-            ijm,
-            grad,
-            arg_names=("inv_jac_mat", "grad"),
-            tagged=(FirstAxisIsElementsTag(),)
-        )
-
-        # }}}
 
         return grad
 

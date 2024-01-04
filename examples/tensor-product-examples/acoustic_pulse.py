@@ -111,7 +111,7 @@ def acoustic_pulse_condition(x_vec, t=0):
 def run_acoustic_pulse(actx,
                        order=3,
                        final_time=1,
-                       resolution=4,
+                       resolution=16,
                        overintegration=False,
                        visualize=False):
 
@@ -122,7 +122,7 @@ def run_acoustic_pulse(actx,
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
-    dim = 3
+    dim = 2
     box_ll = -0.5
     box_ur = 0.5
     mesh = generate_regular_rect_mesh(
@@ -130,6 +130,15 @@ def run_acoustic_pulse(actx,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim,
         group_cls=TensorProductElementGroup)
+
+    if rotate_mesh:
+        from meshmode.mesh.processing import affine_map
+        alpha = .3
+        rot_mat = np.array([
+            [np.cos(alpha), np.sin(alpha)],
+            [-np.sin(alpha), np.cos(alpha)]
+        ])
+        mesh = affine_map(mesh, A=rot_mat)
 
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
@@ -222,11 +231,10 @@ def main(ctx_factory, order=3, final_time=1, resolution=16,
             allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         )
     else:
-        from grudge.array_context import TensorProductArrayContext
-        actx = TensorProductArrayContext(
+        actx = PyOpenCLArrayContext(
             queue,
             allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
+            force_device_scalars=False
         )
 
     run_acoustic_pulse(

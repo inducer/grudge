@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # {{{ gradient
 
 @pytest.mark.parametrize("group_cls", [
-    # SimplexElementGroup,
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 @pytest.mark.parametrize("form", ["strong", "weak"])
