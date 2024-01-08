@@ -246,6 +246,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
+        # TODO: add note about inverse mass simplification, point to
+        # op.inverse_mass (assuming this is where the explanation will live)
         """
         Exploits tensor product structure to reduce complexity. Applies a
         differentiation operator containing 1D information to a tensor of DOF
@@ -391,53 +393,86 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
             return compute_simplicial_div(actx, grp, grp, diff_mat, vec, ijm,
                                           metric_in_matvec)
 
-        # reshape u to expose tensor product structure
-        diff_mat = get_diff_mat(actx, grp, grp)
         vec = make_obj_array([
             fold(grp.space, vec[xyz_axis])
             for xyz_axis in range(grp.dim)
         ])
 
-        # weak form
         if metric_in_matvec:
-            stiff_1D, mass_1D = diff_mat
+            stiff_1d, mass_1d = get_diff_mat(actx, grp, grp)
+            # partials = make_obj_array([
+            #     make_obj_array([
+            #         actx.einsum(
+            #             f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+            #             "ij," +
+            #             ("ab,cd" if grp.dim == 3 else "ab") +
+            #             "->"
+            #             f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
+            #             vec[func_axis],
+            #             stiff_1d,
+            #             *(mass_1d,)*(grp.dim-1),
+            #             arg_names=("vec", "stiff_1D",
+            #                        *(("mass_1d_1", "mass_1d_2")[:grp.dim-1])),
+            #             tagged=(FirstAxisIsElementsTag(),
+            #                     OutputIsTensorProductDOFArrayOrdered()))
+            #         for i in range(grp.dim)
+            #     ])
+            #     for func_axis in range(grp.dim)
+            # ])
+
             partials = make_obj_array([
                 make_obj_array([
                     actx.einsum(
-                        f"e{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+                        f"xre{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
+                        f"xe{'bd'[:i]}j{'bd'[i:grp.dim-1]}," +
                         "ij," +
                         ("ab,cd" if grp.dim == 3 else "ab") +
                         "->"
                         f"e{'ac'[:i]}i{'ac'[i:grp.dim-1]}",
-                        vec[func_axis],
-                        stiff_1D,
-                        *(mass_1D,)*(grp.dim-1),
-                        arg_names=("vec", "stiff_1D",
-                                   *(("mass_1D_1", "mass_1D_2")[:grp.dim-1])),
+                        ijm,
+                        vec,
+                        stiff_1d,
+                        *(mass_1d,)*(grp.dim-1),
+                        arg_names=("inv_jac_t", "vec", "stiff_1D",
+                                   *(("mass_1d_1", "mass_1d_2")[:grp.dim-1])),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
                     for i in range(grp.dim)
                 ])
-                for func_axis in range(grp.dim)
             ])
 
-        # strong form
         else:
+            diff_mat = get_diff_mat(actx, grp, grp)
+            # partials = make_obj_array([
+            #     make_obj_array([
+            #         actx.einsum(
+            #             "yz," +
+            #             f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
+            #             f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
+            #             diff_mat,
+            #             vec[func_axis],
+            #             arg_names=("diff_mat", "vec"),
+            #             tagged=(FirstAxisIsElementsTag(),
+            #                     OutputIsTensorProductDOFArrayOrdered()))
+            #         for i in range(grp.dim)
+            #     ])
+            #     for func_axis in range(grp.dim)
+            # ])
+
             partials = make_obj_array([
-                make_obj_array([
                     actx.einsum(
                         "yz," +
+                        f"xre{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}," +
                         f"e{'abcdfghijkl'[:i]}z{'mnopqstuvwx'[:grp.dim-i-1]}->" +
                         f"e{'abcdfghijkl'[:i]}y{'mnopqstuvwx'[:grp.dim-i-1]}",
+                        ijm,
                         diff_mat,
-                        vec[func_axis],
-                        arg_names=("diff_mat", "vec"),
+                        vec,
+                        arg_names=("inv_jac_t", "diff_mat", "vec"),
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()))
                     for i in range(grp.dim)
                 ])
-                for func_axis in range(grp.dim)
-            ])
 
         # {{{ unreshape, apply geometric factors, and sum over partials
 
