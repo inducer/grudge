@@ -463,19 +463,61 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 
             partials = []
             for func_axis in range(grp.dim):
-
                 partials.append(vec[func_axis])
-                for xyz_axis in range(grp.dim):
 
+                apply_mass_axes = set(range(grp.dim)) - {func_axis}
+                for ax in apply_mass_axes:
+                    partials[func_axis] = single_axis_operator_application(
+                        actx, grp.dim, mass_1d, ax, partials[func_axis],
+                        tags=(FirstAxisIsElementsTag(),
+                              OutputIsTensorProductDOFArrayOrdered(),),
+                        arg_names=("mass_1d", f"vec_{func_axis}"))
 
-            div = 0
+                partials[func_axis] = unfold(
+                    grp.space,
+                    single_axis_operator_application(
+                        actx, grp.dim, stiff_1d, func_axis, partials[func_axis],
+                        tags=(FirstAxisIsElementsTag(),
+                              OutputIsTensorProductDOFArrayOrdered(),),
+                        arg_names=("stiff_1d", f"vec_{func_axis}"))
+                )
+
+                partials[func_axis] = actx.einsum(
+                    "rej,ej->ej",
+                    ijm[func_axis],
+                    partials[func_axis],
+                    tagged=(FirstAxisIsElementsTag(),),
+                    arg_names=("inv_jac_t", f"partials_{func_axis}")
+                )
 
         else:
             diff_mat = get_diff_mat(actx, grp, grp)
 
             partials = []
+            for func_axis in range(grp.dim):
+                partials.append(vec[func_axis])
 
-            div = 0
+                partials[func_axis] = unfold(
+                    grp.space,
+                    single_axis_operator_application(
+                        actx, grp.dim, diff_mat, func_axis, partials[func_axis],
+                        tags=(FirstAxisIsElementsTag(),
+                              OutputIsTensorProductDOFArrayOrdered(),),
+                        arg_names=("diff_mat", f"partials_{func_axis}")
+                    )
+                )
+
+                partials[func_axis] = actx.einsum(
+                    "rej,ej->ej",
+                    ijm[func_axis],
+                    partials[func_axis],
+                    tagged=(FirstAxisIsElementsTag(),),
+                    arg_names=("inv_jac_t", f"partials_{func_axis}")
+                )
+
+        div = 0
+        for i in range(grp.dim):
+            div += partials[i]
 
         return div
 
