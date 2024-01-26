@@ -709,7 +709,7 @@ class _RankBoundaryCommunicationLazy:
         from pytato import (
             make_distributed_recv,
             make_distributed_send,
-            DistributedSendRefHolder)
+            make_distributed_send_ref_holder)
 
         # TODO: This currently assumes that local_bdry_data and
         # remote_bdry_data_template have the same structure. This is not true
@@ -734,7 +734,7 @@ class _RankBoundaryCommunicationLazy:
                 return remote_subary_template
             else:
                 ary_tag = (local_part_id.volume_tag, comm_tag, key)
-                return DistributedSendRefHolder(
+                return make_distributed_send_ref_holder(
                     sends[key],
                     make_distributed_recv(
                         src_rank=remote_rank, comm_tag=ary_tag,
