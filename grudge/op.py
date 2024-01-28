@@ -1180,6 +1180,7 @@ def _apply_inverse_mass_operator(
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
+
     def apply_to_tensor_product_elements(grp, jac_inv, vec, ref_inv_mass):
 
         vec = fold(grp.space, vec)
@@ -1211,6 +1212,7 @@ def _apply_inverse_mass_operator(
             ref_inv_mass,
             vec,
             tagged=(FirstAxisIsElementsTag(),))
+
 
     group_data = [
         apply_to_tensor_product_elements(
