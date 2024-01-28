@@ -647,6 +647,17 @@ class OutputIsTensorProductDOFArrayOrdered(Tag):
     """
     pass
 
+
+class MassMatrix1d(Tag):
+    """Used in DAG transformation to realize algebraic simplification of 1D
+    inverse mass operator times mass operator.
+    """
+    pass
+
+class InverseMassMatrix1d(Tag):
+    """See MassMatrix1d.
+    """
+
 # }}}
 
 # {{{ Eager TP array context
