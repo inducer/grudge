@@ -202,17 +202,17 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 # {{{ divergence
 
 @pytest.mark.parametrize("group_cls", [
-    #SimplexElementGroup,
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 @pytest.mark.parametrize("form", ["strong", "weak"])
-@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
-])
+    ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                     group_cls, visualize=False):
     actx = actx_factory()
