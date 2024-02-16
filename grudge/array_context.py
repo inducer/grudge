@@ -3,6 +3,7 @@
 .. autoclass:: PytatoPyOpenCLArrayContext
 .. autoclass:: MPIBasedArrayContext
 .. autoclass:: MPIPyOpenCLArrayContext
+.. autoclass:: MPICupyArrayContext
 .. class:: MPIPytatoArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
@@ -96,6 +97,8 @@ from arraycontext.pytest import (
 from arraycontext import ArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
+
+from arraycontext import CupyArrayContext
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -417,6 +420,26 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
         return type(self)(self.mpi_communicator, self.queue,
                 mpi_base_tag=self.mpi_base_tag,
                 allocator=self.allocator)
+
+# }}}
+
+
+# {{{
+
+class MPICupyArrayContext(CupyArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`cupy`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator):
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self):
+        return type(self)(self.mpi_communicator)
 
 # }}}
 
