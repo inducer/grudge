@@ -23,17 +23,21 @@ THE SOFTWARE.
 
 import numpy as np
 
+from meshmode.mesh import BTAG_ALL
 import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import make_obj_array
 
 from grudge import op, geometry as geo, DiscretizationCollection
-from grudge.dof_desc import DOFDesc
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import DOFDesc, as_dofdesc
 
 import pytest
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
+
+from grudge.trace_pair import bv_trace_pair
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
@@ -47,27 +51,34 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("warp_mesh", [False, True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
     ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+                  warp_mesh, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
-    for n in [4, 6, 8]:
-        mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim)
+    for n in [8, 12, 16] if warp_mesh else [4, 6, 8]:
+        if warp_mesh:
+            if dim == 1:
+                pytest.skip("warped mesh in 1D not implemented")
+            mesh = mgen.generate_warped_rect_mesh(
+                          dim=dim, order=order, nelements_side=n)
+        else:
+            mesh = mgen.generate_regular_rect_mesh(
+                    a=(-1,)*dim, b=(1,)*dim,
+                    nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         def f(x):
-            result = dcoll.zeros(actx) + 1
+            result = 1
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
@@ -89,14 +100,17 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
         x = actx.thaw(dcoll.nodes())
 
-        if vectorize:
-            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
-        else:
-            u = f(x)
+        def vectorize_if_requested(vec):
+            if vectorize:
+                return make_obj_array([(i+1)*vec for i in range(dim)])
+            else:
+                return vec
+
+        u = vectorize_if_requested(f(x))
 
         def get_flux(u_tpair):
             dd = u_tpair.dd
-            dd_allfaces = dd.with_dtag("all_faces")
+            dd_allfaces = dd.with_domain_tag("all_faces")
             normal = geo.normal(actx, dcoll, dd)
             u_avg = u_tpair.avg
             if vectorize:
@@ -108,7 +122,11 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 flux = u_avg * normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = DOFDesc("all_faces")
+        dd_allfaces = as_dofdesc("all_faces")
+
+        bdry_dd = as_dofdesc(BTAG_ALL)
+        bdry_x = actx.thaw(dcoll.nodes(bdry_dd))
+        bdry_u = vectorize_if_requested(f(bdry_x))
 
         if form == "strong":
             grad_u = (
@@ -121,9 +139,9 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 +  # noqa: W504
                 op.face_mass(dcoll,
                     dd_allfaces,
-                    # Note: no boundary flux terms here because u_ext == u_int == 0
                     sum(get_flux(utpair)
                         for utpair in op.interior_trace_pairs(dcoll, u))
+                    + get_flux(bv_trace_pair(dcoll, bdry_dd, u, bdry_u))
                 )
             )
         else:
@@ -138,6 +156,9 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             expected_grad_u = grad_f(x)
 
         if visualize:
+            # the code below does not handle the vectorized case
+            assert not vectorize
+
             from grudge.shortcuts import make_visualizer
             vis = make_visualizer(dcoll, vis_order=order if dim == 3 else dim+3)
 
