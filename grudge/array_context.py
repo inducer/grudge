@@ -105,6 +105,10 @@ if TYPE_CHECKING:
     import pyopencl.tools
     from mpi4py import MPI
 
+# }}}
+
+
+# {{{ pyopencl
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PyOpenCLArrayContext`. Extends it
@@ -130,12 +134,13 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
             new_args = []
+
             for arg in knl.args:
                 if arg.is_output:
                     arg = arg.copy(dim_tags=(
                         f"N{len(arg.shape)-1},"
                         + ",".join(f"N{i}"
-                                   for i in range(len(arg.shape)-1))
+                                for i in range(len(arg.shape)-1))
                         ))
 
                 new_args.append(arg)
@@ -634,6 +639,7 @@ def get_reasonable_array_context_class(
 
 # }}}
 
+
 # {{{ tensor product-specific machinery
 
 class OutputIsTensorProductDOFArrayOrdered(Tag):
@@ -644,6 +650,14 @@ class OutputIsTensorProductDOFArrayOrdered(Tag):
     form (slow, fastest, faster, fast). These strides are not "C" or "F" order.
     Hence, this specialized array context takes care of specifying the
     particular strides required.
+    """
+    pass
+
+class TensorProductDOFAxis(Tag):
+    """
+    Tag an axis as being an axis containing the DOFs of a tensor-product
+    discretization. Used to signify that the strides associated with the array
+    containing this axis will be neither column nor row major.
     """
     pass
 
@@ -660,17 +674,20 @@ class InverseMassMatrix1d(Tag):
 
 # }}}
 
+
 # {{{ Eager TP array context
 class TensorProductArrayContext(_PyOpenCLArrayContextBase):
     """Specialized array context for use with tensor product elements.
     """
 # }}}
 
+
 # {{{ Lazy tensor product array context
 class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
     def transform_dag(self, dag):
         return super().transform_dag(dag)
 # }}}
+
 
 # }}}
 
