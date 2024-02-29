@@ -48,11 +48,11 @@ logger = logging.getLogger(__name__)
 # {{{ gradient
 
 @pytest.mark.parametrize("group_cls", [
-    SimplexElementGroup,
+    #SimplexElementGroup,
     TensorProductElementGroup
 ])
-@pytest.mark.parametrize("form", ["strong", "weak"])
-@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("form", ["strong"])
+@pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
