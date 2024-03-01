@@ -134,7 +134,6 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
             new_args = []
-
             for arg in knl.args:
                 if arg.is_output:
                     arg = arg.copy(dim_tags=(
@@ -151,6 +150,36 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
         # }}}
 
         return super().transform_loopy_program(t_unit)
+
+
+    def call_loopy(self, t_unit, **kwargs):
+        # NOTE: modifying strides pertaining to tensor product axes is done here
+        # since that information is not available in the arguments passed to
+        # `transform_loopy_program` in eager evaluation
+
+        default_ep = t_unit.default_entrypoint
+
+        # {{{ process kwargs with TP axis tags
+
+        if default_ep.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+            new_args = []
+
+            for arg_name in kwargs.keys():
+                kwarg = kwargs[arg_name].axes
+
+                for axis in kwarg.axes:
+                    if axis.tags_of_type(TensorProductDOFAxis):
+                        if arg_name in default_ep.arg_dict.keys():
+                            arg = default_ep.arg_dict[arg_name]
+
+                            dim_tags = (
+
+                            )
+
+
+        # }}}
+
+        return super().call_loopy(t_unit, **kwargs)
 
 # }}}
 

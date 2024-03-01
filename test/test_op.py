@@ -48,11 +48,11 @@ logger = logging.getLogger(__name__)
 # {{{ gradient
 
 @pytest.mark.parametrize("group_cls", [
-    #SimplexElementGroup,
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
-@pytest.mark.parametrize("form", ["strong"])
-@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("form", ["strong", "weak"])
+@pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
@@ -75,7 +75,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         if group_cls is TensorProductElementGroup:
             # no reason to test 1D tensor product elements
             if dim == 1:
-                return
+                pytest.skip()
 
             import grudge.dof_desc as dd
             from meshmode.discretization.poly_element import \

@@ -212,7 +212,8 @@ def _single_axis_derivative_kernel(
             for ax in apply_mass_axes:
                 vec_mass_applied = single_axis_operator_application(
                     actx, grp.dim, mass_1d, ax, vec,
-                    tags=(FirstAxisIsElementsTag(),),
+                    tags=(FirstAxisIsElementsTag(),
+                          OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("mass_1d", "vec")
                 )
 
@@ -220,7 +221,8 @@ def _single_axis_derivative_kernel(
                 grp.space,
                 single_axis_operator_application(
                     actx, grp.dim, stiff_1d, xyz_axis, vec_mass_applied,
-                    tags=(FirstAxisIsElementsTag(),),
+                    tags=(FirstAxisIsElementsTag(),
+                          OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("stiff_1d", "vec_with_mass_applied"))
             )
 
@@ -239,7 +241,8 @@ def _single_axis_derivative_kernel(
                 grp.space,
                 single_axis_operator_application(
                     actx, grp.dim, diff_mat, xyz_axis, vec,
-                    tags=(FirstAxisIsElementsTag(),),
+                    tags=(FirstAxisIsElementsTag(),
+                          OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("diff_mat", "vec"))
             )
 
@@ -300,18 +303,10 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_grad(actx, grp, diff_mat, vec, ijm,
                                     metric_in_matvec):
-        # TODO: add note about inverse mass simplification, point to
-        # op.inverse_mass (assuming this is where the explanation will live)
         """
+        Applies 1D operators one-axis-at-a-time to tensor-product discretized
+        DOF data.
         """
-
-        if grp.dim > 3 and metric_in_matvec:
-            warn('Efficient tensor product weak '
-                'differentiation operators only '
-                'implemented for dimension 2 and 3. '
-                'Defaulting to inefficient version.')
-            return compute_simplicial_grad(actx, grp, grp, diff_mat, vec, ijm,
-                                           metric_in_matvec)
 
         # reshape vector to expose tensor product structure
         vec = tag_axes(
@@ -332,7 +327,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 for ax in apply_mass_axes:
                     grad[xyz_axis] = single_axis_operator_application(
                         actx, grp.dim, mass_1d, ax, grad[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),),
+                        tags=(FirstAxisIsElementsTag(),
+                              OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("mass_1d", f"vec_{xyz_axis}")
                 )
 
@@ -341,7 +337,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     grp.space,
                     single_axis_operator_application(
                         actx, grp.dim, stiff_1d, xyz_axis, grad[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),),
+                        tags=(FirstAxisIsElementsTag(),
+                              OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_1d", f"vec_{xyz_axis}"))
                 )
 
@@ -433,16 +430,12 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         `_gradient_kernel.compute_tensor_product_grad` for more details.
         """
 
-        if grp.dim > 3 and metric_in_matvec:
-            warn('Efficient tensor product weak '
-                 'differentiation operators only '
-                 'implemented for dimension 2 and 3. '
-                 'Defaulting to inefficient version.')
-            return compute_simplicial_div(actx, grp, grp, diff_mat, vec, ijm,
-                                          metric_in_matvec)
-
         vec = make_obj_array([
-            fold(grp.space, vec[func_axis])
+            tag_axes(
+                actx,
+                { i: TensorProductDOFAxis() for i in range(1,grp.dim+1) },
+                fold(grp.space, vec[func_axis])
+            )
             for func_axis in range(vec.shape[0])
         ])
 
