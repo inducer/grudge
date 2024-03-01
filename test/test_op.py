@@ -21,6 +21,7 @@ THE SOFTWARE.
 """
 
 
+from meshmode.mesh.processing import affine_map
 import numpy as np
 
 import meshmode.mesh.generation as mgen
@@ -29,6 +30,8 @@ from pytools.obj_array import make_obj_array
 
 from grudge import op, geometry as geo, DiscretizationCollection
 from grudge.dof_desc import DOFDesc
+
+from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 
 import pytest
 
@@ -44,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 # {{{ gradient
 
+@pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
+    TensorProductElementGroup
+])
 @pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
@@ -53,7 +60,7 @@ logger = logging.getLogger(__name__)
     (True, True)
     ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+                  group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -61,10 +68,40 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
     for n in [4, 6, 8]:
         mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim)
+            a=(-1,)*dim, b=(1,)*dim,
+            nelements_per_axis=(n,)*dim,
+            group_cls=group_cls)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        if group_cls is TensorProductElementGroup:
+            # no reason to test 1D tensor product elements
+            if dim == 1:
+                pytest.skip()
+
+            import grudge.dof_desc as dd
+            from meshmode.discretization.poly_element import \
+                    LegendreGaussLobattoTensorProductGroupFactory as LGL
+
+            dcoll = DiscretizationCollection(
+                actx,
+                mesh,
+                discr_tag_to_group_factory={
+                    dd.DISCR_TAG_BASE: LGL(order)})
+
+        elif group_cls is SimplexElementGroup:
+            dcoll = DiscretizationCollection(actx, mesh, order=order)
+
+        else:
+            raise AssertionError('Expecting TensorProductElementGroup or '
+                                 f'SimplexElementGroup. Found {group_cls}')
+
+        alpha = 0.3
+        rot_mat = np.array([
+                [np.cos(alpha), np.sin(alpha), 0],
+                [-np.sin(alpha), np.cos(alpha), 0],
+                [0, 0, 1],
+        ])[:dim, :dim]
+
+        mesh = affine_map(mesh, A=rot_mat)
 
         def f(x):
             result = dcoll.zeros(actx) + 1
@@ -164,6 +201,10 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
 # {{{ divergence
 
+@pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
+    TensorProductElementGroup
+])
 @pytest.mark.parametrize("form", ["strong", "weak"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
@@ -173,7 +214,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     (True, True)
     ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+                    group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -181,11 +222,40 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
 
     for n in [4, 6, 8]:
         mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim)
+            a=(-1,)*dim, b=(1,)*dim,
+            nelements_per_axis=(n,)*dim,
+            group_cls=group_cls)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        if group_cls is TensorProductElementGroup:
+            # no reason to test 1D tensor product elements
+            if dim == 1:
+                return
 
+            import grudge.dof_desc as dd
+            from meshmode.discretization.poly_element import \
+                    LegendreGaussLobattoTensorProductGroupFactory as LGL
+
+            dcoll = DiscretizationCollection(
+                actx,
+                mesh,
+                discr_tag_to_group_factory={
+                    dd.DISCR_TAG_BASE: LGL(order)})
+
+        elif group_cls is SimplexElementGroup:
+            dcoll = DiscretizationCollection(actx, mesh, order=order)
+
+        else:
+            raise AssertionError('Expecting TensorProductElementGroup or '
+                                 f'SimplexElementGroup. Found {group_cls}')
+
+        alpha = 0.3
+        rot_mat = np.array([
+                [np.cos(alpha), np.sin(alpha), 0],
+                [-np.sin(alpha), np.cos(alpha), 0],
+                [0, 0, 1],
+        ])[:dim, :dim]
+
+        mesh = affine_map(mesh, A=rot_mat)
         def f(x):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):

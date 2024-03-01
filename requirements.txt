@@ -14,7 +14,7 @@ git+https://github.com/inducer/meshmode.git#egg=meshmode
 git+https://github.com/inducer/pyvisfile.git#egg=pyvisfile
 git+https://github.com/inducer/pymetis.git#egg=pymetis
 git+https://github.com/illinois-ceesd/logpyle.git#egg=logpyle
-git+https://github.com/inducer/pytato.git#egg=pytato
+git+https://github.com/a-alveyblanc/pytato.git@implement-f-ordered-reshapes
 
 # for test_wave_dt_estimate
 sympy

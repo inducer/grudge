@@ -105,11 +105,14 @@ if TYPE_CHECKING:
     import pyopencl.tools
     from mpi4py import MPI
 
+# }}}
+
+
+# {{{ pyopencl
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PyOpenCLArrayContext`. Extends it
-    to understand :mod:`grudge`-specific transform metadata. (Of which there isn't
-    any, for now.)
+    to understand :mod:`grudge`-specific transform metadata.
     """
     def __init__(self, queue: "pyopencl.CommandQueue",
             allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
@@ -124,6 +127,33 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
 
+    def transform_loopy_program(self, t_unit):
+        knl = t_unit.default_entrypoint
+
+        # {{{ process tensor product specific metadata
+
+        # NOTE: This differs from the lazy case b/c we don't have access to axis
+        # tags that can be manipulated pre-execution. In eager, we update
+        # strides/loop nest ordering for the output array
+        if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+            new_args = []
+            for arg in knl.args:
+                if arg.is_output:
+                    arg = arg.copy(dim_tags=(
+                        f"N{len(arg.shape)-1},"
+                        + ",".join(f"N{i}"
+                                for i in range(len(arg.shape)-1))
+                        ))
+
+                new_args.append(arg)
+
+            knl = knl.copy(args=new_args)
+            t_unit = t_unit.with_kernel(knl)
+
+        # }}}
+
+        return super().transform_loopy_program(t_unit)
+
 # }}}
 
 
@@ -131,8 +161,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
 class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
-    Extends it to understand :mod:`grudge`-specific transform metadata. (Of
-    which there isn't any, for now.)
+    Extends it to understand :mod:`grudge`-specific transform metadata.
     """
     def __init__(self, queue, allocator=None,
             *,
@@ -586,6 +615,43 @@ def get_reasonable_array_context_class(
                 # eager is always device-parallel:
                 (_HAVE_SINGLE_GRID_WORK_BALANCING or _HAVE_FUSION_ACTX or not lazy))
     return actx_class
+
+# }}}
+
+
+# {{{ tensor product discretization metadata
+
+class OutputIsTensorProductDOFArrayOrdered(Tag):
+    """Signify that the strides will not be of order "C" or "F". See
+    :class:`grudge.array_context.TensorProductArrayContext` for more details.
+
+    The strides for the arrays containing tensor product element data are of the
+    form (slow, fastest, faster, fast). These strides are not "C" or "F" order.
+    Hence, this specialized array context takes care of specifying the
+    particular strides required.
+    """
+    pass
+
+
+class TensorProductDOFAxis(Tag):
+    """
+    Tag an axis as being an axis containing the DOFs of a tensor-product
+    discretization. Used to signify that the strides associated with the array
+    containing this axis will be neither column nor row major.
+    """
+    pass
+
+
+class MassMatrix1d(Tag):
+    """Used in DAG transformation to realize algebraic simplification of 1D
+    inverse mass operator times mass operator.
+    """
+    pass
+
+
+class InverseMassMatrix1d(Tag):
+    """See MassMatrix1d.
+    """
 
 # }}}
 

@@ -527,6 +527,7 @@ def inverse_surface_metric_derivative_mat(
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
         times_area_element, _use_geoderiv_connection))
     def _inv_surf_metric_deriv():
+
         if times_area_element:
             multiplier = area_element(actx, dcoll, dd=dd,
                     _use_geoderiv_connection=_use_geoderiv_connection)

@@ -34,6 +34,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 from meshmode import _acf           # noqa: F401
 
 from meshmode.dof_array import flat_norm
+from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 import meshmode.mesh.generation as mgen
 
 from pytools.obj_array import flat_obj_array
@@ -428,31 +429,66 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
 # {{{ divergence theorem
 
-def test_2d_gauss_theorem(actx_factory):
+@pytest.mark.parametrize("group_cls",
+                         [SimplexElementGroup, TensorProductElementGroup])
+def test_2d_gauss_theorem(actx_factory, group_cls):
     """Verify Gauss's theorem explicitly on a mesh"""
-
-    pytest.importorskip("meshpy")
-
-    from meshpy.geometry import make_circle, GeometryBuilder
-    from meshpy.triangle import MeshInfo, build
-
-    geob = GeometryBuilder()
-    geob.add_geometry(*make_circle(1))
-    mesh_info = MeshInfo()
-    geob.set(mesh_info)
-
-    mesh_info = build(mesh_info)
-
-    from meshmode.mesh.io import from_meshpy
-    from meshmode.mesh import BTAG_ALL
-
-    mesh = from_meshpy(mesh_info, order=1)
 
     actx = actx_factory()
 
-    dcoll = DiscretizationCollection(actx, mesh, order=2)
-    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-    x_volm = actx.thaw(volm_disc.nodes())
+    if group_cls is SimplexElementGroup:
+        pytest.importorskip("meshpy")
+
+        from meshpy.geometry import make_circle, GeometryBuilder
+        from meshpy.triangle import MeshInfo, build
+
+        geob = GeometryBuilder()
+        geob.add_geometry(*make_circle(1))
+        mesh_info = MeshInfo()
+        geob.set(mesh_info)
+
+        mesh_info = build(mesh_info)
+
+        from meshmode.mesh.io import from_meshpy
+        from meshmode.mesh import BTAG_ALL
+
+        mesh = from_meshpy(mesh_info, order=1)
+
+        dcoll = DiscretizationCollection(actx, mesh, order=2)
+        volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        x_volm = actx.thaw(volm_disc.nodes())
+
+    elif group_cls is TensorProductElementGroup:
+        from meshmode.mesh.generation import generate_regular_rect_mesh
+
+        dim = 2
+        mesh = generate_regular_rect_mesh(
+            (-1,)*dim, (1,)*dim, nelements_per_axis=(2,)*dim,
+            group_cls=TensorProductElementGroup)
+
+        alpha = 0.3
+        rot_mat = np.array([
+            [np.cos(alpha), np.sin(alpha)],
+            [-np.sin(alpha), np.cos(alpha)]
+        ])
+
+        from meshmode.mesh.processing import affine_map
+        mesh = affine_map(mesh, A=rot_mat)
+
+        from meshmode.discretization.poly_element import \
+            LegendreGaussLobattoTensorProductGroupFactory as LGL
+        dcoll = DiscretizationCollection(
+            actx, mesh, discr_tag_to_group_factory={
+                dof_desc.DISCR_TAG_BASE: LGL(order=2)
+            }
+        )
+
+        volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        x_volm = actx.thaw(volm_disc.nodes())
+
+    else:
+        raise AssertionError('group_cls must be SimplexElementGroup or '
+                             f'TensorProductElementGroup. Found {group_cls}')
 
     def f(x):
         return flat_obj_array(
@@ -463,6 +499,7 @@ def test_2d_gauss_theorem(actx_factory):
     f_volm = f(x_volm)
     int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
 
+    from grudge.dof_desc import BTAG_ALL
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
     normal = geo.normal(actx, dcoll, BTAG_ALL)
     int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
