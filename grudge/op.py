@@ -212,8 +212,8 @@ def _single_axis_derivative_kernel(
             for ax in apply_mass_axes:
                 vec_mass_applied = single_axis_operator_application(
                     actx, grp.dim, mass_1d, ax, vec,
-                    tags=(FirstAxisIsElementsTag(),
-                          OutputIsTensorProductDOFArrayOrdered(),),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("mass_1d", "vec")
                 )
 
@@ -221,8 +221,8 @@ def _single_axis_derivative_kernel(
                 grp.space,
                 single_axis_operator_application(
                     actx, grp.dim, stiff_1d, xyz_axis, vec_mass_applied,
-                    tags=(FirstAxisIsElementsTag(),
-                          OutputIsTensorProductDOFArrayOrdered(),),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("stiff_1d", "vec_with_mass_applied"))
             )
 
@@ -241,8 +241,8 @@ def _single_axis_derivative_kernel(
                 grp.space,
                 single_axis_operator_application(
                     actx, grp.dim, diff_mat, xyz_axis, vec,
-                    tags=(FirstAxisIsElementsTag(),
-                          OutputIsTensorProductDOFArrayOrdered(),),
+                    tagged=(FirstAxisIsElementsTag(),
+                            OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("diff_mat", "vec"))
             )
 
@@ -327,8 +327,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 for ax in apply_mass_axes:
                     grad[xyz_axis] = single_axis_operator_application(
                         actx, grp.dim, mass_1d, ax, grad[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),
-                              OutputIsTensorProductDOFArrayOrdered(),),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("mass_1d", f"vec_{xyz_axis}")
                 )
 
@@ -337,8 +337,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     grp.space,
                     single_axis_operator_application(
                         actx, grp.dim, stiff_1d, xyz_axis, grad[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),
-                              OutputIsTensorProductDOFArrayOrdered(),),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_1d", f"vec_{xyz_axis}"))
                 )
 
@@ -360,8 +360,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     grp.space,
                     single_axis_operator_application(
                         actx, grp.dim, diff_mat, xyz_axis, grad[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),
-                              OutputIsTensorProductDOFArrayOrdered(),),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("diff_mat", f"vec_{xyz_axis}")
                     )
                 )
@@ -452,15 +452,15 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     for ax in apply_mass_axes:
                         ref[xyz_axis] = single_axis_operator_application(
                             actx, grp.dim, mass_1d, ax, ref[xyz_axis],
-                            tags=(FirstAxisIsElementsTag(),
-                                  OutputIsTensorProductDOFArrayOrdered(),),
+                            tagged=(FirstAxisIsElementsTag(),
+                                    OutputIsTensorProductDOFArrayOrdered(),),
                             arg_names=("mass_1d", f"vec_{func_axis}_{xyz_axis}")
                         )
 
                     ref[xyz_axis] = single_axis_operator_application(
                         actx, grp.dim, stiff_1d, xyz_axis, ref[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),
-                              OutputIsTensorProductDOFArrayOrdered(),),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_1d", f"vec_{func_axis}_{xyz_axis}")
                     )
 
@@ -477,8 +477,8 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 
                     ref[xyz_axis] = single_axis_operator_application(
                         actx, grp.dim, diff_mat, xyz_axis, ref[xyz_axis],
-                        tags=(FirstAxisIsElementsTag(),
-                              OutputIsTensorProductDOFArrayOrdered(),),
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("diff_mat", f"vec_{func_axis}_{xyz_axis}")
                     )
 
@@ -500,6 +500,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         )
 
         return div
+
     # }}}
 
 
@@ -1188,8 +1189,8 @@ def _apply_inverse_mass_operator(
         for xyz_axis in range(grp.dim):
             vec = single_axis_operator_application(
                 actx, grp.dim, ref_inv_mass, xyz_axis, vec,
-                tags=(FirstAxisIsElementsTag(),
-                      OutputIsTensorProductDOFArrayOrdered(),),
+                tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered(),),
                 arg_names=("ref_inv_mass_1d", "vec"))
 
         vec = unfold(grp.space, vec)
@@ -1472,15 +1473,15 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 # {{{ general single axis operator application
 
 def single_axis_operator_application(actx, dim, operator, axis, data,
-                                     arg_names=None, tags=None):
+                                     arg_names=None, tagged=None):
     """
     Used for applying 1D operators to a single axis of a tensor of DOF data.
     """
 
     if not isinstance(arg_names, tuple):
         raise TypeError("arg_names must be a tuple.")
-    if not isinstance(tags, tuple):
-        raise TypeError("tags must be a tuple.")
+    if not isinstance(tagged, tuple):
+        raise TypeError("tagged must be a tuple.")
 
     operator_spec = 'ij'
     data_spec = f'e{"abcdefghklm"[:axis]}j{"nopqrstuvwxyz"[:dim-axis-1]}'
@@ -1493,7 +1494,7 @@ def single_axis_operator_application(actx, dim, operator, axis, data,
         { i: TensorProductDOFAxis() for i in range(1, dim+1) },
         actx.einsum(spec, operator, data,
                        arg_names=arg_names,
-                       tagged=tags)
+                       tagged=tagged)
     )
 
     return result

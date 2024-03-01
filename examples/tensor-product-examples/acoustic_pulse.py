@@ -113,7 +113,8 @@ def run_acoustic_pulse(actx,
                        final_time=1,
                        resolution=16,
                        overintegration=False,
-                       visualize=False):
+                       visualize=False,
+                       rotate_mesh=False):
 
     # eos-related parameters
     gamma = 1.4
@@ -225,8 +226,7 @@ def main(ctx_factory, order=3, final_time=1, resolution=16,
     queue = cl.CommandQueue(cl_ctx)
 
     if lazy:
-        from grudge.array_context import PytatoTensorProductArrayContext
-        actx = PytatoTensorProductArrayContext(
+        actx = PytatoPyOpenCLArrayContext(
             queue,
             allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         )

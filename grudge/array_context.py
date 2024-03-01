@@ -132,6 +132,9 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         # {{{ process tensor product specific metadata
 
+        # NOTE: This differs from the lazy case b/c we don't have access to axis
+        # tags that can be manipulated pre-execution. In eager, we update
+        # strides/loop nest ordering for the output array
         if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
             new_args = []
             for arg in knl.args:
@@ -150,36 +153,6 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
         # }}}
 
         return super().transform_loopy_program(t_unit)
-
-
-    def call_loopy(self, t_unit, **kwargs):
-        # NOTE: modifying strides pertaining to tensor product axes is done here
-        # since that information is not available in the arguments passed to
-        # `transform_loopy_program` in eager evaluation
-
-        default_ep = t_unit.default_entrypoint
-
-        # {{{ process kwargs with TP axis tags
-
-        if default_ep.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
-            new_args = []
-
-            for arg_name in kwargs.keys():
-                kwarg = kwargs[arg_name].axes
-
-                for axis in kwarg.axes:
-                    if axis.tags_of_type(TensorProductDOFAxis):
-                        if arg_name in default_ep.arg_dict.keys():
-                            arg = default_ep.arg_dict[arg_name]
-
-                            dim_tags = (
-
-                            )
-
-
-        # }}}
-
-        return super().call_loopy(t_unit, **kwargs)
 
 # }}}
 
@@ -208,29 +181,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
                  "to reduce device allocations)")
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
-
-    def transform_loopy_program(self, t_unit):
-        knl = t_unit.default_entrypoint
-
-        # {{{ process tensor product specific metadata
-
-        if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
-            new_args = []
-            for arg in knl.args:
-                if arg.is_output:
-                    arg = arg.copy(dim_tags=(
-                        f"N{len(arg.shape)-1},"
-                        + ",".join(f"N{i}"
-                                   for i in range(len(arg.shape)-1))
-                        ))
-
-                new_args.append(arg)
-
-            knl = knl.copy(args=new_args)
-
-        # }}}
-
-        return super().transform_loopy_program(t_unit)
 
 # }}}
 
@@ -669,7 +619,7 @@ def get_reasonable_array_context_class(
 # }}}
 
 
-# {{{ tensor product-specific machinery
+# {{{ tensor product discretization metadata
 
 class OutputIsTensorProductDOFArrayOrdered(Tag):
     """Signify that the strides will not be of order "C" or "F". See
@@ -681,6 +631,7 @@ class OutputIsTensorProductDOFArrayOrdered(Tag):
     particular strides required.
     """
     pass
+
 
 class TensorProductDOFAxis(Tag):
     """
@@ -697,27 +648,12 @@ class MassMatrix1d(Tag):
     """
     pass
 
+
 class InverseMassMatrix1d(Tag):
     """See MassMatrix1d.
     """
 
 # }}}
 
-
-# {{{ Eager TP array context
-class TensorProductArrayContext(_PyOpenCLArrayContextBase):
-    """Specialized array context for use with tensor product elements.
-    """
-# }}}
-
-
-# {{{ Lazy tensor product array context
-class PytatoTensorProductArrayContext(PytatoPyOpenCLArrayContext):
-    def transform_dag(self, dag):
-        return super().transform_dag(dag)
-# }}}
-
-
-# }}}
 
 # vim: foldmethod=marker
