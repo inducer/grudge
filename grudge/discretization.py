@@ -389,15 +389,15 @@ class DiscretizationCollection:
         base_group_factory = self.group_factory_for_discretization_tag(
                 dd.discretization_tag)
 
-        def geo_group_factory(megrp, index):
+        def geo_group_factory(megrp):
             from modepy.shapes import Simplex
             from meshmode.discretization.poly_element import \
                     PolynomialEquidistantSimplexElementGroup
             if megrp.is_affine and issubclass(megrp._modepy_shape_cls, Simplex):
                 return PolynomialEquidistantSimplexElementGroup(
-                        megrp, order=0, index=index)
+                        megrp, order=0)
             else:
-                return base_group_factory(megrp, index)
+                return base_group_factory(megrp)
 
         from meshmode.discretization import Discretization
         geo_deriv_discr = Discretization(
