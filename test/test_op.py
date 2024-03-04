@@ -21,6 +21,8 @@ THE SOFTWARE.
 """
 
 
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory, QuadratureGroupFactory)
 import numpy as np
 
 from meshmode.mesh import BTAG_ALL
@@ -30,7 +32,8 @@ from pytools.obj_array import make_obj_array
 
 from grudge import op, geometry as geo, DiscretizationCollection
 from grudge.discretization import make_discretization_collection
-from grudge.dof_desc import DOFDesc, as_dofdesc
+from grudge.dof_desc import (DISCR_TAG_BASE, DISCR_TAG_QUAD, DTAG_VOLUME_ALL,
+    DOFDesc, as_dofdesc)
 
 import pytest
 
@@ -48,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["strong", "weak"])
+@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [False, True])
@@ -75,7 +78,12 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     a=(-1,)*dim, b=(1,)*dim,
                     nelements_per_axis=(n,)*dim)
 
-        dcoll = make_discretization_collection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(
+                   actx, mesh,
+                   discr_tag_to_group_factory={
+                       DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order),
+                       DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+                   })
 
         def f(x):
             result = 1
@@ -85,7 +93,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             return result
 
         def grad_f(x):
-            result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
+            result = make_obj_array([1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
                     result[i] = result[i] * actx.np.sin(np.pi*x[j])
@@ -98,15 +106,11 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
-        x = actx.thaw(dcoll.nodes())
-
         def vectorize_if_requested(vec):
             if vectorize:
                 return make_obj_array([(i+1)*vec for i in range(dim)])
             else:
                 return vec
-
-        u = vectorize_if_requested(f(x))
 
         def get_flux(u_tpair):
             dd = u_tpair.dd
@@ -122,10 +126,11 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 flux = u_avg * normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = as_dofdesc("all_faces")
+        x = actx.thaw(dcoll.nodes())
+        u = vectorize_if_requested(f(x))
 
-        bdry_dd = as_dofdesc(BTAG_ALL)
-        bdry_x = actx.thaw(dcoll.nodes(bdry_dd))
+        bdry_dd_base = as_dofdesc(BTAG_ALL)
+        bdry_x = actx.thaw(dcoll.nodes(bdry_dd_base))
         bdry_u = vectorize_if_requested(f(bdry_x))
 
         if form == "strong":
@@ -133,15 +138,33 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 op.local_grad(dcoll, u, nested=nested)
                 # No flux terms because u doesn't have inter-el jumps
                 )
-        elif form == "weak":
+        elif form.startswith("weak"):
+            assert form in ["weak", "weak-overint"]
+            if "overint" in form:
+                quad_discr_tag = DISCR_TAG_QUAD
+            else:
+                quad_discr_tag = DISCR_TAG_BASE
+
+            allfaces_dd_base = as_dofdesc("all_faces", quad_discr_tag)
+            vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
+            vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
+            bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
+            allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
+
             grad_u = op.inverse_mass(dcoll,
-                -op.weak_local_grad(dcoll, u, nested=nested)  # pylint: disable=E1130
+                -op.weak_local_grad(dcoll, vol_dd_quad,
+                        op.project(dcoll, vol_dd_base, vol_dd_quad, u),
+                        nested=nested)
                 +  # noqa: W504
                 op.face_mass(dcoll,
-                    dd_allfaces,
-                    sum(get_flux(utpair)
-                        for utpair in op.interior_trace_pairs(dcoll, u))
-                    + get_flux(bv_trace_pair(dcoll, bdry_dd, u, bdry_u))
+                    allfaces_dd_quad,
+                    sum(get_flux(
+                        op.project_tracepair(dcoll, allfaces_dd_quad, utpair))
+                        for utpair in op.interior_trace_pairs(
+                                      dcoll, u, volume_dd=vol_dd_base))
+                    + get_flux(
+                        op.project_tracepair(dcoll, bdry_dd_quad,
+                                   bv_trace_pair(dcoll, bdry_dd_base, u, bdry_u)))
                 )
             )
         else:
