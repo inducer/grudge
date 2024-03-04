@@ -35,6 +35,7 @@ THE SOFTWARE.
 """
 
 from typing import Mapping, Optional, Union, TYPE_CHECKING, Any
+from meshmode.discretization.poly_element import ModalGroupFactory
 
 from pytools import memoize_method, single_valued
 
@@ -107,11 +108,8 @@ def _normalize_discr_tag_to_group_factory(
     assert discr_tag_to_group_factory is not None
 
     # Modal discr should always come from the base discretization
-    if DISCR_TAG_MODAL not in discr_tag_to_group_factory:
-        discr_tag_to_group_factory[DISCR_TAG_MODAL] = \
-            _generate_modal_group_factory(
-                discr_tag_to_group_factory[DISCR_TAG_BASE]
-            )
+    if DISCR_TAG_MODAL not in discr_tag_to_group_factory and order is not None:
+        discr_tag_to_group_factory[DISCR_TAG_MODAL] = ModalGroupFactory(order)
 
     return discr_tag_to_group_factory
 
@@ -777,30 +775,6 @@ class DiscretizationCollection:
         return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}
-
-
-# {{{ modal group factory
-
-def _generate_modal_group_factory(nodal_group_factory):
-    from meshmode.discretization.poly_element import (
-        ModalSimplexGroupFactory,
-        ModalTensorProductGroupFactory
-    )
-    from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
-
-    order = nodal_group_factory.order
-    mesh_group_cls = nodal_group_factory.mesh_group_class
-
-    if mesh_group_cls is SimplexElementGroup:
-        return ModalSimplexGroupFactory(order=order)
-    elif mesh_group_cls is TensorProductElementGroup:
-        return ModalTensorProductGroupFactory(order=order)
-    else:
-        raise ValueError(
-            f"Unknown mesh element group: {mesh_group_cls}"
-        )
-
-# }}}
 
 
 # {{{ make_discretization_collection
