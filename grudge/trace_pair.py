@@ -322,9 +322,10 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
     return local_interior_trace_pair(dcoll, vec)
 
 
-def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
-        comm_tag: Optional[Hashable] = None, tag: Hashable = None,
-        volume_dd: Optional[DOFDesc] = None) -> List[TracePair]:
+def interior_trace_pairs(
+        dcoll: DiscretizationCollection, vec, *,
+        comm_tag: Optional[Hashable] = None, volume_dd: Optional[DOFDesc] = None
+        ) -> List[TracePair]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
@@ -341,15 +342,6 @@ def interior_trace_pairs(dcoll: DiscretizationCollection, vec, *,
         tags to arbitrary, potentially composite objects.
     :returns: a :class:`list` of :class:`TracePair` objects.
     """
-
-    if tag is not None:
-        warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
-                "Specify 'comm_tag' instead.", DeprecationWarning, stacklevel=2)
-        if comm_tag is not None:
-            raise TypeError("may only specify one of 'tag' and 'comm_tag'")
-        else:
-            comm_tag = tag
-    del tag
 
     if volume_dd is None:
         volume_dd = DD_VOLUME_ALL
