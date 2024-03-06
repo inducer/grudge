@@ -43,8 +43,6 @@ from grudge.dof_desc import (
     BoundaryDomainTag,
     ConvertibleToDOFDesc)
 
-from numbers import Number
-
 
 def project(
         dcoll: DiscretizationCollection,
@@ -78,7 +76,7 @@ def project(
 
     # }}}
 
-    if isinstance(vec, Number) or src_dofdesc == tgt_dofdesc:
+    if src_dofdesc == tgt_dofdesc:
         return vec
 
     return dcoll.connection_from_dds(src_dofdesc, tgt_dofdesc)(vec)
