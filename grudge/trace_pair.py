@@ -18,12 +18,15 @@ Boundary trace functions
 .. autofunction:: bdry_trace_pair
 .. autofunction:: bv_trace_pair
 
-Interior and cross-rank trace functions
----------------------------------------
+Interior, cross-rank, and inter-volume traces
+---------------------------------------------
 
 .. autofunction:: interior_trace_pairs
 .. autofunction:: local_interior_trace_pair
+.. autofunction:: inter_volume_trace_pairs
+.. autofunction:: local_inter_volume_trace_pairs
 .. autofunction:: cross_rank_trace_pairs
+.. autofunction:: cross_rank_inter_volume_trace_pairs
 """
 
 __copyright__ = """
@@ -52,17 +55,18 @@ THE SOFTWARE.
 
 
 from warnings import warn
-from typing import List, Hashable, Optional, Type, Any
+from typing import List, Hashable, Optional, Tuple, Type, Any, Sequence, Mapping
 
 from pytools.persistent_dict import KeyBuilder
 
 from arraycontext import (
     ArrayContainer,
+    ArrayContext,
     with_container_arithmetic,
     dataclass_array_container,
-    get_container_context_recursively,
-    flatten, to_numpy,
-    unflatten, from_numpy,
+    get_container_context_recursively_opt,
+    to_numpy,
+    from_numpy,
     ArrayOrContainer
 )
 
@@ -72,7 +76,7 @@ from numbers import Number
 
 from pytools import memoize_on_first_arg
 
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import DiscretizationCollection, PartID
 from grudge.projection import project
 
 from meshmode.mesh import BTAG_PARTITION
@@ -82,7 +86,7 @@ import numpy as np
 import grudge.dof_desc as dof_desc
 from grudge.dof_desc import (
         DOFDesc, DD_VOLUME_ALL, FACE_RESTR_INTERIOR, DISCR_TAG_BASE,
-        VolumeDomainTag,
+        VolumeTag, VolumeDomainTag, BoundaryDomainTag,
         ConvertibleToDOFDesc,
         )
 
@@ -352,6 +356,124 @@ def interior_trace_pairs(
 # }}}
 
 
+# {{{ inter-volume trace pairs
+
+def local_inter_volume_trace_pairs(
+        dcoll: DiscretizationCollection,
+        pairwise_volume_data: Mapping[
+            Tuple[DOFDesc, DOFDesc],
+            Tuple[ArrayOrContainer, ArrayOrContainer]]
+        ) -> Mapping[Tuple[DOFDesc, DOFDesc], TracePair]:
+    for vol_dd_pair in pairwise_volume_data.keys():
+        for vol_dd in vol_dd_pair:
+            if not isinstance(vol_dd.domain_tag, VolumeDomainTag):
+                raise ValueError(
+                    "pairwise_volume_data keys must describe volumes, "
+                    f"got '{vol_dd}'")
+            if vol_dd.discretization_tag != DISCR_TAG_BASE:
+                raise ValueError(
+                    "expected base-discretized DOFDesc in pairwise_volume_data, "
+                    f"got '{vol_dd}'")
+
+    rank = (
+        dcoll.mpi_communicator.Get_rank()
+        if dcoll.mpi_communicator is not None
+        else None)
+
+    result: Mapping[Tuple[DOFDesc, DOFDesc], TracePair] = {}
+
+    for vol_dd_pair, vol_data_pair in pairwise_volume_data.items():
+        from meshmode.mesh import mesh_has_boundary
+        if not mesh_has_boundary(
+                dcoll.discr_from_dd(vol_dd_pair[0]).mesh,
+                BTAG_PARTITION(PartID(vol_dd_pair[1].domain_tag.tag, rank))):
+            continue
+
+        directional_vol_dd_pairs = [
+            (vol_dd_pair[1], vol_dd_pair[0]),
+            (vol_dd_pair[0], vol_dd_pair[1])]
+
+        trace_dd_pair = tuple(
+            self_vol_dd.trace(
+                BTAG_PARTITION(
+                    PartID(other_vol_dd.domain_tag.tag, rank)))
+            for other_vol_dd, self_vol_dd in directional_vol_dd_pairs)
+
+        # Pre-compute the projections out here to avoid doing it twice inside
+        # the loop below
+        trace_data = {
+            trace_dd: project(dcoll, vol_dd, trace_dd, vol_data)
+            for vol_dd, trace_dd, vol_data in zip(
+                vol_dd_pair, trace_dd_pair, vol_data_pair)}
+
+        for other_vol_dd, self_vol_dd in directional_vol_dd_pairs:
+            self_part_id = PartID(self_vol_dd.domain_tag.tag, rank)
+            other_part_id = PartID(other_vol_dd.domain_tag.tag, rank)
+
+            self_trace_dd = self_vol_dd.trace(BTAG_PARTITION(other_part_id))
+            other_trace_dd = other_vol_dd.trace(BTAG_PARTITION(self_part_id))
+
+            self_trace_data = trace_data[self_trace_dd]
+            unswapped_other_trace_data = trace_data[other_trace_dd]
+
+            other_to_self = dcoll._inter_part_connections[
+                other_part_id, self_part_id]
+
+            def get_opposite_trace(ary):
+                if isinstance(ary, Number):
+                    return ary
+                else:
+                    return other_to_self(ary)  # noqa: B023
+
+            from arraycontext import rec_map_array_container
+            from meshmode.dof_array import DOFArray
+            other_trace_data = rec_map_array_container(
+                get_opposite_trace,
+                unswapped_other_trace_data,
+                leaf_class=DOFArray)
+
+            result[other_vol_dd, self_vol_dd] = TracePair(
+                self_trace_dd,
+                interior=self_trace_data,
+                exterior=other_trace_data)
+
+    return result
+
+
+def inter_volume_trace_pairs(dcoll: DiscretizationCollection,
+        pairwise_volume_data: Mapping[
+            Tuple[DOFDesc, DOFDesc],
+            Tuple[ArrayOrContainer, ArrayOrContainer]],
+        comm_tag: Hashable = None) -> Mapping[
+            Tuple[DOFDesc, DOFDesc],
+            List[TracePair]]:
+    """
+    Note that :func:`local_inter_volume_trace_pairs` provides the rank-local
+    contributions if those are needed in isolation. Similarly,
+    :func:`cross_rank_inter_volume_trace_pairs` provides only the trace pairs
+    defined on cross-rank boundaries.
+    """
+    # TODO documentation
+
+    result: Mapping[
+        Tuple[DOFDesc, DOFDesc],
+        List[TracePair]] = {}
+
+    local_tpairs = local_inter_volume_trace_pairs(dcoll, pairwise_volume_data)
+    cross_rank_tpairs = cross_rank_inter_volume_trace_pairs(
+        dcoll, pairwise_volume_data, comm_tag=comm_tag)
+
+    for directional_vol_dd_pair, tpair in local_tpairs.items():
+        result[directional_vol_dd_pair] = [tpair]
+
+    for directional_vol_dd_pair, tpairs in cross_rank_tpairs.items():
+        result.setdefault(directional_vol_dd_pair, []).extend(tpairs)
+
+    return result
+
+# }}}
+
+
 # {{{ distributed: helper functions
 
 class _TagKeyBuilder(KeyBuilder):
@@ -359,16 +481,21 @@ class _TagKeyBuilder(KeyBuilder):
         self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
 
 
+# FIXME: Deprecate connected_ranks instead of removing
 @memoize_on_first_arg
-def connected_ranks(
+def connected_parts(
         dcoll: DiscretizationCollection,
-        volume_dd: Optional[DOFDesc] = None):
-    if volume_dd is None:
-        volume_dd = DD_VOLUME_ALL
+        self_volume_tag: VolumeTag,
+        other_volume_tag: VolumeTag
+        ) -> Sequence[PartID]:
+    result: List[PartID] = [
+        connected_part_id
+        for connected_part_id, part_id in dcoll._inter_part_connections.keys()
+        if (
+            part_id.volume_tag == self_volume_tag
+            and connected_part_id.volume_tag == other_volume_tag)]
 
-    from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(
-        dcoll._volume_discrs[volume_dd.domain_tag.tag].mesh)
+    return result
 
 
 def _sym_tag_to_num_tag(comm_tag: Optional[Hashable]) -> Optional[int]:
@@ -390,6 +517,7 @@ def _sym_tag_to_num_tag(comm_tag: Optional[Hashable]) -> Optional[int]:
 
     num_tag = sum(ord(ch) << i for i, ch in enumerate(digest)) % tag_ub
 
+    # FIXME: This prints the wrong numerical tag because of base_comm_tag below
     warn("Encountered unknown symbolic tag "
             f"'{comm_tag}', assigning a value of '{num_tag}'. "
             "This is a temporary workaround, please ensure that "
@@ -406,29 +534,45 @@ class _RankBoundaryCommunicationEager:
     base_comm_tag = 1273
 
     def __init__(self,
-                 dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainer,
-                 remote_rank, comm_tag: Optional[int] = None,
-                 volume_dd=DD_VOLUME_ALL):
-        actx = get_container_context_recursively(array_container)
-        bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
+            actx: ArrayContext,
+            dcoll: DiscretizationCollection,
+            *,
+            local_part_id: PartID,
+            remote_part_id: PartID,
+            local_bdry_data: ArrayOrContainer,
+            remote_bdry_data_template: ArrayOrContainer,
+            comm_tag: Optional[Hashable] = None):
 
-        local_bdry_data = project(dcoll, volume_dd, bdry_dd, array_container)
         comm = dcoll.mpi_communicator
         assert comm is not None
 
+        remote_rank = remote_part_id.rank
+        assert remote_rank is not None
+
         self.dcoll = dcoll
         self.array_context = actx
-        self.remote_bdry_dd = bdry_dd
-        self.bdry_discr = dcoll.discr_from_dd(bdry_dd)
+        self.local_part_id = local_part_id
+        self.remote_part_id = remote_part_id
+        self.local_bdry_dd = DOFDesc(
+            BoundaryDomainTag(
+                BTAG_PARTITION(remote_part_id),
+                volume_tag=local_part_id.volume_tag),
+            DISCR_TAG_BASE)
+        self.bdry_discr = dcoll.discr_from_dd(self.local_bdry_dd)
         self.local_bdry_data = local_bdry_data
-        self.local_bdry_data_np = \
-            to_numpy(flatten(self.local_bdry_data, actx), actx)
+        self.remote_bdry_data_template = remote_bdry_data_template
 
-        self.comm_tag = self.base_comm_tag
-        comm_tag = _sym_tag_to_num_tag(comm_tag)
-        if comm_tag is not None:
-            self.comm_tag += comm_tag
+        def _generate_num_comm_tag(sym_comm_tag):
+            result = self.base_comm_tag
+            num_comm_tag = _sym_tag_to_num_tag(sym_comm_tag)
+            if num_comm_tag is not None:
+                result += num_comm_tag
+            return result
+
+        send_sym_comm_tag = (remote_part_id.volume_tag, comm_tag)
+        recv_sym_comm_tag = (local_part_id.volume_tag, comm_tag)
+        self.send_comm_tag = _generate_num_comm_tag(send_sym_comm_tag)
+        self.recv_comm_tag = _generate_num_comm_tag(recv_sym_comm_tag)
         del comm_tag
 
         # Here, we initialize both send and receive operations through
@@ -450,36 +594,76 @@ class _RankBoundaryCommunicationEager:
         # requests is complete, however it is not clear that this is documented
         # behavior. We hold on to the buffer (via the instance attribute)
         # as well, just in case.
-        self.send_req = comm.Isend(self.local_bdry_data_np,
-                                   remote_rank,
-                                   tag=self.comm_tag)
-        self.remote_data_host_numpy = np.empty_like(self.local_bdry_data_np)
-        self.recv_req = comm.Irecv(self.remote_data_host_numpy,
-                                   remote_rank,
-                                   tag=self.comm_tag)
+        self.send_reqs = []
+        self.send_data = []
+
+        def send_single_array(key, local_subary):
+            if not isinstance(local_subary, Number):
+                local_subary_np = to_numpy(local_subary, actx)
+                self.send_reqs.append(
+                    comm.Isend(local_subary_np, remote_rank, tag=self.send_comm_tag))
+                self.send_data.append(local_subary_np)
+            return local_subary
+
+        self.recv_reqs = []
+        self.recv_data = {}
+
+        def recv_single_array(key, remote_subary_template):
+            if not isinstance(remote_subary_template, Number):
+                remote_subary_np = np.empty(
+                    remote_subary_template.shape,
+                    remote_subary_template.dtype)
+                self.recv_reqs.append(
+                    comm.Irecv(remote_subary_np, remote_rank,
+                        tag=self.recv_comm_tag))
+                self.recv_data[key] = remote_subary_np
+            return remote_subary_template
+
+        from arraycontext.container.traversal import rec_keyed_map_array_container
+        rec_keyed_map_array_container(send_single_array, local_bdry_data)
+        rec_keyed_map_array_container(recv_single_array, remote_bdry_data_template)
 
     def finish(self):
-        # Wait for the nonblocking receive request to complete before
+        from mpi4py import MPI
+
+        # Wait for the nonblocking receive requests to complete before
         # accessing the data
-        self.recv_req.Wait()
+        MPI.Request.waitall(self.recv_reqs)
 
-        # Nonblocking receive is complete, we can now access the data and apply
-        # the boundary-swap connection
-        actx = self.array_context
-        remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
-        remote_bdry_data = unflatten(self.local_bdry_data,
-                                     remote_bdry_data_flat, actx)
-        bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            self.remote_bdry_dd)
-        swapped_remote_bdry_data = bdry_conn(remote_bdry_data)
+        def finish_single_array(key, remote_subary_template):
+            if isinstance(remote_subary_template, Number):
+                # NOTE: Assumes that the same number is passed on every rank
+                return remote_subary_template
+            else:
+                return from_numpy(self.recv_data[key], self.array_context)
 
-        # Complete the nonblocking send request associated with communicating
-        # `self.local_bdry_data_np`
-        self.send_req.Wait()
+        from arraycontext.container.traversal import rec_keyed_map_array_container
+        unswapped_remote_bdry_data = rec_keyed_map_array_container(
+            finish_single_array, self.remote_bdry_data_template)
 
-        return TracePair(self.remote_bdry_dd,
-                         interior=self.local_bdry_data,
-                         exterior=swapped_remote_bdry_data)
+        remote_to_local = self.dcoll._inter_part_connections[
+            self.remote_part_id, self.local_part_id]
+
+        def get_opposite_trace(ary):
+            if isinstance(ary, Number):
+                return ary
+            else:
+                return remote_to_local(ary)
+
+        from arraycontext import rec_map_array_container
+        from meshmode.dof_array import DOFArray
+        remote_bdry_data = rec_map_array_container(
+            get_opposite_trace,
+            unswapped_remote_bdry_data,
+            leaf_class=DOFArray)
+
+        # Complete the nonblocking send requests
+        MPI.Request.waitall(self.send_reqs)
+
+        return TracePair(
+                self.local_bdry_dd,
+                interior=self.local_bdry_data,
+                exterior=remote_bdry_data)
 
 # }}}
 
@@ -488,50 +672,111 @@ class _RankBoundaryCommunicationEager:
 
 class _RankBoundaryCommunicationLazy:
     def __init__(self,
-                 dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainer,
-                 remote_rank: int, comm_tag: Hashable,
-                 volume_dd=DD_VOLUME_ALL):
+            actx: ArrayContext,
+            dcoll: DiscretizationCollection,
+            *,
+            local_part_id: PartID,
+            remote_part_id: PartID,
+            local_bdry_data: ArrayOrContainer,
+            remote_bdry_data_template: ArrayOrContainer,
+            comm_tag: Optional[Hashable] = None) -> None:
+
         if comm_tag is None:
             raise ValueError("lazy communication requires 'comm_tag' to be supplied")
 
-        bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
+        remote_rank = remote_part_id.rank
+        assert remote_rank is not None
 
         self.dcoll = dcoll
-        self.array_context = get_container_context_recursively(array_container)
-        self.remote_bdry_dd = bdry_dd
-        self.bdry_discr = dcoll.discr_from_dd(self.remote_bdry_dd)
+        self.array_context = actx
+        self.local_bdry_dd = DOFDesc(
+            BoundaryDomainTag(
+                BTAG_PARTITION(remote_part_id),
+                volume_tag=local_part_id.volume_tag),
+            DISCR_TAG_BASE)
+        self.bdry_discr = dcoll.discr_from_dd(self.local_bdry_dd)
+        self.local_part_id = local_part_id
+        self.remote_part_id = remote_part_id
 
-        self.local_bdry_data = project(
-            dcoll, volume_dd, bdry_dd, array_container)
+        from pytato import (
+            make_distributed_recv,
+            make_distributed_send,
+            make_distributed_send_ref_holder)
 
-        from pytato import make_distributed_recv, staple_distributed_send
+        # TODO: This currently assumes that local_bdry_data and
+        # remote_bdry_data_template have the same structure. This is not true
+        # in general. Find a way to staple the sends appropriately when the number
+        # of recvs is not equal to the number of sends
+        # FIXME: Overly restrictive (just needs to be the same structure)
+        assert type(local_bdry_data) == type(remote_bdry_data_template)
 
-        def communicate_single_array(key, local_bdry_ary):
-            ary_tag = (comm_tag, key)
-            return staple_distributed_send(
-                    local_bdry_ary, dest_rank=remote_rank, comm_tag=ary_tag,
-                    stapled_to=make_distributed_recv(
+        sends = {}
+
+        def send_single_array(key, local_subary):
+            if isinstance(local_subary, Number):
+                return
+            else:
+                ary_tag = (remote_part_id.volume_tag, comm_tag, key)
+                sends[key] = make_distributed_send(
+                    local_subary, dest_rank=remote_rank, comm_tag=ary_tag)
+
+        def recv_single_array(key, remote_subary_template):
+            if isinstance(remote_subary_template, Number):
+                # NOTE: Assumes that the same number is passed on every rank
+                return remote_subary_template
+            else:
+                ary_tag = (local_part_id.volume_tag, comm_tag, key)
+                return make_distributed_send_ref_holder(
+                    sends[key],
+                    make_distributed_recv(
                         src_rank=remote_rank, comm_tag=ary_tag,
-                        shape=local_bdry_ary.shape, dtype=local_bdry_ary.dtype,
-                        axes=local_bdry_ary.axes))
+                        shape=remote_subary_template.shape,
+                        dtype=remote_subary_template.dtype,
+                        axes=remote_subary_template.axes))
 
         from arraycontext.container.traversal import rec_keyed_map_array_container
-        self.remote_data = rec_keyed_map_array_container(
-                communicate_single_array, self.local_bdry_data)
+
+        rec_keyed_map_array_container(send_single_array, local_bdry_data)
+        self.local_bdry_data = local_bdry_data
+
+        self.unswapped_remote_bdry_data = rec_keyed_map_array_container(
+            recv_single_array, remote_bdry_data_template)
 
     def finish(self):
-        bdry_conn = self.dcoll.distributed_boundary_swap_connection(
-            self.remote_bdry_dd)
+        remote_to_local = self.dcoll._inter_part_connections[
+            self.remote_part_id, self.local_part_id]
 
-        return TracePair(self.remote_bdry_dd,
-                         interior=self.local_bdry_data,
-                         exterior=bdry_conn(self.remote_data))
+        def get_opposite_trace(ary):
+            if isinstance(ary, Number):
+                return ary
+            else:
+                return remote_to_local(ary)
+
+        from arraycontext import rec_map_array_container
+        from meshmode.dof_array import DOFArray
+        remote_bdry_data = rec_map_array_container(
+            get_opposite_trace,
+            self.unswapped_remote_bdry_data,
+            leaf_class=DOFArray)
+
+        return TracePair(
+                self.local_bdry_dd,
+                interior=self.local_bdry_data,
+                exterior=remote_bdry_data)
 
 # }}}
 
 
 # {{{ cross_rank_trace_pairs
+
+def _replace_dof_arrays(array_container, dof_array):
+    from arraycontext import rec_map_array_container
+    from meshmode.dof_array import DOFArray
+    return rec_map_array_container(
+        lambda x: dof_array if isinstance(x, DOFArray) else x,
+        array_container,
+        leaf_class=DOFArray)
+
 
 def cross_rank_trace_pairs(
         dcoll: DiscretizationCollection, ary: ArrayOrContainer,
@@ -541,9 +786,9 @@ def cross_rank_trace_pairs(
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
-    communicated to/from the neighboring partition. Presumably, this
-    communication is MPI (but strictly speaking, may not be, and this
-    routine is agnostic to the underlying communication).
+    communicated to/from the neighboring part. Presumably, this communication
+    is MPI (but strictly speaking, may not be, and this routine is agnostic to
+    the underlying communication).
 
     For each face on each partition boundary, a
     :class:`TracePair` is created with the locally, and
@@ -588,14 +833,36 @@ def cross_rank_trace_pairs(
 
     # }}}
 
-    if isinstance(ary, Number):
-        # NOTE: Assumed that the same number is passed on every rank
-        return [TracePair(
-                volume_dd.trace(BTAG_PARTITION(remote_rank)),
-                interior=ary, exterior=ary)
-            for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)]
+    if dcoll.mpi_communicator is None:
+        return []
 
-    actx = get_container_context_recursively(ary)
+    rank = dcoll.mpi_communicator.Get_rank()
+
+    local_part_id = PartID(volume_dd.domain_tag.tag, rank)
+
+    connected_part_ids = connected_parts(
+            dcoll, self_volume_tag=volume_dd.domain_tag.tag,
+            other_volume_tag=volume_dd.domain_tag.tag)
+
+    remote_part_ids = [
+        part_id
+        for part_id in connected_part_ids
+        if part_id.rank != rank]
+
+    # This asserts that there is only one data exchange per rank, so that
+    # there is no risk of mismatched data reaching the wrong recipient.
+    # (Since we have only a single tag.)
+    assert len(remote_part_ids) == len({part_id.rank for part_id in remote_part_ids})
+
+    actx = get_container_context_recursively_opt(ary)
+
+    if actx is None:
+        # NOTE: Assumes that the same number is passed on every rank
+        return [
+            TracePair(
+                volume_dd.trace(BTAG_PARTITION(remote_part_id)),
+                interior=ary, exterior=ary)
+            for remote_part_id in remote_part_ids]
 
     from grudge.array_context import MPIPytatoArrayContextBase
 
@@ -604,14 +871,170 @@ def cross_rank_trace_pairs(
     else:
         rbc_class = _RankBoundaryCommunicationEager
 
-    # Initialize and post all sends/receives
-    rank_bdry_communicators = [
-        rbc_class(dcoll, ary, remote_rank, comm_tag=comm_tag, volume_dd=volume_dd)
-        for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)
-    ]
+    rank_bdry_communicators = []
 
-    # Complete send/receives and return communicated data
-    return [rc.finish() for rc in rank_bdry_communicators]
+    for remote_part_id in remote_part_ids:
+        bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_part_id))
+
+        local_bdry_data = project(dcoll, volume_dd, bdry_dd, ary)
+
+        from arraycontext import tag_axes
+        from meshmode.transform_metadata import (
+            DiscretizationElementAxisTag,
+            DiscretizationDOFAxisTag)
+        remote_bdry_zeros = tag_axes(
+            actx, {
+                0: DiscretizationElementAxisTag(),
+                1: DiscretizationDOFAxisTag()},
+            dcoll._inter_part_connections[
+                remote_part_id, local_part_id].from_discr.zeros(actx))
+
+        remote_bdry_data_template = _replace_dof_arrays(
+            local_bdry_data, remote_bdry_zeros)
+
+        rank_bdry_communicators.append(
+            rbc_class(actx, dcoll,
+                local_part_id=local_part_id,
+                remote_part_id=remote_part_id,
+                local_bdry_data=local_bdry_data,
+                remote_bdry_data_template=remote_bdry_data_template,
+                comm_tag=comm_tag))
+
+    return [rbc.finish() for rbc in rank_bdry_communicators]
+
+# }}}
+
+
+# {{{ cross_rank_inter_volume_trace_pairs
+
+def cross_rank_inter_volume_trace_pairs(
+        dcoll: DiscretizationCollection,
+        pairwise_volume_data: Mapping[
+            Tuple[DOFDesc, DOFDesc],
+            Tuple[ArrayOrContainer, ArrayOrContainer]],
+        *, comm_tag: Hashable = None,
+        ) -> Mapping[
+            Tuple[DOFDesc, DOFDesc],
+            List[TracePair]]:
+    # FIXME: Should this interface take in boundary data instead?
+    # TODO: Docs
+    r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
+
+    :arg comm_tag: a hashable object used to match sent and received data
+        across ranks. Communication will only match if both endpoints specify
+        objects that compare equal. A generalization of MPI communication
+        tags to arbitary, potentially composite objects.
+
+    :returns: a :class:`list` of :class:`TracePair` objects.
+    """
+    # {{{ process arguments
+
+    for vol_dd_pair, vol_data_pair in pairwise_volume_data.items():
+        for vol_dd in vol_dd_pair:
+            if not isinstance(vol_dd.domain_tag, VolumeDomainTag):
+                raise ValueError(
+                    "pairwise_volume_data keys must describe volumes, "
+                    f"got '{vol_dd}'")
+            if vol_dd.discretization_tag != DISCR_TAG_BASE:
+                raise ValueError(
+                    "expected base-discretized DOFDesc in pairwise_volume_data, "
+                    f"got '{vol_dd}'")
+        # FIXME: This check could probably be made more robust
+        if type(vol_data_pair[0]) != type(vol_data_pair[1]):  # noqa: E721
+            raise ValueError("heterogeneous inter-volume data not supported.")
+
+    # }}}
+
+    if dcoll.mpi_communicator is None:
+        return {}
+
+    rank = dcoll.mpi_communicator.Get_rank()
+
+    for vol_data_pair in pairwise_volume_data.values():
+        for vol_data in vol_data_pair:
+            actx = get_container_context_recursively_opt(vol_data)
+            if actx is not None:
+                break
+        if actx is not None:
+            break
+
+    def get_remote_connected_parts(local_vol_dd, remote_vol_dd):
+        connected_part_ids = connected_parts(
+            dcoll, self_volume_tag=local_vol_dd.domain_tag.tag,
+            other_volume_tag=remote_vol_dd.domain_tag.tag)
+        return [
+            part_id
+            for part_id in connected_part_ids
+            if part_id.rank != rank]
+
+    if actx is None:
+        # NOTE: Assumes that the same number is passed on every rank for a
+        # given volume
+        return {
+            (remote_vol_dd, local_vol_dd): [
+                TracePair(
+                    local_vol_dd.trace(BTAG_PARTITION(remote_part_id)),
+                    interior=local_vol_ary, exterior=remote_vol_ary)
+                for remote_part_id in get_remote_connected_parts(
+                    local_vol_dd, remote_vol_dd)]
+            for (remote_vol_dd, local_vol_dd), (remote_vol_ary, local_vol_ary)
+            in pairwise_volume_data.items()}
+
+    from grudge.array_context import MPIPytatoArrayContextBase
+
+    if isinstance(actx, MPIPytatoArrayContextBase):
+        rbc_class = _RankBoundaryCommunicationLazy
+    else:
+        rbc_class = _RankBoundaryCommunicationEager
+
+    rank_bdry_communicators = {}
+
+    for vol_dd_pair, vol_data_pair in pairwise_volume_data.items():
+        directional_volume_data = {
+            (vol_dd_pair[0], vol_dd_pair[1]): (vol_data_pair[0], vol_data_pair[1]),
+            (vol_dd_pair[1], vol_dd_pair[0]): (vol_data_pair[1], vol_data_pair[0])}
+
+        for dd_pair, data_pair in directional_volume_data.items():
+            other_vol_dd, self_vol_dd = dd_pair
+            other_vol_data, self_vol_data = data_pair
+
+            self_part_id = PartID(self_vol_dd.domain_tag.tag, rank)
+            other_part_ids = get_remote_connected_parts(self_vol_dd, other_vol_dd)
+
+            rbcs = []
+
+            for other_part_id in other_part_ids:
+                self_bdry_dd = self_vol_dd.trace(BTAG_PARTITION(other_part_id))
+                self_bdry_data = project(
+                    dcoll, self_vol_dd, self_bdry_dd, self_vol_data)
+
+                from arraycontext import tag_axes
+                from meshmode.transform_metadata import (
+                    DiscretizationElementAxisTag,
+                    DiscretizationDOFAxisTag)
+                other_bdry_zeros = tag_axes(
+                    actx, {
+                        0: DiscretizationElementAxisTag(),
+                        1: DiscretizationDOFAxisTag()},
+                    dcoll._inter_part_connections[
+                        other_part_id, self_part_id].from_discr.zeros(actx))
+
+                other_bdry_data_template = _replace_dof_arrays(
+                    other_vol_data, other_bdry_zeros)
+
+                rbcs.append(
+                    rbc_class(actx, dcoll,
+                        local_part_id=self_part_id,
+                        remote_part_id=other_part_id,
+                        local_bdry_data=self_bdry_data,
+                        remote_bdry_data_template=other_bdry_data_template,
+                        comm_tag=comm_tag))
+
+            rank_bdry_communicators[other_vol_dd, self_vol_dd] = rbcs
+
+    return {
+        directional_vol_dd_pair: [rbc.finish() for rbc in rbcs]
+        for directional_vol_dd_pair, rbcs in rank_bdry_communicators.items()}
 
 # }}}
 
