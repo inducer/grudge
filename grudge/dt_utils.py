@@ -229,19 +229,34 @@ def h_min_from_volume(
 def dt_geometric_factors(
         dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following
-    [Hesthaven_2008]_, section 6.4, defined as the inradius (radius of an
-    inscribed circle/sphere).
+    [Hesthaven_2008]_, section 6.4, For simplicial elemenents, this factor is
+    defined as the inradius (radius of an inscribed circle/sphere). For
+    non-simplicial elements, a mean length measure is returned.
 
-    Specifically, the inradius for each element is computed using the following
-    formula from [Shewchuk_2002]_, Table 1, for simplicial cells
-    (triangles/tetrahedra):
+    Specifically, the inradius for each simplicial element is computed using the
+    following formula from [Shewchuk_2002]_, Table 1 (triangles, tetrahedra):
 
     .. math::
 
-        r_D = \frac{d V}{\sum_{i=1}^{N_{faces}} F_i},
+        r_D = \frac{d~V}{\sum_{i=1}^{N_{faces}} F_i},
 
     where :math:`d` is the topological dimension, :math:`V` is the cell volume,
     and :math:`F_i` are the areas of each face of the cell.
+
+    For non-simplicial elements, we use the following formula for a mean
+    cell size measure:
+
+    .. math::
+
+        r_D = \frac{2~d~V}{\sum_{i=1}^{N_{faces}} F_i},
+
+    where :math:`d` is the topological dimension, :math:`V` is the cell volume,
+    and :math:`F_i` are the areas of each face of the cell. Other valid choices
+    here include the shortest, longest, average of the cell diagonals, or edges.
+    The value returned by this routine (i.e. the cell volume divided by the
+    average cell face area) is bounded by the extrema of the cell edge lengths,
+    is straightforward to calculate regardless of element shape, and jibes well
+    with the foregoing calculation for simplicial elements.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
@@ -256,11 +271,10 @@ def dt_geometric_factors(
     actx = dcoll._setup_actx
     volm_discr = dcoll.discr_from_dd(dd)
 
+    r_fac = dcoll.dim
     if any(not isinstance(grp, SimplexElementGroupBase)
            for grp in volm_discr.groups):
-        raise NotImplementedError(
-            "Geometric factors are only implemented for simplex element groups"
-        )
+        r_fac = 2.0*r_fac
 
     if volm_discr.dim != volm_discr.ambient_dim:
         from warnings import warn
@@ -342,7 +356,7 @@ def dt_geometric_factors(
                             "e,ei->ei",
                             1/sae_i,
                             actx.tag_axis(1, DiscretizationDOFAxisTag(), cv_i),
-                            tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
+                            tagged=(FirstAxisIsElementsTag(),)) * r_fac
                         for cv_i, sae_i in zip(cell_vols, surface_areas)))))
 
 # }}}

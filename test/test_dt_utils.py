@@ -47,31 +47,52 @@ from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_geometric_factors_regular_refinement(actx_factory, name):
+@pytest.mark.parametrize("tpe", [False, True])
+def test_geometric_factors_regular_refinement(actx_factory, name, tpe):
     from grudge.dt_utils import dt_geometric_factors
+    import pyopencl as cl
+    from grudge.array_context import TensorProductArrayContext
 
-    actx = actx_factory()
+    if tpe:
+        ctx = cl.create_some_context()
+        queue = cl.CommandQueue(ctx)
+        actx = TensorProductArrayContext(queue)
+    else:
+        actx = actx_factory()
 
     # {{{ cases
 
+    from meshmode.mesh import TensorProductElementGroup
+    group_cls = TensorProductElementGroup if tpe else None
+
     if name == "interval":
         from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=1)
+        builder = BoxMeshBuilder(ambient_dim=1, group_cls=group_cls)
     elif name == "box2d":
         from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = BoxMeshBuilder(ambient_dim=2, group_cls=group_cls)
     elif name == "box3d":
         from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = BoxMeshBuilder(ambient_dim=3, group_cls=group_cls)
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
     # }}}
 
+    from meshmode.discretization.poly_element import \
+        LegendreGaussLobattoTensorProductGroupFactory as Lgl
+
+    from grudge.dof_desc import DISCR_TAG_BASE
+    dtag_to_grp_fac = {
+        DISCR_TAG_BASE: Lgl(builder.order)
+    } if tpe else None
+    order = None if tpe else builder.order
+
     min_factors = []
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        dcoll = DiscretizationCollection(actx, mesh, order=order,
+                                         discr_tag_to_group_factory=dtag_to_grp_fac)
         min_factors.append(
             actx.to_numpy(
                 op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
@@ -85,7 +106,8 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
 
     # Make sure it works with empty meshes
     mesh = builder.get_mesh(0, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    dcoll = DiscretizationCollection(actx, mesh, order=order,
+                                     discr_tag_to_group_factory=dtag_to_grp_fac)
     factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
@@ -151,8 +173,23 @@ def test_build_jacobian(actx_factory):
 
 @pytest.mark.parametrize("dim", [1, 2])
 @pytest.mark.parametrize("degree", [2, 4])
-def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
-    actx = actx_factory()
+@pytest.mark.parametrize("tpe", [False, True])
+def test_wave_dt_estimate(actx_factory, dim, degree, tpe, visualize=False):
+
+    import pyopencl as cl
+    from grudge.array_context import TensorProductArrayContext
+
+    if tpe:
+        ctx = cl.create_some_context()
+        queue = cl.CommandQueue(ctx)
+        actx = TensorProductArrayContext(queue)
+    else:
+        actx = actx_factory()
+
+    # {{{ cases
+
+    from meshmode.mesh import TensorProductElementGroup
+    group_cls = TensorProductElementGroup if tpe else None
 
     import meshmode.mesh.generation as mgen
 
@@ -160,10 +197,24 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
     b = [1, 1, 1]
     mesh = mgen.generate_regular_rect_mesh(
             a=a[:dim], b=b[:dim],
-            nelements_per_axis=(3,)*dim)
+            nelements_per_axis=(3,)*dim,
+            group_cls=group_cls)
+
     assert mesh.dim == dim
 
-    dcoll = DiscretizationCollection(actx, mesh, order=degree)
+    from meshmode.discretization.poly_element import \
+        LegendreGaussLobattoTensorProductGroupFactory as Lgl
+
+    from grudge.dof_desc import DISCR_TAG_BASE
+    order = degree
+    dtag_to_grp_fac = None
+    if tpe:
+        order = None
+        dtag_to_grp_fac = {
+            DISCR_TAG_BASE: Lgl(degree)
+        }
+    dcoll = DiscretizationCollection(actx, mesh, order=order,
+                                     discr_tag_to_group_factory=dtag_to_grp_fac)
 
     from grudge.models.wave import WeakWaveOperator
     wave_op = WeakWaveOperator(dcoll, c=1)

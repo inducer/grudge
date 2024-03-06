@@ -86,6 +86,7 @@ class SpheroidMeshBuilder(MeshBuilder):
 
 class BoxMeshBuilder(MeshBuilder):
     ambient_dim = 2
+    group_cls = None
 
     mesh_order = 1
     resolutions = [4, 8, 16]
@@ -100,6 +101,7 @@ class BoxMeshBuilder(MeshBuilder):
         return mgen.generate_regular_rect_mesh(
                 a=self.a, b=self.b,
                 nelements_per_axis=resolution,
+                group_cls=self.group_cls,
                 order=mesh_order)
 
 
