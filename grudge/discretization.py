@@ -1,5 +1,4 @@
 """
-
 .. autoclass:: DiscretizationTag
 
 .. currentmodule:: grudge
@@ -311,7 +310,7 @@ class DiscretizationCollection:
 
         vtag = dd.domain_tag.volume_tag
 
-        return self._dist_boundary_connections[vtag][dd.domain_tag.tag.part_nr]
+        return self._dist_boundary_connections[vtag][dd.domain_tag.tag.part_id]
 
     # }}}
 
