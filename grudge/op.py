@@ -74,14 +74,16 @@ from arraycontext import (ArrayContext, map_array_container, tag_axes,
 
 from functools import partial
 
-from meshmode.dof_array import DOFArray, warn
+from meshmode.dof_array import DOFArray
 from meshmode.discretization.poly_element import (
     TensorProductElementGroupBase as TensorProductElementGroup,
     SimplexElementGroupBase as SimplexElementGroup)
-from meshmode.transform_metadata import (DiscretizationAmbientDimAxisTag, FirstAxisIsElementsTag,
-                                         DiscretizationDOFAxisTag,
-                                         DiscretizationElementAxisTag,
-                                         DiscretizationFaceAxisTag)
+from meshmode.transform_metadata import (
+    DiscretizationAmbientDimAxisTag,
+    FirstAxisIsElementsTag,
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+    DiscretizationFaceAxisTag)
 
 from modepy.tools import (
         reshape_array_for_tensor_product_space as fold,
@@ -92,6 +94,7 @@ from grudge.dof_desc import as_dofdesc
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
     TensorProductDOFAxisTag,
+    TensorProductOperatorAxisTag,
     MassMatrix1DTag,
     InverseMassMatrix1DTag
 )
@@ -1472,12 +1475,17 @@ def single_axis_operator_application(actx, dim, operator, axis, vec,
     if not isinstance(tagged, tuple) and tagged is not None:
         raise TypeError("tagged must be a tuple.")
 
-
     vec = actx.tag_axis(0, DiscretizationElementAxisTag(), vec)
     vec = tag_axes(
         actx,
         { i: TensorProductDOFAxisTag(i-1) for i in range(1, dim+1) },
         vec
+    )
+
+    operator = tag_axes(
+        actx,
+        { i: TensorProductOperatorAxisTag() for i in range(2) },
+        operator
     )
 
     # 3D grad example spec using formula below:

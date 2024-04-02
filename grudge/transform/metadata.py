@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools.tag import Tag, tag_dataclass
+from pytools.tag import Tag, DoNotPropagateTag, tag_dataclass
 from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 
@@ -44,6 +44,11 @@ class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
     discretization.
     """
     iaxis: int
+
+
+@tag_dataclass
+class TensorProductOperatorAxisTag(DoNotPropagateTag):
+    pass
 
 
 class MassMatrix1DTag(Tag):
