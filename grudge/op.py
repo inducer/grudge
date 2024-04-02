@@ -1475,6 +1475,8 @@ def single_axis_operator_application(actx, dim, operator, axis, vec,
     if not isinstance(tagged, tuple) and tagged is not None:
         raise TypeError("tagged must be a tuple.")
 
+    # {{{ ensure axes are properly tagged
+
     vec = actx.tag_axis(0, DiscretizationElementAxisTag(), vec)
     vec = tag_axes(
         actx,
@@ -1488,6 +1490,10 @@ def single_axis_operator_application(actx, dim, operator, axis, vec,
         operator
     )
 
+    # }}}
+
+    # {{{ einsum spec construction
+
     # 3D grad example spec using formula below:
     #   assume operator is a differentiation operator
     #   x-axis (axis = 0) contraction: ij,ejop->eiop
@@ -1498,6 +1504,8 @@ def single_axis_operator_application(actx, dim, operator, axis, vec,
     out_spec = f'e{"abcdefghklmn"[:axis]}i{"opqrstuvwxyz"[:dim-axis-1]}'
 
     spec = operator_spec + ',' + data_spec + '->' + out_spec
+
+    # }}}
 
     return tag_axes(
         actx,
