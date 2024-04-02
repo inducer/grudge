@@ -36,6 +36,10 @@ from typing import (
         FrozenSet)
 from dataclasses import dataclass
 from pytools.tag import Tag
+
+from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
+
+from meshmode.transform_metadata import DiscretizationDOFAxisTag
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
         PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
@@ -615,43 +619,6 @@ def get_reasonable_array_context_class(
                 # eager is always device-parallel:
                 (_HAVE_SINGLE_GRID_WORK_BALANCING or _HAVE_FUSION_ACTX or not lazy))
     return actx_class
-
-# }}}
-
-
-# {{{ tensor product discretization metadata
-
-class OutputIsTensorProductDOFArrayOrdered(Tag):
-    """Signify that the strides will not be of order "C" or "F". See
-    :class:`grudge.array_context.TensorProductArrayContext` for more details.
-
-    The strides for the arrays containing tensor product element data are of the
-    form (slow, fastest, faster, fast). These strides are not "C" or "F" order.
-    Hence, this specialized array context takes care of specifying the
-    particular strides required.
-    """
-    pass
-
-
-class TensorProductDOFAxis(Tag):
-    """
-    Tag an axis as being an axis containing the DOFs of a tensor-product
-    discretization. Used to signify that the strides associated with the array
-    containing this axis will be neither column nor row major.
-    """
-    pass
-
-
-class MassMatrix1d(Tag):
-    """Used in DAG transformation to realize algebraic simplification of 1D
-    inverse mass operator times mass operator.
-    """
-    pass
-
-
-class InverseMassMatrix1d(Tag):
-    """See MassMatrix1d.
-    """
 
 # }}}
 
