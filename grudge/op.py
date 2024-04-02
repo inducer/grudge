@@ -1481,6 +1481,7 @@ def single_axis_operator_application(actx, dim, operator, axis, vec,
     )
 
     # 3D grad example spec using formula below:
+    #   assume operator is a differentiation operator
     #   x-axis (axis = 0) contraction: ij,ejop->eiop
     #   y-axis (axis = 1) contraction: ij,eajp->eaip
     #   z-axis (axis = 2) contraction: ij,eabj->eabi
