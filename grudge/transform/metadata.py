@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools.tag import Tag, DoNotPropagateTag, tag_dataclass
+from pytools.tag import IgnoredForEqualityTag, Tag, tag_dataclass
 from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 
@@ -41,13 +41,19 @@ class OutputIsTensorProductDOFArrayOrdered(Tag):
 class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
     """
     Tag an axis as being an axis containing the DOFs of a tensor-product
-    discretization.
+    discretization. Used to signify the relative update speed of an axis for
+    transformation (i.e. loop nest ordering) purposes.
     """
     iaxis: int
 
 
 @tag_dataclass
-class TensorProductOperatorAxisTag(DoNotPropagateTag):
+class TensorProductOperatorAxisTag(IgnoredForEqualityTag):
+    """
+    Signify that an axis is an operator of a tensor-product discretization.
+    Since these operators are reused, it is important to not propagate axis tags
+    along their axes.
+    """
     pass
 
 
