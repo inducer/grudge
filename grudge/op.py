@@ -95,8 +95,8 @@ from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
     TensorProductDOFAxisTag,
     TensorProductOperatorAxisTag,
-    MassMatrix1DTag,
-    InverseMassMatrix1DTag
+    ReferenceTensorProductMassOperatorTag as MassMatrix1DTag,
+    ReferenceTensorProductInverseMassOperatorTag as InverseMassMatrix1DTag
 )
 
 from pytools import keyed_memoize_in

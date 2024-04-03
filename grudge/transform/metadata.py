@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools.tag import IgnoredForEqualityTag, Tag, tag_dataclass
+from pytools.tag import IgnoredForPropagationTag, Tag, tag_dataclass
 from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 
@@ -47,25 +47,25 @@ class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
     iaxis: int
 
 
-@tag_dataclass
-class TensorProductOperatorAxisTag(IgnoredForEqualityTag):
+class TensorProductOperatorAxisTag(IgnoredForPropagationTag):
     """
-    Signify that an axis is an operator of a tensor-product discretization.
-    Since these operators are reused, it is important to not propagate axis tags
-    along their axes.
+    Signify that an axis belongs to a 1D operator. No tags will be propagated
+    along an axis tagged with this tag.
     """
     pass
 
 
-class MassMatrix1DTag(Tag):
-    """Used in DAG transformation to realize algebraic simplification of 1D
+class ReferenceTensorProductMassOperatorTag(Tag):
+    """
+    Used in DAG transformation to realize algebraic simplification of 1D
     inverse mass operator times mass operator.
     """
     pass
 
 
-class InverseMassMatrix1DTag(Tag):
-    """See MassMatrix1d.
+class ReferenceTensorProductInverseMassOperatorTag(Tag):
+    """
+    See MassMatrix1d.
     """
 
 # }}}
