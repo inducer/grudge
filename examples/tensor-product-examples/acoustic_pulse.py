@@ -160,8 +160,6 @@ def run_acoustic_pulse(actx,
         }
     )
 
-    print(actx)
-
     # }}}
 
     # {{{ Euler operator
