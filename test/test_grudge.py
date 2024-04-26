@@ -23,11 +23,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from meshmode.mesh import TensorProductElementGroup
 import numpy as np
 import numpy.linalg as la
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
@@ -428,44 +430,86 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
 # {{{ divergence theorem
 
-def test_2d_gauss_theorem(actx_factory):
+@pytest.mark.parametrize("case", ["circle", "tp_box2", "tp_box3", "gh-403"])
+def test_gauss_theorem(actx_factory, case, visualize=False):
     """Verify Gauss's theorem explicitly on a mesh"""
 
     pytest.importorskip("meshpy")
 
-    from meshpy.geometry import make_circle, GeometryBuilder
-    from meshpy.triangle import MeshInfo, build
+    if case == "circle":
+        from meshpy.geometry import make_circle, GeometryBuilder
+        from meshpy.triangle import MeshInfo, build
 
-    geob = GeometryBuilder()
-    geob.add_geometry(*make_circle(1))
-    mesh_info = MeshInfo()
-    geob.set(mesh_info)
+        geob = GeometryBuilder()
+        geob.add_geometry(*make_circle(1))
+        mesh_info = MeshInfo()
+        geob.set(mesh_info)
 
-    mesh_info = build(mesh_info)
+        mesh_info = build(mesh_info)
 
-    from meshmode.mesh.io import from_meshpy
+        from meshmode.mesh.io import from_meshpy
+        mesh = from_meshpy(mesh_info, order=1)
+
+    elif case == "gh-403":
+        # https://github.com/inducer/meshmode/issues/403
+        from meshmode.mesh.io import read_gmsh
+        mesh = read_gmsh("gh-403.msh")
+
+    elif case.startswith("tp_box"):
+        dim = int(case[-1])
+        mesh = mgen.generate_regular_rect_mesh(
+                a=(-0.5,)*dim,
+                b=(0.5,)*dim,
+                nelements_per_axis=(4,)*dim,
+                group_cls=TensorProductElementGroup)
+
+    else:
+        raise ValueError(f"unknown case: {case}")
+
     from meshmode.mesh import BTAG_ALL
-
-    mesh = from_meshpy(mesh_info, order=1)
 
     actx = actx_factory()
 
-    dcoll = DiscretizationCollection(actx, mesh, order=2)
-    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    dcoll = make_discretization_collection(actx, mesh, order=2)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     x_volm = actx.thaw(volm_disc.nodes())
 
     def f(x):
+        if len(x) == 3:
+            x0, x1, x2 = x
+        elif len(x) == 2:
+            x0, x1 = x
+            x2 = 0
+        else:
+            raise ValueError("unsupported dimensionality")
+
         return flat_obj_array(
-            actx.np.sin(3*x[0]) + actx.np.cos(3*x[1]),
-            actx.np.sin(2*x[0]) + actx.np.cos(x[1])
-        )
+            actx.np.sin(3*x0) + actx.np.cos(3*x1) + 2*actx.np.cos(2*x2),
+            actx.np.sin(2*x0) + actx.np.cos(x1) + 4*actx.np.cos(0.5*x2),
+            actx.np.sin(1*x0) + actx.np.cos(2*x1) + 3*actx.np.cos(0.8*x2),
+        )[:dcoll.ambient_dim]
 
     f_volm = f(x_volm)
-    int_1 = op.integral(dcoll, "vol", op.local_div(dcoll, f_volm))
+    div_f = op.local_div(dcoll, f_volm)
+    int_1 = op.integral(dcoll, "vol", div_f)
 
     prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
     normal = geo.normal(actx, dcoll, BTAG_ALL)
-    int_2 = op.integral(dcoll, BTAG_ALL, prj_f.dot(normal))
+    f_dot_n = prj_f.dot(normal)
+    int_2 = op.integral(dcoll, BTAG_ALL, f_dot_n)
+
+    if visualize:
+        from grudge.shortcuts import make_visualizer, make_boundary_visualizer
+        vis = make_visualizer(dcoll)
+        bvis = make_boundary_visualizer(dcoll)
+
+        vis.write_vtk_file(
+            f"gauss-thm-{case}-vol.vtu", [("div_f", div_f),])
+        bvis.write_vtk_file(
+            f"gauss-thm-{case}-bdry.vtu", [
+                ("f_dot_n", f_dot_n),
+                ("normal", normal),
+            ])
 
     assert abs(int_1 - int_2) < 1e-13
 
