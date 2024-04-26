@@ -31,7 +31,7 @@ import pyopencl.tools as cl_tools
 from grudge.array_context import MPIPyOpenCLArrayContext
 
 from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
+from grudge import make_discretization_collection
 
 from mpi4py import MPI
 
@@ -47,7 +47,7 @@ class WaveTag:
     pass
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+def main(dim=2, order=4, visualize=True):
     comm = MPI.COMM_WORLD
     num_parts = comm.size
 
@@ -83,7 +83,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
+    dcoll = make_discretization_collection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    main(cl.create_some_context,
+    main(
          dim=args.dim,
          order=args.order,
          visualize=args.visualize)
