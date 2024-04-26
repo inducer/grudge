@@ -76,7 +76,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import sys
 from warnings import warn
 from typing import Hashable, Union, Type, Optional, Any, Tuple
 from dataclasses import dataclass, replace
@@ -490,11 +489,6 @@ def __getattr__(name):
         return globals()[_deprecated_name_to_new_name[name]]
 
     raise AttributeError(f"module {__name__} has no attribute {name}")
-
-
-if sys.version_info < (3, 7):
-    for name in _deprecated_name_to_new_name:
-        globals()[name] = globals()[_deprecated_name_to_new_name[name]]
 
 # }}}
 
