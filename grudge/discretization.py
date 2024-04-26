@@ -34,7 +34,8 @@ THE SOFTWARE.
 """
 
 from typing import Mapping, Optional, Union, TYPE_CHECKING, Any
-from meshmode.discretization.poly_element import ModalGroupFactory
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory, ModalGroupFactory)
 
 from pytools import memoize_method, single_valued
 
@@ -79,9 +80,6 @@ def _normalize_discr_tag_to_group_factory(
             Mapping[DiscretizationTag, ElementGroupFactory]],
         order: Optional[int]
         ) -> Mapping[DiscretizationTag, ElementGroupFactory]:
-    from meshmode.discretization.poly_element import \
-            default_simplex_group_factory
-
     if discr_tag_to_group_factory is None:
         if order is None:
             raise TypeError(
@@ -89,8 +87,7 @@ def _normalize_discr_tag_to_group_factory(
             )
 
         discr_tag_to_group_factory = {
-                DISCR_TAG_BASE: default_simplex_group_factory(
-                    base_dim=dim, order=order)}
+                DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order=order)}
     else:
         discr_tag_to_group_factory = dict(discr_tag_to_group_factory)
 
@@ -102,7 +99,7 @@ def _normalize_discr_tag_to_group_factory(
                 )
 
             discr_tag_to_group_factory[DISCR_TAG_BASE] = \
-                    default_simplex_group_factory(base_dim=dim, order=order)
+                    InterpolatoryEdgeClusteredGroupFactory(order)
 
     assert discr_tag_to_group_factory is not None
 
