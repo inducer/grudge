@@ -28,6 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 
+from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc
 from grudge.models import HyperbolicOperator
 
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
@@ -113,6 +114,8 @@ class WeakWaveOperator(HyperbolicOperator):
         v = w[1:]
         actx = u.array_context
 
+        base_dd = as_dofdesc("vol", DISCR_TAG_BASE)
+
         # boundary conditions -------------------------------------------------
 
         # dirichlet BCs -------------------------------------------------------
@@ -160,9 +163,12 @@ class WeakWaveOperator(HyperbolicOperator):
                     dcoll,
                     sum(flux(tpair) for tpair in op.interior_trace_pairs(
                         dcoll, w, comm_tag=self.comm_tag))
-                    + flux(op.bv_trace_pair(dcoll, self.dirichlet_tag, w, dir_bc))
-                    + flux(op.bv_trace_pair(dcoll, self.neumann_tag, w, neu_bc))
-                    + flux(op.bv_trace_pair(dcoll, self.radiation_tag, w, rad_bc))
+                    + flux(op.bv_trace_pair(
+                            dcoll, base_dd.trace(self.dirichlet_tag), w, dir_bc))
+                    + flux(op.bv_trace_pair(
+                            dcoll, base_dd.trace(self.neumann_tag), w, neu_bc))
+                    + flux(op.bv_trace_pair(
+                            dcoll, base_dd.trace(self.radiation_tag), w, rad_bc))
                 )
             )
         )
