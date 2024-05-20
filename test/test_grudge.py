@@ -349,7 +349,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
                 dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
             )(face_normal_i)
 
-    if mesh.ambient_dim == 3:
+    if ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
