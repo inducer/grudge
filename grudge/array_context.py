@@ -35,6 +35,7 @@ from typing import (
         TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional, Type,
         FrozenSet)
 from dataclasses import dataclass
+from pytools import to_identifier
 from pytools.tag import Tag
 from meshmode.array_context import (
         PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
@@ -162,11 +163,6 @@ class MPIBasedArrayContext:
 
 # {{{ distributed + pytato
 
-def _to_identifier(s: str) -> str:
-    # Only allow digits, letters, and underscores in identifiers
-    return "".join(ch for ch in s if ch.isalnum() or ch == "_")
-
-
 @dataclass(frozen=True)
 class _DistributedPartProgramID:
     f: Callable[..., Any]
@@ -175,9 +171,9 @@ class _DistributedPartProgramID:
     def __str__(self):
         name = getattr(self.f, "__name__", "anonymous")
         if not name.isidentifier():
-            name = _to_identifier(name)
+            name = to_identifier(name)
 
-        part = _to_identifier(str(self.part_id))
+        part = to_identifier(str(self.part_id))
         if part:
             return f"{name}_part{part}"
         else:

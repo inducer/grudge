@@ -85,16 +85,7 @@ from meshmode.discretization.connection import (
 from meshmode.mesh import (
     BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BoundaryTag)
 
-
-# {{{ _to_identifier
-
-def _to_identifier(name: str) -> str:
-    if not name.isidentifier():
-        return "".join(ch for ch in name if ch.isidentifier())
-    else:
-        return name
-
-# }}}
+from pytools import to_identifier
 
 
 # {{{ volume tags
@@ -357,24 +348,24 @@ class DOFDesc:
             if isinstance(vtag, type):
                 vtag = vtag.__name__.replace("VTAG_", "").lower()
             elif isinstance(vtag, str):
-                vtag = _to_identifier(vtag)
+                vtag = to_identifier(vtag)
             else:
-                vtag = _to_identifier(str(vtag))
+                vtag = to_identifier(str(vtag))
             dom_id = f"v_{vtag}"
         elif isinstance(self.domain_tag, BoundaryDomainTag):
             btag = self.domain_tag.tag
             if isinstance(btag, type):
                 btag = btag.__name__.replace("BTAG_", "").lower()
             elif isinstance(btag, str):
-                btag = _to_identifier(btag)
+                btag = to_identifier(btag)
             else:
-                btag = _to_identifier(str(btag))
+                btag = to_identifier(str(btag))
             dom_id = f"b_{btag}"
         else:
             raise ValueError(f"unexpected domain tag: '{self.domain_tag}'")
 
         if isinstance(self.discretization_tag, str):
-            discr_id = _to_identifier(self.discretization_tag)
+            discr_id = to_identifier(self.discretization_tag)
         elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             discr_id = "_quad"
         elif self.discretization_tag is DISCR_TAG_BASE:
