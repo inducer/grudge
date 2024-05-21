@@ -163,7 +163,8 @@ class MPIBasedArrayContext:
 # {{{ distributed + pytato
 
 def _to_identifier(s: str) -> str:
-    return "".join(ch for ch in s if ch.isidentifier())
+    # Only allow digits, letters, and underscores in identifiers
+    return "".join(ch for ch in s if ch.isalnum() or ch == "_")
 
 
 @dataclass(frozen=True)
