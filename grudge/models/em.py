@@ -246,6 +246,8 @@ class MaxwellOperator(HyperbolicOperator):
             e, h = self.split_eh(wtpair)
             epsilon = self.epsilon
             mu = self.mu
+        else:
+            raise NotImplementedError("only fixed material spported for now")
 
         Z_int = (mu/epsilon)**0.5  # noqa: N806
         Y_int = 1/Z_int  # noqa: N806
@@ -348,6 +350,8 @@ class MaxwellOperator(HyperbolicOperator):
         if self.fixed_material:
             epsilon = self.epsilon
             mu = self.mu
+        else:
+            raise NotImplementedError("only fixed material supported for now")
 
         absorb_Z = (mu/epsilon)**0.5  # noqa: N806
         absorb_Y = 1/absorb_Z  # noqa: N806
@@ -394,6 +398,8 @@ class MaxwellOperator(HyperbolicOperator):
             # need to check this
             material_divisor = (
                     [self.epsilon]*elec_components+[self.mu]*mag_components)
+        else:
+            raise NotImplementedError("only fixed material supported for now")
 
         tags_and_bcs = [
                 (self.pec_tag, self.pec_bc(w)),
@@ -567,9 +573,6 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
     cx = actx.np.cos(kx*x)
     sy = actx.np.sin(ky*y)
     cy = actx.np.cos(ky*y)
-    if dims == 3:
-        sz = actx.np.sin(kz*z)
-        cz = actx.np.cos(kz*z)
 
     if dims == 2:
         tfac = t * omega
@@ -584,7 +587,10 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
              * np.sin(tfac) / omega),  # hy
             zeros,
         )
-    else:
+    elif dims == 3:
+        sz = actx.np.sin(kz*z)
+        cz = actx.np.cos(kz*z)
+
         tdep = np.exp(-1j * omega * t)
 
         gamma_squared = ky**2 + kx**2
@@ -596,6 +602,8 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
             1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,
             zeros,
         )
+    else:
+        raise NotImplementedError("only 2D and 3D supported")
 
     return result
 

@@ -215,12 +215,12 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
             norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
             plot(event, "fld-var-velocity-%04d" % step)
 
-        step += 1
-        logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+            logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
+            # NOTE: These are here to ensure the solution is bounded for the
+            # time interval specified
+            assert norm_u < 1
 
-        # NOTE: These are here to ensure the solution is bounded for the
-        # time interval specified
-        assert norm_u < 1
+        step += 1
 
     # }}}
 

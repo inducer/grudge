@@ -349,7 +349,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
                 dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
             )(face_normal_i)
 
-    if mesh.ambient_dim == 3:
+    if ambient_dim == 3:
         from grudge.geometry import pseudoscalar, area_element
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
@@ -884,6 +884,8 @@ def test_convergence_maxwell(actx_factory,  order):
 
         logger.info("dt %.5e nsteps %5d", dt, nsteps)
 
+        esc = None
+
         step = 0
         for event in dt_stepper.run(t_end=final_t):
             if isinstance(event, dt_stepper.StateComputed):
@@ -1045,6 +1047,8 @@ def test_norm_real(actx_factory, p):
         ref_norm = (1/3)**0.5
     elif p == np.inf:
         ref_norm = 1
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
@@ -1066,6 +1070,8 @@ def test_norm_complex(actx_factory, p):
         ref_norm = (2/3)**0.5
     elif p == np.inf:
         ref_norm = 2**0.5
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
@@ -1088,6 +1094,8 @@ def test_norm_obj_array(actx_factory, p):
         ref_norm = (dim/3)**0.5
     elif p == np.inf:
         ref_norm = 1
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
