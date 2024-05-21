@@ -222,7 +222,6 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
 
         step += 1
 
-
     # }}}
 
 
