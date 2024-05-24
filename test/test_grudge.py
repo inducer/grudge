@@ -26,11 +26,14 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 
-from meshmode.discretization.poly_element import \
-    InterpolatoryEdgeClusteredGroupFactory
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory)
 from meshmode.mesh import TensorProductElementGroup
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
+
+import mesh_data
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
@@ -165,21 +168,19 @@ def test_mass_surface_area(actx_factory, name):
 
     # {{{ cases
 
+    order = 4
+
     if name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
         surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        builder = mesh_data.SpheroidMeshBuilder()
         surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
         surface_area = 1.0
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
         surface_area = 1.0
     else:
         raise ValueError("unknown geometry name: %s" % name)
@@ -192,8 +193,8 @@ def test_mass_surface_area(actx_factory, name):
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        mesh = builder.get_mesh(resolution, order)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
@@ -222,7 +223,7 @@ def test_mass_surface_area(actx_factory, name):
 
     logger.info("surface area error\n%s", str(eoc))
 
-    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
+    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > order
 
 # }}}
 
@@ -234,13 +235,17 @@ def test_mass_surface_area(actx_factory, name):
     "spheroid",
     "warped_rect2",
     "warped_rect3",
+    "gh-339-1",
+    "gh-339-4",
     ])
 def test_mass_operator_inverse(actx_factory, name):
     actx = actx_factory()
 
     # {{{ cases
 
-    import mesh_data
+    order = 4
+    overintegrate = False
+
     if name == "2-1-ellipse":
         # curve
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
@@ -249,7 +254,19 @@ def test_mass_operator_inverse(actx_factory, name):
         builder = mesh_data.SpheroidMeshBuilder()
     elif name.startswith("warped_rect"):
         builder = mesh_data.WarpedRectMeshBuilder(dim=int(name[-1]))
-
+    elif name == "gh-339-1":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
+        order = 1
+        # NOTE: We're definitely not evaluating the bilinear forms accurately
+        # in that case, the mappings are very non-constant.
+        # It's kind of surprising that WADG manages to make a 15-digit inverse,
+        # but empirically it seems to.
+    elif name == "gh-339-1-overint":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
+        order = 1
+        overintegrate = True
+    elif name == "gh-339-4":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
@@ -261,8 +278,14 @@ def test_mass_operator_inverse(actx_factory, name):
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        mesh = builder.get_mesh(resolution)
+        dcoll = make_discretization_collection(
+                       actx, mesh, discr_tag_to_group_factory={
+                           dof_desc.DISCR_TAG_BASE: (
+                               InterpolatoryEdgeClusteredGroupFactory(order)),
+                           dof_desc.DISCR_TAG_QUAD: (
+                               QuadratureGroupFactory(order))
+                       })
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
@@ -273,12 +296,21 @@ def test_mass_operator_inverse(actx_factory, name):
         def f(x):
             return actx.np.cos(4.0 * x[0])
 
-        dd = dof_desc.DD_VOLUME
         x_volm = actx.thaw(volume_discr.nodes())
         f_volm = f(x_volm)
-        f_inv = op.inverse_mass(
-            dcoll, op.mass(dcoll, dd, f_volm)
-        )
+        if not overintegrate:
+            dd = dof_desc.DD_VOLUME
+            f_inv = op.inverse_mass(
+                dcoll, op.mass(dcoll, dd, f_volm)
+            )
+        else:
+            dd_base_vol = dof_desc.as_dofdesc(
+                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
+            dd_quad_vol = dof_desc.as_dofdesc(
+                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+            f_inv = op.inverse_mass(
+                dcoll, op.mass(dcoll, dd_quad_vol,
+                               op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm)))
 
         inv_error = actx.to_numpy(
                 op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2))
@@ -313,16 +345,15 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ geometry
 
     if mesh_name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        builder = mesh_data.SpheroidMeshBuilder()
     else:
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
-    mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    order = 4
+    mesh = builder.get_mesh(builder.resolutions[0], order)
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
 
     volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
     logger.info("ndofs:    %d", volume_discr.ndofs)
@@ -480,7 +511,6 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         raise ValueError(f"unknown case: {case}")
 
     from meshmode.mesh import BTAG_ALL
-    from meshmode.discretization.poly_element import QuadratureGroupFactory
 
     actx = actx_factory()
 
@@ -572,20 +602,15 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     # {{{ cases
 
     if mesh_name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "2-1-spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.SpheroidMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "circle":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
     elif mesh_name == "starfish":
-        from mesh_data import StarfishMeshBuilder
-        builder = StarfishMeshBuilder()
+        builder = mesh_data.StarfishMeshBuilder()
     elif mesh_name == "sphere":
-        from mesh_data import SphereMeshBuilder
-        builder = SphereMeshBuilder(radius=1.0, mesh_order=16)
+        builder = mesh_data.SphereMeshBuilder(radius=1.0)
     else:
         raise ValueError("unknown mesh name: %s" % mesh_name)
 
@@ -618,13 +643,15 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
             [0.0, np.sin(theta), np.cos(theta)],
             ])
 
+    order = 4
+
     mesh_offset = np.array([0.33, -0.21, 0.0])[:ambient_dim]
 
     for i, resolution in enumerate(builder.resolutions):
         from meshmode.mesh.processing import affine_map
         from meshmode.discretization.connection import FACE_RESTR_ALL
 
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        mesh = builder.get_mesh(resolution, order)
         mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
 
         from meshmode.discretization.poly_element import \
@@ -632,9 +659,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         qtag = dof_desc.DISCR_TAG_QUAD
         dcoll = DiscretizationCollection(
-            actx, mesh, order=builder.order,
+            actx, mesh, order=order,
             discr_tag_to_group_factory={
-                qtag: QuadratureSimplexGroupFactory(2 * builder.order)
+                qtag: QuadratureSimplexGroupFactory(2 * order)
             }
         )
 
@@ -693,15 +720,15 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
     # }}}
 
-    order = min(builder.order, builder.mesh_order) - 0.5
+    exp_order = order - 0.5
     logger.info("eoc_global:\n%s", str(eoc_global))
     logger.info("eoc_local:\n%s", str(eoc_local))
 
     assert eoc_global.max_error() < 1.0e-12 \
-            or eoc_global.order_estimate() > order - 0.5
+            or eoc_global.order_estimate() > exp_order - 0.5
 
     assert eoc_local.max_error() < 1.0e-12 \
-            or eoc_local.order_estimate() > order - 0.5
+            or eoc_local.order_estimate() > exp_order - 0.5
 
 # }}}
 
