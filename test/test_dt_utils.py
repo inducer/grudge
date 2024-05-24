@@ -34,8 +34,9 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
          PytestPytatoPyOpenCLArrayContextFactory])
 
 from grudge import DiscretizationCollection
-
 import grudge.op as op
+
+import mesh_data
 
 import pytest
 
@@ -55,23 +56,22 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     # {{{ cases
 
     if name == "interval":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=1)
+        builder = mesh_data.BoxMeshBuilder1D()
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
     else:
         raise ValueError("unknown geometry name: %s" % name)
 
     # }}}
 
+    order = 4
+
     min_factors = []
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        mesh = builder.get_mesh(resolution, order)
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
         min_factors.append(
             actx.to_numpy(
                 op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
@@ -84,8 +84,8 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     assert np.all(np.isclose(ratios, 2))
 
     # Make sure it works with empty meshes
-    mesh = builder.get_mesh(0, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(0)
+    dcoll = DiscretizationCollection(actx, mesh, order=order)
     factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
@@ -98,14 +98,11 @@ def test_non_geometric_factors(actx_factory, name):
     # {{{ cases
 
     if name == "interval":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=1)
+        builder = mesh_data.BoxMeshBuilder1D()
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
     else:
         raise ValueError("unknown geometry name: %s" % name)
 

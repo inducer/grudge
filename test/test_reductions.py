@@ -42,6 +42,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 from grudge import DiscretizationCollection
 
 import grudge.op as op
+import mesh_data
 
 from meshmode.dof_array import flatten
 
@@ -64,11 +65,10 @@ logger = logging.getLogger(__name__)
 def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     actx = actx_factory()
 
-    from mesh_data import BoxMeshBuilder
-    builder = BoxMeshBuilder(ambient_dim=1)
+    builder = mesh_data.BoxMeshBuilder1D()
 
-    mesh = builder.get_mesh(mesh_size, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(mesh_size)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -130,12 +130,11 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
 def test_elementwise_reductions(actx_factory):
     actx = actx_factory()
 
-    from mesh_data import BoxMeshBuilder
-    builder = BoxMeshBuilder(ambient_dim=1)
+    builder = mesh_data.BoxMeshBuilder1D()
 
     nelements = 4
-    mesh = builder.get_mesh(nelements, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(nelements)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -192,11 +191,10 @@ class MyContainer:
 def test_nodal_reductions_with_container(actx_factory):
     actx = actx_factory()
 
-    from mesh_data import BoxMeshBuilder
-    builder = BoxMeshBuilder(ambient_dim=2)
+    builder = mesh_data.BoxMeshBuilder2D()
 
-    mesh = builder.get_mesh(4, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(4)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -239,12 +237,11 @@ def test_nodal_reductions_with_container(actx_factory):
 def test_elementwise_reductions_with_container(actx_factory):
     actx = actx_factory()
 
-    from mesh_data import BoxMeshBuilder
-    builder = BoxMeshBuilder(ambient_dim=2)
+    builder = mesh_data.BoxMeshBuilder2D()
 
     nelements = 4
-    mesh = builder.get_mesh(nelements, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(nelements)
+    dcoll = DiscretizationCollection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
