@@ -322,12 +322,6 @@ class EulerOperator(HyperbolicOperator):
         def interp_to_quad(u):
             return op.project(dcoll, "vol", dq, u)
 
-        # Compute volume fluxes
-        volume_fluxes = op.weak_local_div(
-            dcoll, dq,
-            interp_to_quad(euler_volume_flux(dcoll, q, gamma=gamma))
-        )
-
         # Compute interior interface fluxes
         interface_fluxes = (
             sum(
@@ -356,6 +350,12 @@ class EulerOperator(HyperbolicOperator):
                 ) for btag in self.bdry_conditions
             )
             interface_fluxes = interface_fluxes + bc_fluxes
+
+        # Compute volume fluxes
+        volume_fluxes = op.weak_local_div(
+            dcoll, dq,
+            interp_to_quad(euler_volume_flux(dcoll, q, gamma=gamma))
+        )
 
         return op.inverse_mass(
             dcoll,

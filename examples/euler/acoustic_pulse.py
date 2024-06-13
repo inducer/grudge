@@ -37,6 +37,7 @@ from grudge.models.euler import (
     EulerOperator,
     InviscidWallBC
 )
+from meshmode.mesh import TensorProductElementGroup
 from grudge.shortcuts import rk4_step
 
 from meshmode.mesh import BTAG_ALL
@@ -112,7 +113,8 @@ def run_acoustic_pulse(actx,
                        final_time=1,
                        resolution=16,
                        overintegration=False,
-                       visualize=False):
+                       visualize=False,
+                       tpe=False):
 
     # eos-related parameters
     gamma = 1.4
@@ -124,16 +126,18 @@ def run_acoustic_pulse(actx,
     dim = 2
     box_ll = -0.5
     box_ur = 0.5
+    group_cls = TensorProductElementGroup if tpe else None
     mesh = generate_regular_rect_mesh(
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
-        nelements_per_axis=(resolution,)*dim)
+        nelements_per_axis=(resolution,)*dim,
+        group_cls=group_cls)
 
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
-    from meshmode.discretization.poly_element import \
-        (default_simplex_group_factory,
-         QuadratureSimplexGroupFactory)
+    from meshmode.discretization.poly_element import (
+        InterpolatoryEdgeClusteredGroupFactory,
+        QuadratureGroupFactory)
 
     exp_name = f"fld-acoustic-pulse-N{order}-K{resolution}"
     if overintegration:
@@ -145,9 +149,8 @@ def run_acoustic_pulse(actx,
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(
-                base_dim=mesh.dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+            DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order),
+            DISCR_TAG_QUAD: QuadratureGroupFactory(2*order)
         }
     )
 
@@ -212,7 +215,8 @@ def run_acoustic_pulse(actx,
 
 
 def main(ctx_factory, order=3, final_time=1, resolution=16,
-         overintegration=False, visualize=False, lazy=False):
+         overintegration=False, visualize=False, lazy=False,
+         tpe=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -234,7 +238,7 @@ def main(ctx_factory, order=3, final_time=1, resolution=16,
         resolution=resolution,
         overintegration=overintegration,
         final_time=final_time,
-        visualize=visualize
+        visualize=visualize, tpe=tpe
     )
 
 
@@ -251,6 +255,8 @@ if __name__ == "__main__":
                         help="write out vtk output")
     parser.add_argument("--lazy", action="store_true",
                         help="switch to a lazy computation mode")
+    parser.add_argument("--tpe", action="store_true",
+                        help="use tensor product elements")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -260,4 +266,4 @@ if __name__ == "__main__":
          resolution=args.resolution,
          overintegration=args.oi,
          visualize=args.visualize,
-         lazy=args.lazy)
+         lazy=args.lazy, tpe=args.tpe)
