@@ -4,6 +4,7 @@ from meshmode.mesh import Mesh
 from meshmode.mesh.io import read_gmsh
 import numpy as np
 import meshmode.mesh.generation as mgen
+from meshmode.mesh import TensorProductElementGroup
 
 
 class MeshBuilder(ABC):
@@ -111,6 +112,7 @@ class SpheroidMeshBuilder(MeshBuilder):
 class _BoxMeshBuilderBase(MeshBuilder):
     resolutions = [4, 8, 16]
     mesh_order = 1
+    group_cls = None
 
     a = (-0.5, -0.5, -0.5)
     b = (+0.5, +0.5, +0.5)
@@ -122,19 +124,31 @@ class _BoxMeshBuilderBase(MeshBuilder):
         return mgen.generate_regular_rect_mesh(
                 a=self.a, b=self.b,
                 nelements_per_axis=resolution,
-                order=mesh_order)
+                order=mesh_order, group_cls=self.group_cls)
 
 
 class BoxMeshBuilder1D(_BoxMeshBuilderBase):
     ambient_dim = 1
 
+    def __init__(self, tpe=False):
+        if tpe:
+            self.group_cls = TensorProductElementGroup
+
 
 class BoxMeshBuilder2D(_BoxMeshBuilderBase):
     ambient_dim = 2
 
+    def __init__(self, tpe=False):
+        if tpe:
+            self.group_cls = TensorProductElementGroup
+
 
 class BoxMeshBuilder3D(_BoxMeshBuilderBase):
     ambient_dim = 2
+
+    def __init__(self, tpe=False):
+        if tpe:
+            self.group_cls = TensorProductElementGroup
 
 
 class WarpedRectMeshBuilder(MeshBuilder):

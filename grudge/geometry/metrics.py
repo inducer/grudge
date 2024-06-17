@@ -86,6 +86,11 @@ from arraycontext import register_multivector_as_array_container
 register_multivector_as_array_container()
 
 
+def _has_geoderiv_connection(grp):
+    from modepy.shapes import Simplex
+    return grp.is_affine and issubclass(grp._modepy_shape_cls, Simplex)
+
+
 def _geometry_to_quad_if_requested(
         dcoll, inner_dd, dd, vec, _use_geoderiv_connection):
 
@@ -105,7 +110,7 @@ def _geometry_to_quad_if_requested(
     return DOFArray(
             vec.array_context,
             tuple(
-                geoderiv_vec_i if megrp.is_affine else all_quad_vec_i
+                geoderiv_vec_i if _has_geoderiv_connection(megrp) else all_quad_vec_i
                 for megrp, geoderiv_vec_i, all_quad_vec_i in zip(
                     dcoll.discr_from_dd(inner_dd).mesh.groups,
                     dcoll._base_to_geoderiv_connection(inner_dd)(vec),

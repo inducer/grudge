@@ -61,10 +61,10 @@ logger = logging.getLogger(__name__)
 
 # {{{ mass operator trig integration
 
+@pytest.mark.parametrize("tpe", [True, False])
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
-@pytest.mark.parametrize("discr_tag", [dof_desc.DISCR_TAG_BASE,
-                                       dof_desc.DISCR_TAG_QUAD])
-def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
+@pytest.mark.parametrize("use_overint", [False, True])
+def test_mass_mat_trig(actx_factory, tpe, ambient_dim, use_overint):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
@@ -75,22 +75,26 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
 
     a = -4.0 * np.pi
     b = +9.0 * np.pi
-    true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
 
-    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+    true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
+    discr_tag = dof_desc.DISCR_TAG_QUAD if use_overint else dof_desc.DISCR_TAG_BASE
+
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, discr_tag)
+    discr_order = order
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         discr_tag_to_group_factory = {}
     else:
+        discr_order = None
         discr_tag_to_group_factory = {
-            discr_tag: QuadratureSimplexGroupFactory(order=2*order)
+            dof_desc.DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order),
+            dof_desc.DISCR_TAG_QUAD: QuadratureGroupFactory(order=2*order)
         }
 
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
     dcoll = DiscretizationCollection(
-        actx, mesh, order=order,
+        actx, mesh, order=discr_order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
@@ -160,10 +164,11 @@ def _spheroid_surface_area(radius, aspect_ratio):
         return 2.0 * np.pi * radius**2 * (1 + (c/a)**2 / e * np.arctanh(e))
 
 
+@pytest.mark.parametrize("tpe", [True, False])
 @pytest.mark.parametrize("name", [
     "2-1-ellipse", "spheroid", "box2d", "box3d"
     ])
-def test_mass_surface_area(actx_factory, name):
+def test_mass_surface_area(actx_factory, tpe, name):
     actx = actx_factory()
 
     # {{{ cases
@@ -171,16 +176,20 @@ def test_mass_surface_area(actx_factory, name):
     order = 4
 
     if name == "2-1-ellipse":
+        if tpe:
+            pytest.skip()
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
         surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "spheroid":
+        if tpe:
+            pytest.skip()
         builder = mesh_data.SpheroidMeshBuilder()
         surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "box2d":
-        builder = mesh_data.BoxMeshBuilder2D()
+        builder = mesh_data.BoxMeshBuilder2D(tpe)
         surface_area = 1.0
     elif name == "box3d":
-        builder = mesh_data.BoxMeshBuilder3D()
+        builder = mesh_data.BoxMeshBuilder3D(tpe)
         surface_area = 1.0
     else:
         raise ValueError("unknown geometry name: %s" % name)
@@ -976,11 +985,11 @@ def test_convergence_maxwell(actx_factory,  order):
 # {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
-def test_improvement_quadrature(actx_factory, order):
+@pytest.mark.parametrize("tpe", [False, True])
+def test_improvement_quadrature(actx_factory, order, tpe):
     """Test whether quadrature improves things and converges"""
     from grudge.models.advection import VariableCoefficientAdvectionOperator
     from pytools.convergence import EOCRecorder
-    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
     from meshmode.mesh import BTAG_ALL
 
     actx = actx_factory()
@@ -1002,23 +1011,30 @@ def test_improvement_quadrature(actx_factory, order):
         else:
             qtag = None
 
+        group_cls = TensorProductElementGroup if tpe else None
+        qfac = 2 if tpe else 4
         ns = [20, 25]
+        discr_order = order
         for n in ns:
             mesh = mgen.generate_regular_rect_mesh(
                 a=(-0.5,)*dims,
                 b=(0.5,)*dims,
                 nelements_per_axis=(n,)*dims,
-                order=order)
+                order=order, group_cls=group_cls)
 
             if use_quad:
                 discr_tag_to_group_factory = {
-                    qtag: QuadratureSimplexGroupFactory(order=4*order)
+                    dof_desc.DISCR_TAG_BASE:
+                    InterpolatoryEdgeClusteredGroupFactory(order),
+                    dof_desc.DISCR_TAG_QUAD:
+                    QuadratureGroupFactory(order=qfac*order)
                 }
+                discr_order = None
             else:
                 discr_tag_to_group_factory = {}
 
             dcoll = DiscretizationCollection(
-                actx, mesh, order=order,
+                actx, mesh, order=discr_order,
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
 
@@ -1050,9 +1066,11 @@ def test_improvement_quadrature(actx_factory, order):
     eoc, errs = conv_test("no quadrature", False)
     q_eoc, q_errs = conv_test("with quadrature", True)
 
-    assert q_eoc > eoc
     assert (q_errs < errs).all()
     assert q_eoc > order - 0.1
+    # Fails for all tensor-product element types
+    assert q_eoc > eoc
+
 
 # }}}
 
