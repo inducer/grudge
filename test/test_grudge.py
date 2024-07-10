@@ -286,7 +286,7 @@ def test_mass_operator_inverse(actx_factory, name):
                            dof_desc.DISCR_TAG_QUAD: (
                                QuadratureGroupFactory(order))
                        })
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
