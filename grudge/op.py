@@ -43,6 +43,8 @@ these symbols correctly.)
 
 from __future__ import annotations
 
+from meshmode.discretization import InterpolatoryElementGroupBase, NodalElementGroupBase
+
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -79,6 +81,7 @@ from meshmode.transform_metadata import (FirstAxisIsElementsTag,
                                          DiscretizationDOFAxisTag,
                                          DiscretizationElementAxisTag,
                                          DiscretizationFaceAxisTag)
+import modepy as mp
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import as_dofdesc
@@ -254,22 +257,28 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
-        out_element_group, in_element_group):
-    # We're accepting in_element_group for interface consistency with
-    # _reference_stiffness_transpose_matrices.
-    assert out_element_group is in_element_group
+        out_element_group: NodalElementGroupBase,
+        in_element_group: InterpolatoryElementGroupBase):
 
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
-        lambda grp: grp.discretization_key())
-    def get_ref_derivative_mats(grp):
-        from meshmode.discretization.poly_element import diff_matrices
+        lambda outgrp, ingrp: (
+            outgrp.discretization_key(),
+            ingrp.discretization_key()))
+    def get_ref_derivative_mats(
+                out_grp: NodalElementGroupBase,
+                in_grp: InterpolatoryElementGroupBase):
         return actx.freeze(
                 actx.tag_axis(
                     1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
-                        np.asarray(diff_matrices(grp)))))
-    return get_ref_derivative_mats(out_element_group)
+                        np.asarray(
+                            mp.diff_matrices(
+                                in_grp.basis_obj(),
+                                out_grp.unit_nodes,
+                                from_nodes=in_grp.unit_nodes,
+                            )))))
+    return get_ref_derivative_mats(out_element_group, in_element_group)
 
 
 def _strong_scalar_grad(dcoll, dd_in, vec):
@@ -665,16 +674,11 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                                  in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
-            from meshmode.discretization.poly_element import mass_matrix
-
             return actx.freeze(
                 actx.from_numpy(
-                    np.asarray(
-                        mass_matrix(out_grp),
-                        order="C"
+                    mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
                     )
                 )
-            )
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -783,7 +787,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
             actx.tag_axis(0, DiscretizationDOFAxisTag(),
                 actx.from_numpy(
                     np.asarray(
-                        inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                        inverse_mass_matrix(basis, grp.unit_nodes),
                         order="C"))))
 
     return get_ref_inv_mass_mat(element_group)
