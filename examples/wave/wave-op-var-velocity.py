@@ -206,11 +206,9 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
             linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
             nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
             nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
-            logger.info(f"step: {istep} t: {t} "
-                        f"L2: {l2norm} "
-                        f"Linf: {linfnorm} "
-                        f"sol max: {nodalmax} "
-                        f"sol min: {nodalmin}")
+            logger.info("step: %d t: %.8e L2: %.8e Linf: %.8e "
+                        "sol max: %.8e sol min: %.8e",
+                        istep, t, l2norm, linfnorm, nodalmax, nodalmin)
             if visualize:
                 vis.write_vtk_file(
                     f"fld-wave-eager-var-velocity-{istep:04d}.vtu",

@@ -118,7 +118,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             else:
                 return vec
 
-        def get_flux(u_tpair):
+        def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
             dd_allfaces = dd.with_domain_tag("all_faces")
             normal = geo.normal(actx, dcoll, dd)
@@ -236,14 +236,14 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
 
         dcoll = DiscretizationCollection(actx, mesh, order=order)
 
-        def f(x):
+        def f(x, dcoll=dcoll):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
-        def div_f(x):
+        def div_f(x, dcoll=dcoll):
             result = dcoll.zeros(actx)
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
@@ -270,7 +270,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         else:
             u = f(x)
 
-        def get_flux(u_tpair):
+        def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
             normal = geo.normal(actx, dcoll, dd)

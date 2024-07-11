@@ -93,7 +93,7 @@ def test_euler_vortex_convergence(actx_factory, order):
             quadrature_tag=quad_tag
         )
 
-        def rhs(t, q):
+        def rhs(t, q, euler_operator=euler_operator):
             return euler_operator.operator(t, q)
 
         compiled_rhs = actx.compile(rhs)
