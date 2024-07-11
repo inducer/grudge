@@ -44,7 +44,7 @@ import pytest
 import meshmode.mesh.generation as mgen
 from meshmode.dof_array import flat_norm
 
-from grudge import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
 
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),

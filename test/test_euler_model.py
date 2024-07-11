@@ -52,7 +52,7 @@ def test_euler_vortex_convergence(actx_factory, order):
     from meshmode.mesh.generation import generate_regular_rect_mesh
     from pytools.convergence import EOCRecorder
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
     from grudge.dt_utils import h_max_from_volume
     from grudge.models.euler import EulerOperator, vortex_initial_condition
@@ -77,7 +77,7 @@ def test_euler_vortex_convergence(actx_factory, order):
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }
 
-        dcoll = DiscretizationCollection(
+        dcoll = make_discretization_collection(
             actx, mesh,
             discr_tag_to_group_factory=discr_tag_to_group_factory
         )

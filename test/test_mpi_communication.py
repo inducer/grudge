@@ -31,8 +31,6 @@ import sys
 import numpy as np
 import pytest
 
-import pyopencl as cl
-
 from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
 
 
@@ -45,7 +43,7 @@ from pytools.obj_array import flat_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
-from grudge import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import rk4_step
 
 
@@ -80,6 +78,8 @@ def run_test_with_mpi_inner():
     from base64 import b64decode
     from pickle import loads
     f, (actx_class, *args) = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
+
+    import pyopencl as cl
 
     cl_context = cl.create_some_context()
     queue = cl.CommandQueue(cl_context)
@@ -136,7 +136,7 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=5)
+    dcoll = make_discretization_collection(actx, local_mesh, order=5)
 
     x = actx.thaw(dcoll.nodes())
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
@@ -214,7 +214,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
+    dcoll = make_discretization_collection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]

@@ -27,8 +27,8 @@ import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import DOFArray
 
-from grudge import DiscretizationCollection
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
 from grudge.trace_pair import TracePair
 
 
@@ -52,7 +52,7 @@ def test_trace_pair(actx_factory):
         a=(-1,)*dim, b=(1,)*dim,
         nelements_per_axis=(n,)*dim)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
     rng = np.random.default_rng(1234)
 

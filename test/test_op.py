@@ -33,7 +33,7 @@ from meshmode.discretization.poly_element import (
 from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import make_obj_array
 
-from grudge import DiscretizationCollection, geometry as geo, op
+from grudge import geometry, op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import (
@@ -121,7 +121,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
             dd_allfaces = dd.with_domain_tag("all_faces")
-            normal = geo.normal(actx, dcoll, dd)
+            normal = geometry.normal(actx, dcoll, dd)
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -234,7 +234,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 a=(-1,)*dim, b=(1,)*dim,
                 nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         def f(x, dcoll=dcoll):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
@@ -273,7 +273,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
             dd_allfaces = dd.with_dtag("all_faces")
-            normal = geo.normal(actx, dcoll, dd)
+            normal = geometry.normal(actx, dcoll, dd)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 

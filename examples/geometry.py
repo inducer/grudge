@@ -32,8 +32,9 @@ import pyopencl.tools as cl_tools
 
 from grudge.array_context import PyOpenCLArrayContext
 
-from grudge import DiscretizationCollection, shortcuts
-import grudge.geometry as geo
+from grudge import shortcuts
+from grudge import geometry
+from grudge.discretization import make_discretization_collection
 
 
 def main(write_output=True):
@@ -47,13 +48,13 @@ def main(write_output=True):
 
     from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.generation import generate_warped_rect_mesh
-    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    mesh = generate_warped_rect_mesh(dim=2, order=4, nelements_side=6)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
 
     nodes = actx.thaw(dcoll.nodes())
     bdry_nodes = actx.thaw(dcoll.nodes(dd=BTAG_ALL))
-    bdry_normals = geo.normal(actx, dcoll, dd=BTAG_ALL)
+    bdry_normals = geometry.normal(actx, dcoll, dd=BTAG_ALL)
 
     if write_output:
         vis = shortcuts.make_visualizer(dcoll)

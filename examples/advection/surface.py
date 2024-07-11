@@ -158,9 +158,9 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         discr_tag_to_group_factory[qtag] = \
             QuadratureSimplexGroupFactory(order=4*order)
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )

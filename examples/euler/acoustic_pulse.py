@@ -126,7 +126,7 @@ def run_acoustic_pulse(actx,
         default_simplex_group_factory,
     )
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
 
     exp_name = f"fld-acoustic-pulse-N{order}-K{resolution}"
@@ -136,7 +136,7 @@ def run_acoustic_pulse(actx,
     else:
         quad_tag = None
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(
