@@ -23,22 +23,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
+
 import numpy as np
 import numpy.linalg as la
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 

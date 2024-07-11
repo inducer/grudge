@@ -1,0 +1,53 @@
+[tool.ruff]
+preview = true
+
+[tool.ruff.lint]
+extend-select = [
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # flake8-isort
+    "N",   # pep8-naming
+    "NPY", # numpy
+    "Q",   # flake8-quotes
+    "W",   # pycodestyle
+]
+extend-ignore = [
+    "C90",  # McCabe complexity
+    "E221", # multiple spaces before operator
+    "E226", # missing whitespace around arithmetic operator
+    "E241", # multiple spaces after comma
+    "E242", # tab after comma
+    "E402", # module level import not at the top of file
+]
+[tool.ruff.lint.per-file-ignores]
+"test/test_grudge.py" = ["B023"]
+"test/test_op.py" = ["B023"]
+"test/test_euler_model.py" = ["B023"]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = [
+    "pytools",
+    "pymbolic",
+    "meshmode",
+    "modepy",
+    "pyopencl",
+    "loopy",
+    "arraycontext",
+]
+known-local-folder = [
+    "grudge",
+]
+lines-after-imports = 2
+
+[tool.mypy]
+warn_unused_ignores = true
+
+

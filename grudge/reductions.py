@@ -34,6 +34,7 @@ Elementwise reductions
 
 from __future__ import annotations
 
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -59,27 +60,27 @@ THE SOFTWARE.
 """
 
 
-from functools import reduce, partial
+from functools import partial, reduce
+
+import numpy as np
 
 from arraycontext import (
+    ArrayOrContainer,
+    Scalar,
     make_loopy_program,
     map_array_container,
     serialize_container,
     tag_axes,
-    Scalar, ArrayOrContainer
 )
-
-from grudge.discretization import DiscretizationCollection
-
-from pytools import memoize_in
-
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
-    DiscretizationDOFAxisTag)
+)
+from pytools import memoize_in
 
-import numpy as np
 import grudge.dof_desc as dof_desc
+from grudge.discretization import DiscretizationCollection
 
 
 # {{{ Nodal reductions
@@ -158,9 +159,9 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
 
     actx = vec.array_context
 
-    return sum([
+    return sum(
         actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))
-        for grp_ary in vec])
+        for grp_ary in vec)
 
 
 def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
@@ -367,7 +368,9 @@ def _apply_elementwise_reduction(
             )
             import loopy as lp
             from meshmode.transform_metadata import (
-                    ConcurrentElementInameTag, ConcurrentDOFInameTag)
+                ConcurrentDOFInameTag,
+                ConcurrentElementInameTag,
+            )
             return lp.tag_inames(t_unit, {
                 "iel": ConcurrentElementInameTag(),
                 "idof": ConcurrentDOFInameTag()})

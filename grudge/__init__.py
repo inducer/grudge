@@ -21,7 +21,10 @@ THE SOFTWARE.
 """
 
 from grudge.discretization import (
-        DiscretizationCollection, make_discretization_collection)
+        DiscretizationCollection,
+        make_discretization_collection,
+)
+
 
 __all__ = [
     "DiscretizationCollection", "make_discretization_collection"

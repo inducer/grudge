@@ -24,22 +24,21 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
-import pyopencl as cl
-import pyopencl.tools as cl_tools
-
-from grudge.array_context import MPIPyOpenCLArrayContext
-
-from grudge.shortcuts import set_up_rk4
-from grudge import make_discretization_collection
-
 from mpi4py import MPI
 
+import pyopencl as cl
+import pyopencl.tools as cl_tools
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+from grudge import make_discretization_collection
+from grudge.array_context import MPIPyOpenCLArrayContext
+from grudge.shortcuts import set_up_rk4
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,8 +100,9 @@ def main(dim=2, order=4, visualize=True):
             )
         )
 
-    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
+
+    from grudge.models.wave import WeakWaveOperator
 
     wave_op = WeakWaveOperator(
         dcoll,

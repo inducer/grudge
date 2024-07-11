@@ -24,20 +24,20 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from grudge.array_context import PyOpenCLArrayContext
-
-from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
-
-from grudge.models.em import get_rectangular_cavity_mode
-
 import grudge.op as op
+from grudge import DiscretizationCollection
+from grudge.array_context import PyOpenCLArrayContext
+from grudge.models.em import get_rectangular_cavity_mode
+from grudge.shortcuts import set_up_rk4
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 

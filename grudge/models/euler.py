@@ -44,27 +44,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from abc import ABCMeta, abstractmethod
+from dataclasses import dataclass
+
 import numpy as np
 
-from abc import ABCMeta, abstractmethod
-
-from dataclasses import dataclass
-from arraycontext import (
-    dataclass_array_container,
-    with_container_arithmetic
-)
-
+from arraycontext import dataclass_array_container, with_container_arithmetic
 from meshmode.dof_array import DOFArray
-
-from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import DOFDesc, DISCR_TAG_BASE, as_dofdesc
-from grudge.models import HyperbolicOperator
-from grudge.trace_pair import TracePair
-
 from pytools.obj_array import make_obj_array
 
-import grudge.op as op
 import grudge.geometry as geo
+import grudge.op as op
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DISCR_TAG_BASE, DOFDesc, as_dofdesc
+from grudge.models import HyperbolicOperator
+from grudge.trace_pair import TracePair
 
 
 # {{{ Array containers for the Euler model

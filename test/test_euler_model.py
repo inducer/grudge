@@ -24,38 +24,39 @@ THE SOFTWARE.
 
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
 )
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
+import logging
+
 import grudge.op as op
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
 def test_euler_vortex_convergence(actx_factory, order):
 
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
     from meshmode.mesh.generation import generate_regular_rect_mesh
+    from pytools.convergence import EOCRecorder
 
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
     from grudge.dt_utils import h_max_from_volume
-    from grudge.models.euler import (
-        vortex_initial_condition,
-        EulerOperator
-    )
+    from grudge.models.euler import EulerOperator, vortex_initial_condition
     from grudge.shortcuts import rk4_step
-
-    from meshmode.discretization.poly_element import \
-        (default_simplex_group_factory,
-         QuadratureSimplexGroupFactory)
-
-    from pytools.convergence import EOCRecorder
 
     actx = actx_factory()
     eoc_rec = EOCRecorder()

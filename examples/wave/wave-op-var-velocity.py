@@ -24,25 +24,24 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
 import numpy.linalg as la  # noqa
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
+from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from pytools.obj_array import flat_obj_array
 
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-
+import grudge.geometry as geo
+import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
 from grudge.shortcuts import make_visualizer, rk4_step
 
-import grudge.op as op
-import grudge.geometry as geo
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -98,7 +97,7 @@ def wave_operator(actx, dcoll, c, w):
             dcoll,
             flat_obj_array(
                 -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
-                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
+                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
                 # pylint: disable=invalid-unary-operand-type
             ) + op.face_mass(
                 dcoll,
@@ -167,9 +166,10 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     logger.info("%d elements", mesh.nelements)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
     dcoll = DiscretizationCollection(
         actx, mesh,
         discr_tag_to_group_factory={

@@ -59,30 +59,25 @@ THE SOFTWARE.
 
 
 from typing import Optional, Tuple, Union
+
 import numpy as np
 
-from arraycontext import ArrayContext, tag_axes
+from arraycontext import ArrayContext, register_multivector_as_array_container, tag_axes
 from arraycontext.metadata import NameHint
 from meshmode.dof_array import DOFArray
-
-from grudge import DiscretizationCollection
-import grudge.dof_desc as dof_desc
-
-from grudge.dof_desc import (
-    DD_VOLUME_ALL, DOFDesc, DISCR_TAG_BASE
+from meshmode.transform_metadata import (
+    DiscretizationAmbientDimAxisTag,
+    DiscretizationTopologicalDimAxisTag,
 )
-
-from meshmode.transform_metadata import (DiscretizationAmbientDimAxisTag,
-                                         DiscretizationTopologicalDimAxisTag)
-
-
 from pymbolic.geometric_algebra import MultiVector
-
-from pytools.obj_array import make_obj_array
 from pytools import memoize_in
+from pytools.obj_array import make_obj_array
+
+import grudge.dof_desc as dof_desc
+from grudge import DiscretizationCollection
+from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, DOFDesc
 
 
-from arraycontext import register_multivector_as_array_container
 register_multivector_as_array_container()
 
 
@@ -429,7 +424,7 @@ def inverse_metric_derivative(
             for rst in range(dim)]
 
     # Yay Cramer's rule!
-    from functools import reduce, partial
+    from functools import partial, reduce
     from operator import xor as outerprod_op
     outerprod = partial(reduce, outerprod_op)
 

@@ -76,15 +76,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from warnings import warn
-from typing import Hashable, Union, Type, Optional, Any, Tuple
 from dataclasses import dataclass, replace
+from typing import Any, Hashable, Optional, Tuple, Type, Union
+from warnings import warn
 
-from meshmode.discretization.connection import (
-    FACE_RESTR_INTERIOR, FACE_RESTR_ALL)
+from meshmode.discretization.connection import FACE_RESTR_ALL, FACE_RESTR_INTERIOR
 from meshmode.mesh import (
-    BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BoundaryTag)
-
+    BTAG_ALL,
+    BTAG_NONE,
+    BTAG_PARTITION,
+    BTAG_REALLY_ALL,
+    BoundaryTag,
+)
 from pytools import to_identifier
 
 

@@ -24,23 +24,25 @@ THE SOFTWARE.
 
 import numpy as np
 
+from arraycontext import pytest_generate_tests_for_array_contexts
+
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    PytestPytatoPyOpenCLArrayContextFactory
+    PytestPytatoPyOpenCLArrayContextFactory,
 )
-from arraycontext import pytest_generate_tests_for_array_contexts
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
 
-from grudge import DiscretizationCollection
-import grudge.op as op
+import logging
 
 import mesh_data
-
 import pytest
 
-import logging
+import grudge.op as op
+from grudge import DiscretizationCollection
 
 
 logger = logging.getLogger(__name__)
@@ -178,8 +180,8 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
 
     assert (eigvals.real <= 1e-12).all()
 
-    from leap.rk import stability_function, RK4MethodBuilder
     import sympy as sp
+    from leap.rk import RK4MethodBuilder, stability_function
     stab_func = sp.lambdify(*stability_function(
         RK4MethodBuilder.a_explicit,
         RK4MethodBuilder.output_coeffs))

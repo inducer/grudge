@@ -25,23 +25,27 @@ THE SOFTWARE.
 
 import numpy as np
 
+from arraycontext import pytest_generate_tests_for_array_contexts
+
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    PytestPytatoPyOpenCLArrayContextFactory
+    PytestPytatoPyOpenCLArrayContextFactory,
 )
-from arraycontext import pytest_generate_tests_for_array_contexts
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
 
-from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
-
-from grudge import DiscretizationCollection
+import logging
 
 import pytest
 
-import logging
+import meshmode.mesh.generation as mgen
+from meshmode.dof_array import flat_norm
+
+from grudge import DiscretizationCollection
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +78,12 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
         from meshmode.mesh.processing import map_mesh
         mesh = map_mesh(mesh, m)
 
-    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
+
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
 
     dcoll = DiscretizationCollection(
         actx, mesh,
@@ -87,8 +93,10 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
         }
     )
 
-    from grudge.geometry import \
-        forward_metric_derivative_mat, inverse_metric_derivative_mat
+    from grudge.geometry import (
+        forward_metric_derivative_mat,
+        inverse_metric_derivative_mat,
+    )
 
     dd = as_dofdesc("vol")
     if use_quad:

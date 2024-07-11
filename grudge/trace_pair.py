@@ -51,40 +51,39 @@ THE SOFTWARE.
 """
 
 
-from warnings import warn
-from typing import List, Hashable, Optional, Type, Any
-
-from pytools.persistent_dict import KeyBuilder
-
-from arraycontext import (
-    ArrayContainer,
-    with_container_arithmetic,
-    dataclass_array_container,
-    get_container_context_recursively,
-    flatten, to_numpy,
-    unflatten, from_numpy,
-    ArrayOrContainer
-)
-
 from dataclasses import dataclass
-
 from numbers import Number
-
-from pytools import memoize_on_first_arg
-
-from grudge.discretization import DiscretizationCollection
-from grudge.projection import project
-
-from meshmode.mesh import BTAG_PARTITION
+from typing import Any, Hashable, List, Optional, Type
+from warnings import warn
 
 import numpy as np
 
+from arraycontext import (
+    ArrayContainer,
+    ArrayOrContainer,
+    dataclass_array_container,
+    flatten,
+    from_numpy,
+    get_container_context_recursively,
+    to_numpy,
+    unflatten,
+    with_container_arithmetic,
+)
+from meshmode.mesh import BTAG_PARTITION
+from pytools import memoize_on_first_arg
+from pytools.persistent_dict import KeyBuilder
+
 import grudge.dof_desc as dof_desc
+from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
-        DOFDesc, DD_VOLUME_ALL, FACE_RESTR_INTERIOR, DISCR_TAG_BASE,
-        VolumeDomainTag,
-        ConvertibleToDOFDesc,
-        )
+    DD_VOLUME_ALL,
+    DISCR_TAG_BASE,
+    FACE_RESTR_INTERIOR,
+    ConvertibleToDOFDesc,
+    DOFDesc,
+    VolumeDomainTag,
+)
+from grudge.projection import project
 
 
 # {{{ trace pair container class
@@ -393,7 +392,8 @@ def _sym_tag_to_num_tag(comm_tag: Optional[Hashable]) -> Optional[int]:
     warn("Encountered unknown symbolic tag "
             f"'{comm_tag}', assigning a value of '{num_tag}'. "
             "This is a temporary workaround, please ensure that "
-            "tags are sufficiently distinct for your use case.")
+            "tags are sufficiently distinct for your use case.",
+            stacklevel=1)
 
     return num_tag
 

@@ -9,6 +9,7 @@ Projections
 
 from __future__ import annotations
 
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -38,10 +39,11 @@ from arraycontext import ArrayOrContainer
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
-    as_dofdesc,
-    VolumeDomainTag,
     BoundaryDomainTag,
-    ConvertibleToDOFDesc)
+    ConvertibleToDOFDesc,
+    VolumeDomainTag,
+    as_dofdesc,
+)
 
 
 def project(

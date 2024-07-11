@@ -23,23 +23,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
+
 import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
 from meshmode.dof_array import flatten
 from meshmode.mesh import BTAG_ALL
-
 from pytools.obj_array import flat_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,8 +130,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
             npoints_per_axis=(npoints,)*dim,
             order=order)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory
+    from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
     if use_quad:
         discr_tag_to_group_factory = {

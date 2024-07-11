@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """
@@ -29,12 +30,12 @@ THE SOFTWARE.
 """
 
 from functools import partial
-from typing import Tuple, Callable, Optional, Union, Any
+from typing import Any, Callable, Optional, Tuple, Union
 
 import numpy as np
 
-from pytools import product
 from arraycontext import ArrayContext, ArrayOrContainer, ArrayOrContainerT
+from pytools import product
 
 
 # {{{ build_jacobian

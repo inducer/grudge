@@ -63,8 +63,8 @@ class HyperbolicOperator(Operator):
             max characteristic velocity of the operator. These are passed
             to :meth:`max_characteristic_velocity`.
         """
-        from grudge.dt_utils import characteristic_lengthscales
         import grudge.op as op
+        from grudge.dt_utils import characteristic_lengthscales
 
         wavespeeds = self.max_characteristic_velocity(actx, **kwargs)
         local_timesteps = (

@@ -26,11 +26,12 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-import grudge.op as op
 import types
-import grudge.geometry as geo
 
+import numpy as np
+
+import grudge.geometry as geo
+import grudge.op as op
 from grudge.models import HyperbolicOperator
 
 
@@ -221,9 +222,10 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
         return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
-        from meshmode.mesh import BTAG_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
+        from meshmode.mesh import BTAG_ALL
+
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, DOFDesc
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
         boundary_dd = DOFDesc(BTAG_ALL, self.quad_tag)
@@ -280,9 +282,10 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 # {{{ closed surface advection
 
 def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
+    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+
     from grudge.dof_desc import BoundaryDomainTag
     from grudge.trace_pair import TracePair
-    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
     normal = geo.normal(actx, dcoll, trace_dd.with_discr_tag(None))
     v_dot_n = velocity.dot(normal)
@@ -335,8 +338,9 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                                            surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
+
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, DOFDesc
 
         face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
         quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)

@@ -21,30 +21,32 @@ THE SOFTWARE.
 """
 
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
 
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from grudge.discretization import make_discretization_collection
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
+import pytest
+
+import meshmode.mesh.generation as mgen
 from meshmode.discretization.poly_element import (
     # Simplex group factories
     InterpolatoryQuadratureSimplexGroupFactory,
-    ModalGroupFactory,
-    PolynomialWarpAndBlend2DRestrictingGroupFactory,
-    PolynomialEquidistantSimplexGroupFactory,
     # Tensor product group factories
     LegendreGaussLobattoTensorProductGroupFactory,
+    ModalGroupFactory,
+    PolynomialEquidistantSimplexGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     # Quadrature-based (non-interpolatory) group factories
-    QuadratureSimplexGroupFactory
+    QuadratureSimplexGroupFactory,
 )
 from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
 
 import grudge.dof_desc as dof_desc
-
-import pytest
 
 
 @pytest.mark.parametrize("nodal_group_factory", [

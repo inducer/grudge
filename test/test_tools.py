@@ -22,21 +22,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import numpy.linalg as la  # noqa
 
-from dataclasses import dataclass
+from arraycontext import pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from pytools.obj_array import make_obj_array
+import logging
 
 import pytest
 
-import logging
+from pytools.obj_array import make_obj_array
+
 
 logger = logging.getLogger(__name__)
 
