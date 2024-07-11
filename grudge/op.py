@@ -448,10 +448,11 @@ def _reference_stiffness_transpose_matrices(
                         np.asarray(
                             [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]))))
 
-        from modepy import vandermonde
+        from modepy import multi_vandermonde, vandermonde
+
         basis = out_grp.basis_obj()
         vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        grad_vand = vandermonde(basis.gradients, in_grp.unit_nodes)
+        grad_vand = multi_vandermonde(basis.gradients, in_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
