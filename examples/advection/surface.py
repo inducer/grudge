@@ -61,7 +61,7 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            x = actx.thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME).nodes())
+            x = actx.thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL).nodes())
             self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0])))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
@@ -165,7 +165,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
-    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     logger.info("ndofs:     %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -196,7 +196,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # check velocity is tangential
     from grudge.geometry import normal
 
-    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME)
+    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME_ALL)
 
     error = op.norm(dcoll, c.dot(surf_normal), 2)
     logger.info("u_dot_n:   %.5e", error)

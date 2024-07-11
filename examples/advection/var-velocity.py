@@ -58,7 +58,7 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
-            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
             self.x = actx.to_numpy(flatten(actx.thaw(volume_discr.nodes()[0])))
         else:
             from grudge.shortcuts import make_visualizer

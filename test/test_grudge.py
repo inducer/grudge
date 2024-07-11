@@ -90,7 +90,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     def f(x):
         return actx.np.sin(x[0])**2
 
-    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     x_volm = actx.thaw(volm_disc.nodes())
     f_volm = f(x_volm)
     ones_volm = volm_disc.zeros(actx) + 1
@@ -102,14 +102,14 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
 
     mop_1 = op.mass(dcoll, dd_quad, f_quad)
     num_integral_1 = op.nodal_sum(
-        dcoll, dof_desc.DD_VOLUME, ones_volm * mop_1
+        dcoll, dof_desc.DD_VOLUME_ALL, ones_volm * mop_1
     )
 
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 2e-9, err_1
 
     mop_2 = op.mass(dcoll, dd_quad, ones_quad)
-    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_volm * mop_2)
+    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME_ALL, f_volm * mop_2)
 
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 2e-9, err_2
@@ -117,7 +117,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_quad * mop_2)
+        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME_ALL, f_quad * mop_2)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5e-10, err_3
 
@@ -190,14 +190,14 @@ def test_mass_surface_area(actx_factory, name):
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, order)
         dcoll = make_discretization_collection(actx, mesh, order=order)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute surface area
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         ones_volm = volume_discr.zeros(actx) + 1
         approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
@@ -295,7 +295,7 @@ def test_mass_operator_inverse(actx_factory, name):
         x_volm = actx.thaw(volume_discr.nodes())
         f_volm = f(x_volm)
         if not overintegrate:
-            dd = dof_desc.DD_VOLUME
+            dd = dof_desc.DD_VOLUME_ALL
             f_inv = op.inverse_mass(
                 dcoll, op.mass(dcoll, dd, f_volm)
             )
@@ -351,7 +351,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     mesh = builder.get_mesh(builder.resolutions[0], order)
     dcoll = make_discretization_collection(actx, mesh, order=order)
 
-    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     logger.info("ndofs:    %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -360,7 +360,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    dv = dof_desc.DD_VOLUME
+    dv = dof_desc.DD_VOLUME_ALL
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
@@ -439,7 +439,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
                 nelements_per_axis=(n,)*dim, order=4)
 
         dcoll = make_discretization_collection(actx, mesh, order=4)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
         x = actx.thaw(volume_discr.nodes())
 
         for axis in range(dim):
@@ -660,11 +660,11 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
             }
         )
 
-        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
         logger.info("ndofs:     %d", volume.ndofs)
         logger.info("nelements: %d", volume.mesh.nelements)
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         dq = dd.with_discr_tag(qtag)
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
         ambient_dim = dcoll.ambient_dim
