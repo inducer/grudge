@@ -76,10 +76,10 @@ class Plotter:
         if self.ambient_dim == 2:
             u = self.actx.to_numpy(flatten(evt.state_component))
 
-            filename = "%s.png" % basename
+            filename = f"{basename}.png"
             if not overwrite and os.path.exists(filename):
                 from meshmode import FileExistsError
-                raise FileExistsError("output file '%s' already exists" % filename)
+                raise FileExistsError(f"output file '{filename}' already exists")
 
             ax = self.fig.gca()
             ax.grid()
@@ -92,7 +92,7 @@ class Plotter:
             self.fig.savefig(filename)
             self.fig.clf()
         elif self.ambient_dim == 3:
-            self.vis.write_vtk_file("%s.vtu" % basename, [
+            self.vis.write_vtk_file(f"{basename}.vtu", [
                 ("u", evt.state_component)
                 ], overwrite=overwrite)
         else:

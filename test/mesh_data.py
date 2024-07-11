@@ -22,7 +22,7 @@ class MeshBuilder(ABC):
 
 
 class _GmshMeshBuilder(MeshBuilder):
-    resolutions = [None]
+    resolutions: ClassVar[Sequence[Hashable]] = [None]
 
     def __init__(self, filename: str) -> None:
         self._mesh_fn = filename
@@ -43,7 +43,7 @@ class GmshMeshBuilder3D(_GmshMeshBuilder):
 
 class Curve2DMeshBuilder(MeshBuilder):
     ambient_dim = 2
-    resolutions = [16, 32, 64, 128]
+    resolutions: ClassVar[Sequence[Hashable]] = [16, 32, 64, 128]
 
     def get_mesh(self, resolution, mesh_order=None):
         if mesh_order is None:
@@ -76,7 +76,7 @@ class StarfishMeshBuilder(Curve2DMeshBuilder):
 class SphereMeshBuilder(MeshBuilder):
     ambient_dim = 3
 
-    resolutions = [0, 1, 2, 3]
+    resolutions: ClassVar[Sequence[Hashable]] = [0, 1, 2, 3]
 
     radius: float
 
@@ -92,7 +92,7 @@ class SphereMeshBuilder(MeshBuilder):
 class SpheroidMeshBuilder(MeshBuilder):
     ambient_dim = 3
 
-    resolutions = [0, 1, 2, 3]
+    resolutions: ClassVar[Sequence[Hashable]] = [0, 1, 2, 3]
 
     radius: float
     aspect_ratio: float
@@ -111,7 +111,7 @@ class SpheroidMeshBuilder(MeshBuilder):
 
 
 class _BoxMeshBuilderBase(MeshBuilder):
-    resolutions = [4, 8, 16]
+    resolutions: ClassVar[Sequence[Hashable]] = [4, 8, 16]
     mesh_order = 1
 
     a = (-0.5, -0.5, -0.5)
@@ -140,7 +140,7 @@ class BoxMeshBuilder3D(_BoxMeshBuilderBase):
 
 
 class WarpedRectMeshBuilder(MeshBuilder):
-    resolutions = [4, 6, 8]
+    resolutions: ClassVar[Sequence[Hashable]] = [4, 6, 8]
 
     def __init__(self, dim):
         self.dim = dim

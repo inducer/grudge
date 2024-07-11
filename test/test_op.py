@@ -161,7 +161,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 -op.weak_local_grad(dcoll, vol_dd_quad,
                         op.project(dcoll, vol_dd_base, vol_dd_quad, u),
                         nested=nested)
-                +  # noqa: W504
+                +
                 op.face_mass(dcoll,
                     allfaces_dd_quad,
                     sum(get_flux(
@@ -287,7 +287,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         elif form == "weak":
             div_u = op.inverse_mass(dcoll,
                 -op.weak_local_div(dcoll, u)
-                +  # noqa: W504
+                +
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0

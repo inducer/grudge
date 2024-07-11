@@ -105,7 +105,7 @@ VolumeTag = Hashable
 # {{{ domain tag
 
 @dataclass(frozen=True, eq=True)
-class ScalarDomainTag:  # noqa: N801
+class ScalarDomainTag:
     """A domain tag denoting scalar values."""
 
 
@@ -147,7 +147,7 @@ DomainTag = Union[ScalarDomainTag, VolumeDomainTag, BoundaryDomainTag]
 
 # {{{ discretization tag
 
-class _DiscretizationTag:  # noqa: N801
+class _DiscretizationTag:
     pass
 
 
@@ -412,7 +412,7 @@ def _normalize_domain_and_discr_tag(
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
         domain = BoundaryDomainTag(domain, _contextual_volume_tag)
     else:
-        raise ValueError("domain tag not understood: %s" % domain)
+        raise ValueError(f"domain tag not understood: {domain}")
 
     if domain is DTAG_SCALAR and discretization_tag is not None:
         raise ValueError("cannot have nontrivial discretization tag on scalar")

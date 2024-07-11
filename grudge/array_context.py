@@ -90,7 +90,7 @@ try:
     except ImportError:
         warn("Your loopy and meshmode branches are mismatched. "
              "Please make sure that you have the "
-             "https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms "  # noqa
+             "https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms "
              "branch of loopy.", stacklevel=1)
         _HAVE_FUSION_ACTX = False
     else:
@@ -540,7 +540,7 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
              "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
              "and meshmode "
              "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).",
-             stacklevel=1)  # noqa
+             stacklevel=1)
     # lazy, non-distributed
     if not distributed:
         if _HAVE_SINGLE_GRID_WORK_BALANCING:
@@ -572,7 +572,7 @@ def get_reasonable_array_context_class(
                      "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
                      "and meshmode "
                      "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).",
-                     stacklevel=1)  # noqa
+                     stacklevel=1)
             # lazy+fusion, non-distributed
 
             if _HAVE_FUSION_ACTX:

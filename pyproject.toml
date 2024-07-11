@@ -12,6 +12,9 @@ extend-select = [
     "NPY", # numpy
     "Q",   # flake8-quotes
     "W",   # pycodestyle
+    "RUF",
+    "UP",
+    "G",
 ]
 extend-ignore = [
     "C90",  # McCabe complexity
@@ -21,10 +24,12 @@ extend-ignore = [
     "E242", # tab after comma
     "E402", # module level import not at the top of file
 ]
+
 [tool.ruff.lint.per-file-ignores]
 "test/test_grudge.py" = ["B023"]
 "test/test_op.py" = ["B023"]
 "test/test_euler_model.py" = ["B023"]
+"examples/wave/*.py" = ["G004"]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"

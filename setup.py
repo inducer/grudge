@@ -6,7 +6,7 @@ def main():
 
     version_dict = {}
     init_filename = "grudge/version.py"
-    exec(compile(open(init_filename, "r").read(), init_filename, "exec"),
+    exec(compile(open(init_filename).read(), init_filename, "exec"),
             version_dict)
 
     setup(
@@ -16,7 +16,7 @@ def main():
             "Discretize discontinuous Galerkin operators quickly, "
             "on heterogeneous hardware"
         ),
-        long_description=open("README.rst", "rt").read(),
+        long_description=open("README.rst").read(),
         author="Andreas Kloeckner",
         author_email="inform@tiker.net",
         license="MIT",

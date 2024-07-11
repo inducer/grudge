@@ -182,7 +182,7 @@ def test_mass_surface_area(actx_factory, name):
         builder = mesh_data.BoxMeshBuilder3D()
         surface_area = 1.0
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
@@ -205,8 +205,8 @@ def test_mass_surface_area(actx_factory, name):
         ones_volm = volume_discr.zeros(actx) + 1
         approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
-        logger.info("surface: got {:.5e} / expected {:.5e}".format(
-            approx_surface_area, surface_area))
+        logger.info(
+            f"surface: got {approx_surface_area:.5e} / expected {surface_area:.5e}")  # noqa: G004
         area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
 
         # }}}
@@ -267,7 +267,7 @@ def test_mass_operator_inverse(actx_factory, name):
     elif name == "gh-339-4":
         builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
@@ -348,7 +348,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
     elif mesh_name == "spheroid":
         builder = mesh_data.SpheroidMeshBuilder()
     else:
-        raise ValueError("unknown mesh name: %s" % mesh_name)
+        raise ValueError(f"unknown mesh name: {mesh_name}")
 
     order = 4
     mesh = builder.get_mesh(builder.resolutions[0], order)
@@ -612,7 +612,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     elif mesh_name == "sphere":
         builder = mesh_data.SphereMeshBuilder(radius=1.0)
     else:
-        raise ValueError("unknown mesh name: %s" % mesh_name)
+        raise ValueError(f"unknown mesh name: {mesh_name}")
 
     # }}}
 

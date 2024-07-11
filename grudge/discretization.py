@@ -36,7 +36,7 @@ THE SOFTWARE.
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Union
 from warnings import warn
 
-import numpy as np  # noqa: F401
+import numpy as np
 
 from arraycontext import ArrayContext
 from meshmode.discretization import Discretization, ElementGroupFactory
