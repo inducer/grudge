@@ -68,7 +68,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
             )
 
     # FIXME this flux is only correct for continuous c
-    dd_allfaces_quad = dd_quad.with_dtag("all_faces")
+    dd_allfaces_quad = dd_quad.with_domain_tag("all_faces")
     c_quad = op.project(dcoll, "vol", dd_quad, c)
     flux_quad = op.project(dcoll, dd, dd_quad, flux_weak)
 
