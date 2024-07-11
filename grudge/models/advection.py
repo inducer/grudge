@@ -106,8 +106,10 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
+            from grudge.dof_desc import as_dofdesc
+
             inflow_flux = flux(op.bv_trace_pair(dcoll,
-                                                BTAG_ALL,
+                                                as_dofdesc(BTAG_ALL),
                                                 interior=u,
                                                 exterior=self.inflow_u(t)))
         else:
@@ -149,8 +151,9 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
+            from grudge.dof_desc import as_dofdesc
             inflow_flux = flux(op.bv_trace_pair(dcoll,
-                                                BTAG_ALL,
+                                                as_dofdesc(BTAG_ALL),
                                                 interior=u,
                                                 exterior=self.inflow_u(t)))
         else:
@@ -225,11 +228,11 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
         from meshmode.discretization.connection import FACE_RESTR_ALL
         from meshmode.mesh import BTAG_ALL
 
-        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, DOFDesc
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, as_dofdesc
 
-        face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
-        boundary_dd = DOFDesc(BTAG_ALL, self.quad_tag)
-        quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
+        face_dd = as_dofdesc(FACE_RESTR_ALL, self.quad_tag)
+        boundary_dd = as_dofdesc(BTAG_ALL, self.quad_tag)
+        quad_dd = as_dofdesc(DTAG_VOLUME_ALL, self.quad_tag)
 
         dcoll = self.dcoll
 
@@ -340,10 +343,10 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
     def operator(self, t, u):
         from meshmode.discretization.connection import FACE_RESTR_ALL
 
-        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, DOFDesc
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, as_dofdesc
 
-        face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
-        quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
+        face_dd = as_dofdesc(FACE_RESTR_ALL, self.quad_tag)
+        quad_dd = as_dofdesc(DTAG_VOLUME_ALL, self.quad_tag)
 
         dcoll = self.dcoll
 

@@ -42,7 +42,9 @@ from grudge.dof_desc import (
     DISCR_TAG_BASE,
     DISCR_TAG_QUAD,
     DTAG_VOLUME_ALL,
-    DOFDesc,
+    FACE_RESTR_ALL,
+    VTAG_ALL,
+    BoundaryDomainTag,
     as_dofdesc,
 )
 from grudge.trace_pair import bv_trace_pair
@@ -118,7 +120,9 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
         def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
-            dd_allfaces = dd.with_domain_tag("all_faces")
+            dd_allfaces = dd.with_domain_tag(
+                BoundaryDomainTag(FACE_RESTR_ALL, VTAG_ALL)
+                )
             normal = geometry.normal(actx, dcoll, dd)
             u_avg = u_tpair.avg
             if vectorize:
@@ -149,7 +153,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             else:
                 quad_discr_tag = DISCR_TAG_BASE
 
-            allfaces_dd_base = as_dofdesc("all_faces", quad_discr_tag)
+            allfaces_dd_base = as_dofdesc(FACE_RESTR_ALL, quad_discr_tag)
             vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
             vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
             bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
@@ -270,12 +274,14 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
 
         def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
-            dd_allfaces = dd.with_dtag("all_faces")
+            dd_allfaces = dd.with_domain_tag(
+                BoundaryDomainTag(FACE_RESTR_ALL, VTAG_ALL)
+                )
             normal = geometry.normal(actx, dcoll, dd)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = DOFDesc("all_faces")
+        dd_allfaces = as_dofdesc(FACE_RESTR_ALL)
 
         if form == "strong":
             div_u = (

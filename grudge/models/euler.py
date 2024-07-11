@@ -180,7 +180,7 @@ class PrescribedBC(InviscidBCObject):
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
         actx = state.array_context
-        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+        dd_base = as_dofdesc("vol", DISCR_TAG_BASE)
 
         return TracePair(
             dd_bc,
@@ -197,7 +197,7 @@ class InviscidWallBC(InviscidBCObject):
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
         actx = state.array_context
-        dd_base = as_dofdesc("vol").with_discr_tag(DISCR_TAG_BASE)
+        dd_base = as_dofdesc("vol", DISCR_TAG_BASE)
         nhat = geo.normal(actx, dcoll, dd_bc)
         interior = op.project(dcoll, dd_base, dd_bc, state)
 
@@ -253,8 +253,12 @@ def euler_numerical_flux(
         dissipation.
     :returns: A :class:`ConservedEulerField` containing the interface fluxes.
     """
+    from grudge.dof_desc import FACE_RESTR_ALL, VTAG_ALL, BoundaryDomainTag
+
     dd_intfaces = tpair.dd
-    dd_allfaces = dd_intfaces.with_dtag("all_faces")
+    dd_allfaces = dd_intfaces.with_domain_tag(
+        BoundaryDomainTag(FACE_RESTR_ALL, VTAG_ALL)
+        )
     q_ll = tpair.int
     q_rr = tpair.ext
     actx = q_ll.array_context
@@ -310,8 +314,8 @@ class EulerOperator(HyperbolicOperator):
         dcoll = self.dcoll
         gamma = self.gamma
         qtag = self.qtag
-        dq = DOFDesc("vol", qtag)
-        df = DOFDesc("all_faces", qtag)
+        dq = as_dofdesc("vol", qtag)
+        df = as_dofdesc("all_faces", qtag)
 
         def interp_to_quad(u):
             return op.project(dcoll, "vol", dq, u)
@@ -341,7 +345,7 @@ class EulerOperator(HyperbolicOperator):
                     dcoll,
                     self.bdry_conditions[btag].boundary_tpair(
                         dcoll,
-                        as_dofdesc(btag).with_discr_tag(qtag),
+                        as_dofdesc(btag, qtag),
                         q,
                         t=t
                     ),

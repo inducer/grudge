@@ -160,7 +160,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
                 * (0.5+0.5*actx.np.tanh(500*(dist[0]))))
 
     def zero_inflow_bc(dtag, t=0):
-        dd = dof_desc.DOFDesc(dtag, qtag)
+        dd = dof_desc.as_dofdesc(dtag, qtag)
         return dcoll.discr_from_dd(dd).zeros(actx)
 
     from grudge.models.advection import VariableCoefficientAdvectionOperator

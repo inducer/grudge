@@ -230,8 +230,9 @@ class DOFDesc:
     domain_tag: DomainTag
     discretization_tag: DiscretizationTag
 
-    def __init__(self, domain_tag: Any,
-            discretization_tag: Optional[type[DiscretizationTag]] = None):
+    def __init__(self,
+            domain_tag: Any,
+            discretization_tag: Optional[Type[DiscretizationTag]] = None):
 
         if (
                 not (isinstance(domain_tag,
