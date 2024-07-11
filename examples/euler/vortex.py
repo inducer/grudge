@@ -74,7 +74,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
         default_simplex_group_factory,
     )
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
 
     exp_name = f"fld-vortex-N{order}-K{resolution}-{flux_type}"
@@ -85,7 +85,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     else:
         quad_tag = None
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(

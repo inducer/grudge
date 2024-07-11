@@ -32,9 +32,9 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 from pytools.obj_array import flat_obj_array
 
-import grudge.op as op
-from grudge import DiscretizationCollection
+from grudge import op
 from grudge.array_context import PyOpenCLArrayContext
+from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import set_up_rk4
 
 
@@ -56,7 +56,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             b=(0.5,)*dim,
             nelements_per_axis=(20,)*dim)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]

@@ -37,7 +37,7 @@ from pytools.obj_array import flat_obj_array
 import grudge.geometry as geo
 import grudge.op as op
 from grudge.array_context import PyOpenCLArrayContext
-from grudge.discretization import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
 from grudge.shortcuts import make_visualizer, rk4_step
 
@@ -170,7 +170,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
         QuadratureSimplexGroupFactory,
         default_simplex_group_factory,
     )
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),

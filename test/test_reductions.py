@@ -48,7 +48,7 @@ from meshmode.dof_array import flatten
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
-from grudge import DiscretizationCollection
+from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     builder = mesh_data.BoxMeshBuilder1D()
 
     mesh = builder.get_mesh(mesh_size)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -132,7 +132,7 @@ def test_elementwise_reductions(actx_factory):
 
     nelements = 4
     mesh = builder.get_mesh(nelements)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -192,7 +192,7 @@ def test_nodal_reductions_with_container(actx_factory):
     builder = mesh_data.BoxMeshBuilder2D()
 
     mesh = builder.get_mesh(4)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):
@@ -239,7 +239,7 @@ def test_elementwise_reductions_with_container(actx_factory):
 
     nelements = 4
     mesh = builder.get_mesh(nelements)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     x = actx.thaw(dcoll.nodes())
 
     def f(x):

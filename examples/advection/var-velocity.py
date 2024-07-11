@@ -139,9 +139,9 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
     else:
         discr_tag_to_group_factory = {}
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh, order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
