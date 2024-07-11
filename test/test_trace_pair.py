@@ -61,9 +61,10 @@ def test_trace_pair(actx_factory):
                     rng.uniform(size=(grp.nelements, grp.nunit_dofs)))
                     for grp in dcoll.discr_from_dd("vol").groups))
 
+    from grudge.dof_desc import DD_VOLUME_ALL
     interior = rand()
     exterior = rand()
-    tpair = TracePair("vol", interior=interior, exterior=exterior)
+    tpair = TracePair(DD_VOLUME_ALL, interior=interior, exterior=exterior)
 
     import grudge.op as op
     assert op.norm(dcoll, tpair.avg - 0.5*(exterior + interior), np.inf) == 0
