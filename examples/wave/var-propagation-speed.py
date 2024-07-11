@@ -24,20 +24,20 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
-from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
-
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+from grudge import DiscretizationCollection
+from grudge.array_context import PyOpenCLArrayContext
+from grudge.shortcuts import set_up_rk4
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,8 +78,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     ones = dcoll.zeros(actx) + 1
     c = actx.np.where(np.dot(x, x) < 0.15, 0.1 * ones, 0.2 * ones)
 
-    from grudge.models.wave import VariableCoefficientWeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
+
+    from grudge.models.wave import VariableCoefficientWeakWaveOperator
 
     wave_op = VariableCoefficientWeakWaveOperator(
         dcoll,

@@ -9,14 +9,15 @@
 
 # BEGINEXAMPLE
 import numpy as np
+
 import pyopencl as cl
-from grudge.discretization import make_discretization_collection
-import grudge.op as op
-import grudge.geometry as geo
-from grudge.dof_desc import as_dofdesc
-from meshmode.mesh.generation import generate_box_mesh
 from meshmode.array_context import PyOpenCLArrayContext
-from grudge.dof_desc import BoundaryDomainTag, FACE_RESTR_INTERIOR
+from meshmode.mesh.generation import generate_box_mesh
+
+import grudge.geometry as geo
+import grudge.op as op
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import FACE_RESTR_INTERIOR, BoundaryDomainTag, as_dofdesc
 
 
 ctx = cl.create_some_context()
@@ -114,6 +115,8 @@ assert op.norm(dcoll,
                uh - u_exact(x_vol, t_final),
                p=2) <= 0.1
 import matplotlib.pyplot as plt
+
+
 plt.plot(actx.to_numpy(actx.np.ravel(x_vol[0][0])),
          actx.to_numpy(actx.np.ravel(uh[0])), label="Numerical")
 plt.plot(actx.to_numpy(actx.np.ravel(x_vol[0][0])),

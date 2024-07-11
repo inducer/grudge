@@ -23,29 +23,21 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import (
-    PyOpenCLArrayContext,
-    PytatoPyOpenCLArrayContext
-)
-from grudge.models.euler import (
-    ConservedEulerField,
-    EulerOperator,
-    InviscidWallBC
-)
-from grudge.shortcuts import rk4_step
-
 from meshmode.mesh import BTAG_ALL
-
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
+from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
+from grudge.shortcuts import rk4_step
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,11 +121,13 @@ def run_acoustic_pulse(actx,
         b=(box_ur,)*dim,
         nelements_per_axis=(resolution,)*dim)
 
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
+
     from grudge import DiscretizationCollection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
-    from meshmode.discretization.poly_element import \
-        (default_simplex_group_factory,
-         QuadratureSimplexGroupFactory)
 
     exp_name = f"fld-acoustic-pulse-N{order}-K{resolution}"
     if overintegration:

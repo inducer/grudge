@@ -22,35 +22,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
-
 from dataclasses import dataclass
 
-from arraycontext import (
-    with_container_arithmetic,
-    dataclass_array_container,
-    pytest_generate_tests_for_array_contexts
-)
+import numpy as np
 
+from arraycontext import (
+    dataclass_array_container,
+    pytest_generate_tests_for_array_contexts,
+    with_container_arithmetic,
+)
 from meshmode.dof_array import DOFArray
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from grudge import DiscretizationCollection
+import logging
 
-import grudge.op as op
 import mesh_data
-
-from meshmode.dof_array import flatten
-
-from pytools.obj_array import make_obj_array
-
 import pytest
 
-import logging
+from meshmode.dof_array import flatten
+from pytools.obj_array import make_obj_array
+
+import grudge.op as op
+from grudge import DiscretizationCollection
 
 
 logger = logging.getLogger(__name__)

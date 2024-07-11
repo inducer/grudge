@@ -25,24 +25,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
 
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
-from meshmode.dof_array import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-
+from meshmode.dof_array import flatten
 from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
-import grudge.op as op
 import grudge.geometry as geo
+import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,7 +128,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ discretization
 
     if dim == 2:
-        from meshmode.mesh.generation import make_curve_mesh, ellipse
+        from meshmode.mesh.generation import ellipse, make_curve_mesh
         mesh = make_curve_mesh(
                 lambda t: radius * ellipse(1.0, t),
                 np.linspace(0.0, 1.0, resolution + 1),
@@ -147,9 +146,10 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     else:
         qtag = None
 
-    from meshmode.discretization.poly_element import \
-            default_simplex_group_factory, \
-            QuadratureSimplexGroupFactory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
 
     discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
         default_simplex_group_factory(base_dim=dim-1, order=order)

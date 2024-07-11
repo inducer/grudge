@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from meshmode.discretization import InterpolatoryElementGroupBase, NodalElementGroupBase
 
+
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -71,60 +72,58 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import (ArrayContext, map_array_container, tag_axes,
-        ArrayOrContainer)
-
 from functools import partial
-
-from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import (FirstAxisIsElementsTag,
-                                         DiscretizationDOFAxisTag,
-                                         DiscretizationElementAxisTag,
-                                         DiscretizationFaceAxisTag)
-import modepy as mp
-
-from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import as_dofdesc
-
-from pytools import keyed_memoize_in
-from pytools.obj_array import make_obj_array
 
 import numpy as np
 
-import grudge.dof_desc as dof_desc
-from grudge.dof_desc import (
-    DD_VOLUME_ALL, FACE_RESTR_ALL, DISCR_TAG_BASE,
-    DOFDesc, VolumeDomainTag
+import modepy as mp
+from arraycontext import ArrayContext, ArrayOrContainer, map_array_container, tag_axes
+from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+    DiscretizationFaceAxisTag,
+    FirstAxisIsElementsTag,
 )
+from pytools import keyed_memoize_in
+from pytools.obj_array import make_obj_array
 
+import grudge.dof_desc as dof_desc
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import (
+    DD_VOLUME_ALL,
+    DISCR_TAG_BASE,
+    FACE_RESTR_ALL,
+    DOFDesc,
+    VolumeDomainTag,
+    as_dofdesc,
+)
 from grudge.interpolation import interp
 from grudge.projection import project
-
 from grudge.reductions import (
-    norm,
-    nodal_sum,
-    nodal_min,
-    nodal_max,
-    nodal_sum_loc,
-    nodal_min_loc,
-    nodal_max_loc,
-    integral,
-    elementwise_sum,
+    elementwise_integral,
     elementwise_max,
     elementwise_min,
-    elementwise_integral,
+    elementwise_sum,
+    integral,
+    nodal_max,
+    nodal_max_loc,
+    nodal_min,
+    nodal_min_loc,
+    nodal_sum,
+    nodal_sum_loc,
+    norm,
 )
-
 from grudge.trace_pair import (
-    project_tracepair,
-    tracepair_with_discr_tag,
+    bdry_trace_pair,
+    bv_trace_pair,
+    connected_ranks,
+    cross_rank_trace_pairs,
     interior_trace_pair,
     interior_trace_pairs,
     local_interior_trace_pair,
-    connected_ranks,
-    cross_rank_trace_pairs,
-    bdry_trace_pair,
-    bv_trace_pair
+    project_tracepair,
+    tracepair_with_discr_tag,
 )
 
 
@@ -297,9 +296,9 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
 
 
 def _strong_scalar_div(dcoll, dd, vecs):
+    from arraycontext import get_container_context_recursively, serialize_container
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    from arraycontext import (get_container_context_recursively,
-                              serialize_container)
 
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
@@ -445,8 +444,7 @@ def _reference_stiffness_transpose_matrices(
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            from meshmode.discretization.poly_element import \
-                mass_matrix, diff_matrices
+            from meshmode.discretization.poly_element import diff_matrices, mass_matrix
 
             mmat = mass_matrix(out_grp)
             return actx.freeze(
@@ -498,9 +496,9 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
 
 
 def _weak_scalar_div(dcoll, dd_in, vecs):
+    from arraycontext import get_container_context_recursively, serialize_container
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    from arraycontext import (get_container_context_recursively,
-                              serialize_container)
 
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
@@ -899,8 +897,7 @@ def reference_face_mass_matrix(
 
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
-        from meshmode.discretization.poly_element import \
-            QuadratureSimplexElementGroup
+        from meshmode.discretization.poly_element import QuadratureSimplexElementGroup
 
         n = vol_grp.order
         m = face_grp.order

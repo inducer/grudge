@@ -1,9 +1,11 @@
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from typing import ClassVar, Hashable, Optional, Sequence
+
+import numpy as np
+
+import meshmode.mesh.generation as mgen
 from meshmode.mesh import Mesh
 from meshmode.mesh.io import read_gmsh
-import numpy as np
-import meshmode.mesh.generation as mgen
 
 
 class MeshBuilder(ABC):

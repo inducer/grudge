@@ -1,5 +1,6 @@
 from urllib.request import urlopen
 
+
 _conf_url = \
         "https://raw.githubusercontent.com/inducer/sphinxconfig/main/sphinxconfig.py"
 with urlopen(_conf_url) as _inf:
@@ -40,5 +41,7 @@ intersphinx_mapping = {
 
 # index-page demo uses pyopencl via plot_directive
 import os
+
+
 # switch to "port:cpu" once we're firmly migrated to pocl 4.0
 os.environ["PYOPENCL_TEST"] = "port:0"

@@ -22,18 +22,21 @@ THE SOFTWARE.
 
 
 import numpy as np
-from grudge.trace_pair import TracePair
+
 import meshmode.mesh.generation as mgen
+from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import DOFArray
 
 from grudge import DiscretizationCollection
-
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
+from grudge.trace_pair import TracePair
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +54,13 @@ def test_trace_pair(actx_factory):
 
     dcoll = DiscretizationCollection(actx, mesh, order=order)
 
+    rng = np.random.default_rng(1234)
+
     def rand():
         return DOFArray(
                 actx,
                 tuple(actx.from_numpy(
-                    np.random.rand(grp.nelements, grp.nunit_dofs))
+                    rng.uniform(size=(grp.nelements, grp.nunit_dofs)))
                     for grp in dcoll.discr_from_dd("vol").groups))
 
     interior = rand()

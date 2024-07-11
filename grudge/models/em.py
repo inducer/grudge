@@ -28,18 +28,16 @@ THE SOFTWARE.
 """
 
 
+import numpy as np
+
 from arraycontext import get_container_context_recursively
-
-from grudge.models import HyperbolicOperator
-
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-
-from pytools import memoize_method, levi_civita
+from pytools import levi_civita, memoize_method
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-import grudge.op as op
 import grudge.geometry as geo
-import numpy as np
+import grudge.op as op
+from grudge.models import HyperbolicOperator
 
 
 # {{{ helpers
@@ -263,13 +261,13 @@ class MaxwellOperator(HyperbolicOperator):
                     1/2*(
                         -self.space_cross_h(normal, h.ext-h.int)
                         # multiplication by epsilon undoes material divisor below
-                        #-max_c*(epsilon*e.int - epsilon*e.ext)
+                        # -max_c*(epsilon*e.int - epsilon*e.ext)
                     ),
                     # flux h
                     1/2*(
                         self.space_cross_e(normal, e.ext-e.int)
                         # multiplication by mu undoes material divisor below
-                        #-max_c*(mu*h.int - mu*h.ext)
+                        # -max_c*(mu*h.int - mu*h.ext)
                     ))
         elif isinstance(self.flux_type, (int, float)):
             # see doc/maxima/maxwell.mac

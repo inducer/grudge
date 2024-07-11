@@ -21,30 +21,36 @@ THE SOFTWARE.
 """
 
 
-from meshmode.discretization.poly_element import (
-    InterpolatoryEdgeClusteredGroupFactory, QuadratureGroupFactory)
 import numpy as np
-
-from meshmode.mesh import BTAG_ALL
-import meshmode.mesh.generation as mgen
-
-from pytools.obj_array import make_obj_array
-
-from grudge import op, geometry as geo, DiscretizationCollection
-from grudge.discretization import make_discretization_collection
-from grudge.dof_desc import (DISCR_TAG_BASE, DISCR_TAG_QUAD, DTAG_VOLUME_ALL,
-    DOFDesc, as_dofdesc)
-
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory,
+)
+from meshmode.mesh import BTAG_ALL
+from pytools.obj_array import make_obj_array
 
+from grudge import DiscretizationCollection, geometry as geo, op
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import (
+    DISCR_TAG_BASE,
+    DISCR_TAG_QUAD,
+    DTAG_VOLUME_ALL,
+    DOFDesc,
+    as_dofdesc,
+)
 from grudge.trace_pair import bv_trace_pair
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
 import logging
+
 
 logger = logging.getLogger(__name__)
 

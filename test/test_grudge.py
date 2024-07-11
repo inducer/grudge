@@ -23,38 +23,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import mesh_data
 import numpy as np
 import numpy.linalg as la
 
+from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
-    QuadratureGroupFactory)
+    QuadratureGroupFactory,
+)
 from meshmode.mesh import TensorProductElementGroup
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
 
-import mesh_data
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-from meshmode import _acf           # noqa: F401
-
-from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
-
-from pytools.obj_array import flat_obj_array
-
-from grudge import DiscretizationCollection, make_discretization_collection
-
-import grudge.dof_desc as dof_desc
-import grudge.op as op
-import grudge.geometry as geo
-
+import logging
 
 import pytest
 
-import logging
+import meshmode.mesh.generation as mgen
+from meshmode import _acf  # noqa: F401
+from meshmode.dof_array import flat_norm
+from pytools.obj_array import flat_obj_array
+
+import grudge.dof_desc as dof_desc
+import grudge.geometry as geo
+import grudge.op as op
+from grudge import DiscretizationCollection, make_discretization_collection
+
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +140,7 @@ def _ellipse_surface_area(radius, aspect_ratio):
         # NOTE: hardcoded value so we don't need scipy for the test
         ellip_e = 1.2110560275684594
     else:
-        from scipy.special import ellipe        # pylint: disable=no-name-in-module
+        from scipy.special import ellipe  # pylint: disable=no-name-in-module
         ellip_e = ellipe(eccentricity)
 
     return 4.0 * radius * ellip_e
@@ -363,6 +362,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+
     from grudge.geometry import normal
 
     dv = dof_desc.DD_VOLUME
@@ -383,7 +383,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
             )(face_normal_i)
 
     if ambient_dim == 3:
-        from grudge.geometry import pseudoscalar, area_element
+        from grudge.geometry import area_element, pseudoscalar
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
             pseudoscalar(actx, dcoll, dd=df) / area_element(actx, dcoll, dd=df)
@@ -474,7 +474,7 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
     use_overint = False
 
     if case == "circle":
-        from meshpy.geometry import make_circle, GeometryBuilder
+        from meshpy.geometry import GeometryBuilder, make_circle
         from meshpy.triangle import MeshInfo, build
 
         geob = GeometryBuilder()
@@ -567,7 +567,7 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         int_2 = op.integral(dcoll, dd_quad_bd, f_dot_n)
 
     if visualize:
-        from grudge.shortcuts import make_visualizer, make_boundary_visualizer
+        from grudge.shortcuts import make_boundary_visualizer, make_visualizer
         vis = make_visualizer(dcoll)
         bvis = make_boundary_visualizer(dcoll)
 
@@ -648,14 +648,13 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     mesh_offset = np.array([0.33, -0.21, 0.0])[:ambient_dim]
 
     for i, resolution in enumerate(builder.resolutions):
-        from meshmode.mesh.processing import affine_map
         from meshmode.discretization.connection import FACE_RESTR_ALL
+        from meshmode.mesh.processing import affine_map
 
         mesh = builder.get_mesh(resolution, order)
         mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
 
-        from meshmode.discretization.poly_element import \
-                QuadratureSimplexGroupFactory
+        from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
         qtag = dof_desc.DISCR_TAG_QUAD
         dcoll = DiscretizationCollection(
@@ -766,7 +765,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         elif mesh_name == "disk":
             pytest.importorskip("meshpy")
 
-            from meshpy.geometry import make_circle, GeometryBuilder
+            from meshpy.geometry import GeometryBuilder, make_circle
             from meshpy.triangle import MeshInfo, build
 
             geob = GeometryBuilder()
@@ -814,10 +813,12 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         def u_analytic(x, t=0):
             return f(-v.dot(x)/norm_v + t*norm_v)
 
-        from grudge.models.advection import (
-            StrongAdvectionOperator, WeakAdvectionOperator
-        )
         from meshmode.mesh import BTAG_ALL
+
+        from grudge.models.advection import (
+            StrongAdvectionOperator,
+            WeakAdvectionOperator,
+        )
 
         dcoll = DiscretizationCollection(actx, mesh, order=order)
         op_class = {"strong": StrongAdvectionOperator,
@@ -850,7 +851,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         tol = 1e-14
         dt = final_time/nsteps + tol
 
-        from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
+        from grudge.shortcuts import compiled_lsrk45_step, make_visualizer
         vis = make_visualizer(dcoll)
 
         step = 0
@@ -978,10 +979,11 @@ def test_convergence_maxwell(actx_factory,  order):
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
     """Test whether quadrature improves things and converges"""
-    from grudge.models.advection import VariableCoefficientAdvectionOperator
-    from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
     from meshmode.mesh import BTAG_ALL
+    from pytools.convergence import EOCRecorder
+
+    from grudge.models.advection import VariableCoefficientAdvectionOperator
 
     actx = actx_factory()
 
@@ -1078,7 +1080,7 @@ def test_bessel(actx_factory):
     # FIXME: Bessel functions need to brought out of the symbolic
     # layer. Related issue: https://github.com/inducer/grudge/issues/93
     def bessel_j(actx, n, r):
-        from grudge import sym, bind  # pylint: disable=no-name-in-module
+        from grudge import bind, sym  # pylint: disable=no-name-in-module
         return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
