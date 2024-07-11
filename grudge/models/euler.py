@@ -66,7 +66,10 @@ from grudge.trace_pair import TracePair
 @with_container_arithmetic(bcast_obj_array=False,
                            bcast_container_types=(DOFArray, np.ndarray),
                            matmul=True,
-                           rel_comparison=True)
+                           rel_comparison=True,
+                           # NOTE: this can be set to True because DOFArray
+                           # also sets it to True and we just get it from there
+                           _cls_has_array_context_attr=True)
 @dataclass_array_container
 @dataclass(frozen=True)
 class ConservedEulerField:
@@ -76,7 +79,11 @@ class ConservedEulerField:
 
     @property
     def array_context(self):
-        return self.mass.array_context
+        return (
+            self.mass.array_context
+            if isinstance(self.mass, DOFArray)
+            # NOTE: ConservedEulerField also holds the fluxes sometimes...
+            else self.mass[0].array_context)
 
     @property
     def dim(self):
