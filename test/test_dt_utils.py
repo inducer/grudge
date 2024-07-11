@@ -64,7 +64,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     elif name == "box3d":
         builder = mesh_data.BoxMeshBuilder3D()
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
@@ -106,7 +106,7 @@ def test_non_geometric_factors(actx_factory, name):
     elif name == "box3d":
         builder = mesh_data.BoxMeshBuilder3D()
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 

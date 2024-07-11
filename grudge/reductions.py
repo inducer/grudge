@@ -352,7 +352,7 @@ def _apply_elementwise_reduction(
         )
     else:
         @memoize_in(actx, (_apply_elementwise_reduction, dd,
-                        "elementwise_%s_prg" % op_name))
+                        f"elementwise_{op_name}_prg"))
         def elementwise_prg():
             # FIXME: This computes the reduction value redundantly for each
             # output DOF.
@@ -361,10 +361,10 @@ def _apply_elementwise_reduction(
                     "{[iel]: 0 <= iel < nelements}",
                     "{[idof, jdof]: 0 <= idof, jdof < ndofs}"
                 ],
-                """
-                    result[iel, idof] = %s(jdof, operand[iel, jdof])
-                """ % op_name,
-                name="grudge_elementwise_%s_knl" % op_name
+                f"""
+                    result[iel, idof] = {op_name}(jdof, operand[iel, jdof])
+                """,
+                name=f"grudge_elementwise_{op_name}_knl"
             )
             import loopy as lp
             from meshmode.transform_metadata import (

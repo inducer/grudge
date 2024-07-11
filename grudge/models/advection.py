@@ -64,7 +64,7 @@ def advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
 # {{{ constant-coefficient advection
 
 class AdvectionOperatorBase(HyperbolicOperator):
-    flux_types = ["central", "upwind", "lf"]
+    flux_types = ("central", "upwind", "lf")
 
     def __init__(self, dcoll, v, inflow_u=None, flux_type="central"):
         if flux_type not in self.flux_types:
@@ -295,7 +295,7 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     if trace_dd.domain_tag.tag is FACE_RESTR_INTERIOR:
         e = dcoll.opposite_face_connection(trace_dd.domain_tag)(i)
     else:
-        raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
+        raise ValueError(f"Unrecognized domain tag: {trace_dd.domain_tag}")
 
     return TracePair(trace_dd, interior=i, exterior=e)
 

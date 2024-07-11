@@ -341,12 +341,8 @@ def interior_trace_pairs(
     if volume_dd is None:
         volume_dd = DD_VOLUME_ALL
 
-    return (
-        [local_interior_trace_pair(
-            dcoll, vec, volume_dd=volume_dd)]
-        + cross_rank_trace_pairs(
-            dcoll, vec, comm_tag=comm_tag, volume_dd=volume_dd)
-    )
+    return [local_interior_trace_pair(dcoll, vec, volume_dd=volume_dd),
+            *cross_rank_trace_pairs(dcoll, vec, comm_tag=comm_tag, volume_dd=volume_dd)]
 
 # }}}
 

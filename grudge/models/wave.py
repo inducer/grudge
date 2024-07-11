@@ -104,7 +104,7 @@ class WeakWaveOperator(HyperbolicOperator):
                     0.5*(u.ext-u.int),
                     0.5*(normal * np.dot(normal, v.ext-v.int)))
         else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
+            raise ValueError(f"invalid flux type '{self.flux_type}'")
 
     def operator(self, t, w):
         dcoll = self.dcoll
@@ -265,7 +265,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)))
 
         else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
+            raise ValueError(f"invalid flux type '{self.flux_type}'")
 
     def operator(self, t, w):
         dcoll = self.dcoll

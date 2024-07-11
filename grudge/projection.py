@@ -48,8 +48,8 @@ from grudge.dof_desc import (
 
 def project(
         dcoll: DiscretizationCollection,
-        src: "ConvertibleToDOFDesc",
-        tgt: "ConvertibleToDOFDesc", vec) -> ArrayOrContainer:
+        src: ConvertibleToDOFDesc,
+        tgt: ConvertibleToDOFDesc, vec) -> ArrayOrContainer:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.

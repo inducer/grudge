@@ -42,21 +42,17 @@ from grudge.geometry.metrics import (
 
 
 __all__ = (
-    "forward_metric_nth_derivative",
-    "forward_metric_derivative_mat",
-    "inverse_metric_derivative_mat",
-
+    "area_element",
     "first_fundamental_form",
+    "forward_metric_derivative_mat",
+    "forward_metric_nth_derivative",
     "inverse_first_fundamental_form",
-
+    "inverse_metric_derivative_mat",
     "inverse_surface_metric_derivative",
     "inverse_surface_metric_derivative_mat",
-    "pseudoscalar",
-    "area_element",
-
     "mv_normal",
     "normal",
-
+    "pseudoscalar",
     "second_fundamental_form",
     "shape_operator",
     "summed_curvature",

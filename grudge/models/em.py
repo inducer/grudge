@@ -286,8 +286,7 @@ class MaxwellOperator(HyperbolicOperator):
                         ),
                     )
         else:
-            raise ValueError("maxwell: invalid flux_type (%s)"
-                    % self.flux_type)
+            raise ValueError(f"maxwell: invalid flux_type ({self.flux_type})")
 
     def local_derivatives(self, w):
         """Template for the spatial derivatives of the relevant components of
@@ -480,8 +479,7 @@ class TMMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (False, False, True)  # only ez
-                + (True, True, False)  # hx and hy
+                (False, False, True, True, True, False)  # ez, hx and hy
                 )
 
 # }}}
@@ -499,8 +497,7 @@ class TEMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (True, True, False)  # ex and ey
-                + (False, False, True)  # only hz
+                (True, True, False, False, False, True)  # ex and ey, only hz
                 )
 
 # }}}
@@ -518,8 +515,7 @@ class TE1DMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (True, True, False)
-                + (False, False, True)
+                (True, True, False, False, False, True)
                 )
 
 # }}}
@@ -537,8 +533,7 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (False, True, False)
-                + (False, False, True)
+                (False, True, False, False, False, True)
                 )
 
 # }}}
