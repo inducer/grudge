@@ -32,8 +32,8 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+from arraycontext import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-from meshmode.dof_array import flatten
 from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
@@ -62,7 +62,7 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
             x = actx.thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL).nodes())
-            self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0])))
+            self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0]), self.actx))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -74,7 +74,7 @@ class Plotter:
             return
 
         if self.ambient_dim == 2:
-            u = self.actx.to_numpy(flatten(evt.state_component))
+            u = self.actx.to_numpy(flatten(evt.state_component, self.actx))
 
             filename = f"{basename}.png"
             if not overwrite and os.path.exists(filename):

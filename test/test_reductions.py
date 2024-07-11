@@ -31,10 +31,11 @@ import pytest
 
 from arraycontext import (
     dataclass_array_container,
+    flatten,
     pytest_generate_tests_for_array_contexts,
     with_container_arithmetic,
 )
-from meshmode.dof_array import DOFArray, flatten
+from meshmode.dof_array import DOFArray
 from pytools.obj_array import make_obj_array
 
 from grudge import op
@@ -73,9 +74,9 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
 
     fields = make_obj_array([f(x), g(x), h(x)])
 
-    f_ref = actx.to_numpy(flatten(fields[0]))
-    g_ref = actx.to_numpy(flatten(fields[1]))
-    h_ref = actx.to_numpy(flatten(fields[2]))
+    f_ref = actx.to_numpy(flatten(fields[0], actx))
+    g_ref = actx.to_numpy(flatten(fields[1], actx))
+    h_ref = actx.to_numpy(flatten(fields[2], actx))
     concat_fields = np.concatenate([f_ref, g_ref, h_ref])
 
     for grudge_op, np_op in [(op.nodal_max, np.max),
@@ -206,10 +207,11 @@ def test_nodal_reductions_with_container(actx_factory):
                                 momentum=momentum,
                                 enthalpy=enthalpy)
 
-    mass_ref = actx.to_numpy(flatten(mass))
-    momentum_ref = np.concatenate([actx.to_numpy(mom_i)
-                                   for mom_i in flatten(momentum)])
-    enthalpy_ref = actx.to_numpy(flatten(enthalpy))
+    mass_ref = actx.to_numpy(flatten(mass, actx))
+    momentum_ref = np.concatenate([
+            actx.to_numpy(mom_i)
+            for mom_i in flatten(momentum, actx, leaf_class=DOFArray)])
+    enthalpy_ref = actx.to_numpy(flatten(enthalpy, actx))
     concat_fields = np.concatenate([mass_ref, momentum_ref, enthalpy_ref])
 
     for grudge_op, np_op in [(op.nodal_sum, np.sum),
