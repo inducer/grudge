@@ -23,31 +23,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
+import logging
 
+import numpy as np
+import pytest
+
+import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
-
-
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory,
-         PytestPytatoPyOpenCLArrayContextFactory])
-
-import logging
-
-import pytest
-
-import meshmode.mesh.generation as mgen
-from meshmode.dof_array import flat_norm
-
 from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory,
+         PytestPytatoPyOpenCLArrayContextFactory])
 
 
 # {{{ inverse metric

@@ -23,39 +23,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import mesh_data
 import numpy as np
 import numpy.linalg as la
+import pytest
 
+import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
-from meshmode.mesh import TensorProductElementGroup
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-
-
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
-import pytest
-
-import meshmode.mesh.generation as mgen
-from meshmode import _acf  # noqa: F401
 from meshmode.dof_array import flat_norm
+from meshmode.mesh import TensorProductElementGroup
 from pytools.obj_array import flat_obj_array
 
-import grudge.dof_desc as dof_desc
-import grudge.geometry as geo
-import grudge.op as op
+from grudge import dof_desc, geometry, op
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 
 # {{{ mass operator trig integration
@@ -77,6 +70,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
 
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, discr_tag)
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         discr_tag_to_group_factory = {}
@@ -141,6 +135,7 @@ def _ellipse_surface_area(radius, aspect_ratio):
         ellip_e = 1.2110560275684594
     else:
         from scipy.special import ellipe  # pylint: disable=no-name-in-module
+
         ellip_e = ellipe(eccentricity)
 
     return 4.0 * radius * ellip_e
@@ -189,6 +184,7 @@ def test_mass_surface_area(actx_factory, name):
     # {{{ convergence
 
     from pytools.convergence import EOCRecorder
+
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
@@ -274,6 +270,7 @@ def test_mass_operator_inverse(actx_factory, name):
     # {{{ inv(m) @ m == id
 
     from pytools.convergence import EOCRecorder
+
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
@@ -363,8 +360,6 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
-    from grudge.geometry import normal
-
     dv = dof_desc.DD_VOLUME
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
@@ -372,21 +367,21 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     surf_normal = op.project(
         dcoll, dv, df,
-        normal(actx, dcoll, dd=dv)
+        geometry.normal(actx, dcoll, dd=dv)
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    face_normal_i = geo.normal(actx, dcoll, df)
+    face_normal_i = geometry.normal(actx, dcoll, df)
     face_normal_e = dcoll.opposite_face_connection(
             dof_desc.BoundaryDomainTag(
                 dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
             )(face_normal_i)
 
     if ambient_dim == 3:
-        from grudge.geometry import area_element, pseudoscalar
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
-            pseudoscalar(actx, dcoll, dd=df) / area_element(actx, dcoll, dd=df)
+            geometry.pseudoscalar(actx, dcoll, dd=df)
+            / geometry.area_element(actx, dcoll, dd=df)
         ).as_vector(dtype=object)
 
     # }}}
@@ -546,7 +541,7 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         int_1 = op.integral(dcoll, "vol", div_f)
 
         prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
-        normal = geo.normal(actx, dcoll, BTAG_ALL)
+        normal = geometry.normal(actx, dcoll, BTAG_ALL)
         f_dot_n = prj_f.dot(normal)
         int_2 = op.integral(dcoll, BTAG_ALL, f_dot_n)
     else:
@@ -562,12 +557,13 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         int_1 = op.integral(dcoll, dd_quad_vol, div_f)
 
         prj_f = op.project(dcoll, "vol", dd_quad_bd, f_volm)
-        normal = geo.normal(actx, dcoll, dd_quad_bd)
+        normal = geometry.normal(actx, dcoll, dd_quad_bd)
         f_dot_n = prj_f.dot(normal)
         int_2 = op.integral(dcoll, dd_quad_bd, f_dot_n)
 
     if visualize:
         from grudge.shortcuts import make_boundary_visualizer, make_visualizer
+
         vis = make_visualizer(dcoll)
         bvis = make_boundary_visualizer(dcoll)
 
@@ -677,11 +673,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         f_num = f(actx.thaw(dcoll.nodes(dd=dd)))
         f_quad_num = f(actx.thaw(dcoll.nodes(dd=dq)))
 
-        from grudge.geometry import normal, summed_curvature
-
-        kappa = summed_curvature(actx, dcoll, dd=dq)
-        normal = normal(actx, dcoll, dd=dq)
-        face_normal = geo.normal(actx, dcoll, df)
+        kappa = geometry.summed_curvature(actx, dcoll, dd=dq)
+        normal = geometry.normal(actx, dcoll, dd=dq)
+        face_normal = geometry.normal(actx, dcoll, df)
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
@@ -710,6 +704,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         if visualize:
             from grudge.shortcuts import make_visualizer
+
             vis = make_visualizer(dcoll)
 
             filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
@@ -852,6 +847,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         dt = final_time/nsteps + tol
 
         from grudge.shortcuts import compiled_lsrk45_step, make_visualizer
+
         vis = make_visualizer(dcoll)
 
         step = 0
@@ -946,6 +942,7 @@ def test_convergence_maxwell(actx_factory,  order):
         nsteps = int(final_t/dt)
 
         from grudge.shortcuts import set_up_rk4
+
         dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
         logger.info("dt %.5e nsteps %5d", dt, nsteps)
@@ -1184,7 +1181,7 @@ def test_empty_boundary(actx_factory):
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
     dcoll = make_discretization_collection(actx, mesh, order=4)
-    normal = geo.normal(actx, dcoll, BTAG_NONE)
+    normal = geometry.normal(actx, dcoll, BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)

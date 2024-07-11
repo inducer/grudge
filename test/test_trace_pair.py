@@ -21,6 +21,8 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
 
 import meshmode.mesh.generation as mgen
@@ -32,13 +34,9 @@ from grudge.discretization import make_discretization_collection
 from grudge.trace_pair import TracePair
 
 
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
-
-logger = logging.getLogger(__name__)
 
 
 def test_trace_pair(actx_factory):

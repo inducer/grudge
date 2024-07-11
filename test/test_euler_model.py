@@ -22,24 +22,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import pytest
 
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
 )
 
+from grudge import op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 
 
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
-import grudge.op as op
-
-
-logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
