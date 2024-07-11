@@ -410,6 +410,8 @@ class MaxwellOperator(HyperbolicOperator):
         def flux(pair):
             return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
 
+        from grudge.dof_desc import as_dofdesc
+
         return (
             - self.local_derivatives(w)
             - op.inverse_mass(
@@ -417,7 +419,7 @@ class MaxwellOperator(HyperbolicOperator):
                 op.face_mass(
                     dcoll,
                     sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
-                    + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
+                    + sum(flux(op.bv_trace_pair(dcoll, as_dofdesc(tag), w, bc))
                           for tag, bc in tags_and_bcs)
                 )
             )
@@ -462,7 +464,8 @@ class MaxwellOperator(HyperbolicOperator):
             self.pec_tag,
             self.pmc_tag,
             self.absorb_tag,
-            self.incident_tag])
+            self.incident_tag,
+            ])
 
 # }}}
 

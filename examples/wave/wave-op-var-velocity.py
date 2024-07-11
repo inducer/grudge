@@ -38,7 +38,7 @@ import grudge.geometry as geo
 import grudge.op as op
 from grudge.array_context import PyOpenCLArrayContext
 from grudge.discretization import make_discretization_collection
-from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
 from grudge.shortcuts import make_visualizer, rk4_step
 
 
@@ -84,13 +84,13 @@ def wave_operator(actx, dcoll, c, w):
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
-    dd_quad = DOFDesc("vol", DISCR_TAG_QUAD)
+    dd_quad = as_dofdesc("vol", DISCR_TAG_QUAD)
     c_quad = op.project(dcoll, "vol", dd_quad, c)
     w_quad = op.project(dcoll, "vol", dd_quad, w)
     u_quad = w_quad[0]
     v_quad = w_quad[1:]
 
-    dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
+    dd_allfaces_quad = as_dofdesc("all_faces", DISCR_TAG_QUAD)
 
     return (
         op.inverse_mass(

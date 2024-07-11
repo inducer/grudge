@@ -236,7 +236,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
             overwrite=True
         )
 
-        df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
+        df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
         face_normal = geo.normal(actx, dcoll, dd=df)
 
