@@ -21,6 +21,8 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -46,13 +48,9 @@ from grudge.dof_desc import (
 from grudge.trace_pair import bv_trace_pair
 
 
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
-
-logger = logging.getLogger(__name__)
 
 
 # {{{ gradient

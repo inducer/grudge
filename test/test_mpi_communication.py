@@ -31,20 +31,16 @@ import sys
 import numpy as np
 import pytest
 
-from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
-
-
-logger = logging.getLogger(__name__)
-logging.basicConfig()
-logger.setLevel(logging.INFO)
-
 from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
-import grudge.dof_desc as dof_desc
-import grudge.op as op
+from grudge import dof_desc, op
+from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
 from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import rk4_step
+
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleTag:
@@ -141,11 +137,9 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
     x = actx.thaw(dcoll.nodes())
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
-    from grudge.dof_desc import as_dofdesc
-
-    dd_int = as_dofdesc("int_faces")
-    dd_vol = as_dofdesc("vol")
-    dd_af = as_dofdesc("all_faces")
+    dd_int = dof_desc.as_dofdesc("int_faces")
+    dd_vol = dof_desc.as_dofdesc("vol")
+    dd_af = dof_desc.as_dofdesc("all_faces")
 
     all_faces_func = op.project(dcoll, dd_vol, dd_af, myfunc)
     int_faces_func = op.project(dcoll, dd_vol, dd_int, myfunc)
