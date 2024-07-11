@@ -810,7 +810,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         def f(x):
             return actx.np.sin(10*x)
 
-        def u_analytic(x, t=0):
+        def u_analytic(x, t=0, v=v, norm_v=norm_v):
             return f(-v.dot(x)/norm_v + t*norm_v)
 
         from meshmode.mesh import BTAG_ALL
@@ -824,7 +824,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         op_class = {"strong": StrongAdvectionOperator,
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
-                                inflow_u=lambda t: u_analytic(
+                                inflow_u=lambda t, dcoll=dcoll: u_analytic(
                                     actx.thaw(dcoll.nodes(dd=BTAG_ALL)),
                                     t=t
                                 ),
@@ -833,7 +833,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         nodes = actx.thaw(dcoll.nodes())
         u = u_analytic(nodes, t=0)
 
-        def rhs(t, u):
+        def rhs(t, u, adv_operator=adv_operator):
             return adv_operator.operator(t, u)
 
         compiled_rhs = actx.compile(rhs)
@@ -938,7 +938,7 @@ def test_convergence_maxwell(actx_factory,  order):
         )
         maxwell_operator.check_bc_coverage(mesh)
 
-        def rhs(t, w):
+        def rhs(t, w, maxwell_operator=maxwell_operator):
             return maxwell_operator.operator(t, w)
 
         dt = actx.to_numpy(maxwell_operator.estimate_rk4_timestep(actx, dcoll))
@@ -1026,7 +1026,7 @@ def test_improvement_quadrature(actx_factory, order):
 
             nodes = actx.thaw(dcoll.nodes())
 
-            def zero_inflow(dtag, t=0):
+            def zero_inflow(dtag, t=0, dcoll=dcoll):
                 dd = dof_desc.DOFDesc(dtag, qtag)
                 return dcoll.discr_from_dd(dd).zeros(actx)
 

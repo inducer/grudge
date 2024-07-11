@@ -167,9 +167,8 @@ def main(dim=2, order=4, visualize=True):
 
             if step % 10 == 0:
                 if comm.rank == 0:
-                    logger.info(f"step: {step} "
-                                f"t: {time()-t_last_step} "
-                                f"L2: {l2norm}")
+                    logger.info("step: %d t: %.8e L2: %.8e",
+                                step, time() - t_last_step, l2norm)
                 if visualize:
                     vis.write_parallel_vtk_file(
                         comm,

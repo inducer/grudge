@@ -281,8 +281,8 @@ def main(ctx_factory, dim=2, order=3,
             stop = time.time()
             if no_diagnostics:
                 if comm.rank == 0:
-                    logger.info(f"step: {istep} t: {t} "
-                                f"wall: {stop-start} ")
+                    logger.info("step: %d t: %.8e wall: %.8es",
+                                istep, t, stop - start)
             else:
                 l2norm = actx.to_numpy(op.norm(dcoll, fields.u, 2))
 
@@ -294,12 +294,11 @@ def main(ctx_factory, dim=2, order=3,
                 nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields.u))
                 nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields.u))
                 if comm.rank == 0:
-                    logger.info(f"step: {istep} t: {t} "
-                                f"L2: {l2norm} "
-                                f"Linf: {linfnorm} "
-                                f"sol max: {nodalmax} "
-                                f"sol min: {nodalmin} "
-                                f"wall: {stop-start} ")
+                    logger.info("step: %d t: %.8e L2: %.8e Linf: %.8e "
+                                "sol max: %.8e sol min: %.8e wall: %.8e",
+                                istep, t, l2norm, linfnorm, nodalmax, nodalmin,
+                                stop - start)
+
             if visualize:
                 vis.write_parallel_vtk_file(
                     comm,

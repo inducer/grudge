@@ -31,7 +31,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "arraycontext>=2021.1"
+    "arraycontext>=2021.1",
     "immutables>=0.19",
     "loopy>=2024.1",
     "meshmode>=2021.2",
@@ -102,12 +102,6 @@ extend-ignore = [
     "E242", # tab after comma
     "E402", # module level import not at the top of file
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"test/test_grudge.py" = ["B023"]
-"test/test_op.py" = ["B023"]
-"test/test_euler_model.py" = ["B023"]
-"examples/wave/*.py" = ["G004"]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"
