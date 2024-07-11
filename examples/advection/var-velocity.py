@@ -30,7 +30,7 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-from meshmode.dof_array import flatten
+from arraycontext import flatten
 from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import flat_obj_array
 
@@ -59,7 +59,7 @@ class Plotter:
             self.ylim = ylim
 
             volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
-            self.x = actx.to_numpy(flatten(actx.thaw(volume_discr.nodes()[0])))
+            self.x = actx.to_numpy(flatten(volume_discr.nodes()[0], self.actx))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -69,7 +69,7 @@ class Plotter:
             return
 
         if self.dim == 1:
-            u = self.actx.to_numpy(flatten(evt.state_component))
+            u = self.actx.to_numpy(flatten(evt.state_component, self.actx))
 
             filename = f"{basename}.png"
             if not overwrite and os.path.exists(filename):
