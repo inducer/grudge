@@ -256,8 +256,8 @@ class DiscretizationCollection:
 
         boundary_connections = {}
 
-        from meshmode.distributed import get_connected_partitions
-        connected_parts = get_connected_partitions(self._volume_discrs[vtag].mesh)
+        from meshmode.distributed import get_connected_parts
+        connected_parts = get_connected_parts(self._volume_discrs[vtag].mesh)
 
         if connected_parts:
             if mpi_communicator is None:
