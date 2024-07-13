@@ -361,8 +361,8 @@ def connected_ranks(
     if volume_dd is None:
         volume_dd = DD_VOLUME_ALL
 
-    from meshmode.distributed import get_connected_partitions
-    return get_connected_partitions(
+    from meshmode.distributed import get_connected_parts
+    return get_connected_parts(
         dcoll._volume_discrs[volume_dd.domain_tag.tag].mesh)
 
 
