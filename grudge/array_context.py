@@ -164,6 +164,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
                  "to reduce device allocations)", stacklevel=2)
+
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
 
@@ -509,10 +510,29 @@ class PytestPyOpenCLArrayContextFactory(
         _PytestPyOpenCLArrayContextFactoryWithClass):
     actx_class = PyOpenCLArrayContext
 
+    def __call__(self):
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
+
+        _ctx, queue = self.get_command_queue()
+        alloc = MemoryPool(ImmediateAllocator(queue))
+
+        return self.actx_class(
+                queue,
+                allocator=alloc,
+                force_device_scalars=self.force_device_scalars)
+
 
 class PytestPytatoPyOpenCLArrayContextFactory(
         _PytestPytatoPyOpenCLArrayContextFactory):
     actx_class = PytatoPyOpenCLArrayContext
+
+    def __call__(self):
+        _ctx, queue = self.get_command_queue()
+
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
+        alloc = MemoryPool(ImmediateAllocator(queue))
+
+        return self.actx_class(queue, allocator=alloc)
 
 
 # deprecated
