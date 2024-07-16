@@ -439,14 +439,13 @@ def _reference_stiffness_transpose_matrices(
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            from meshmode.discretization.poly_element import diff_matrices, mass_matrix
-
-            mmat = mass_matrix(out_grp)
+            mmat = mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
+            diff_matrices = mp.diff_matrices(out_grp.basis_obj(), out_grp.unit_nodes)
             return actx.freeze(
                 actx.tag_axis(1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
                         np.asarray(
-                            [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]))))
+                            [dmat.T @ mmat.T for dmat in diff_matrices]))))
 
         from modepy import multi_vandermonde, vandermonde
 
