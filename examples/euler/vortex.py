@@ -106,7 +106,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     )
 
     def rhs(t, q):
-        return euler_operator.operator(t, q)
+        return euler_operator.operator(actx, t, q)
 
     compiled_rhs = actx.compile(rhs)
 

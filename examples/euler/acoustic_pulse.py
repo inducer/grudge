@@ -29,6 +29,7 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+from arraycontext import ArrayContext
 from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import make_obj_array
 
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def gaussian_profile(
+        actx: ArrayContext,
         x_vec, t=0, rho0=1.0, rhoamp=1.0, p0=1.0, gamma=1.4,
         center=None, velocity=None):
 
@@ -57,12 +59,11 @@ def gaussian_profile(
     rel_center = make_obj_array(
         [x_vec[i] - lump_loc[i] for i in range(dim)]
     )
-    actx = x_vec[0].array_context
     r = actx.np.sqrt(np.dot(rel_center, rel_center))
     expterm = rhoamp * actx.np.exp(1 - r ** 2)
 
     mass = expterm + rho0
-    mom = velocity * mass
+    mom = velocity.astype(object) * mass
     energy = (p0 / (gamma - 1.0)) + np.dot(mom, mom) / (2.0 * mass)
 
     return ConservedEulerField(mass=mass, energy=energy, momentum=mom)
@@ -81,11 +82,12 @@ def make_pulse(amplitude, r0, w, r):
     return amplitude * actx.np.exp(-.5 * r2)
 
 
-def acoustic_pulse_condition(x_vec, t=0):
+def acoustic_pulse_condition(actx: ArrayContext, x_vec, t=0):
     dim = len(x_vec)
     vel = np.zeros(shape=(dim,))
     orig = np.zeros(shape=(dim,))
     uniform_gaussian = gaussian_profile(
+        actx,
         x_vec, t=t, center=orig, velocity=vel, rhoamp=0.0)
 
     amplitude = 1.0
@@ -158,7 +160,7 @@ def run_acoustic_pulse(actx,
     )
 
     def rhs(t, q):
-        return euler_operator.operator(t, q)
+        return euler_operator.operator(actx, t, q)
 
     compiled_rhs = actx.compile(rhs)
 
@@ -168,7 +170,7 @@ def run_acoustic_pulse(actx,
     cn = 0.5*(order + 1)**2
     dt = cfl * actx.to_numpy(h_min_from_volume(dcoll)) / cn
 
-    fields = acoustic_pulse_condition(actx.thaw(dcoll.nodes()))
+    fields = acoustic_pulse_condition(actx, actx.thaw(dcoll.nodes()))
 
     logger.info("Timestep size: %g", dt)
 
