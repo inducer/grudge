@@ -91,7 +91,7 @@ def test_euler_vortex_convergence(actx_factory, order):
         )
 
         def rhs(t, q, euler_operator=euler_operator):
-            return euler_operator.operator(t, q)
+            return euler_operator.operator(actx, t, q)
 
         compiled_rhs = actx.compile(rhs)
 

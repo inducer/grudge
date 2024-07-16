@@ -49,7 +49,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from arraycontext import dataclass_array_container, with_container_arithmetic
+from arraycontext import (
+    ArrayContext,
+    dataclass_array_container,
+    with_container_arithmetic,
+)
 from meshmode.dof_array import DOFArray
 from pytools.obj_array import make_obj_array
 
@@ -67,23 +71,13 @@ from grudge.trace_pair import TracePair
                            bcast_container_types=(DOFArray, np.ndarray),
                            matmul=True,
                            rel_comparison=True,
-                           # NOTE: this can be set to True because DOFArray
-                           # also sets it to True and we just get it from there
-                           _cls_has_array_context_attr=True)
+                           )
 @dataclass_array_container
 @dataclass(frozen=True)
 class ConservedEulerField:
     mass: DOFArray
     energy: DOFArray
     momentum: np.ndarray
-
-    @property
-    def array_context(self):
-        return (
-            self.mass.array_context
-            if isinstance(self.mass, DOFArray)
-            # NOTE: ConservedEulerField also holds the fluxes sometimes...
-            else self.mass[0].array_context)
 
     @property
     def dim(self):
@@ -146,7 +140,7 @@ def conservative_to_primitive_vars(cv_state: ConservedEulerField, gamma=1.4):
     return rho, u, p
 
 
-def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
+def compute_wavespeed(actx: ArrayContext, cv_state: ConservedEulerField, gamma=1.4):
     """Computes the total translational wavespeed.
 
     :arg cv_state: A :class:`ConservedEulerField` containing the conserved
@@ -155,7 +149,6 @@ def compute_wavespeed(cv_state: ConservedEulerField, gamma=1.4):
         (default set to 1.4).
     :returns: A :class:`~meshmode.dof_array.DOFArray` containing local wavespeeds.
     """
-    actx = cv_state.array_context
     rho, u, p = conservative_to_primitive_vars(cv_state, gamma=gamma)
 
     return actx.np.sqrt(np.dot(u, u)) + actx.np.sqrt(gamma * (p / rho))
@@ -173,6 +166,7 @@ class InviscidBCObject(metaclass=ABCMeta):
     @abstractmethod
     def boundary_tpair(
             self,
+            actx: ArrayContext,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
@@ -183,6 +177,7 @@ class PrescribedBC(InviscidBCObject):
 
     def boundary_tpair(
             self,
+            actx: ArrayContext,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
@@ -200,10 +195,10 @@ class InviscidWallBC(InviscidBCObject):
 
     def boundary_tpair(
             self,
+            actx: ArrayContext,
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
-        actx = state.array_context
         dd_base = as_dofdesc("vol", DISCR_TAG_BASE)
         nhat = geo.normal(actx, dcoll, dd_bc)
         interior = op.project(dcoll, dd_base, dd_bc, state)
@@ -243,11 +238,12 @@ def euler_volume_flux(
     return ConservedEulerField(
         mass=cv_state.momentum,
         energy=u * (cv_state.energy + p),
-        momentum=rho * outer(u, u) + np.eye(dcoll.dim) * p
+        momentum=rho * outer(u, u) + np.eye(dcoll.dim, dtype=object) * p
     )
 
 
 def euler_numerical_flux(
+        actx: ArrayContext,
         dcoll: DiscretizationCollection, tpair: TracePair,
         gamma=1.4, lf_stabilization=False):
     """Computes the interface numerical flux for the Euler operator.
@@ -268,7 +264,6 @@ def euler_numerical_flux(
         )
     q_ll = tpair.int
     q_rr = tpair.ext
-    actx = q_ll.array_context
 
     flux_tpair = TracePair(
         tpair.dd,
@@ -282,8 +277,8 @@ def euler_numerical_flux(
         from arraycontext import outer
 
         # Compute jump penalization parameter
-        lam = actx.np.maximum(compute_wavespeed(q_ll, gamma=gamma),
-                              compute_wavespeed(q_rr, gamma=gamma))
+        lam = actx.np.maximum(compute_wavespeed(actx, q_ll, gamma=gamma),
+                              compute_wavespeed(actx, q_rr, gamma=gamma))
         num_flux -= lam*outer(tpair.diff, normal)/2
 
     return op.project(dcoll, dd_intfaces, dd_allfaces, num_flux @ normal)
@@ -313,11 +308,11 @@ class EulerOperator(HyperbolicOperator):
         self.lf_stabilization = flux_type == "lf"
         self.qtag = quadrature_tag
 
-    def max_characteristic_velocity(self, actx, **kwargs):
+    def max_characteristic_velocity(self, actx: ArrayContext, **kwargs):
         state = kwargs["state"]
-        return compute_wavespeed(state, gamma=self.gamma)
+        return compute_wavespeed(actx, state, gamma=self.gamma)
 
-    def operator(self, t, q):
+    def operator(self, actx: ArrayContext, t, q):
         dcoll = self.dcoll
         gamma = self.gamma
         qtag = self.qtag
@@ -337,7 +332,7 @@ class EulerOperator(HyperbolicOperator):
         interface_fluxes = (
             sum(
                 euler_numerical_flux(
-                    dcoll,
+                    actx, dcoll,
                     op.tracepair_with_discr_tag(dcoll, qtag, tpair),
                     gamma=gamma,
                     lf_stabilization=self.lf_stabilization
@@ -349,9 +344,9 @@ class EulerOperator(HyperbolicOperator):
         if self.bdry_conditions is not None:
             bc_fluxes = sum(
                 euler_numerical_flux(
-                    dcoll,
+                    actx, dcoll,
                     self.bdry_conditions[btag].boundary_tpair(
-                        dcoll,
+                        actx, dcoll,
                         as_dofdesc(btag, qtag),
                         q,
                         t=t
