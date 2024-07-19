@@ -93,6 +93,7 @@ from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
+    DISCR_TAG_QUAD,
     FACE_RESTR_ALL,
     DOFDesc,
     VolumeDomainTag,
@@ -819,6 +820,96 @@ def _apply_inverse_mass_operator(
     return DOFArray(actx, data=tuple(group_data))
 
 
+def _apply_inverse_mass_operator_quad(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_inverse_mass_operator_quad, dcoll, dd_out, dd_in), vec
+        )
+
+    from grudge.geometry import area_element
+
+    if dd_out != dd_in:
+        raise ValueError(
+            "Cannot compute inverse of a mass matrix mapping "
+            "between different element groups; inverse is not "
+            "guaranteed to be well-defined"
+        )
+
+    actx = vec.array_context
+    dd_quad = dd_in.with_discr_tag(DISCR_TAG_QUAD)
+    dd_base = dd_quad.with_discr_tag(DISCR_TAG_BASE)
+    discr_quad = dcoll.discr_from_dd(dd_quad)
+    discr_base = dcoll.discr_from_dd(dd_base)
+
+    # Based on https://arxiv.org/pdf/1608.03836.pdf
+    # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+    # Overintegration version of action on *vec*:
+    # true_Minv ~ ref_Minv * P(ref_M) * 1/P(Jac) * P(Minv*vec)
+    # P => projection to quadrature
+
+    # Compute 1/P(Jac)
+    inv_area_elements = 1/project(
+        dcoll, dd_base, dd_quad, area_element(
+            actx, dcoll, dd=dd_base,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting))
+
+    # Compute Minv*vec
+    def apply_minv_to_vec(vec, ref_inv_mass):
+        return actx.einsum(
+            "ij,ej->ei",
+            ref_inv_mass,
+            vec,
+            tagged=(FirstAxisIsElementsTag(),))
+
+    # Compute 1/J * vec
+    def apply_jinv_to_vec(jac_inv, vec):
+        return actx.einsum(
+            "ei,ej->ei",
+            jac_inv,
+            vec,
+            tagged=(FirstAxisIsElementsTag(),))
+
+    # Compute ref_M * vec
+    def apply_mm_to_vec(mm, vec):
+        return actx.einsum(
+            "ij,ej->ei",
+            mm,
+            vec,
+            tagged=(FirstAxisIsElementsTag(),))
+
+    stage1_group_data = [
+        apply_minv_to_vec(
+            vec_i, reference_inverse_mass_matrix(actx, element_group=grp))
+        for grp, vec_i in zip(discr_base.groups, vec)
+    ]
+
+    stage1 = DOFArray(actx, data=tuple(stage1_group_data))
+    stage1 = project(dcoll, dd_base, dd_quad, stage1)
+
+    stage2_group_data = [
+        apply_jinv_to_vec(jac_inv, vec_i)
+        for jac_inv, vec_i in zip(inv_area_elements, stage1)
+    ]
+    stage2 = DOFArray(actx, data=tuple(stage2_group_data))
+
+    stage3_group_data = [
+        apply_mm_to_vec(
+            reference_mass_matrix(actx, out_grp, in_grp), vec_i)
+        for out_grp, in_grp, vec_i in zip(discr_base.groups, discr_quad.groups,
+                                          stage2)
+    ]
+    stage3 = DOFArray(actx, data=tuple(stage3_group_data))
+
+    group_data = [
+        apply_minv_to_vec(
+            reference_inverse_mass_matrix(actx, element_group=grp), vec_i)
+        for grp, vec_i in zip(discr_base.groups, stage3)
+    ]
+
+    return DOFArray(actx, data=tuple(group_data))
+
+
 def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
@@ -865,6 +956,9 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
         dd, vec = args
     else:
         raise TypeError("invalid number of arguments")
+
+    if dd.uses_quadrature():
+        return _apply_inverse_mass_operator_quad(dcoll, dd, dd, vec)
 
     return _apply_inverse_mass_operator(dcoll, dd, dd, vec)
 
