@@ -821,40 +821,31 @@ def _apply_inverse_mass_operator(
 
 
 def _apply_inverse_mass_operator_quad(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd , vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator_quad, dcoll, dd_out, dd_in), vec
+            partial(_apply_inverse_mass_operator_quad, dcoll, dd), vec
         )
 
     from grudge.geometry import area_element
 
-    if dd_out != dd_in:
-        raise ValueError(
-            "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups; inverse is not "
-            "guaranteed to be well-defined"
-        )
-
     actx = vec.array_context
-    dd_quad = dd_in.with_discr_tag(DISCR_TAG_QUAD)
-    dd_base = dd_quad.with_discr_tag(DISCR_TAG_BASE)
+    dd_quad = dd.with_discr_tag(DISCR_TAG_QUAD)
+    dd_base = dd.with_discr_tag(DISCR_TAG_BASE)
     discr_quad = dcoll.discr_from_dd(dd_quad)
     discr_base = dcoll.discr_from_dd(dd_base)
 
     # Based on https://arxiv.org/pdf/1608.03836.pdf
     # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
     # Overintegration version of action on *vec*:
-    # true_Minv ~ ref_Minv * P(ref_M) * 1/P(Jac) * P(Minv*vec)
-    # P => projection to quadrature
+    # true_Minv ~ ref_Minv * (ref_M)_qtb * (1/Jac)_quad * P(Minv*vec)
+    # P => projection to quadrature, qti => quad-to-base
 
-    # Compute 1/P(Jac)
-    inv_area_elements = 1/project(
-        dcoll, dd_base, dd_quad, area_element(
-            actx, dcoll, dd=dd_base,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting))
+    # Compute 1/Jac on quadrature discr
+    inv_area_elements = 1/area_element(
+            actx, dcoll, dd=dd_quad,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    # Compute Minv*vec
     def apply_minv_to_vec(vec, ref_inv_mass):
         return actx.einsum(
             "ij,ej->ei",
@@ -862,18 +853,11 @@ def _apply_inverse_mass_operator_quad(
             vec,
             tagged=(FirstAxisIsElementsTag(),))
 
-    # Compute 1/J * vec
-    def apply_jinv_to_vec(jac_inv, vec):
+    # The rest of wadg
+    def apply_rest_of_wadg(mm_inv, mm, vec):
         return actx.einsum(
-            "ei,ej->ei",
-            jac_inv,
-            vec,
-            tagged=(FirstAxisIsElementsTag(),))
-
-    # Compute ref_M * vec
-    def apply_mm_to_vec(mm, vec):
-        return actx.einsum(
-            "ij,ej->ei",
+            "ni,ij,ej->en",
+            mm_inv,
             mm,
             vec,
             tagged=(FirstAxisIsElementsTag(),))
@@ -883,31 +867,19 @@ def _apply_inverse_mass_operator_quad(
             vec_i, reference_inverse_mass_matrix(actx, element_group=grp))
         for grp, vec_i in zip(discr_base.groups, vec)
     ]
+    stage2 = inv_area_elements * project(
+        dcoll, dd_base, dd_quad,
+        DOFArray(actx, data=tuple(stage1_group_data)))
 
-    stage1 = DOFArray(actx, data=tuple(stage1_group_data))
-    stage1 = project(dcoll, dd_base, dd_quad, stage1)
-
-    stage2_group_data = [
-        apply_jinv_to_vec(jac_inv, vec_i)
-        for jac_inv, vec_i in zip(inv_area_elements, stage1)
-    ]
-    stage2 = DOFArray(actx, data=tuple(stage2_group_data))
-
-    stage3_group_data = [
-        apply_mm_to_vec(
+    wadg_group_data = [
+        apply_rest_of_wadg(
+            reference_inverse_mass_matrix(actx, out_grp),
             reference_mass_matrix(actx, out_grp, in_grp), vec_i)
-        for out_grp, in_grp, vec_i in zip(discr_base.groups, discr_quad.groups,
-                                          stage2)
-    ]
-    stage3 = DOFArray(actx, data=tuple(stage3_group_data))
-
-    group_data = [
-        apply_minv_to_vec(
-            reference_inverse_mass_matrix(actx, element_group=grp), vec_i)
-        for grp, vec_i in zip(discr_base.groups, stage3)
+        for in_grp, out_grp, vec_i in zip(
+                discr_quad.groups, discr_base.groups, stage2)
     ]
 
-    return DOFArray(actx, data=tuple(group_data))
+    return DOFArray(actx, data=tuple(wadg_group_data))
 
 
 def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
@@ -958,7 +930,7 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
         raise TypeError("invalid number of arguments")
 
     if dd.uses_quadrature():
-        return _apply_inverse_mass_operator_quad(dcoll, dd, dd, vec)
+        return _apply_inverse_mass_operator_quad(dcoll, dd, vec)
 
     return _apply_inverse_mass_operator(dcoll, dd, dd, vec)
 
