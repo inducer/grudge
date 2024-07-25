@@ -355,7 +355,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             filename = (f"test_divergence_{form}_{dim}_{order}"
                 f"{'_vec' if vectorize else ''}{'_nested' if nested else ''}.vtu")
             vis.write_vtk_file(filename, [
-                ("u", u),
+                ("u", u_base),
                 ("div_u", div_u),
                 ("expected_div_u", expected_div_u),
                 ], overwrite=True)
