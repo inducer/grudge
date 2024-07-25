@@ -26,14 +26,13 @@ import logging
 import numpy as np
 import pytest
 
-from meshmode.mesh import TensorProductElementGroup
 import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
-from meshmode.mesh import BTAG_ALL
+from meshmode.mesh import BTAG_ALL, TensorProductElementGroup
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op

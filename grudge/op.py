@@ -821,7 +821,7 @@ def _apply_inverse_mass_operator(
 
 
 def _apply_inverse_mass_operator_quad(
-        dcoll: DiscretizationCollection, dd , vec):
+        dcoll: DiscretizationCollection, dd, vec):
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(_apply_inverse_mass_operator_quad, dcoll, dd), vec
