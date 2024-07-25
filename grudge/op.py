@@ -79,6 +79,10 @@ import numpy as np
 import modepy as mp
 from arraycontext import ArrayContext, ArrayOrContainer, map_array_container, tag_axes
 from meshmode.dof_array import DOFArray
+from meshmode.discretization.poly_element import (
+    TensorProductElementGroup,
+    SimplexElementGroup
+)
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
@@ -199,22 +203,47 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
-    per_group_grads = [
-        # r for rst axis
-        # x for xyz axis
-        actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
-                    ijm_i,
+
+    def compute_simplicial_grad(actx, out_grp, in_grp, vec, ijm,
+                                metric_in_matvec):
+        return actx.einsum(
+            "xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
+                    ijm,
                     get_diff_mat(
                         actx,
                         out_element_group=out_grp,
                         in_element_group=in_grp
                     ),
-                    vec_i,
+                    vec,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
-        for out_grp, in_grp, vec_i, ijm_i in zip(
-            out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+
+    def compute_tensor_product_grad(actx, out_grp, in_grp, vec, ijm,
+                                    metric_in_matvec):
+        pass
+
+
+    per_group_grads = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+        out_discr.groups, in_discr.groups, vec,inv_jac_mat):
+
+        if (isinstance(in_grp, SimplexElementGroup) and \
+            isinstance(out_grp, SimplexElementGroup)):
+            per_group_grads.append(
+                compute_simplicial_grad(
+                    actx, out_grp, in_grp, vec_i, ijm_i,metric_in_matvec))
+
+        elif (isinstance(in_grp, TensorProductElementGroup) and \
+              isinstance(out_grp, TensorProductElementGroup)):
+            per_group_grads.append(
+                compute_tensor_product_grad(
+                    actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroup` or `TensorProductElementGroup`. Found "
+                f"`in_grp` = {in_grp}, `out_grp` = {out_grp}")
 
     return make_obj_array([
             DOFArray(
@@ -262,16 +291,46 @@ def _reference_derivative_matrices(actx: ArrayContext,
     def get_ref_derivative_mats(
                 out_grp: NodalElementGroupBase,
                 in_grp: InterpolatoryElementGroupBase):
-        return actx.freeze(
+        if (isinstance(in_grp, TensorProductElementGroup) and \
+            isinstance(out_grp, TensorProductElementGroup)):
+
+            basis_1d = in_grp.basis_obj().bases[0]
+            to_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                1, out_grp.order+1)
+            from_nodes_1d = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
+                1, in_grp.order+1)
+
+            diff_mat = mp.diff_matrices(
+                basis_1d,
+                to_nodes_1d,
+                from_nodes=from_nodes_1d
+            )[0]
+
+            return actx.freeze(
                 actx.tag_axis(
-                    1, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(
-                            mp.diff_matrices(
-                                in_grp.basis_obj(),
-                                out_grp.unit_nodes,
-                                from_nodes=in_grp.unit_nodes,
-                            )))))
+                    1,
+                    DiscretizationDOFAxisTag(),
+                    actx.from_numpy(diff_mat)))
+
+        elif (isinstance(in_grp, SimplexElementGroup) and \
+              isinstance(out_grp, SimplexElementGroup)):
+            return actx.freeze(
+                    actx.tag_axis(
+                        1, DiscretizationDOFAxisTag(),
+                        actx.from_numpy(
+                            np.asarray(
+                                mp.diff_matrices(
+                                    in_grp.basis_obj(),
+                                    out_grp.unit_nodes,
+                                    from_nodes=in_grp.unit_nodes,
+                                )))))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroup` or `TensorProductElementGroup`. Found "
+                f"`in_grp` = {in_grp}, `out_grp` = {out_grp}")
+
     return get_ref_derivative_mats(out_element_group, in_element_group)
 
 
@@ -1059,5 +1118,12 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 # }}}
 
+
+# {{{ single axis contraction
+
+def single_axis_contraction(actx, operator, data, axis):
+    pass
+
+# }}}
 
 # vim: foldmethod=marker
