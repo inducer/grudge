@@ -220,6 +220,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_grad(actx, out_grp, in_grp, vec, ijm,
                                     metric_in_matvec):
+        # TODO: implement
         pass
 
 
@@ -1122,6 +1123,7 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 # {{{ single axis contraction
 
 def single_axis_contraction(actx, operator, data, axis):
+    # TODO: implement
     pass
 
 # }}}
