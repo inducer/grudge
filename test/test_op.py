@@ -32,7 +32,11 @@ from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
-from meshmode.mesh import BTAG_ALL
+from meshmode.mesh import (
+    SimplexElementGroup,
+    TensorProductElementGroup,
+    BTAG_ALL
+)
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
@@ -66,23 +70,37 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, False),
     (True, True)
     ])
+@pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
+    TensorProductElementGroup
+])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-                  warp_mesh, visualize=False):
+                  warp_mesh, group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
+
+    if dim == 1 and group_cls == TensorProductElementGroup:
+        pytest.skip()
+
+    # FIXME: enable these
+    if (form == "weak" or form == "weak-overint") and \
+        group_cls == TensorProductElementGroup:
+        pytest.skip()
 
     for n in [8, 12, 16] if warp_mesh else [4, 6, 8]:
         if warp_mesh:
             if dim == 1:
                 pytest.skip("warped mesh in 1D not implemented")
             mesh = mgen.generate_warped_rect_mesh(
-                          dim=dim, order=order, nelements_side=n)
+                        dim=dim, order=order, nelements_side=n,
+                        group_cls=group_cls)
         else:
             mesh = mgen.generate_regular_rect_mesh(
                     a=(-1,)*dim, b=(1,)*dim,
-                    nelements_per_axis=(n,)*dim)
+                    nelements_per_axis=(n,)*dim,
+                    group_cls=group_cls)
 
         dcoll = make_discretization_collection(
                    actx, mesh,
