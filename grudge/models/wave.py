@@ -34,11 +34,11 @@ from pytools.obj_array import flat_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
-from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc, DD_VOLUME_ALL
+from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, as_dofdesc
 from grudge.models import HyperbolicOperator
 
-# {{{ constant-velocity
 
+# {{{ constant-velocity
 
 class WeakWaveOperator(HyperbolicOperator):
     r"""This operator discretizes the wave equation

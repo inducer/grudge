@@ -112,6 +112,7 @@ class SpheroidMeshBuilder(MeshBuilder):
 
 
 class BoxMeshBuilder(MeshBuilder):
+    resolutions: ClassVar[Sequence[Hashable]] = [4, 8, 16]
 
     def __init__(self, ambient_dim=2, group_cls=None):
         self.ambient_dim = ambient_dim

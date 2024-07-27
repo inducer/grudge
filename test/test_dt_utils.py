@@ -30,17 +30,23 @@ from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
-from grudge.discretization import make_discretization_collection
-import grudge.op as op
 
-import mesh_data
-import pytest
-
-from meshmode import _acf  # noqa: F401
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
+
+import logging
+
+import mesh_data
+import pytest
+
+import grudge.op as op
+from grudge.discretization import make_discretization_collection
+
+
+logger = logging.getLogger(__name__)
+from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -71,8 +77,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name, tpe):
 
     order = 4
     min_factors = []
-    resolutions = [2, 4, 8]
-    for resolution in resolutions:
+    for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, order)
         dcoll = make_discretization_collection(actx, mesh, order=order)
         min_factors.append(
