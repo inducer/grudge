@@ -4,13 +4,14 @@ from typing import ClassVar, Hashable, Optional, Sequence
 import numpy as np
 
 import meshmode.mesh.generation as mgen
-from meshmode.mesh import Mesh
+from meshmode.mesh import Mesh, MeshElementGroup
 from meshmode.mesh.io import read_gmsh
 
 
 class MeshBuilder(ABC):
     resolutions: ClassVar[Sequence[Hashable]]
     ambient_dim: ClassVar[int]
+    group_cls: ClassVar[MeshElementGroup]
 
     @abstractmethod
     def get_mesh(
@@ -111,8 +112,10 @@ class SpheroidMeshBuilder(MeshBuilder):
 
 
 class BoxMeshBuilder(MeshBuilder):
-    ambient_dim = 2
-    group_cls = None
+
+    def __init__(self, ambient_dim=2, group_cls=None):
+        self.ambient_dim = ambient_dim
+        self.group_cls = group_cls
 
     mesh_order = 1
 
@@ -130,15 +133,15 @@ class BoxMeshBuilder(MeshBuilder):
                 order=mesh_order)
 
 
-class BoxMeshBuilder1D(_BoxMeshBuilderBase):
+class BoxMeshBuilder1D(BoxMeshBuilder):
     ambient_dim = 1
 
 
-class BoxMeshBuilder2D(_BoxMeshBuilderBase):
+class BoxMeshBuilder2D(BoxMeshBuilder):
     ambient_dim = 2
 
 
-class BoxMeshBuilder3D(_BoxMeshBuilderBase):
+class BoxMeshBuilder3D(BoxMeshBuilder):
     ambient_dim = 2
 
 

@@ -28,16 +28,17 @@ THE SOFTWARE.
 
 import numpy as np
 
+from meshmode.discretization.poly_element import SimplexElementGroupBase
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from pytools.obj_array import flat_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
-from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc
+from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc, DD_VOLUME_ALL
 from grudge.models import HyperbolicOperator
 
-
 # {{{ constant-velocity
+
 
 class WeakWaveOperator(HyperbolicOperator):
     r"""This operator discretizes the wave equation
@@ -187,7 +188,12 @@ class WeakWaveOperator(HyperbolicOperator):
 
     def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
         # FIXME: Sketchy, empirically determined fudge factor
-        return 0.38 * super().estimate_rk4_timestep(actx,  dcoll, **kwargs)
+        volm_discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
+        tpe = any(not isinstance(grp, SimplexElementGroupBase)
+                  for grp in volm_discr.groups)
+        fudge_factor = 0.23 if tpe else 0.38
+        return fudge_factor * super().estimate_rk4_timestep(
+            actx,  dcoll, **kwargs)
 
 # }}}
 

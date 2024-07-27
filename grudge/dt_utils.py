@@ -253,13 +253,13 @@ def dt_geometric_factors(
 
     .. math::
 
-        r_D = \frac{2~d~V}{\sum_{i=1}^{N_{faces}} F_i},
+        r_D = \frac{V}{2~\text{max}\left(F_i\right)},
 
     where :math:`d` is the topological dimension, :math:`V` is the cell volume,
     and :math:`F_i` are the areas of each face of the cell. Other valid choices
     here include the shortest, longest, average of the cell diagonals, or edges.
     The value returned by this routine (i.e. the cell volume divided by the
-    average cell face area) is bounded by the extrema of the cell edge lengths,
+    maximum cell face area) is bounded by the extrema of the cell edge lengths,
     is straightforward to calculate regardless of element shape, and jibes well
     with the foregoing calculation for simplicial elements.
 
@@ -276,10 +276,9 @@ def dt_geometric_factors(
     actx = dcoll._setup_actx
     volm_discr = dcoll.discr_from_dd(dd)
 
-    r_fac = dcoll.dim
-    if any(not isinstance(grp, SimplexElementGroupBase)
-           for grp in volm_discr.groups):
-        r_fac = 2.0*r_fac
+    tpe = any(not isinstance(grp, SimplexElementGroupBase)
+              for grp in volm_discr.groups)
+    r_fac = 0.5 if tpe else dcoll.dim
 
     if volm_discr.dim != volm_discr.ambient_dim:
         from warnings import warn
@@ -308,61 +307,89 @@ def dt_geometric_factors(
         )
     )
 
-    if actx.supports_nonscalar_broadcasting:
-        # Compute total surface area of an element by summing over the
-        # individual face areas
-        surface_areas = DOFArray(
-            actx,
-            data=tuple(
-                actx.einsum(
-                    "fej->e",
-                    tag_axes(actx, {
-                        0: DiscretizationFaceAxisTag(),
-                        1: DiscretizationElementAxisTag(),
-                        2: DiscretizationDOFAxisTag()
+    if tpe:
+        if actx.supports_nonscalar_broadcasting:
+            surface_areas = DOFArray(
+                actx,
+                data=tuple(
+                    actx.np.max(
+                        tag_axes(actx, {
+                            0: DiscretizationFaceAxisTag(),
+                            1: DiscretizationElementAxisTag(),
                         },
+                                 face_ae_i.reshape(
+                                     vgrp.mesh_el_group.nfaces,
+                                     vgrp.nelements)),
+                        axis=0)
+                    for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)))
+        else:
+            el_data_per_group = []
+            for igrp, group in enumerate(volm_discr.mesh.groups):
+                nelements = group.nelements
+                nfaces = group.nfaces
+                el_face_data = face_areas[igrp].reshape(
+                    nfaces, nelements, face_areas[igrp].shape[1])
+                el_data_np = np.ascontiguousarray(
+                    np.max(actx.to_numpy(el_face_data), axis=0)[:, 0:1])
+                el_data = actx.from_numpy(el_data_np)
+                el_data = el_data.reshape(nelements)
+                el_data_per_group.append(el_data)
+            surface_areas = DOFArray(actx, tuple(el_data_per_group))
+    else:
+        if actx.supports_nonscalar_broadcasting:
+            # Compute total surface area of an element by summing over the
+            # individual face areas
+            surface_areas = DOFArray(
+                actx,
+                data=tuple(
+                    actx.einsum(
+                        "fej->e",
+                        tag_axes(actx, {
+                            0: DiscretizationFaceAxisTag(),
+                            1: DiscretizationElementAxisTag(),
+                            2: DiscretizationDOFAxisTag()
+                        },
+                                 face_ae_i.reshape(
+                                     vgrp.mesh_el_group.nfaces,
+                                     vgrp.nelements,
+                                     face_ae_i.shape[-1])),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+                    for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)))
+        else:
+            surface_areas = DOFArray(
+                actx,
+                data=tuple(
+                    # NOTE: Whenever the array context can't perform nonscalar
+                    # broadcasting, elementwise reductions
+                    # (like `elementwise_integral`) repeat the *same* scalar value of
+                    # the reduction at each degree of freedom. To get a single
+                    # value for the face area (per face),
+                    # we simply average over the nodes, which gives the desired result.
+                    actx.einsum(
+                        "fej->e",
                         face_ae_i.reshape(
                             vgrp.mesh_el_group.nfaces,
                             vgrp.nelements,
-                            face_ae_i.shape[-1])),
-                    tagged=(FirstAxisIsElementsTag(),))
+                            face_ae_i.shape[-1]
+                        ) / afgrp.nunit_dofs,
+                        tagged=(FirstAxisIsElementsTag(),))
 
-                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)))
-    else:
-        surface_areas = DOFArray(
-            actx,
-            data=tuple(
-                # NOTE: Whenever the array context can't perform nonscalar
-                # broadcasting, elementwise reductions
-                # (like `elementwise_integral`) repeat the *same* scalar value of
-                # the reduction at each degree of freedom. To get a single
-                # value for the face area (per face),
-                # we simply average over the nodes, which gives the desired result.
-                actx.einsum(
-                    "fej->e",
-                    face_ae_i.reshape(
-                        vgrp.mesh_el_group.nfaces,
-                        vgrp.nelements,
-                        face_ae_i.shape[-1]
-                    ) / afgrp.nunit_dofs,
-                    tagged=(FirstAxisIsElementsTag(),))
-
-                for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
-                                                  face_discr.groups,
-                                                  face_areas)
+                    for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
+                                                      face_discr.groups,
+                                                      face_areas)
+                )
             )
-        )
 
     return actx.freeze(
-            actx.tag(NameHint(f"dt_geometric_{dd.as_identifier()}"),
-                DOFArray(actx,
-                    data=tuple(
-                        actx.einsum(
-                            "e,ei->ei",
-                            1/sae_i,
-                            actx.tag_axis(1, DiscretizationDOFAxisTag(), cv_i),
-                            tagged=(FirstAxisIsElementsTag(),)) * r_fac
-                        for cv_i, sae_i in zip(cell_vols, surface_areas)))))
+            actx.tag(
+                NameHint(f"dt_geometric_{dd.as_identifier()}"),
+                DOFArray(actx, data=tuple(
+                    actx.einsum(
+                        "e,ei->ei", 1/sae_i,
+                        actx.tag_axis(1, DiscretizationDOFAxisTag(), cv_i),
+                        tagged=(FirstAxisIsElementsTag(),)) * r_fac
+                    for cv_i, sae_i in zip(cell_vols, surface_areas)))))
 
 # }}}
 

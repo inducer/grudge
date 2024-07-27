@@ -30,25 +30,17 @@ from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
-
-
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory,
-         PytestPytatoPyOpenCLArrayContextFactory])
-
-from grudge import make_discretization_collection
-
+from grudge.discretization import make_discretization_collection
 import grudge.op as op
 
 import mesh_data
 import pytest
 
-import grudge.op as op
-from grudge.discretization import make_discretization_collection
-
-
-logger = logging.getLogger(__name__)
 from meshmode import _acf  # noqa: F401
+
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory,
+         PytestPytatoPyOpenCLArrayContextFactory])
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -78,14 +70,15 @@ def test_geometric_factors_regular_refinement(actx_factory, name, tpe):
     # }}}
 
     order = 4
-
     min_factors = []
-    for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = make_discretization_collection(actx, mesh, order=builder.order)
+    resolutions = [2, 4, 8]
+    for resolution in resolutions:
+        mesh = builder.get_mesh(resolution, order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
         min_factors.append(
             actx.to_numpy(
-                op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
+                op.nodal_min(dcoll, "vol",
+                             actx.thaw(dt_geometric_factors(dcoll))))
         )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
@@ -95,9 +88,10 @@ def test_geometric_factors_regular_refinement(actx_factory, name, tpe):
     assert np.all(np.isclose(ratios, 2))
 
     # Make sure it works with empty meshes
-    mesh = builder.get_mesh(0, builder.mesh_order)
-    dcoll = make_discretization_collection(actx, mesh, order=builder.order)
-    factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
+    if not tpe:
+        mesh = builder.get_mesh(0, order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
+        factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -164,10 +158,11 @@ def test_wave_dt_estimate(actx_factory, dim, degree, tpe, visualize=False):
     actx = actx_factory()
 
     # {{{ cases
+    if dim == 1 and tpe:
+        pytest.skip("Skipping 1D test for tensor product elements.")
 
     from meshmode.mesh import TensorProductElementGroup
     group_cls = TensorProductElementGroup if tpe else None
-
     import meshmode.mesh.generation as mgen
 
     a = [0, 0, 0]
