@@ -44,24 +44,29 @@ THE SOFTWARE.
 
 
 from typing import Optional, Sequence
+
 import numpy as np
 
 from arraycontext import ArrayContext, Scalar, tag_axes
 from arraycontext.metadata import NameHint
-from meshmode.transform_metadata import (FirstAxisIsElementsTag,
-                                         DiscretizationDOFAxisTag,
-                                         DiscretizationFaceAxisTag,
-                                         DiscretizationElementAxisTag)
-
-from grudge.dof_desc import (
-        DD_VOLUME_ALL, DOFDesc, as_dofdesc, BoundaryDomainTag, FACE_RESTR_ALL)
-from grudge.discretization import DiscretizationCollection
+from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+    DiscretizationFaceAxisTag,
+    FirstAxisIsElementsTag,
+)
+from pytools import memoize_in, memoize_on_first_arg
 
 import grudge.op as op
-
-from meshmode.dof_array import DOFArray
-
-from pytools import memoize_on_first_arg, memoize_in
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import (
+    DD_VOLUME_ALL,
+    FACE_RESTR_ALL,
+    BoundaryDomainTag,
+    DOFDesc,
+    as_dofdesc,
+)
 
 
 def characteristic_lengthscales(
@@ -177,7 +182,7 @@ def h_max_from_volume(
         Defaults to the base volume discretization if not provided.
     :returns: a scalar denoting the maximum characteristic length.
     """
-    from grudge.reductions import nodal_max, elementwise_sum
+    from grudge.reductions import elementwise_sum, nodal_max
 
     if dd is None:
         dd = DD_VOLUME_ALL
@@ -209,7 +214,7 @@ def h_min_from_volume(
         Defaults to the base volume discretization if not provided.
     :returns: a scalar denoting the minimum characteristic length.
     """
-    from grudge.reductions import nodal_min, elementwise_sum
+    from grudge.reductions import elementwise_sum, nodal_min
 
     if dd is None:
         dd = DD_VOLUME_ALL

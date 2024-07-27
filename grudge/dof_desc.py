@@ -76,25 +76,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from warnings import warn
-from typing import Hashable, Union, Type, Optional, Any, Tuple
 from dataclasses import dataclass, replace
+from typing import Any, Hashable, Optional, Tuple, Type, Union
+from warnings import warn
 
-from meshmode.discretization.connection import (
-    FACE_RESTR_INTERIOR, FACE_RESTR_ALL)
+from meshmode.discretization.connection import FACE_RESTR_ALL, FACE_RESTR_INTERIOR
 from meshmode.mesh import (
-    BTAG_PARTITION, BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE, BoundaryTag)
-
-
-# {{{ _to_identifier
-
-def _to_identifier(name: str) -> str:
-    if not name.isidentifier():
-        return "".join(ch for ch in name if ch.isidentifier())
-    else:
-        return name
-
-# }}}
+    BTAG_ALL,
+    BTAG_NONE,
+    BTAG_PARTITION,
+    BTAG_REALLY_ALL,
+    BoundaryTag,
+)
+from pytools import to_identifier
 
 
 # {{{ volume tags
@@ -111,7 +105,7 @@ VolumeTag = Hashable
 # {{{ domain tag
 
 @dataclass(frozen=True, eq=True)
-class ScalarDomainTag:  # noqa: N801
+class ScalarDomainTag:
     """A domain tag denoting scalar values."""
 
 
@@ -153,7 +147,7 @@ DomainTag = Union[ScalarDomainTag, VolumeDomainTag, BoundaryDomainTag]
 
 # {{{ discretization tag
 
-class _DiscretizationTag:  # noqa: N801
+class _DiscretizationTag:
     pass
 
 
@@ -236,8 +230,9 @@ class DOFDesc:
     domain_tag: DomainTag
     discretization_tag: DiscretizationTag
 
-    def __init__(self, domain_tag: Any,
-            discretization_tag: Optional[type[DiscretizationTag]] = None):
+    def __init__(self,
+            domain_tag: Any,
+            discretization_tag: Optional[Type[DiscretizationTag]] = None):
 
         if (
                 not (isinstance(domain_tag,
@@ -357,24 +352,24 @@ class DOFDesc:
             if isinstance(vtag, type):
                 vtag = vtag.__name__.replace("VTAG_", "").lower()
             elif isinstance(vtag, str):
-                vtag = _to_identifier(vtag)
+                vtag = to_identifier(vtag)
             else:
-                vtag = _to_identifier(str(vtag))
+                vtag = to_identifier(str(vtag))
             dom_id = f"v_{vtag}"
         elif isinstance(self.domain_tag, BoundaryDomainTag):
             btag = self.domain_tag.tag
             if isinstance(btag, type):
                 btag = btag.__name__.replace("BTAG_", "").lower()
             elif isinstance(btag, str):
-                btag = _to_identifier(btag)
+                btag = to_identifier(btag)
             else:
-                btag = _to_identifier(str(btag))
+                btag = to_identifier(str(btag))
             dom_id = f"b_{btag}"
         else:
             raise ValueError(f"unexpected domain tag: '{self.domain_tag}'")
 
         if isinstance(self.discretization_tag, str):
-            discr_id = _to_identifier(self.discretization_tag)
+            discr_id = to_identifier(self.discretization_tag)
         elif issubclass(self.discretization_tag, DISCR_TAG_QUAD):
             discr_id = "_quad"
         elif self.discretization_tag is DISCR_TAG_BASE:
@@ -418,7 +413,7 @@ def _normalize_domain_and_discr_tag(
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
         domain = BoundaryDomainTag(domain, _contextual_volume_tag)
     else:
-        raise ValueError("domain tag not understood: %s" % domain)
+        raise ValueError(f"domain tag not understood: {domain}")
 
     if domain is DTAG_SCALAR and discretization_tag is not None:
         raise ValueError("cannot have nontrivial discretization tag on scalar")

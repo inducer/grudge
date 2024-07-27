@@ -23,27 +23,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import numpy as np
+import pytest
+
+import meshmode.mesh.generation as mgen
+from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    PytestPytatoPyOpenCLArrayContextFactory
+    PytestPytatoPyOpenCLArrayContextFactory,
 )
-from arraycontext import pytest_generate_tests_for_array_contexts
+from grudge.discretization import make_discretization_collection
+
+
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
-
-from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
-
-from grudge import DiscretizationCollection
-
-import pytest
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 # {{{ inverse metric
@@ -74,12 +73,14 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
         from meshmode.mesh.processing import map_mesh
         mesh = map_mesh(mesh, m)
 
-    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
 
-    dcoll = DiscretizationCollection(
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
+
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
@@ -87,8 +88,10 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
         }
     )
 
-    from grudge.geometry import \
-        forward_metric_derivative_mat, inverse_metric_derivative_mat
+    from grudge.geometry import (
+        forward_metric_derivative_mat,
+        inverse_metric_derivative_mat,
+    )
 
     dd = as_dofdesc("vol")
     if use_quad:

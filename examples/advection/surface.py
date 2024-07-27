@@ -25,24 +25,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
 
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
-from meshmode.dof_array import flatten
+from arraycontext import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-
 from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
-import grudge.op as op
 import grudge.geometry as geo
+import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,8 +61,8 @@ class Plotter:
             import matplotlib.pyplot as pt
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
 
-            x = actx.thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME).nodes())
-            self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0])))
+            x = actx.thaw(dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL).nodes())
+            self.x = actx.to_numpy(flatten(actx.np.arctan2(x[1], x[0]), self.actx))
         elif self.ambient_dim == 3:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -75,12 +74,12 @@ class Plotter:
             return
 
         if self.ambient_dim == 2:
-            u = self.actx.to_numpy(flatten(evt.state_component))
+            u = self.actx.to_numpy(flatten(evt.state_component, self.actx))
 
-            filename = "%s.png" % basename
+            filename = f"{basename}.png"
             if not overwrite and os.path.exists(filename):
                 from meshmode import FileExistsError
-                raise FileExistsError("output file '%s' already exists" % filename)
+                raise FileExistsError(f"output file '{filename}' already exists")
 
             ax = self.fig.gca()
             ax.grid()
@@ -93,7 +92,7 @@ class Plotter:
             self.fig.savefig(filename)
             self.fig.clf()
         elif self.ambient_dim == 3:
-            self.vis.write_vtk_file("%s.vtu" % basename, [
+            self.vis.write_vtk_file(f"{basename}.vtu", [
                 ("u", evt.state_component)
                 ], overwrite=overwrite)
         else:
@@ -129,7 +128,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # {{{ discretization
 
     if dim == 2:
-        from meshmode.mesh.generation import make_curve_mesh, ellipse
+        from meshmode.mesh.generation import ellipse, make_curve_mesh
         mesh = make_curve_mesh(
                 lambda t: radius * ellipse(1.0, t),
                 np.linspace(0.0, 1.0, resolution + 1),
@@ -147,9 +146,10 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     else:
         qtag = None
 
-    from meshmode.discretization.poly_element import \
-            default_simplex_group_factory, \
-            QuadratureSimplexGroupFactory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
 
     discr_tag_to_group_factory[dof_desc.DISCR_TAG_BASE] = \
         default_simplex_group_factory(base_dim=dim-1, order=order)
@@ -158,14 +158,14 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         discr_tag_to_group_factory[qtag] = \
             QuadratureSimplexGroupFactory(order=4*order)
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
 
-    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     logger.info("ndofs:     %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -196,7 +196,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     # check velocity is tangential
     from grudge.geometry import normal
 
-    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME)
+    surf_normal = normal(actx, dcoll, dd=dof_desc.DD_VOLUME_ALL)
 
     error = op.norm(dcoll, c.dot(surf_normal), 2)
     logger.info("u_dot_n:   %.5e", error)
@@ -236,7 +236,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
             overwrite=True
         )
 
-        df = dof_desc.DOFDesc(FACE_RESTR_INTERIOR)
+        df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
         face_discr = dcoll.discr_from_dd(df)
         face_normal = geo.normal(actx, dcoll, dd=df)
 

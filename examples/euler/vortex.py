@@ -23,19 +23,17 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-from grudge.array_context import PytatoPyOpenCLArrayContext, PyOpenCLArrayContext
-from grudge.models.euler import (
-    vortex_initial_condition,
-    EulerOperator
-)
+import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
+from grudge.models.euler import EulerOperator, vortex_initial_condition
 from grudge.shortcuts import rk4_step
 
-import grudge.op as op
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -71,10 +69,13 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
         nelements_per_axis=(2*resolution, resolution),
         periodic=(True, True))
 
-    from grudge import DiscretizationCollection
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
+
+    from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
-    from meshmode.discretization.poly_element import \
-        default_simplex_group_factory, QuadratureSimplexGroupFactory
 
     exp_name = f"fld-vortex-N{order}-K{resolution}-{flux_type}"
 
@@ -84,7 +85,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     else:
         quad_tag = None
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(
@@ -105,7 +106,7 @@ def run_vortex(actx, order=3, resolution=8, final_time=5,
     )
 
     def rhs(t, q):
-        return euler_operator.operator(t, q)
+        return euler_operator.operator(actx, t, q)
 
     compiled_rhs = actx.compile(rhs)
 

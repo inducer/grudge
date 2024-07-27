@@ -33,40 +33,42 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Mapping, Optional, Union, TYPE_CHECKING, Any
-from meshmode.discretization.poly_element import (
-    InterpolatoryEdgeClusteredGroupFactory, ModalGroupFactory)
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Union
+from warnings import warn
 
+import numpy as np
+
+from arraycontext import ArrayContext
+from meshmode.discretization import Discretization, ElementGroupFactory
+from meshmode.discretization.connection import (
+    FACE_RESTR_ALL,
+    FACE_RESTR_INTERIOR,
+    DiscretizationConnection,
+    make_face_restriction,
+)
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    ModalGroupFactory,
+)
+from meshmode.dof_array import DOFArray
+from meshmode.mesh import BTAG_PARTITION, Mesh
 from pytools import memoize_method, single_valued
 
 from grudge.dof_desc import (
-    VTAG_ALL,
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
     DISCR_TAG_MODAL,
-    VolumeDomainTag, BoundaryDomainTag,
-    DOFDesc,
-    VolumeTag, DomainTag,
+    VTAG_ALL,
+    BoundaryDomainTag,
+    ConvertibleToDOFDesc,
     DiscretizationTag,
+    DOFDesc,
+    DomainTag,
+    VolumeDomainTag,
+    VolumeTag,
     as_dofdesc,
-    ConvertibleToDOFDesc
 )
 
-import numpy as np  # noqa: F401
-
-from arraycontext import ArrayContext
-
-from meshmode.discretization import ElementGroupFactory, Discretization
-from meshmode.discretization.connection import (
-    FACE_RESTR_INTERIOR,
-    FACE_RESTR_ALL,
-    make_face_restriction,
-    DiscretizationConnection
-)
-from meshmode.mesh import Mesh, BTAG_PARTITION
-from meshmode.dof_array import DOFArray
-
-from warnings import warn
 
 if TYPE_CHECKING:
     import mpi4py.MPI
@@ -254,8 +256,8 @@ class DiscretizationCollection:
 
         boundary_connections = {}
 
-        from meshmode.distributed import get_connected_partitions
-        connected_parts = get_connected_partitions(self._volume_discrs[vtag].mesh)
+        from meshmode.distributed import get_connected_parts
+        connected_parts = get_connected_parts(self._volume_discrs[vtag].mesh)
 
         if connected_parts:
             if mpi_communicator is None:
@@ -378,17 +380,19 @@ class DiscretizationCollection:
         if not self._has_affine_groups(dd.domain_tag):
             # no benefit to having another discretization that takes
             # advantage of affine-ness
-            from meshmode.discretization.connection import \
-                    IdentityDiscretizationConnection
+            from meshmode.discretization.connection import (
+                IdentityDiscretizationConnection,
+            )
             return IdentityDiscretizationConnection(base_discr)
 
         base_group_factory = self.group_factory_for_discretization_tag(
                 dd.discretization_tag)
 
         def geo_group_factory(megrp):
+            from meshmode.discretization.poly_element import (
+                PolynomialEquidistantSimplexElementGroup,
+            )
             from modepy.shapes import Simplex
-            from meshmode.discretization.poly_element import \
-                    PolynomialEquidistantSimplexElementGroup
             if megrp.is_affine and issubclass(megrp._modepy_shape_cls, Simplex):
                 return PolynomialEquidistantSimplexElementGroup(
                         megrp, order=0)
@@ -400,8 +404,9 @@ class DiscretizationCollection:
             self._setup_actx, base_discr.mesh,
             geo_group_factory)
 
-        from meshmode.discretization.connection.same_mesh import \
-                make_same_mesh_connection
+        from meshmode.discretization.connection.same_mesh import (
+            make_same_mesh_connection,
+        )
         return make_same_mesh_connection(
                 self._setup_actx,
                 to_discr=geo_deriv_discr,
@@ -456,8 +461,9 @@ class DiscretizationCollection:
                         DISCR_TAG_BASE),
                     from_dd.with_discr_tag(DISCR_TAG_BASE))
 
-            from meshmode.discretization.connection import \
-                    make_face_to_all_faces_embedding
+            from meshmode.discretization.connection import (
+                make_face_to_all_faces_embedding,
+            )
 
             return make_face_to_all_faces_embedding(
                     self._setup_actx,
@@ -470,8 +476,9 @@ class DiscretizationCollection:
                 and from_discr_tag is DISCR_TAG_BASE
                 and to_discr_tag is not DISCR_TAG_BASE):
 
-            from meshmode.discretization.connection import \
-                    ChainedDiscretizationConnection
+            from meshmode.discretization.connection import (
+                ChainedDiscretizationConnection,
+            )
             intermediate_dd = to_dd.with_discr_tag(DISCR_TAG_BASE)
             return ChainedDiscretizationConnection(
                     [
@@ -495,8 +502,9 @@ class DiscretizationCollection:
                 and from_discr_tag is DISCR_TAG_BASE
                 and to_discr_tag is not DISCR_TAG_BASE):
 
-            from meshmode.discretization.connection.same_mesh import \
-                    make_same_mesh_connection
+            from meshmode.discretization.connection.same_mesh import (
+                make_same_mesh_connection,
+            )
 
             return make_same_mesh_connection(
                     self._setup_actx,
@@ -529,8 +537,7 @@ class DiscretizationCollection:
                             "volumes of different tags: requested "
                             f"'{from_dd.domain_tag}' -> '{to_dd.domain_tag}'")
 
-                from meshmode.discretization.connection import \
-                        make_same_mesh_connection
+                from meshmode.discretization.connection import make_same_mesh_connection
                 return make_same_mesh_connection(
                         self._setup_actx,
                         self._volume_discr_from_dd(to_dd),
@@ -565,7 +572,7 @@ class DiscretizationCollection:
             base_volume_discr = self._volume_discrs[dd.domain_tag.tag]
         except KeyError:
             raise ValueError("a volume discretization with volume tag "
-                    f"'{dd.domain_tag.tag}' is not known")
+                    f"'{dd.domain_tag.tag}' is not known") from None
 
         # Refuse to re-make the volume discretization
         if dd.discretization_tag is DISCR_TAG_BASE:
@@ -598,8 +605,9 @@ class DiscretizationCollection:
             describing the dofs corresponding to the
             *to_discr*
         """
-        from meshmode.discretization.connection import \
-            ModalToNodalDiscretizationConnection
+        from meshmode.discretization.connection import (
+            ModalToNodalDiscretizationConnection,
+        )
 
         return ModalToNodalDiscretizationConnection(
             from_discr=self._modal_discr(to_dd.domain_tag),
@@ -614,8 +622,9 @@ class DiscretizationCollection:
             describing the dofs corresponding to the
             *from_discr*
         """
-        from meshmode.discretization.connection import \
-            NodalToModalDiscretizationConnection
+        from meshmode.discretization.connection import (
+            NodalToModalDiscretizationConnection,
+        )
 
         return NodalToModalDiscretizationConnection(
             from_discr=self.discr_from_dd(from_dd),
@@ -666,8 +675,7 @@ class DiscretizationCollection:
         to the exterior boundary restriction on a neighboring element.
         This does not take into account parallel partitions.
         """
-        from meshmode.discretization.connection import \
-                make_opposite_face_connection
+        from meshmode.discretization.connection import make_opposite_face_connection
 
         assert domain_tag.tag is FACE_RESTR_INTERIOR
 

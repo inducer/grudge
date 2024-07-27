@@ -23,22 +23,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
+
 import numpy as np
 import numpy.linalg as la
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
-from meshmode.dof_array import flatten
+from arraycontext import flatten
 from meshmode.mesh import BTAG_ALL
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,8 +58,8 @@ class Plotter:
             self.fig = pt.figure(figsize=(8, 8), dpi=300)
             self.ylim = ylim
 
-            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
-            self.x = actx.to_numpy(flatten(actx.thaw(volume_discr.nodes()[0])))
+            volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
+            self.x = actx.to_numpy(flatten(volume_discr.nodes()[0], self.actx))
         else:
             from grudge.shortcuts import make_visualizer
             self.vis = make_visualizer(dcoll)
@@ -69,12 +69,12 @@ class Plotter:
             return
 
         if self.dim == 1:
-            u = self.actx.to_numpy(flatten(evt.state_component))
+            u = self.actx.to_numpy(flatten(evt.state_component, self.actx))
 
-            filename = "%s.png" % basename
+            filename = f"{basename}.png"
             if not overwrite and os.path.exists(filename):
                 from meshmode import FileExistsError
-                raise FileExistsError("output file '%s' already exists" % filename)
+                raise FileExistsError(f"output file '{filename}' already exists")
 
             ax = self.fig.gca()
             ax.plot(self.x, u, "-")
@@ -89,7 +89,7 @@ class Plotter:
             self.fig.savefig(filename)
             self.fig.clf()
         else:
-            self.vis.write_vtk_file("%s.vtu" % basename, [
+            self.vis.write_vtk_file(f"{basename}.vtu", [
                 ("u", evt.state_component)
                 ], overwrite=overwrite)
 
@@ -131,9 +131,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             [np.linspace(-d/2, d/2, npoints) for _ in range(dim)],
             order=order)
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
     # }}}
 

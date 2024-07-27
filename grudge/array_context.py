@@ -31,17 +31,28 @@ THE SOFTWARE.
 
 # {{{ imports
 
-from typing import (
-        TYPE_CHECKING, Mapping, Tuple, Any, Callable, Optional, Type,
-        FrozenSet)
+import logging
 from dataclasses import dataclass
-from pytools.tag import Tag
-from meshmode.array_context import (
-        PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
-        PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase)
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    FrozenSet,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+)
 from warnings import warn
 
-import logging
+from meshmode.array_context import (
+    PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
+    PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
+)
+from pytools import to_identifier
+from pytools.tag import Tag
+
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -79,8 +90,8 @@ try:
     except ImportError:
         warn("Your loopy and meshmode branches are mismatched. "
              "Please make sure that you have the "
-             "https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms "  # noqa
-             "branch of loopy.")
+             "https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms "
+             "branch of loopy.", stacklevel=1)
         _HAVE_FUSION_ACTX = False
     else:
         _HAVE_FUSION_ACTX = True
@@ -89,21 +100,24 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext.pytest import (
-        _PytestPyOpenCLArrayContextFactoryWithClass,
-        _PytestPytatoPyOpenCLArrayContextFactory,
-        register_pytest_array_context_factory)
 from arraycontext import ArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
+from arraycontext.pytest import (
+    _PytestPyOpenCLArrayContextFactoryWithClass,
+    _PytestPytatoPyOpenCLArrayContextFactory,
+    register_pytest_array_context_factory,
+)
+
 
 if TYPE_CHECKING:
     import pytato as pt
-    from pytato.partition import PartId
+    from mpi4py import MPI
     from pytato import DistributedGraphPartition
+    from pytato.partition import PartId
+
     import pyopencl
     import pyopencl.tools
-    from mpi4py import MPI
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
@@ -119,7 +133,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
-                 "to reduce device allocations)")
+                 "to reduce device allocations)", stacklevel=2)
 
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
@@ -149,7 +163,8 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
-                 "to reduce device allocations)")
+                 "to reduce device allocations)", stacklevel=2)
+
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
 
@@ -162,21 +177,17 @@ class MPIBasedArrayContext:
 
 # {{{ distributed + pytato
 
-def _to_identifier(s: str) -> str:
-    return "".join(ch for ch in s if ch.isidentifier())
-
-
 @dataclass(frozen=True)
 class _DistributedPartProgramID:
     f: Callable[..., Any]
     part_id: Any
 
     def __str__(self):
-        name = getattr(self.f, "__name__", "<anonymous>")
+        name = getattr(self.f, "__name__", "anonymous")
         if not name.isidentifier():
-            name = _to_identifier(name)
+            name = to_identifier(name)
 
-        part = _to_identifier(str(self.part_id))
+        part = to_identifier(str(self.part_id))
         if part:
             return f"{name}_part{part}"
         else:
@@ -356,8 +367,8 @@ class _DistributedCompiledFunction:
             representation.
         """
 
-        from arraycontext.impl.pytato.compile import _args_to_device_buffers
         from arraycontext.impl.pyopencl.taggable_cl_array import to_tagged_cl_array
+        from arraycontext.impl.pytato.compile import _args_to_device_buffers
         from arraycontext.impl.pytato.utils import get_cl_axes_from_pt_axes
         input_args_for_prg = _args_to_device_buffers(
                 self.actx, self.input_id_to_name_in_program, arg_id_to_arg)
@@ -398,7 +409,7 @@ class MPIPytatoArrayContextBase(MPIBasedArrayContext):
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
                  "(Preferably a pyopencl.tools.MemoryPool in order "
-                 "to reduce device allocations)")
+                 "to reduce device allocations)", stacklevel=2)
 
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
@@ -499,10 +510,29 @@ class PytestPyOpenCLArrayContextFactory(
         _PytestPyOpenCLArrayContextFactoryWithClass):
     actx_class = PyOpenCLArrayContext
 
+    def __call__(self):
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
+
+        _ctx, queue = self.get_command_queue()
+        alloc = MemoryPool(ImmediateAllocator(queue))
+
+        return self.actx_class(
+                queue,
+                allocator=alloc,
+                force_device_scalars=self.force_device_scalars)
+
 
 class PytestPytatoPyOpenCLArrayContextFactory(
         _PytestPytatoPyOpenCLArrayContextFactory):
     actx_class = PytatoPyOpenCLArrayContext
+
+    def __call__(self):
+        _ctx, queue = self.get_command_queue()
+
+        from pyopencl.tools import ImmediateAllocator, MemoryPool
+        alloc = MemoryPool(ImmediateAllocator(queue))
+
+        return self.actx_class(queue, allocator=alloc)
 
 
 # deprecated
@@ -529,7 +559,8 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
              "Please make sure you have the right branches for loopy "
              "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
              "and meshmode "
-             "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).")  # noqa
+             "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).",
+             stacklevel=1)
     # lazy, non-distributed
     if not distributed:
         if _HAVE_SINGLE_GRID_WORK_BALANCING:
@@ -560,7 +591,8 @@ def get_reasonable_array_context_class(
                      "Please make sure you have the right branches for loopy "
                      "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
                      "and meshmode "
-                     "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).")  # noqa
+                     "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).",
+                     stacklevel=1)
             # lazy+fusion, non-distributed
 
             if _HAVE_FUSION_ACTX:

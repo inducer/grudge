@@ -24,25 +24,24 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
 import numpy.linalg as la  # noqa
+
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-
-from grudge.array_context import PyOpenCLArrayContext
-
+from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
 from pytools.obj_array import flat_obj_array
 
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-
-from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, DOFDesc
+import grudge.geometry as geo
+import grudge.op as op
+from grudge.array_context import PyOpenCLArrayContext
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
 from grudge.shortcuts import make_visualizer, rk4_step
 
-import grudge.op as op
-import grudge.geometry as geo
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +68,7 @@ def wave_flux(actx, dcoll, c, w_tpair):
             )
 
     # FIXME this flux is only correct for continuous c
-    dd_allfaces_quad = dd_quad.with_dtag("all_faces")
+    dd_allfaces_quad = dd_quad.with_domain_tag("all_faces")
     c_quad = op.project(dcoll, "vol", dd_quad, c)
     flux_quad = op.project(dcoll, dd, dd_quad, flux_weak)
 
@@ -85,20 +84,20 @@ def wave_operator(actx, dcoll, c, w):
     dir_bval = flat_obj_array(dir_u, dir_v)
     dir_bc = flat_obj_array(-dir_u, dir_v)
 
-    dd_quad = DOFDesc("vol", DISCR_TAG_QUAD)
+    dd_quad = as_dofdesc("vol", DISCR_TAG_QUAD)
     c_quad = op.project(dcoll, "vol", dd_quad, c)
     w_quad = op.project(dcoll, "vol", dd_quad, w)
     u_quad = w_quad[0]
     v_quad = w_quad[1:]
 
-    dd_allfaces_quad = DOFDesc("all_faces", DISCR_TAG_QUAD)
+    dd_allfaces_quad = as_dofdesc("all_faces", DISCR_TAG_QUAD)
 
     return (
         op.inverse_mass(
             dcoll,
             flat_obj_array(
                 -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
-                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad) \
+                -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
                 # pylint: disable=invalid-unary-operand-type
             ) + op.face_mass(
                 dcoll,
@@ -167,10 +166,11 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
 
     logger.info("%d elements", mesh.nelements)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
-    dcoll = DiscretizationCollection(
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             DISCR_TAG_BASE: default_simplex_group_factory(base_dim=dim, order=order),
@@ -206,11 +206,9 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
             linfnorm = actx.to_numpy(op.norm(dcoll, fields[0], np.inf))
             nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields[0]))
             nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields[0]))
-            logger.info(f"step: {istep} t: {t} "
-                        f"L2: {l2norm} "
-                        f"Linf: {linfnorm} "
-                        f"sol max: {nodalmax} "
-                        f"sol min: {nodalmin}")
+            logger.info("step: %d t: %.8e L2: %.8e Linf: %.8e "
+                        "sol max: %.8e sol min: %.8e",
+                        istep, t, l2norm, linfnorm, nodalmax, nodalmin)
             if visualize:
                 vis.write_vtk_file(
                     f"fld-wave-eager-var-velocity-{istep:04d}.vtu",

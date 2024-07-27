@@ -23,35 +23,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from meshmode.mesh import TensorProductElementGroup
-import numpy as np
-import numpy.linalg as la
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
-
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
-
-from meshmode import _acf           # noqa: F401
-
-from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
-
-from pytools.obj_array import flat_obj_array
-
-from grudge import DiscretizationCollection, make_discretization_collection
-
-import grudge.dof_desc as dof_desc
-import grudge.op as op
-import grudge.geometry as geo
-
-
-import pytest
-
 import logging
 
+import mesh_data
+import numpy as np
+import numpy.linalg as la
+import pytest
+
+import meshmode.mesh.generation as mgen
+from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode import _acf  # noqa: F401
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory,
+)
+from meshmode.dof_array import flat_norm
+from meshmode.mesh import TensorProductElementGroup
+from pytools.obj_array import flat_obj_array
+
+from grudge import dof_desc, geometry, op
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
+
+
 logger = logging.getLogger(__name__)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 
 # {{{ mass operator trig integration
@@ -73,6 +70,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     true_integral = 13*np.pi/2 * (b - a)**(ambient_dim - 1)
 
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
+
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL, discr_tag)
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         discr_tag_to_group_factory = {}
@@ -84,7 +82,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     mesh = mgen.generate_regular_rect_mesh(
             a=(a,)*ambient_dim, b=(b,)*ambient_dim,
             nelements_per_axis=(nel_1d,)*ambient_dim, order=1)
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh, order=order,
         discr_tag_to_group_factory=discr_tag_to_group_factory
     )
@@ -92,7 +90,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     def f(x):
         return actx.np.sin(x[0])**2
 
-    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     x_volm = actx.thaw(volm_disc.nodes())
     f_volm = f(x_volm)
     ones_volm = volm_disc.zeros(actx) + 1
@@ -104,14 +102,14 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
 
     mop_1 = op.mass(dcoll, dd_quad, f_quad)
     num_integral_1 = op.nodal_sum(
-        dcoll, dof_desc.DD_VOLUME, ones_volm * mop_1
+        dcoll, dof_desc.DD_VOLUME_ALL, ones_volm * mop_1
     )
 
     err_1 = abs(num_integral_1 - true_integral)
     assert err_1 < 2e-9, err_1
 
     mop_2 = op.mass(dcoll, dd_quad, ones_quad)
-    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_volm * mop_2)
+    num_integral_2 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME_ALL, f_volm * mop_2)
 
     err_2 = abs(num_integral_2 - true_integral)
     assert err_2 < 2e-9, err_2
@@ -119,7 +117,7 @@ def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
     if discr_tag is dof_desc.DISCR_TAG_BASE:
         # NOTE: `integral` always makes a square mass matrix and
         # `QuadratureSimplexGroupFactory` does not have a `mass_matrix` method.
-        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME, f_quad * mop_2)
+        num_integral_3 = op.nodal_sum(dcoll, dof_desc.DD_VOLUME_ALL, f_quad * mop_2)
         err_3 = abs(num_integral_3 - true_integral)
         assert err_3 < 5e-10, err_3
 
@@ -136,7 +134,8 @@ def _ellipse_surface_area(radius, aspect_ratio):
         # NOTE: hardcoded value so we don't need scipy for the test
         ellip_e = 1.2110560275684594
     else:
-        from scipy.special import ellipe        # pylint: disable=no-name-in-module
+        from scipy.special import ellipe  # pylint: disable=no-name-in-module
+
         ellip_e = ellipe(eccentricity)
 
     return 4.0 * radius * ellip_e
@@ -163,48 +162,47 @@ def test_mass_surface_area(actx_factory, name):
 
     # {{{ cases
 
+    order = 4
+
     if name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
         surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        builder = mesh_data.SpheroidMeshBuilder()
         surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
         surface_area = 1.0
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
         surface_area = 1.0
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
     # {{{ convergence
 
     from pytools.convergence import EOCRecorder
+
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        mesh = builder.get_mesh(resolution, order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute surface area
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         ones_volm = volume_discr.zeros(actx) + 1
         approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
-        logger.info("surface: got {:.5e} / expected {:.5e}".format(
-            approx_surface_area, surface_area))
+        logger.info(
+            f"surface: got {approx_surface_area:.5e} / expected {surface_area:.5e}")  # noqa: G004
         area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
 
         # }}}
@@ -220,7 +218,7 @@ def test_mass_surface_area(actx_factory, name):
 
     logger.info("surface area error\n%s", str(eoc))
 
-    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > builder.order
+    assert eoc.max_error() < 3e-13 or eoc.order_estimate() > order
 
 # }}}
 
@@ -232,13 +230,17 @@ def test_mass_surface_area(actx_factory, name):
     "spheroid",
     "warped_rect2",
     "warped_rect3",
+    "gh-339-1",
+    "gh-339-4",
     ])
 def test_mass_operator_inverse(actx_factory, name):
     actx = actx_factory()
 
     # {{{ cases
 
-    import mesh_data
+    order = 4
+    overintegrate = False
+
     if name == "2-1-ellipse":
         # curve
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
@@ -247,21 +249,40 @@ def test_mass_operator_inverse(actx_factory, name):
         builder = mesh_data.SpheroidMeshBuilder()
     elif name.startswith("warped_rect"):
         builder = mesh_data.WarpedRectMeshBuilder(dim=int(name[-1]))
-
+    elif name == "gh-339-1":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
+        order = 1
+        # NOTE: We're definitely not evaluating the bilinear forms accurately
+        # in that case, the mappings are very non-constant.
+        # It's kind of surprising that WADG manages to make a 15-digit inverse,
+        # but empirically it seems to.
+    elif name == "gh-339-1-overint":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
+        order = 1
+        overintegrate = True
+    elif name == "gh-339-4":
+        builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
     # {{{ inv(m) @ m == id
 
     from pytools.convergence import EOCRecorder
+
     eoc = EOCRecorder()
 
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        mesh = builder.get_mesh(resolution)
+        dcoll = make_discretization_collection(
+                       actx, mesh, discr_tag_to_group_factory={
+                           dof_desc.DISCR_TAG_BASE: (
+                               InterpolatoryEdgeClusteredGroupFactory(order)),
+                           dof_desc.DISCR_TAG_QUAD: (
+                               QuadratureGroupFactory(order))
+                       })
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
@@ -271,12 +292,21 @@ def test_mass_operator_inverse(actx_factory, name):
         def f(x):
             return actx.np.cos(4.0 * x[0])
 
-        dd = dof_desc.DD_VOLUME
         x_volm = actx.thaw(volume_discr.nodes())
         f_volm = f(x_volm)
-        f_inv = op.inverse_mass(
-            dcoll, op.mass(dcoll, dd, f_volm)
-        )
+        if not overintegrate:
+            dd = dof_desc.DD_VOLUME_ALL
+            f_inv = op.inverse_mass(
+                dcoll, op.mass(dcoll, dd, f_volm)
+            )
+        else:
+            dd_base_vol = dof_desc.as_dofdesc(
+                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
+            dd_quad_vol = dof_desc.as_dofdesc(
+                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+            f_inv = op.inverse_mass(
+                dcoll, op.mass(dcoll, dd_quad_vol,
+                               op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm)))
 
         inv_error = actx.to_numpy(
                 op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2))
@@ -311,18 +341,17 @@ def test_face_normal_surface(actx_factory, mesh_name):
     # {{{ geometry
 
     if mesh_name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder()
+        builder = mesh_data.SpheroidMeshBuilder()
     else:
-        raise ValueError("unknown mesh name: %s" % mesh_name)
+        raise ValueError(f"unknown mesh name: {mesh_name}")
 
-    mesh = builder.get_mesh(builder.resolutions[0], builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    order = 4
+    mesh = builder.get_mesh(builder.resolutions[0], order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
 
-    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+    volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     logger.info("ndofs:    %d", volume_discr.ndofs)
     logger.info("nelements: %d", volume_discr.mesh.nelements)
 
@@ -330,30 +359,29 @@ def test_face_normal_surface(actx_factory, mesh_name):
 
     # {{{ Compute surface and face normals
     from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-    from grudge.geometry import normal
 
-    dv = dof_desc.DD_VOLUME
+    dv = dof_desc.DD_VOLUME_ALL
     df = dof_desc.as_dofdesc(FACE_RESTR_INTERIOR)
 
     ambient_dim = mesh.ambient_dim
 
     surf_normal = op.project(
         dcoll, dv, df,
-        normal(actx, dcoll, dd=dv)
+        geometry.normal(actx, dcoll, dd=dv)
     )
     surf_normal = surf_normal / actx.np.sqrt(sum(surf_normal**2))
 
-    face_normal_i = geo.normal(actx, dcoll, df)
+    face_normal_i = geometry.normal(actx, dcoll, df)
     face_normal_e = dcoll.opposite_face_connection(
             dof_desc.BoundaryDomainTag(
                 dof_desc.FACE_RESTR_INTERIOR, dof_desc.VTAG_ALL)
             )(face_normal_i)
 
-    if mesh.ambient_dim == 3:
-        from grudge.geometry import pseudoscalar, area_element
+    if ambient_dim == 3:
         # NOTE: there's only one face tangent in 3d
         face_tangent = (
-            pseudoscalar(actx, dcoll, dd=df) / area_element(actx, dcoll, dd=df)
+            geometry.pseudoscalar(actx, dcoll, dd=df)
+            / geometry.area_element(actx, dcoll, dd=df)
         ).as_vector(dtype=object)
 
     # }}}
@@ -410,8 +438,8 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
         mesh = mgen.generate_regular_rect_mesh(a=(-0.5,)*dim, b=(0.5,)*dim,
                 nelements_per_axis=(n,)*dim, order=4)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=4)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        dcoll = make_discretization_collection(actx, mesh, order=4)
+        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
         x = actx.thaw(volume_discr.nodes())
 
         for axis in range(dim):
@@ -430,14 +458,18 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
 # {{{ divergence theorem
 
-@pytest.mark.parametrize("case", ["circle", "tp_box2", "tp_box3", "gh-403"])
+@pytest.mark.parametrize(
+             "case", ["circle", "tp_box2", "tp_box3", "gh-403", "gh-339"])
 def test_gauss_theorem(actx_factory, case, visualize=False):
     """Verify Gauss's theorem explicitly on a mesh"""
 
     pytest.importorskip("meshpy")
 
+    order = 2
+    use_overint = False
+
     if case == "circle":
-        from meshpy.geometry import make_circle, GeometryBuilder
+        from meshpy.geometry import GeometryBuilder, make_circle
         from meshpy.triangle import MeshInfo, build
 
         geob = GeometryBuilder()
@@ -455,6 +487,13 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         from meshmode.mesh.io import read_gmsh
         mesh = read_gmsh("gh-403.msh")
 
+    elif case == "gh-339":
+        # https://github.com/inducer/grudge/issues/339
+        from meshmode.mesh.io import read_gmsh
+        mesh = read_gmsh("gh-339.msh")
+        order = 1
+        use_overint = True
+
     elif case.startswith("tp_box"):
         dim = int(case[-1])
         mesh = mgen.generate_regular_rect_mesh(
@@ -470,7 +509,13 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
 
     actx = actx_factory()
 
-    dcoll = make_discretization_collection(actx, mesh, order=2)
+    dcoll = make_discretization_collection(
+               actx, mesh, discr_tag_to_group_factory={
+                   dof_desc.DISCR_TAG_BASE: (
+                       InterpolatoryEdgeClusteredGroupFactory(order)),
+                   dof_desc.DISCR_TAG_QUAD: (
+                       QuadratureGroupFactory(order))
+               })
     volm_disc = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
     x_volm = actx.thaw(volm_disc.nodes())
 
@@ -490,16 +535,35 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         )[:dcoll.ambient_dim]
 
     f_volm = f(x_volm)
-    div_f = op.local_div(dcoll, f_volm)
-    int_1 = op.integral(dcoll, "vol", div_f)
 
-    prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
-    normal = geo.normal(actx, dcoll, BTAG_ALL)
-    f_dot_n = prj_f.dot(normal)
-    int_2 = op.integral(dcoll, BTAG_ALL, f_dot_n)
+    if not use_overint:
+        div_f = op.local_div(dcoll, f_volm)
+        int_1 = op.integral(dcoll, "vol", div_f)
+
+        prj_f = op.project(dcoll, "vol", BTAG_ALL, f_volm)
+        normal = geometry.normal(actx, dcoll, BTAG_ALL)
+        f_dot_n = prj_f.dot(normal)
+        int_2 = op.integral(dcoll, BTAG_ALL, f_dot_n)
+    else:
+        dd_base_vol = dof_desc.as_dofdesc(
+                            dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
+        dd_quad_vol = dof_desc.as_dofdesc(
+                            dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+        dd_quad_bd = dof_desc.as_dofdesc(BTAG_ALL, dof_desc.DISCR_TAG_QUAD)
+
+        div_f = op.local_div(
+                 dcoll, dd_quad_vol,
+                 op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm))
+        int_1 = op.integral(dcoll, dd_quad_vol, div_f)
+
+        prj_f = op.project(dcoll, "vol", dd_quad_bd, f_volm)
+        normal = geometry.normal(actx, dcoll, dd_quad_bd)
+        f_dot_n = prj_f.dot(normal)
+        int_2 = op.integral(dcoll, dd_quad_bd, f_dot_n)
 
     if visualize:
-        from grudge.shortcuts import make_visualizer, make_boundary_visualizer
+        from grudge.shortcuts import make_boundary_visualizer, make_visualizer
+
         vis = make_visualizer(dcoll)
         bvis = make_boundary_visualizer(dcoll)
 
@@ -534,22 +598,17 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     # {{{ cases
 
     if mesh_name == "2-1-ellipse":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "2-1-spheroid":
-        from mesh_data import SpheroidMeshBuilder
-        builder = SpheroidMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        builder = mesh_data.SpheroidMeshBuilder(radius=3.1, aspect_ratio=2.0)
     elif mesh_name == "circle":
-        from mesh_data import EllipseMeshBuilder
-        builder = EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
+        builder = mesh_data.EllipseMeshBuilder(radius=1.0, aspect_ratio=1.0)
     elif mesh_name == "starfish":
-        from mesh_data import StarfishMeshBuilder
-        builder = StarfishMeshBuilder()
+        builder = mesh_data.StarfishMeshBuilder()
     elif mesh_name == "sphere":
-        from mesh_data import SphereMeshBuilder
-        builder = SphereMeshBuilder(radius=1.0, mesh_order=16)
+        builder = mesh_data.SphereMeshBuilder(radius=1.0)
     else:
-        raise ValueError("unknown mesh name: %s" % mesh_name)
+        raise ValueError(f"unknown mesh name: {mesh_name}")
 
     # }}}
 
@@ -580,31 +639,32 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
             [0.0, np.sin(theta), np.cos(theta)],
             ])
 
+    order = 4
+
     mesh_offset = np.array([0.33, -0.21, 0.0])[:ambient_dim]
 
     for i, resolution in enumerate(builder.resolutions):
-        from meshmode.mesh.processing import affine_map
         from meshmode.discretization.connection import FACE_RESTR_ALL
+        from meshmode.mesh.processing import affine_map
 
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
+        mesh = builder.get_mesh(resolution, order)
         mesh = affine_map(mesh, A=mesh_rotation, b=mesh_offset)
 
-        from meshmode.discretization.poly_element import \
-                QuadratureSimplexGroupFactory
+        from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
 
         qtag = dof_desc.DISCR_TAG_QUAD
-        dcoll = DiscretizationCollection(
-            actx, mesh, order=builder.order,
+        dcoll = make_discretization_collection(
+            actx, mesh, order=order,
             discr_tag_to_group_factory={
-                qtag: QuadratureSimplexGroupFactory(2 * builder.order)
+                qtag: QuadratureSimplexGroupFactory(2 * order)
             }
         )
 
-        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME)
+        volume = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
         logger.info("ndofs:     %d", volume.ndofs)
         logger.info("nelements: %d", volume.mesh.nelements)
 
-        dd = dof_desc.DD_VOLUME
+        dd = dof_desc.DD_VOLUME_ALL
         dq = dd.with_discr_tag(qtag)
         df = dof_desc.as_dofdesc(FACE_RESTR_ALL)
         ambient_dim = dcoll.ambient_dim
@@ -613,11 +673,9 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
         f_num = f(actx.thaw(dcoll.nodes(dd=dd)))
         f_quad_num = f(actx.thaw(dcoll.nodes(dd=dq)))
 
-        from grudge.geometry import normal, summed_curvature
-
-        kappa = summed_curvature(actx, dcoll, dd=dq)
-        normal = normal(actx, dcoll, dd=dq)
-        face_normal = geo.normal(actx, dcoll, df)
+        kappa = geometry.summed_curvature(actx, dcoll, dd=dq)
+        normal = geometry.normal(actx, dcoll, dd=dq)
+        face_normal = geometry.normal(actx, dcoll, df)
         face_f = op.project(dcoll, dd, df, f_num)
 
         # operators
@@ -646,6 +704,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
         if visualize:
             from grudge.shortcuts import make_visualizer
+
             vis = make_visualizer(dcoll)
 
             filename = f"surface_divergence_theorem_{mesh_name}_{i:04d}.vtu"
@@ -655,15 +714,15 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 
     # }}}
 
-    order = min(builder.order, builder.mesh_order) - 0.5
+    exp_order = order - 0.5
     logger.info("eoc_global:\n%s", str(eoc_global))
     logger.info("eoc_local:\n%s", str(eoc_local))
 
     assert eoc_global.max_error() < 1.0e-12 \
-            or eoc_global.order_estimate() > order - 0.5
+            or eoc_global.order_estimate() > exp_order - 0.5
 
     assert eoc_local.max_error() < 1.0e-12 \
-            or eoc_local.order_estimate() > order - 0.5
+            or eoc_local.order_estimate() > exp_order - 0.5
 
 # }}}
 
@@ -701,7 +760,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         elif mesh_name == "disk":
             pytest.importorskip("meshpy")
 
-            from meshpy.geometry import make_circle, GeometryBuilder
+            from meshpy.geometry import GeometryBuilder, make_circle
             from meshpy.triangle import MeshInfo, build
 
             geob = GeometryBuilder()
@@ -746,19 +805,21 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         def f(x):
             return actx.np.sin(10*x)
 
-        def u_analytic(x, t=0):
+        def u_analytic(x, t=0, v=v, norm_v=norm_v):
             return f(-v.dot(x)/norm_v + t*norm_v)
 
-        from grudge.models.advection import (
-            StrongAdvectionOperator, WeakAdvectionOperator
-        )
         from meshmode.mesh import BTAG_ALL
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        from grudge.models.advection import (
+            StrongAdvectionOperator,
+            WeakAdvectionOperator,
+        )
+
+        dcoll = make_discretization_collection(actx, mesh, order=order)
         op_class = {"strong": StrongAdvectionOperator,
                     "weak": WeakAdvectionOperator}[op_type]
         adv_operator = op_class(dcoll, v,
-                                inflow_u=lambda t: u_analytic(
+                                inflow_u=lambda t, dcoll=dcoll: u_analytic(
                                     actx.thaw(dcoll.nodes(dd=BTAG_ALL)),
                                     t=t
                                 ),
@@ -767,7 +828,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         nodes = actx.thaw(dcoll.nodes())
         u = u_analytic(nodes, t=0)
 
-        def rhs(t, u):
+        def rhs(t, u, adv_operator=adv_operator):
             return adv_operator.operator(t, u)
 
         compiled_rhs = actx.compile(rhs)
@@ -785,7 +846,8 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
         tol = 1e-14
         dt = final_time/nsteps + tol
 
-        from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
+        from grudge.shortcuts import compiled_lsrk45_step, make_visualizer
+
         vis = make_visualizer(dcoll)
 
         step = 0
@@ -848,7 +910,7 @@ def test_convergence_maxwell(actx_factory,  order):
                 b=(1.0,)*dims,
                 nelements_per_axis=(n,)*dims)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
         epsilon = 1
         mu = 1
@@ -872,7 +934,7 @@ def test_convergence_maxwell(actx_factory,  order):
         )
         maxwell_operator.check_bc_coverage(mesh)
 
-        def rhs(t, w):
+        def rhs(t, w, maxwell_operator=maxwell_operator):
             return maxwell_operator.operator(t, w)
 
         dt = actx.to_numpy(maxwell_operator.estimate_rk4_timestep(actx, dcoll))
@@ -880,9 +942,12 @@ def test_convergence_maxwell(actx_factory,  order):
         nsteps = int(final_t/dt)
 
         from grudge.shortcuts import set_up_rk4
+
         dt_stepper = set_up_rk4("w", dt, fields, rhs)
 
         logger.info("dt %.5e nsteps %5d", dt, nsteps)
+
+        esc = None
 
         step = 0
         for event in dt_stepper.run(t_end=final_t):
@@ -911,10 +976,11 @@ def test_convergence_maxwell(actx_factory,  order):
 @pytest.mark.parametrize("order", [2, 3, 4])
 def test_improvement_quadrature(actx_factory, order):
     """Test whether quadrature improves things and converges"""
-    from grudge.models.advection import VariableCoefficientAdvectionOperator
-    from pytools.convergence import EOCRecorder
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
     from meshmode.mesh import BTAG_ALL
+    from pytools.convergence import EOCRecorder
+
+    from grudge.models.advection import VariableCoefficientAdvectionOperator
 
     actx = actx_factory()
 
@@ -950,15 +1016,15 @@ def test_improvement_quadrature(actx_factory, order):
             else:
                 discr_tag_to_group_factory = {}
 
-            dcoll = DiscretizationCollection(
+            dcoll = make_discretization_collection(
                 actx, mesh, order=order,
                 discr_tag_to_group_factory=discr_tag_to_group_factory
             )
 
             nodes = actx.thaw(dcoll.nodes())
 
-            def zero_inflow(dtag, t=0):
-                dd = dof_desc.DOFDesc(dtag, qtag)
+            def zero_inflow(dtag, t=0, dcoll=dcoll):
+                dd = dof_desc.as_dofdesc(dtag, qtag)
                 return dcoll.discr_from_dd(dd).zeros(actx)
 
             adv_op = VariableCoefficientAdvectionOperator(
@@ -1003,7 +1069,7 @@ def test_bessel(actx_factory):
             b=(1.0,)*dims,
             nelements_per_axis=(8,)*dims)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=3)
+    dcoll = make_discretization_collection(actx, mesh, order=3)
 
     nodes = actx.thaw(dcoll.nodes())
     r = actx.np.sqrt(nodes[0]**2 + nodes[1]**2)
@@ -1011,7 +1077,7 @@ def test_bessel(actx_factory):
     # FIXME: Bessel functions need to brought out of the symbolic
     # layer. Related issue: https://github.com/inducer/grudge/issues/93
     def bessel_j(actx, n, r):
-        from grudge import sym, bind  # pylint: disable=no-name-in-module
+        from grudge import bind, sym  # pylint: disable=no-name-in-module
         return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
@@ -1037,7 +1103,7 @@ def test_norm_real(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, nodes[0], p)
@@ -1045,6 +1111,8 @@ def test_norm_real(actx_factory, p):
         ref_norm = (1/3)**0.5
     elif p == np.inf:
         ref_norm = 1
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
@@ -1058,7 +1126,7 @@ def test_norm_complex(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, (1 + 1j)*nodes[0], p)
@@ -1066,6 +1134,8 @@ def test_norm_complex(actx_factory, p):
         ref_norm = (2/3)**0.5
     elif p == np.inf:
         ref_norm = 2**0.5
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-13
@@ -1079,7 +1149,7 @@ def test_norm_obj_array(actx_factory, p):
     mesh = mgen.generate_regular_rect_mesh(
             a=(0,)*dim, b=(1,)*dim,
             nelements_per_axis=(8,)*dim, order=1)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
     nodes = actx.thaw(dcoll.nodes())
 
     norm = op.norm(dcoll, nodes, p)
@@ -1088,6 +1158,8 @@ def test_norm_obj_array(actx_factory, p):
         ref_norm = (dim/3)**0.5
     elif p == np.inf:
         ref_norm = 1
+    else:
+        raise AssertionError("unsupported p")
 
     logger.info("norm: %.5e %.5e", norm, ref_norm)
     assert abs(norm-ref_norm) / abs(ref_norm) < 1e-14
@@ -1108,8 +1180,8 @@ def test_empty_boundary(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(
             a=(-0.5,)*dim, b=(0.5,)*dim,
             nelements_per_axis=(8,)*dim, order=4)
-    dcoll = DiscretizationCollection(actx, mesh, order=4)
-    normal = geo.normal(actx, dcoll, BTAG_NONE)
+    dcoll = make_discretization_collection(actx, mesh, order=4)
+    normal = geometry.normal(actx, dcoll, BTAG_NONE)
     from meshmode.dof_array import DOFArray
     for component in normal:
         assert isinstance(component, DOFArray)

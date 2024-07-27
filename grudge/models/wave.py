@@ -28,15 +28,13 @@ THE SOFTWARE.
 
 import numpy as np
 
-from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc
-from grudge.models import HyperbolicOperator
-
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-
 from pytools.obj_array import flat_obj_array
 
-import grudge.op as op
 import grudge.geometry as geo
+import grudge.op as op
+from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc
+from grudge.models import HyperbolicOperator
 
 
 # {{{ constant-velocity
@@ -106,7 +104,7 @@ class WeakWaveOperator(HyperbolicOperator):
                     0.5*(u.ext-u.int),
                     0.5*(normal * np.dot(normal, v.ext-v.int)))
         else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
+            raise ValueError(f"invalid flux type '{self.flux_type}'")
 
     def operator(self, t, w):
         dcoll = self.dcoll
@@ -125,7 +123,7 @@ class WeakWaveOperator(HyperbolicOperator):
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
-                    "are still having issues.")
+                    "are still having issues.", stacklevel=1)
 
             dir_g = self.dirichlet_bc_f
             dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
@@ -267,7 +265,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)))
 
         else:
-            raise ValueError("invalid flux type '%s'" % self.flux_type)
+            raise ValueError(f"invalid flux type '{self.flux_type}'")
 
     def operator(self, t, w):
         dcoll = self.dcoll
@@ -289,7 +287,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
-                    "are still having issues.")
+                    "are still having issues.", stacklevel=1)
 
             dir_g = self.dirichlet_bc_f
             dir_bc = flat_obj_array(dir_c, 2*dir_g - dir_u, dir_v)

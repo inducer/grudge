@@ -24,32 +24,27 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-import numpy.linalg as la  # noqa
-import pyopencl as cl
-import pyopencl.tools as cl_tools
-
-from arraycontext import (
-    with_container_arithmetic,
-    dataclass_array_container
-)
-
+import logging
 from dataclasses import dataclass
 
-from pytools.obj_array import flat_obj_array, make_obj_array
+import numpy as np
+import numpy.linalg as la  # noqa
 
+import pyopencl as cl
+import pyopencl.tools as cl_tools
+from arraycontext import dataclass_array_container, with_container_arithmetic
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from pytools.obj_array import flat_obj_array, make_obj_array
 
-from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
-from grudge.trace_pair import TracePair
-from grudge.discretization import make_discretization_collection
-from grudge.shortcuts import make_visualizer, compiled_lsrk45_step
-
-import grudge.op as op
 import grudge.geometry as geo
+import grudge.op as op
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
+from grudge.shortcuts import compiled_lsrk45_step, make_visualizer
+from grudge.trace_pair import TracePair
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 from mpi4py import MPI
@@ -232,9 +227,10 @@ def main(ctx_factory, dim=2, order=3,
     else:
         local_mesh = comm.scatter(None)
 
-    from meshmode.discretization.poly_element import \
-            QuadratureSimplexGroupFactory, \
-            default_simplex_group_factory
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
     dcoll = make_discretization_collection(
         actx, local_mesh,
         discr_tag_to_group_factory={
@@ -285,8 +281,8 @@ def main(ctx_factory, dim=2, order=3,
             stop = time.time()
             if no_diagnostics:
                 if comm.rank == 0:
-                    logger.info(f"step: {istep} t: {t} "
-                                f"wall: {stop-start} ")
+                    logger.info("step: %d t: %.8e wall: %.8es",
+                                istep, t, stop - start)
             else:
                 l2norm = actx.to_numpy(op.norm(dcoll, fields.u, 2))
 
@@ -298,12 +294,11 @@ def main(ctx_factory, dim=2, order=3,
                 nodalmax = actx.to_numpy(op.nodal_max(dcoll, "vol", fields.u))
                 nodalmin = actx.to_numpy(op.nodal_min(dcoll, "vol", fields.u))
                 if comm.rank == 0:
-                    logger.info(f"step: {istep} t: {t} "
-                                f"L2: {l2norm} "
-                                f"Linf: {linfnorm} "
-                                f"sol max: {nodalmax} "
-                                f"sol min: {nodalmin} "
-                                f"wall: {stop-start} ")
+                    logger.info("step: %d t: %.8e L2: %.8e Linf: %.8e "
+                                "sol max: %.8e sol min: %.8e wall: %.8e",
+                                istep, t, l2norm, linfnorm, nodalmax, nodalmin,
+                                stop - start)
+
             if visualize:
                 vis.write_parallel_vtk_file(
                     comm,

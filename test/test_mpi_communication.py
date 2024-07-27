@@ -24,28 +24,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import pytest
-import os
-import numpy as np
-import pyopencl as cl
 import logging
+import os
 import sys
 
-from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
-
-logger = logging.getLogger(__name__)
-logging.basicConfig()
-logger.setLevel(logging.INFO)
-
-from grudge import DiscretizationCollection
-from grudge.shortcuts import rk4_step
+import numpy as np
+import pytest
 
 from meshmode.dof_array import flat_norm
-
 from pytools.obj_array import flat_obj_array
 
-import grudge.op as op
-import grudge.dof_desc as dof_desc
+from grudge import dof_desc, op
+from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
+from grudge.discretization import make_discretization_collection
+from grudge.shortcuts import rk4_step
+
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleTag:
@@ -61,8 +56,8 @@ def run_test_with_mpi(num_ranks, f, *args):
     import pytest
     pytest.importorskip("mpi4py")
 
-    from pickle import dumps
     from base64 import b64encode
+    from pickle import dumps
 
     invocation_info = b64encode(dumps((f, args))).decode()
     from subprocess import check_call
@@ -76,9 +71,11 @@ def run_test_with_mpi(num_ranks, f, *args):
 
 
 def run_test_with_mpi_inner():
-    from pickle import loads
     from base64 import b64decode
+    from pickle import loads
     f, (actx_class, *args) = loads(b64decode(os.environ["INVOCATION_INFO"].encode()))
+
+    import pyopencl as cl
 
     cl_context = cl.create_some_context()
     queue = cl.CommandQueue(cl_context)
@@ -115,8 +112,7 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
 
     comm = actx.mpi_communicator
 
-    from meshmode.distributed import (
-            get_partition_by_pymetis, membership_list_to_map)
+    from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
     from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.processing import partition_mesh
 
@@ -136,16 +132,14 @@ def _test_func_comparison_mpi_communication_entrypoint(actx):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=5)
+    dcoll = make_discretization_collection(actx, local_mesh, order=5)
 
     x = actx.thaw(dcoll.nodes())
     myfunc = actx.np.sin(np.dot(x, [2, 3]))
 
-    from grudge.dof_desc import as_dofdesc
-
-    dd_int = as_dofdesc("int_faces")
-    dd_vol = as_dofdesc("vol")
-    dd_af = as_dofdesc("all_faces")
+    dd_int = dof_desc.as_dofdesc("int_faces")
+    dd_vol = dof_desc.as_dofdesc("vol")
+    dd_af = dof_desc.as_dofdesc("all_faces")
 
     all_faces_func = op.project(dcoll, dd_vol, dd_af, myfunc)
     int_faces_func = op.project(dcoll, dd_vol, dd_int, myfunc)
@@ -192,8 +186,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     comm = actx.mpi_communicator
     num_parts = comm.size
 
-    from meshmode.distributed import (
-            get_partition_by_pymetis, membership_list_to_map)
+    from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
     from meshmode.mesh.processing import partition_mesh
 
     dim = 2
@@ -215,7 +208,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
+    dcoll = make_discretization_collection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
@@ -233,8 +226,9 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
             )
         )
 
-    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
+
+    from grudge.models.wave import WeakWaveOperator
 
     wave_op = WeakWaveOperator(
         dcoll,
@@ -257,9 +251,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
 
     wave_op.check_bc_coverage(local_mesh)
 
-    from logpyle import LogManager, \
-            add_general_quantities, \
-            add_run_info
+    from logpyle import LogManager, add_general_quantities, add_run_info
     log_filename = None
     # NOTE: LogManager hangs when using a file on a shared directory.
     # log_filename = "grudge_log.dat"

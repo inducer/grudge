@@ -24,22 +24,21 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
-import pyopencl as cl
-import pyopencl.tools as cl_tools
-
-from grudge.array_context import MPIPyOpenCLArrayContext
-
-from grudge.shortcuts import set_up_rk4
-from grudge import make_discretization_collection
-
 from mpi4py import MPI
 
+import pyopencl as cl
+import pyopencl.tools as cl_tools
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+from grudge import make_discretization_collection
+from grudge.array_context import MPIPyOpenCLArrayContext
+from grudge.shortcuts import set_up_rk4
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,8 +100,9 @@ def main(dim=2, order=4, visualize=True):
             )
         )
 
-    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
+
+    from grudge.models.wave import WeakWaveOperator
 
     wave_op = WeakWaveOperator(
         dcoll,
@@ -167,9 +167,8 @@ def main(dim=2, order=4, visualize=True):
 
             if step % 10 == 0:
                 if comm.rank == 0:
-                    logger.info(f"step: {step} "
-                                f"t: {time()-t_last_step} "
-                                f"L2: {l2norm}")
+                    logger.info("step: %d t: %.8e L2: %.8e",
+                                step, time() - t_last_step, l2norm)
                 if visualize:
                     vis.write_parallel_vtk_file(
                         comm,

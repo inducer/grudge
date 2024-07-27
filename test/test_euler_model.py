@@ -22,40 +22,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import pytest
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import (
     pytest_generate_tests_for_array_contexts,
 )
+
+from grudge import op
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+
+
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-import grudge.op as op
-
-import logging
-logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
 def test_euler_vortex_convergence(actx_factory, order):
 
+    from meshmode.discretization.poly_element import (
+        QuadratureSimplexGroupFactory,
+        default_simplex_group_factory,
+    )
     from meshmode.mesh.generation import generate_regular_rect_mesh
+    from pytools.convergence import EOCRecorder
 
-    from grudge import DiscretizationCollection
+    from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
     from grudge.dt_utils import h_max_from_volume
-    from grudge.models.euler import (
-        vortex_initial_condition,
-        EulerOperator
-    )
+    from grudge.models.euler import EulerOperator, vortex_initial_condition
     from grudge.shortcuts import rk4_step
-
-    from meshmode.discretization.poly_element import \
-        (default_simplex_group_factory,
-         QuadratureSimplexGroupFactory)
-
-    from pytools.convergence import EOCRecorder
 
     actx = actx_factory()
     eoc_rec = EOCRecorder()
@@ -76,7 +74,7 @@ def test_euler_vortex_convergence(actx_factory, order):
             DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
         }
 
-        dcoll = DiscretizationCollection(
+        dcoll = make_discretization_collection(
             actx, mesh,
             discr_tag_to_group_factory=discr_tag_to_group_factory
         )
@@ -92,8 +90,8 @@ def test_euler_vortex_convergence(actx_factory, order):
             quadrature_tag=quad_tag
         )
 
-        def rhs(t, q):
-            return euler_operator.operator(t, q)
+        def rhs(t, q, euler_operator=euler_operator):
+            return euler_operator.operator(actx, t, q)
 
         compiled_rhs = actx.compile(rhs)
 

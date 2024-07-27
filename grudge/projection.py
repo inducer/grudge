@@ -9,6 +9,7 @@ Projections
 
 from __future__ import annotations
 
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -38,16 +39,17 @@ from arraycontext import ArrayOrContainer
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
-    as_dofdesc,
-    VolumeDomainTag,
     BoundaryDomainTag,
-    ConvertibleToDOFDesc)
+    ConvertibleToDOFDesc,
+    VolumeDomainTag,
+    as_dofdesc,
+)
 
 
 def project(
         dcoll: DiscretizationCollection,
-        src: "ConvertibleToDOFDesc",
-        tgt: "ConvertibleToDOFDesc", vec) -> ArrayOrContainer:
+        src: ConvertibleToDOFDesc,
+        tgt: ConvertibleToDOFDesc, vec) -> ArrayOrContainer:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.
