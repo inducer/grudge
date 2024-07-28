@@ -191,7 +191,7 @@ class WeakWaveOperator(HyperbolicOperator):
         volm_discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
         tpe = any(not isinstance(grp, SimplexElementGroupBase)
                   for grp in volm_discr.groups)
-        fudge_factor = 0.23 if tpe else 0.38
+        fudge_factor = 0.233 if tpe else 0.38
         return fudge_factor * super().estimate_rk4_timestep(
             actx,  dcoll, **kwargs)
 
