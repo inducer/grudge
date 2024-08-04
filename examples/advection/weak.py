@@ -172,7 +172,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u, rhs)
+    dt_stepper = set_up_rk4("u", float(dt), u, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize,
             ylim=[-1.1, 1.1])
 
