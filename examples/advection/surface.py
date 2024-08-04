@@ -214,7 +214,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     logger.info("nsteps:    %d", nsteps)
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u0, rhs)
+    dt_stepper = set_up_rk4("u", float(dt), u0, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize)
 
     norm_u = actx.to_numpy(op.norm(dcoll, u0, 2))
