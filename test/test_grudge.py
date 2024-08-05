@@ -301,12 +301,14 @@ def test_mass_operator_inverse(actx_factory, name):
             )
         else:
             dd_base_vol = dof_desc.as_dofdesc(
-                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
+                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
             dd_quad_vol = dof_desc.as_dofdesc(
-                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+            # Uses _apply_inverse_mass_operator_quad if overintegrate
             f_inv = op.inverse_mass(
-                dcoll, op.mass(dcoll, dd_quad_vol,
-                               op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm)))
+                dcoll, dd_quad_vol, op.mass(
+                    dcoll, dd_quad_vol,
+                    op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm)))
 
         inv_error = actx.to_numpy(
                 op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2))
