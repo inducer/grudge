@@ -3,6 +3,7 @@
 .. autoclass:: PytatoPyOpenCLArrayContext
 .. autoclass:: MPIBasedArrayContext
 .. autoclass:: MPIPyOpenCLArrayContext
+.. autoclass:: MPINumpyArrayContext
 .. class:: MPIPytatoArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
@@ -109,6 +110,8 @@ from arraycontext.pytest import (
     register_pytest_array_context_factory,
 )
 
+
+from arraycontext import NumpyArrayContext
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -464,6 +467,26 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
                 allocator=self.allocator,
                 wait_event_queue_length=self._wait_event_queue_length,
                 force_device_scalars=self._force_device_scalars)
+
+# }}}
+
+
+# {{{ distributed + numpy
+
+class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`numpy`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator) -> None:
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self):
+        return type(self)(self.mpi_communicator)
 
 # }}}
 
