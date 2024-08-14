@@ -128,7 +128,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     def __init__(self, queue: "pyopencl.CommandQueue",
             allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
             wait_event_queue_length: Optional[int] = None,
-            force_device_scalars: bool = False) -> None:
+            force_device_scalars: bool = True) -> None:
 
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
@@ -446,7 +446,7 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
             queue: "pyopencl.CommandQueue",
             *, allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
             wait_event_queue_length: Optional[int] = None,
-            force_device_scalars: bool = False) -> None:
+            force_device_scalars: bool = True) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
         arguments.
@@ -533,13 +533,6 @@ class PytestPytatoPyOpenCLArrayContextFactory(
         alloc = MemoryPool(ImmediateAllocator(queue))
 
         return self.actx_class(queue, allocator=alloc)
-
-
-# deprecated
-class PytestPyOpenCLArrayContextFactoryWithHostScalars(
-        _PytestPyOpenCLArrayContextFactoryWithClass):
-    actx_class = PyOpenCLArrayContext
-    force_device_scalars = False
 
 
 register_pytest_array_context_factory("grudge.pyopencl",
