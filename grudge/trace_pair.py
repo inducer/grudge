@@ -410,7 +410,7 @@ class _RankBoundaryCommunicationEager:
         bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
 
         local_bdry_data = project(dcoll, volume_dd, bdry_dd, array_container)
-        comm = dcoll.mpi_communicator
+        comm = actx.mpi_communicator
         assert comm is not None
 
         self.dcoll = dcoll
