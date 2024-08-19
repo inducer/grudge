@@ -217,8 +217,9 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             inv_jac_mat)]
 
     return make_obj_array([
-            DOFArray(
-                actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_grads]))
+            DOFArray(actx, data=tuple([  # noqa: C409
+                pgg_i[xyz_axis] for pgg_i in per_group_grads
+                ]))
             for xyz_axis in range(out_discr.ambient_dim)])
 
 

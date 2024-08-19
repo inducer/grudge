@@ -784,7 +784,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             elif dim == 3:
                 dt_factor = 2
             else:
-                raise ValueError("dt_factor not known for %dd" % dim)
+                raise ValueError(f"dt_factor not known for {dim}d")
         elif mesh_name.startswith("warped"):
             dim = int(mesh_name[-1:])
             mesh = mgen.generate_warped_rect_mesh(dim, order=order,
@@ -795,7 +795,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
             elif dim == 3:
                 dt_factor = 2
             else:
-                raise ValueError("dt_factor not known for %dd" % dim)
+                raise ValueError(f"dt_factor not known for {dim}d")
         else:
             raise ValueError("invalid mesh name: " + mesh_name)
 
@@ -861,7 +861,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 
             if visualize:
                 vis.write_vtk_file(
-                    "fld-%s-%04d.vtu" % (mesh_par, step),
+                    f"fld-{mesh_par}-{step:04d}vtu" % (mesh_par, step),
                     [("u", u)]
                 )
 

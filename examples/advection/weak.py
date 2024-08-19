@@ -184,7 +184,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         if step % 10 == 0:
             norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event, "fld-weak-%04d" % step)
+            plot(event, f"fld-weak-{step:04d}")
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
