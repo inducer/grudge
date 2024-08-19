@@ -837,7 +837,7 @@ def second_fundamental_form(
     elif dim == 2:
         second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
     else:
-        raise ValueError("%dD surfaces not supported" % dim)
+        raise ValueError(f"{dim}D surfaces not supported")
 
     from pytools import flatten
 

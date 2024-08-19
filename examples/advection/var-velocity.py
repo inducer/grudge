@@ -211,7 +211,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
 
         if step % 10 == 0:
             norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event, "fld-var-velocity-%04d" % step)
+            plot(event, f"fld-var-velocity-{step:04d}")
 
             logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
             # NOTE: These are here to ensure the solution is bounded for the
