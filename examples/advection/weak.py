@@ -172,7 +172,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u, rhs)
+    dt_stepper = set_up_rk4("u", float(dt), u, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize,
             ylim=[-1.1, 1.1])
 
@@ -184,7 +184,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
         if step % 10 == 0:
             norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event, "fld-weak-%04d" % step)
+            plot(event, f"fld-weak-{step:04d}")
 
         step += 1
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)

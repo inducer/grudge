@@ -285,13 +285,6 @@ class DOFDesc:
         raise ValueError(
             f"Invalid discretization tag: {self.discretization_tag}")
 
-    def with_dtag(self, dtag) -> "DOFDesc":
-        from warnings import warn
-        warn("'with_dtag' is deprecated. Use 'with_domain_tag' instead. "
-                "This will stop working in 2023",
-                DeprecationWarning, stacklevel=2)
-        return replace(self, domain_tag=dtag)
-
     def with_domain_tag(self, dtag) -> "DOFDesc":
         return replace(self, domain_tag=dtag)
 

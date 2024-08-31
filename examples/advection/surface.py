@@ -214,7 +214,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     logger.info("nsteps:    %d", nsteps)
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", dt, u0, rhs)
+    dt_stepper = set_up_rk4("u", float(dt), u0, rhs)
     plot = Plotter(actx, dcoll, order, visualize=visualize)
 
     norm_u = actx.to_numpy(op.norm(dcoll, u0, 2))
@@ -222,7 +222,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     step = 0
 
     event = dt_stepper.StateComputed(0.0, 0, 0, u0)
-    plot(event, "fld-surface-%04d" % 0)
+    plot(event, f"fld-surface-{0:04d}")
 
     if visualize and dim == 3:
         from grudge.shortcuts import make_visualizer
@@ -253,7 +253,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
         step += 1
         if step % 10 == 0:
             norm_u = actx.to_numpy(op.norm(dcoll, event.state_component, 2))
-            plot(event, "fld-surface-%04d" % step)
+            plot(event, f"fld-surface-{step:04d}")
 
         logger.info("[%04d] t = %.5f |u| = %.5e", step, event.t, norm_u)
 

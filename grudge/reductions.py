@@ -80,6 +80,7 @@ from meshmode.transform_metadata import (
 from pytools import memoize_in
 
 import grudge.dof_desc as dof_desc
+from grudge.array_context import MPIBasedArrayContext
 from grudge.discretization import DiscretizationCollection
 
 
@@ -128,15 +129,16 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         :class:`~arraycontext.ArrayContainer`.
     :returns: a device scalar denoting the nodal sum.
     """
-    comm = dcoll.mpi_communicator
-    if comm is None:
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
+
+    if not isinstance(actx, MPIBasedArrayContext):
         return nodal_sum_loc(dcoll, dd, vec)
+
+    comm = actx.mpi_communicator
 
     # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
-
-    from arraycontext import get_container_context_recursively
-    actx = get_container_context_recursively(vec)
 
     return actx.from_numpy(
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
@@ -174,13 +176,16 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal minimum.
     """
-    comm = dcoll.mpi_communicator
-    if comm is None:
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
+
+    if not isinstance(actx, MPIBasedArrayContext):
         return nodal_min_loc(dcoll, dd, vec, initial=initial)
+
+    comm = actx.mpi_communicator
 
     # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
-    actx = vec.array_context
 
     return actx.from_numpy(
         comm.allreduce(
@@ -231,13 +236,16 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
     :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a device scalar denoting the nodal maximum.
     """
-    comm = dcoll.mpi_communicator
-    if comm is None:
+    from arraycontext import get_container_context_recursively
+    actx = get_container_context_recursively(vec)
+
+    if not isinstance(actx, MPIBasedArrayContext):
         return nodal_max_loc(dcoll, dd, vec, initial=initial)
+
+    comm = actx.mpi_communicator
 
     # NOTE: Do not move, we do not want to import mpi4py in single-rank computations
     from mpi4py import MPI
-    actx = vec.array_context
 
     return actx.from_numpy(
         comm.allreduce(
