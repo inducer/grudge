@@ -19,7 +19,7 @@ THE SOFTWARE.
 """
 
 from pytools.tag import Tag, tag_dataclass
-from pytato.transform.metadata import AxisIgnoredForPropagationTag
+from pytato.transform.metadata import IgnoredForPropagationTag
 from meshmode.transform_metadata import DiscretizationDOFAxisTag
 
 
@@ -41,7 +41,7 @@ class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
     iaxis: int
 
 
-class TensorProductOperatorAxisTag(AxisIgnoredForPropagationTag):
+class TensorProductOperatorAxisTag(IgnoredForPropagationTag):
     """
     Signify an axis is part of a 1D operator applied to a tensor product
     discretization. No tags will be propagated to or along axes containing this

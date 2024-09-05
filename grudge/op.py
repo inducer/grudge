@@ -74,6 +74,7 @@ from functools import partial
 import numpy as np
 
 import modepy as mp
+from modepy import multi_vandermonde, vandermonde
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold
@@ -144,8 +145,8 @@ from grudge.trace_pair import (
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
     TensorProductDOFAxisTag,
-    ReferenceTensorProductMassOperatorTag,
-    ReferenceTensorProductMassInverseOperatorTag,
+    ReferenceTensorProductMassOperatorTag as MassMatrix1D,
+    ReferenceTensorProductMassInverseOperatorTag as InverseMassMatrix1D,
     TensorProductOperatorAxisTag
 )
 
@@ -223,8 +224,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
 
-    def compute_simplicial_grad(actx, out_grp, in_grp, vec, ijm,
-                                metric_in_matvec):
+    def compute_simplicial_gradient(actx, out_grp, in_grp, vec, ijm,
+                                    metric_in_matvec):
         return actx.einsum(
             "xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
                     ijm,
@@ -237,14 +238,36 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
 
-    def compute_tensor_product_grad(actx, out_grp, in_grp, vec, ijm,
-                                    metric_in_matvec):
+    def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm,
+                                        metric_in_matvec):
         # expose tensor product structure
-        vec_tp = fold(out_grp.space, vec)
+        vec_tp = fold(in_grp.space, vec)
 
         # weak form gradient
-        if metric_in_matvec:
+        if out_grp == in_grp:
+            mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
+
             grad = []
+            for xyz_axis in range(out_grp.dim):
+                grad.append(vec_tp)
+
+                # apply mass matrix to all axes except current axis
+                apply_mass_axes = set(range(out_grp.dim)) - {xyz_axis}
+                for axis in apply_mass_axes:
+                    grad[xyz_axis] = single_axis_contraction(
+                        actx, in_grp.dim, axis, mass_mat, grad[xyz_axis],
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered()),
+                        arg_names=("mass_1d", f"dofs_{xyz_axis}"))
+
+                grad[xyz_axis] = unfold(
+                    out_grp.space,
+                    single_axis_contraction(
+                        actx, in_grp.dim, xyz_axis, stiff_mat, grad[xyz_axis],
+                        tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
+                        arg_names=("stiff_1d",
+                                   f"dofs_with_mass_applied_{xyz_axis}")))
 
         # strong form gradient
         else:
@@ -281,16 +304,16 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     for out_grp, in_grp, vec_i, ijm_i in zip(
         out_discr.groups, in_discr.groups, vec,inv_jac_mat):
 
-        if (isinstance(in_grp, SimplexElementGroupBase) and \
-            isinstance(out_grp, SimplexElementGroupBase)):
+        if isinstance(in_grp, SimplexElementGroupBase) and \
+            isinstance(out_grp, SimplexElementGroupBase):
             per_group_grads.append(
-                compute_simplicial_grad(
+                compute_simplicial_gradient(
                     actx, out_grp, in_grp, vec_i, ijm_i,metric_in_matvec))
 
-        elif (isinstance(in_grp, TensorProductElementGroupBase) and \
-              isinstance(out_grp, TensorProductElementGroupBase)):
+        elif isinstance(in_grp, TensorProductElementGroupBase) and \
+              isinstance(out_grp, TensorProductElementGroupBase):
             per_group_grads.append(
-                compute_tensor_product_grad(
+                compute_tensor_product_gradient(
                     actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
 
         else:
@@ -346,8 +369,8 @@ def _reference_derivative_matrices(actx: ArrayContext,
     def get_ref_derivative_mats(
                 out_grp: NodalElementGroupBase,
                 in_grp: InterpolatoryElementGroupBase):
-        if (isinstance(in_grp, TensorProductElementGroupBase) and \
-            isinstance(out_grp, TensorProductElementGroupBase)):
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+            isinstance(out_grp, TensorProductElementGroupBase):
 
             basis_1d = in_grp.basis_obj().bases[0]
             to_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
@@ -355,20 +378,17 @@ def _reference_derivative_matrices(actx: ArrayContext,
             from_nodes_1d = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
                 1, in_grp.order+1)
 
-            diff_mat = mp.diff_matrices(
-                basis_1d,
-                to_nodes_1d,
-                from_nodes=from_nodes_1d
-            )[0]
+            diff_mat = mp.diff_matrices(basis_1d, to_nodes_1d,
+                                        from_nodes=from_nodes_1d)[0]
 
             return actx.freeze(
-                actx.tag_axis(
-                    1,
-                    DiscretizationDOFAxisTag(),
+                tag_axes(
+                    actx,
+                    { i: TensorProductOperatorAxisTag() for i in range(2) },
                     actx.from_numpy(diff_mat)))
 
-        elif (isinstance(in_grp, SimplexElementGroupBase) and \
-              isinstance(out_grp, SimplexElementGroupBase)):
+        elif isinstance(in_grp, SimplexElementGroupBase) and \
+              isinstance(out_grp, SimplexElementGroupBase):
             return actx.freeze(
                     actx.tag_axis(
                         1, DiscretizationDOFAxisTag(),
@@ -377,8 +397,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
                                 mp.diff_matrices(
                                     in_grp.basis_obj(),
                                     out_grp.unit_nodes,
-                                    from_nodes=in_grp.unit_nodes,
-                                )))))
+                                    from_nodes=in_grp.unit_nodes)))))
 
         else:
             raise TypeError(
@@ -553,38 +572,90 @@ def _reference_stiffness_transpose_matrices(
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            mmat = mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
-            diff_matrices = mp.diff_matrices(out_grp.basis_obj(), out_grp.unit_nodes)
+            if isinstance(out_grp, TensorProductElementGroupBase):
+                basis_1d = out_grp.basis_obj().bases[0]
+                nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                    1, out_grp.order+1)
+
+                diff_mat_1d = mp.diff_matrices(basis_1d, nodes_1d)[0]
+                mass_mat_1d = mp.mass_matrix(basis_1d, nodes_1d)
+
+                stiff_mat_1d = diff_mat_1d.T @ mass_mat_1d.T
+
+                mass_mat_1d = actx.freeze(
+                    tag_axes(
+                        actx,
+                        { i: TensorProductOperatorAxisTag() for i in range(2) },
+                        actx.from_numpy(mass_mat_1d)))
+
+                stiff_mat_1d = actx.freeze(
+                    tag_axes(
+                        actx,
+                        { i: TensorProductOperatorAxisTag() for i in range(2) },
+                        actx.from_numpy(stiff_mat_1d)))
+
+                return mass_mat_1d, stiff_mat_1d
+
+            else:
+                mass_mat = mp.mass_matrix(out_grp.basis_obj(),
+                                          out_grp.unit_nodes)
+                diff_matrices = mp.diff_matrices(out_grp.basis_obj(),
+                                                 out_grp.unit_nodes)
+
+                return actx.freeze(
+                    actx.tag_axis(1, DiscretizationDOFAxisTag(),
+                        actx.from_numpy(
+                            np.asarray([
+                                  dmat.T @ mass_mat.T
+                                  for dmat in diff_matrices]))))
+
+        if isinstance(out_grp, TensorProductElementGroupBase) and \
+            isinstance(in_grp, TensorProductElementGroupBase):
+
+            basis_1d = out_grp.basis_obj().bases[0]
+            out_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                1, out_grp.order+1)
+            in_nodes_1d = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
+                1, in_grp.order+1)
+
+            vand = vandermonde(basis_1d.functions, out_nodes_1d)
+            vand_inv_t = np.linalg.inv(vand).T
+            grad_vand = multi_vandermonde(basis_1d.gradients, in_nodes_1d)[0]
+
+            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
+
             return actx.freeze(
-                actx.tag_axis(1, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(
-                            [dmat.T @ mmat.T for dmat in diff_matrices]))))
+                tag_axes(
+                    actx,
+                    { i : TensorProductOperatorAxisTag() for i in range(2) },
+                    actx.from_numpy(np.einsum(
+                        "c,bz,cz->bc",
+                        weights,
+                        vand_inv_t,
+                        grad_vand))))
 
-        from modepy import multi_vandermonde, vandermonde
+        else:
 
-        basis = out_grp.basis_obj()
-        vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        grad_vand = multi_vandermonde(basis.gradients, in_grp.unit_nodes)
-        vand_inv_t = np.linalg.inv(vand).T
+            basis = out_grp.basis_obj()
+            vand = vandermonde(basis.functions, out_grp.unit_nodes)
+            grad_vand = multi_vandermonde(basis.gradients, in_grp.unit_nodes)
+            vand_inv_t = np.linalg.inv(vand).T
 
-        if not isinstance(grad_vand, tuple):
-            # NOTE: special case for 1d
-            grad_vand = (grad_vand,)
+            if not isinstance(grad_vand, tuple):
+                # NOTE: special case for 1d
+                grad_vand = (grad_vand,)
 
-        weights = in_grp.quadrature_rule().weights
-        return actx.freeze(
-            actx.from_numpy(
-                np.einsum(
-                    "c,bz,acz->abc",
-                    weights,
-                    vand_inv_t,
-                    grad_vand
-                ).copy()  # contigify the array
-            )
-        )
-    return get_ref_stiffness_transpose_mat(out_element_group,
-                                           in_element_group)
+            weights = in_grp.quadrature_rule().weights
+            return actx.freeze(
+                actx.from_numpy(
+                    np.einsum(
+                        "c,bz,acz->abc",
+                        weights,
+                        vand_inv_t,
+                        grad_vand
+                    ).copy()  # contigify the array
+                ))
+    return get_ref_stiffness_transpose_mat(out_element_group, in_element_group)
 
 
 def _weak_scalar_grad(dcoll, dd_in, vec):
@@ -1190,14 +1261,12 @@ def single_axis_contraction(actx, dim, axis, operator, data,
                 TensorProductDOFAxisTag(i-1))
             for i in range(dim+1)
         },
-        data
-    )
+        data)
 
     operator = tag_axes(
         actx,
         { i: TensorProductOperatorAxisTag() for i in range(2) },
-        operator
-    )
+        operator)
 
     # NOTE: shift j into the correct position and contract over j in the einsum
     # example of a 3D gradient using
@@ -1216,8 +1285,7 @@ def single_axis_contraction(actx, dim, axis, operator, data,
                 TensorProductDOFAxisTag(i-1))
             for i in range(dim+1)
         },
-        actx.einsum(spec, operator, data, arg_names=arg_names, tagged=tagged)
-    )
+        actx.einsum(spec, operator, data, arg_names=arg_names, tagged=tagged))
 
 # }}}
 
