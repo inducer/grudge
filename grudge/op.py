@@ -240,15 +240,6 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm,
                                         metric_in_matvec):
-        # makes overintegration case easier to handle in TP form
-        if metric_in_matvec:
-            vec = actx.einsum(
-                "xrej,ej->xrej",
-                ijm,
-                vec,
-                arg_names=("inv_jac_t", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
-
         # expose tensor product structure
         vec_tp = fold(in_grp.space, vec)
 
@@ -293,20 +284,20 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
                 ref_grad.append(partial)
 
-            ref_grad = actx.np.stack(ref_grad)
-            return tag_axes(
-                actx,
-                {
-                    0: DiscretizationAmbientDimAxisTag(),
-                    1: DiscretizationElementAxisTag(),
-                    2: DiscretizationDOFAxisTag()
-                },
-                actx.einsum(
-                    "xrej,rej->xej",
-                    ijm,
-                    ref_grad,
-                    tagged=(FirstAxisIsElementsTag(),),
-                    arg_names=("inv_jac_t", "ref_ref_grad")))
+        ref_grad = actx.np.stack(ref_grad)
+        return tag_axes(
+            actx,
+            {
+                0: DiscretizationAmbientDimAxisTag(),
+                1: DiscretizationElementAxisTag(),
+                2: DiscretizationDOFAxisTag()
+            },
+            actx.einsum(
+                "xrej,rej->xej",
+                ijm,
+                ref_grad,
+                tagged=(FirstAxisIsElementsTag(),),
+                arg_names=("inv_jac_t", "ref_ref_grad")))
 
 
     per_group_grads = []
