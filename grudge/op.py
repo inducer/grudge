@@ -652,10 +652,13 @@ def _reference_stiffness_transpose_matrices(
                 mass_mat_1d = mp.mass_matrix(basis_1d, nodes_1d)
 
                 mass_mat_1d = actx.freeze(
-                    tag_axes(
-                        actx,
-                        { i: TensorProductOperatorAxisTag() for i in range(2) },
-                        actx.from_numpy(mass_mat_1d)))
+                    actx.tag(
+                        MassMatrix1D(),
+                        tag_axes(
+                            actx,
+                            {i : TensorProductOperatorAxisTag()
+                                for i in range(2) },
+                            actx.from_numpy(mass_mat_1d))))
 
                 diff_mat_1d = actx.freeze(
                     tag_axes(
@@ -1013,12 +1016,12 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
 
             return actx.freeze(
                 actx.tag(
-                InverseMassMatrix1D(),
-                tag_axes(
-                actx,
-                { i : TensorProductOperatorAxisTag() for i in range(2) },
-                actx.from_numpy(
-                    np.asarray(inverse_mass_matrix(basis_1d, nodes_1d))))))
+                    InverseMassMatrix1D(),
+                    tag_axes(
+                    actx,
+                    { i : TensorProductOperatorAxisTag() for i in range(2) },
+                    actx.from_numpy(
+                        np.asarray(inverse_mass_matrix(basis_1d, nodes_1d))))))
 
         else:
             basis = grp.basis_obj()
