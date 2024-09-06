@@ -620,39 +620,8 @@ def _reference_stiffness_transpose_matrices(
 
         if isinstance(out_grp, TensorProductElementGroupBase) and \
             isinstance(in_grp, TensorProductElementGroupBase):
-
-            basis_1d = out_grp.basis_obj().bases[0]
-            out_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
-                1, out_grp.order+1)
-            in_nodes_1d = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
-                1, in_grp.order+1)
-
-            vand = vandermonde(basis_1d.functions, out_nodes_1d)
-            vand_inv_t = np.linalg.inv(vand).T
-            grad_vand = multi_vandermonde(basis_1d.gradients, in_nodes_1d)[0]
-
-            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
-
-            stiff_mat_1d = np.einsum("c,bz,cz->bc",
-                                     weights, vand_inv_t, grad_vand)
-
-            vand_in = vandermonde(basis_1d.functions, in_nodes_1d)
-            mass_mat_1d = np.einsum("c,bz,cz->bc",
-                                    weights, vand, vand_in)
-            pu.db
-
-            stiff_mat_1d = tag_axes(
-                actx,
-                { i : TensorProductOperatorAxisTag() for i in range(2) },
-                actx.from_numpy(stiff_mat_1d))
-
-            mass_mat_1d = tag_axes(
-                actx,
-                { i : TensorProductOperatorAxisTag() for i in range(2) },
-                actx.from_numpy(mass_mat_1d))
-
-            return mass_mat_1d, stiff_mat_1d
-
+            raise NotImplementedError("Overintegration and fast operator "
+                                      "evaluation is not supported")
         else:
 
             basis = out_grp.basis_obj()
