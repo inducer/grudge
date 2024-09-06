@@ -74,7 +74,12 @@ from functools import partial
 import numpy as np
 
 import modepy as mp
-from modepy import multi_vandermonde, vandermonde
+from modepy import (
+    multi_vandermonde,
+    vandermonde,
+    inverse_mass_matrix,
+    mass_matrix
+)
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold
@@ -1001,15 +1006,29 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
         actx, reference_inverse_mass_matrix,
         lambda grp: grp.discretization_key())
     def get_ref_inv_mass_mat(grp):
-        from modepy import inverse_mass_matrix
-        basis = grp.basis_obj()
 
-        return actx.freeze(
-            actx.tag_axis(0, DiscretizationDOFAxisTag(),
+        if isinstance(grp, TensorProductElementGroupBase):
+            basis_1d = grp.basis_obj().bases[0]
+            nodes_1d = grp.unit_nodes[0][:grp.order+1].reshape(1, grp.order+1)
+
+            return actx.freeze(
+                actx.tag(
+                InverseMassMatrix1D(),
+                tag_axes(
+                actx,
+                { i : TensorProductOperatorAxisTag() for i in range(2) },
                 actx.from_numpy(
-                    np.asarray(
-                        inverse_mass_matrix(basis, grp.unit_nodes),
-                        order="C"))))
+                    np.asarray(inverse_mass_matrix(basis_1d, nodes_1d))))))
+
+        else:
+            basis = grp.basis_obj()
+
+            return actx.freeze(
+                actx.tag_axis(0, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray(
+                            inverse_mass_matrix(basis, grp.unit_nodes),
+                            order="C"))))
 
     return get_ref_inv_mass_mat(element_group)
 
@@ -1030,19 +1049,54 @@ def _apply_inverse_mass_operator(
             "guaranteed to be well-defined"
         )
 
+    def tensor_product_apply_inverse_mass(grp, jac_inv, vec):
+        vec_tp = fold(grp.space, vec)
+
+        for rst_axis in range(grp.dim):
+            vec_tp = single_axis_contraction(
+                actx, grp.dim, rst_axis,
+                reference_inverse_mass_matrix(actx, element_group=grp),
+                vec_tp,
+                tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered()),
+                arg_names=("ref_inv_mass", "dofs"))
+
+        vec = unfold(grp.space, vec_tp)
+
+        return actx.einsum(
+            "ei,ei->ei",
+            jac_inv,
+            vec,
+            tagged=(FirstAxisIsElementsTag(),))
+
+
+    def simplicial_apply_inverse_mass(grp, jac_inv, vec):
+        # Based on https://arxiv.org/pdf/1608.03836.pdf
+        # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+        return actx.einsum("ei,ij,ej->ei",
+            jac_inv,
+            reference_inverse_mass_matrix(actx, element_group=grp),
+            vec,
+            tagged=(FirstAxisIsElementsTag(),))
+
     actx = vec.array_context
     discr = dcoll.discr_from_dd(dd_in)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    group_data = [
-            # Based on https://arxiv.org/pdf/1608.03836.pdf
-            # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
-            actx.einsum("ei,ij,ej->ei",
-                        jac_inv,
-                        reference_inverse_mass_matrix(actx, element_group=grp),
-                        vec_i,
-                        tagged=(FirstAxisIsElementsTag(),))
-            for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec)]
+    group_data = []
+    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
+        if isinstance(grp, TensorProductElementGroupBase):
+            group_data.append(tensor_product_apply_inverse_mass(
+                grp, jac_inv, vec_i))
+
+        elif isinstance(grp, SimplexElementGroupBase):
+            group_data.append(simplicial_apply_inverse_mass(
+                grp, jac_inv, vec_i))
+
+        else:
+            raise TypeError(
+                "Expected grp to be either `TensorProductElementGroupBase` or "
+                f"`SimplexElementGroupBase`. Found grp = {grp}")
 
     return DOFArray(actx, data=tuple(group_data))
 
