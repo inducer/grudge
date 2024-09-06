@@ -603,8 +603,8 @@ def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True,
         fusion: Optional[bool] = None, numpy: bool = False,
         ) -> Type[ArrayContext]:
-    """Returns a reasonable :class:`ArrayContext` currently
-    supported given the constraints of *lazy* and *distributed*."""
+    """Returns a reasonable :class:`~arraycontext.ArrayContext` currently
+    supported given the constraints of *lazy*, *distributed*, and *numpy*."""
     if fusion is None:
         fusion = lazy
 
