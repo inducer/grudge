@@ -609,7 +609,7 @@ def get_reasonable_array_context_class(
         fusion = lazy
 
     if numpy:
-        assert not lazy
+        assert not (lazy or fusion)
         if distributed:
             actx_class = MPINumpyArrayContext
         else:
