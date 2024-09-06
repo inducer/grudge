@@ -267,7 +267,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                         ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
-                        arg_names=("stiff_1d",
+                        arg_names=("diff_1d_T",
                                    f"dofs_with_mass_applied_{rst_axis}")))
 
         # strong form ref_gradient
