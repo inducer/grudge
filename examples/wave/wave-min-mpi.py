@@ -24,22 +24,21 @@ THE SOFTWARE.
 """
 
 
+import logging
+
 import numpy as np
-import pyopencl as cl
-import pyopencl.tools as cl_tools
-
-from grudge.array_context import MPIPyOpenCLArrayContext
-
-from grudge.shortcuts import set_up_rk4
-from grudge import DiscretizationCollection
-
 from mpi4py import MPI
 
+import pyopencl as cl
+import pyopencl.tools as cl_tools
 from pytools.obj_array import flat_obj_array
 
 import grudge.op as op
+from grudge import make_discretization_collection
+from grudge.array_context import MPIPyOpenCLArrayContext
+from grudge.shortcuts import set_up_rk4
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,7 +46,7 @@ class WaveTag:
     pass
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+def main(dim=2, order=4, visualize=True):
     comm = MPI.COMM_WORLD
     num_parts = comm.size
 
@@ -83,7 +82,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     else:
         local_mesh = comm.scatter(None)
 
-    dcoll = DiscretizationCollection(actx, local_mesh, order=order)
+    dcoll = make_discretization_collection(actx, local_mesh, order=order)
 
     def source_f(actx, dcoll, t=0):
         source_center = np.array([0.1, 0.22, 0.33])[:dcoll.dim]
@@ -101,8 +100,9 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             )
         )
 
-    from grudge.models.wave import WeakWaveOperator
     from meshmode.mesh import BTAG_ALL, BTAG_NONE
+
+    from grudge.models.wave import WeakWaveOperator
 
     wave_op = WeakWaveOperator(
         dcoll,
@@ -167,9 +167,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
 
             if step % 10 == 0:
                 if comm.rank == 0:
-                    logger.info(f"step: {step} "
-                                f"t: {time()-t_last_step} "
-                                f"L2: {l2norm}")
+                    logger.info("step: %d t: %.8e L2: %.8e",
+                                step, time() - t_last_step, l2norm)
                 if visualize:
                     vis.write_parallel_vtk_file(
                         comm,
@@ -196,7 +195,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    main(cl.create_some_context,
+    main(
          dim=args.dim,
          order=args.order,
          visualize=args.visualize)

@@ -26,11 +26,12 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-import grudge.op as op
 import types
-import grudge.geometry as geo
 
+import numpy as np
+
+import grudge.geometry as geo
+import grudge.op as op
 from grudge.models import HyperbolicOperator
 
 
@@ -63,7 +64,7 @@ def advection_weak_flux(dcoll, flux_type, u_tpair, velocity):
 # {{{ constant-coefficient advection
 
 class AdvectionOperatorBase(HyperbolicOperator):
-    flux_types = ["central", "upwind", "lf"]
+    flux_types = ("central", "upwind", "lf")
 
     def __init__(self, dcoll, v, inflow_u=None, flux_type="central"):
         if flux_type not in self.flux_types:
@@ -105,8 +106,10 @@ class StrongAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
+            from grudge.dof_desc import as_dofdesc
+
             inflow_flux = flux(op.bv_trace_pair(dcoll,
-                                                BTAG_ALL,
+                                                as_dofdesc(BTAG_ALL),
                                                 interior=u,
                                                 exterior=self.inflow_u(t)))
         else:
@@ -148,8 +151,9 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
             return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
 
         if self.inflow_u is not None:
+            from grudge.dof_desc import as_dofdesc
             inflow_flux = flux(op.bv_trace_pair(dcoll,
-                                                BTAG_ALL,
+                                                as_dofdesc(BTAG_ALL),
                                                 interior=u,
                                                 exterior=self.inflow_u(t)))
         else:
@@ -221,13 +225,14 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
         return advection_weak_flux(self.dcoll, self.flux_type, u_tpair, surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
-        from meshmode.mesh import BTAG_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
+        from meshmode.mesh import BTAG_ALL
 
-        face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
-        boundary_dd = DOFDesc(BTAG_ALL, self.quad_tag)
-        quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, as_dofdesc
+
+        face_dd = as_dofdesc(FACE_RESTR_ALL, self.quad_tag)
+        boundary_dd = as_dofdesc(BTAG_ALL, self.quad_tag)
+        quad_dd = as_dofdesc(DTAG_VOLUME_ALL, self.quad_tag)
 
         dcoll = self.dcoll
 
@@ -280,9 +285,10 @@ class VariableCoefficientAdvectionOperator(AdvectionOperatorBase):
 # {{{ closed surface advection
 
 def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
+    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
+
     from grudge.dof_desc import BoundaryDomainTag
     from grudge.trace_pair import TracePair
-    from meshmode.discretization.connection import FACE_RESTR_INTERIOR
 
     normal = geo.normal(actx, dcoll, trace_dd.with_discr_tag(None))
     v_dot_n = velocity.dot(normal)
@@ -292,7 +298,7 @@ def v_dot_n_tpair(actx, dcoll, velocity, trace_dd):
     if trace_dd.domain_tag.tag is FACE_RESTR_INTERIOR:
         e = dcoll.opposite_face_connection(trace_dd.domain_tag)(i)
     else:
-        raise ValueError("Unrecognized domain tag: %s" % trace_dd.domain_tag)
+        raise ValueError(f"Unrecognized domain tag: {trace_dd.domain_tag}")
 
     return TracePair(trace_dd, interior=i, exterior=e)
 
@@ -335,11 +341,12 @@ class SurfaceAdvectionOperator(AdvectionOperatorBase):
                                            surf_v)
 
     def operator(self, t, u):
-        from grudge.dof_desc import DOFDesc, DD_VOLUME_ALL, DTAG_VOLUME_ALL
         from meshmode.discretization.connection import FACE_RESTR_ALL
 
-        face_dd = DOFDesc(FACE_RESTR_ALL, self.quad_tag)
-        quad_dd = DOFDesc(DTAG_VOLUME_ALL, self.quad_tag)
+        from grudge.dof_desc import DD_VOLUME_ALL, DTAG_VOLUME_ALL, as_dofdesc
+
+        face_dd = as_dofdesc(FACE_RESTR_ALL, self.quad_tag)
+        quad_dd = as_dofdesc(DTAG_VOLUME_ALL, self.quad_tag)
 
         dcoll = self.dcoll
 

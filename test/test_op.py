@@ -21,60 +21,85 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-
-import meshmode.mesh.generation as mgen
-
-from pytools.obj_array import make_obj_array
-
-from grudge import op, geometry as geo, DiscretizationCollection
-from grudge.dof_desc import DOFDesc
-
-import pytest
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
-
 import logging
 
+import numpy as np
+import pytest
+
+import meshmode.mesh.generation as mgen
+from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory,
+)
+from meshmode.mesh import BTAG_ALL
+from pytools.obj_array import make_obj_array
+
+from grudge import geometry, op
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
+from grudge.dof_desc import (
+    DISCR_TAG_BASE,
+    DISCR_TAG_QUAD,
+    DTAG_VOLUME_ALL,
+    FACE_RESTR_ALL,
+    VTAG_ALL,
+    BoundaryDomainTag,
+    as_dofdesc,
+)
+from grudge.trace_pair import bv_trace_pair
+
+
 logger = logging.getLogger(__name__)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["strong", "weak"])
+@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("warp_mesh", [False, True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
     ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+                  warp_mesh, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
-    for n in [4, 6, 8]:
-        mesh = mgen.generate_regular_rect_mesh(
-                a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim)
+    for n in [8, 12, 16] if warp_mesh else [4, 6, 8]:
+        if warp_mesh:
+            if dim == 1:
+                pytest.skip("warped mesh in 1D not implemented")
+            mesh = mgen.generate_warped_rect_mesh(
+                          dim=dim, order=order, nelements_side=n)
+        else:
+            mesh = mgen.generate_regular_rect_mesh(
+                    a=(-1,)*dim, b=(1,)*dim,
+                    nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(
+                   actx, mesh,
+                   discr_tag_to_group_factory={
+                       DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order),
+                       DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+                   })
 
         def f(x):
-            result = dcoll.zeros(actx) + 1
+            result = 1
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
         def grad_f(x):
-            result = make_obj_array([dcoll.zeros(actx) + 1 for _ in range(dim)])
+            result = make_obj_array([1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
                     result[i] = result[i] * actx.np.sin(np.pi*x[j])
@@ -87,17 +112,18 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             result[dim-1] = result[dim-1] * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
             return result
 
-        x = actx.thaw(dcoll.nodes())
+        def vectorize_if_requested(vec):
+            if vectorize:
+                return make_obj_array([(i+1)*vec for i in range(dim)])
+            else:
+                return vec
 
-        if vectorize:
-            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
-        else:
-            u = f(x)
-
-        def get_flux(u_tpair):
+        def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
-            dd_allfaces = dd.with_dtag("all_faces")
-            normal = geo.normal(actx, dcoll, dd)
+            dd_allfaces = dd.with_domain_tag(
+                BoundaryDomainTag(FACE_RESTR_ALL, VTAG_ALL)
+                )
+            normal = geometry.normal(actx, dcoll, dd)
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
@@ -108,22 +134,45 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 flux = u_avg * normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = DOFDesc("all_faces")
+        x = actx.thaw(dcoll.nodes())
+        u = vectorize_if_requested(f(x))
+
+        bdry_dd_base = as_dofdesc(BTAG_ALL)
+        bdry_x = actx.thaw(dcoll.nodes(bdry_dd_base))
+        bdry_u = vectorize_if_requested(f(bdry_x))
 
         if form == "strong":
             grad_u = (
                 op.local_grad(dcoll, u, nested=nested)
                 # No flux terms because u doesn't have inter-el jumps
                 )
-        elif form == "weak":
+        elif form.startswith("weak"):
+            assert form in ["weak", "weak-overint"]
+            if "overint" in form:
+                quad_discr_tag = DISCR_TAG_QUAD
+            else:
+                quad_discr_tag = DISCR_TAG_BASE
+
+            allfaces_dd_base = as_dofdesc(FACE_RESTR_ALL, quad_discr_tag)
+            vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
+            vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
+            bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
+            allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
+
             grad_u = op.inverse_mass(dcoll,
-                -op.weak_local_grad(dcoll, u, nested=nested)  # pylint: disable=E1130
-                +  # noqa: W504
+                -op.weak_local_grad(dcoll, vol_dd_quad,
+                        op.project(dcoll, vol_dd_base, vol_dd_quad, u),
+                        nested=nested)
+                +
                 op.face_mass(dcoll,
-                    dd_allfaces,
-                    # Note: no boundary flux terms here because u_ext == u_int == 0
-                    sum(get_flux(utpair)
-                        for utpair in op.interior_trace_pairs(dcoll, u))
+                    allfaces_dd_quad,
+                    sum(get_flux(
+                        op.project_tracepair(dcoll, allfaces_dd_quad, utpair))
+                        for utpair in op.interior_trace_pairs(
+                                      dcoll, u, volume_dd=vol_dd_base))
+                    + get_flux(
+                        op.project_tracepair(dcoll, bdry_dd_quad,
+                                   bv_trace_pair(dcoll, bdry_dd_base, u, bdry_u)))
                 )
             )
         else:
@@ -138,6 +187,9 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             expected_grad_u = grad_f(x)
 
         if visualize:
+            # the code below does not handle the vectorized case
+            assert not vectorize
+
             from grudge.shortcuts import make_visualizer
             vis = make_visualizer(dcoll, vis_order=order if dim == 3 else dim+3)
 
@@ -184,16 +236,16 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
                 a=(-1,)*dim, b=(1,)*dim,
                 nelements_per_axis=(n,)*dim)
 
-        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
 
-        def f(x):
+        def f(x, dcoll=dcoll):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
             return result
 
-        def div_f(x):
+        def div_f(x, dcoll=dcoll):
             result = dcoll.zeros(actx)
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
@@ -220,14 +272,16 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         else:
             u = f(x)
 
-        def get_flux(u_tpair):
+        def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
-            dd_allfaces = dd.with_dtag("all_faces")
-            normal = geo.normal(actx, dcoll, dd)
+            dd_allfaces = dd.with_domain_tag(
+                BoundaryDomainTag(FACE_RESTR_ALL, VTAG_ALL)
+                )
+            normal = geometry.normal(actx, dcoll, dd)
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = DOFDesc("all_faces")
+        dd_allfaces = as_dofdesc(FACE_RESTR_ALL)
 
         if form == "strong":
             div_u = (
@@ -237,7 +291,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         elif form == "weak":
             div_u = op.inverse_mass(dcoll,
                 -op.weak_local_div(dcoll, u)
-                +  # noqa: W504
+                +
                 op.face_mass(dcoll,
                     dd_allfaces,
                     # Note: no boundary flux terms here because u_ext == u_int == 0

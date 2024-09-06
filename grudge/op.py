@@ -43,6 +43,9 @@ these symbols correctly.)
 
 from __future__ import annotations
 
+from meshmode.discretization import InterpolatoryElementGroupBase, NodalElementGroupBase
+
+
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -69,100 +72,94 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import (ArrayContext, map_array_container, tag_axes,
-        ArrayOrContainer)
-
 from functools import partial
-
-from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import (FirstAxisIsElementsTag,
-                                         DiscretizationDOFAxisTag,
-                                         DiscretizationElementAxisTag,
-                                         DiscretizationFaceAxisTag)
-
-from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import as_dofdesc
-
-from pytools import keyed_memoize_in
-from pytools.obj_array import make_obj_array
 
 import numpy as np
 
-import grudge.dof_desc as dof_desc
-from grudge.dof_desc import (
-    DD_VOLUME_ALL, FACE_RESTR_ALL, DISCR_TAG_BASE,
-    DOFDesc, VolumeDomainTag
+import modepy as mp
+from arraycontext import ArrayContext, ArrayOrContainer, map_array_container, tag_axes
+from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+    DiscretizationFaceAxisTag,
+    FirstAxisIsElementsTag,
 )
+from pytools import keyed_memoize_in
+from pytools.obj_array import make_obj_array
 
+import grudge.dof_desc as dof_desc
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import (
+    DD_VOLUME_ALL,
+    DISCR_TAG_BASE,
+    FACE_RESTR_ALL,
+    DOFDesc,
+    VolumeDomainTag,
+    as_dofdesc,
+)
 from grudge.interpolation import interp
 from grudge.projection import project
-
 from grudge.reductions import (
-    norm,
-    nodal_sum,
-    nodal_min,
-    nodal_max,
-    nodal_sum_loc,
-    nodal_min_loc,
-    nodal_max_loc,
-    integral,
-    elementwise_sum,
+    elementwise_integral,
     elementwise_max,
     elementwise_min,
-    elementwise_integral,
+    elementwise_sum,
+    integral,
+    nodal_max,
+    nodal_max_loc,
+    nodal_min,
+    nodal_min_loc,
+    nodal_sum,
+    nodal_sum_loc,
+    norm,
 )
-
 from grudge.trace_pair import (
-    project_tracepair,
-    tracepair_with_discr_tag,
+    bdry_trace_pair,
+    bv_trace_pair,
+    connected_ranks,
+    cross_rank_trace_pairs,
     interior_trace_pair,
     interior_trace_pairs,
     local_interior_trace_pair,
-    connected_ranks,
-    cross_rank_trace_pairs,
-    bdry_trace_pair,
-    bv_trace_pair
+    project_tracepair,
+    tracepair_with_discr_tag,
 )
 
 
 __all__ = (
-    "project",
-    "interp",
-
-    "norm",
-    "nodal_sum",
-    "nodal_min",
-    "nodal_max",
-    "nodal_sum_loc",
-    "nodal_min_loc",
-    "nodal_max_loc",
-    "integral",
-    "elementwise_sum",
-    "elementwise_max",
-    "elementwise_min",
-    "elementwise_integral",
-
-    "project_tracepair",
-    "tracepair_with_discr_tag",
-    "interior_trace_pair",
-    "interior_trace_pairs",
-    "local_interior_trace_pair",
-    "connected_ranks",
-    "cross_rank_trace_pairs",
     "bdry_trace_pair",
     "bv_trace_pair",
-
-    "local_grad",
+    "connected_ranks",
+    "cross_rank_trace_pairs",
+    "elementwise_integral",
+    "elementwise_max",
+    "elementwise_min",
+    "elementwise_sum",
+    "face_mass",
+    "integral",
+    "interior_trace_pair",
+    "interior_trace_pairs",
+    "interp",
+    "inverse_mass",
     "local_d_dx",
     "local_div",
-
-    "weak_local_grad",
+    "local_grad",
+    "local_interior_trace_pair",
+    "mass",
+    "nodal_max",
+    "nodal_max_loc",
+    "nodal_min",
+    "nodal_min_loc",
+    "nodal_sum",
+    "nodal_sum_loc",
+    "norm",
+    "project",
+    "project_tracepair",
+    "tracepair_with_discr_tag",
     "weak_local_d_dx",
     "weak_local_div",
-
-    "mass",
-    "inverse_mass",
-    "face_mass",
+    "weak_local_grad",
     )
 
 
@@ -220,8 +217,9 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             inv_jac_mat)]
 
     return make_obj_array([
-            DOFArray(
-                actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_grads]))
+            DOFArray(actx, data=tuple([  # noqa: C409
+                pgg_i[xyz_axis] for pgg_i in per_group_grads
+                ]))
             for xyz_axis in range(out_discr.ambient_dim)])
 
 
@@ -254,22 +252,28 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 # {{{ Derivative operators
 
 def _reference_derivative_matrices(actx: ArrayContext,
-        out_element_group, in_element_group):
-    # We're accepting in_element_group for interface consistency with
-    # _reference_stiffness_transpose_matrices.
-    assert out_element_group is in_element_group
+        out_element_group: NodalElementGroupBase,
+        in_element_group: InterpolatoryElementGroupBase):
 
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
-        lambda grp: grp.discretization_key())
-    def get_ref_derivative_mats(grp):
-        from meshmode.discretization.poly_element import diff_matrices
+        lambda outgrp, ingrp: (
+            outgrp.discretization_key(),
+            ingrp.discretization_key()))
+    def get_ref_derivative_mats(
+                out_grp: NodalElementGroupBase,
+                in_grp: InterpolatoryElementGroupBase):
         return actx.freeze(
                 actx.tag_axis(
                     1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
-                        np.asarray(diff_matrices(grp)))))
-    return get_ref_derivative_mats(out_element_group)
+                        np.asarray(
+                            mp.diff_matrices(
+                                in_grp.basis_obj(),
+                                out_grp.unit_nodes,
+                                from_nodes=in_grp.unit_nodes,
+                            )))))
+    return get_ref_derivative_mats(out_element_group, in_element_group)
 
 
 def _strong_scalar_grad(dcoll, dd_in, vec):
@@ -288,9 +292,9 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
 
 
 def _strong_scalar_div(dcoll, dd, vecs):
+    from arraycontext import get_container_context_recursively, serialize_container
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    from arraycontext import (get_container_context_recursively,
-                              serialize_container)
 
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
@@ -436,20 +440,19 @@ def _reference_stiffness_transpose_matrices(
                                  in_grp.discretization_key()))
     def get_ref_stiffness_transpose_mat(out_grp, in_grp):
         if in_grp == out_grp:
-            from meshmode.discretization.poly_element import \
-                mass_matrix, diff_matrices
-
-            mmat = mass_matrix(out_grp)
+            mmat = mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
+            diff_matrices = mp.diff_matrices(out_grp.basis_obj(), out_grp.unit_nodes)
             return actx.freeze(
                 actx.tag_axis(1, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
                         np.asarray(
-                            [dmat.T @ mmat.T for dmat in diff_matrices(out_grp)]))))
+                            [dmat.T @ mmat.T for dmat in diff_matrices]))))
 
-        from modepy import vandermonde
+        from modepy import multi_vandermonde, vandermonde
+
         basis = out_grp.basis_obj()
         vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        grad_vand = vandermonde(basis.gradients, in_grp.unit_nodes)
+        grad_vand = multi_vandermonde(basis.gradients, in_grp.unit_nodes)
         vand_inv_t = np.linalg.inv(vand).T
 
         if not isinstance(grad_vand, tuple):
@@ -489,9 +492,9 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
 
 
 def _weak_scalar_div(dcoll, dd_in, vecs):
+    from arraycontext import get_container_context_recursively, serialize_container
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    from arraycontext import (get_container_context_recursively,
-                              serialize_container)
 
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
@@ -665,16 +668,11 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                                  in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
-            from meshmode.discretization.poly_element import mass_matrix
-
             return actx.freeze(
                 actx.from_numpy(
-                    np.asarray(
-                        mass_matrix(out_grp),
-                        order="C"
+                    mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
                     )
                 )
-            )
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -783,7 +781,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
             actx.tag_axis(0, DiscretizationDOFAxisTag(),
                 actx.from_numpy(
                     np.asarray(
-                        inverse_mass_matrix(basis.functions, grp.unit_nodes),
+                        inverse_mass_matrix(basis, grp.unit_nodes),
                         order="C"))))
 
     return get_ref_inv_mass_mat(element_group)
@@ -895,8 +893,7 @@ def reference_face_mass_matrix(
 
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
-        from meshmode.discretization.poly_element import \
-            QuadratureSimplexElementGroup
+        from meshmode.discretization.poly_element import QuadratureSimplexElementGroup
 
         n = vol_grp.order
         m = face_grp.order

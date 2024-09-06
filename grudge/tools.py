@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+
 __copyright__ = "Copyright (C) 2007 Andreas Kloeckner"
 
 __license__ = """
@@ -29,12 +30,12 @@ THE SOFTWARE.
 """
 
 from functools import partial
-from typing import Tuple, Callable, Optional, Union, Any
+from typing import Any, Callable
 
 import numpy as np
 
-from pytools import product
 from arraycontext import ArrayContext, ArrayOrContainer, ArrayOrContainerT
+from pytools import product
 
 
 # {{{ build_jacobian
@@ -81,7 +82,7 @@ def build_jacobian(
 
 def map_subarrays(
         f: Callable[[Any], Any],
-        in_shape: Tuple[int, ...], out_shape: Tuple[int, ...],
+        in_shape: tuple[int, ...], out_shape: tuple[int, ...],
         ary: Any, *, return_nested: bool = False) -> Any:
     """
     Apply a function *f* to subarrays of shape *in_shape* of an
@@ -174,10 +175,10 @@ def map_subarrays(
 
 def rec_map_subarrays(
         f: Callable[[Any], Any],
-        in_shape: Tuple[int, ...],
-        out_shape: Tuple[int, ...],
+        in_shape: tuple[int, ...],
+        out_shape: tuple[int, ...],
         ary: ArrayOrContainer, *,
-        scalar_cls: Optional[Union[type, Tuple[type]]] = None,
+        scalar_cls: type | tuple[type] | None = None,
         return_nested: bool = False) -> ArrayOrContainer:
     r"""
     Like :func:`map_subarrays`, but with support for

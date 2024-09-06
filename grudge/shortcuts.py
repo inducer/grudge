@@ -20,10 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from grudge.dof_desc import DD_VOLUME_ALL
-
-
 from pytools import memoize_in
+
+from grudge.dof_desc import DD_VOLUME_ALL
 
 
 def rk4_step(y, t, h, f):
@@ -63,8 +62,8 @@ def compiled_lsrk45_step(actx, y, t, h, f):
 
 
 def set_up_rk4(field_var_name, dt, fields, rhs, t_start=0.0):
-    from leap.rk import LSRK4MethodBuilder
     from dagrt.codegen import PythonCodeGenerator
+    from leap.rk import LSRK4MethodBuilder
 
     dt_method = LSRK4MethodBuilder(component_id=field_var_name)
     dt_code = dt_method.generate()

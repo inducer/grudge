@@ -24,22 +24,25 @@ THE SOFTWARE.
 
 import numpy as np
 
+from arraycontext import pytest_generate_tests_for_array_contexts
+
 from grudge.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    PytestPytatoPyOpenCLArrayContextFactory
+    PytestPytatoPyOpenCLArrayContextFactory,
 )
-from arraycontext import pytest_generate_tests_for_array_contexts
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
 
-from grudge import DiscretizationCollection
+import logging
 
-import grudge.op as op
-
+import mesh_data
 import pytest
 
-import logging
+import grudge.op as op
+from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
@@ -55,23 +58,22 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     # {{{ cases
 
     if name == "interval":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=1)
+        builder = mesh_data.BoxMeshBuilder1D()
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
+    order = 4
+
     min_factors = []
     for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution, builder.mesh_order)
-        dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+        mesh = builder.get_mesh(resolution, order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
         min_factors.append(
             actx.to_numpy(
                 op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
@@ -84,8 +86,8 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     assert np.all(np.isclose(ratios, 2))
 
     # Make sure it works with empty meshes
-    mesh = builder.get_mesh(0, builder.mesh_order)
-    dcoll = DiscretizationCollection(actx, mesh, order=builder.order)
+    mesh = builder.get_mesh(0)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
     factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
@@ -98,16 +100,13 @@ def test_non_geometric_factors(actx_factory, name):
     # {{{ cases
 
     if name == "interval":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=1)
+        builder = mesh_data.BoxMeshBuilder1D()
     elif name == "box2d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=2)
+        builder = mesh_data.BoxMeshBuilder2D()
     elif name == "box3d":
-        from mesh_data import BoxMeshBuilder
-        builder = BoxMeshBuilder(ambient_dim=3)
+        builder = mesh_data.BoxMeshBuilder3D()
     else:
-        raise ValueError("unknown geometry name: %s" % name)
+        raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
@@ -115,7 +114,7 @@ def test_non_geometric_factors(actx_factory, name):
     degrees = list(range(1, 8))
     for degree in degrees:
         mesh = builder.get_mesh(1, degree)
-        dcoll = DiscretizationCollection(actx, mesh, order=degree)
+        dcoll = make_discretization_collection(actx, mesh, order=degree)
         factors.append(min(dt_non_geometric_factors(dcoll)))
 
     # Crude estimate, factors should behave like 1/N**2
@@ -134,7 +133,7 @@ def test_build_jacobian(actx_factory):
     mesh = mgen.generate_regular_rect_mesh(a=[0], b=[1], nelements_per_axis=(3,))
     assert mesh.dim == 1
 
-    dcoll = DiscretizationCollection(actx, mesh, order=1)
+    dcoll = make_discretization_collection(actx, mesh, order=1)
 
     def rhs(x):
         return 3*x**2 + 2*x + 5
@@ -163,7 +162,7 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
             nelements_per_axis=(3,)*dim)
     assert mesh.dim == dim
 
-    dcoll = DiscretizationCollection(actx, mesh, order=degree)
+    dcoll = make_discretization_collection(actx, mesh, order=degree)
 
     from grudge.models.wave import WeakWaveOperator
     wave_op = WeakWaveOperator(dcoll, c=1)
@@ -181,8 +180,8 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
 
     assert (eigvals.real <= 1e-12).all()
 
-    from leap.rk import stability_function, RK4MethodBuilder
     import sympy as sp
+    from leap.rk import RK4MethodBuilder, stability_function
     stab_func = sp.lambdify(*stability_function(
         RK4MethodBuilder.a_explicit,
         RK4MethodBuilder.output_coeffs))

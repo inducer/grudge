@@ -21,28 +21,32 @@ THE SOFTWARE.
 """
 
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from arraycontext import pytest_generate_tests_for_array_contexts
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
+
+
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
+import pytest
+
+import meshmode.mesh.generation as mgen
 from meshmode.discretization.poly_element import (
     # Simplex group factories
     InterpolatoryQuadratureSimplexGroupFactory,
-    PolynomialWarpAndBlend2DRestrictingGroupFactory,
-    PolynomialEquidistantSimplexGroupFactory,
     # Tensor product group factories
     LegendreGaussLobattoTensorProductGroupFactory,
+    ModalGroupFactory,
+    PolynomialEquidistantSimplexGroupFactory,
+    PolynomialWarpAndBlend2DRestrictingGroupFactory,
     # Quadrature-based (non-interpolatory) group factories
-    QuadratureSimplexGroupFactory
+    QuadratureSimplexGroupFactory,
 )
 from meshmode.dof_array import flat_norm
-import meshmode.mesh.generation as mgen
 
-from grudge import DiscretizationCollection
 import grudge.dof_desc as dof_desc
-
-import pytest
 
 
 @pytest.mark.parametrize("nodal_group_factory", [
@@ -65,15 +69,16 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
         group_cls=nodal_group_factory.mesh_group_class
     )
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
-            dof_desc.DISCR_TAG_BASE: nodal_group_factory(order)
+            dof_desc.DISCR_TAG_BASE: nodal_group_factory(order),
+            dof_desc.DISCR_TAG_MODAL: ModalGroupFactory(order),
         }
     )
 
-    dd_modal = dof_desc.DD_VOLUME_MODAL
-    dd_volume = dof_desc.DD_VOLUME
+    dd_modal = dof_desc.DD_VOLUME_ALL_MODAL
+    dd_volume = dof_desc.DD_VOLUME_ALL
 
     x_nodal = actx.thaw(dcoll.discr_from_dd(dd_volume).nodes()[0])
     nodal_f = f(x_nodal)
@@ -105,17 +110,18 @@ def test_inverse_modal_connections_quadgrid(actx_factory):
         group_cls=QuadratureSimplexGroupFactory.mesh_group_class
     )
 
-    dcoll = DiscretizationCollection(
+    dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
             dof_desc.DISCR_TAG_BASE:
             PolynomialWarpAndBlend2DRestrictingGroupFactory(order),
-            dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+            dof_desc.DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order),
+            dof_desc.DISCR_TAG_MODAL: ModalGroupFactory(order),
         }
     )
 
     # Use dof descriptors on the quadrature grid
-    dd_modal = dof_desc.DD_VOLUME_MODAL
+    dd_modal = dof_desc.DD_VOLUME_ALL_MODAL
     dd_quad = dof_desc.DOFDesc(dof_desc.DTAG_VOLUME_ALL,
                                dof_desc.DISCR_TAG_QUAD)
 

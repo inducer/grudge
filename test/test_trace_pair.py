@@ -21,21 +21,22 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-from grudge.trace_pair import TracePair
-import meshmode.mesh.generation as mgen
-from meshmode.dof_array import DOFArray
-
-from grudge import DiscretizationCollection
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-from arraycontext import pytest_generate_tests_for_array_contexts
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
-
 import logging
 
+import numpy as np
+
+import meshmode.mesh.generation as mgen
+from arraycontext import pytest_generate_tests_for_array_contexts
+from meshmode.dof_array import DOFArray
+
+from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.discretization import make_discretization_collection
+from grudge.trace_pair import TracePair
+
+
 logger = logging.getLogger(__name__)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts(
+        [PytestPyOpenCLArrayContextFactory])
 
 
 def test_trace_pair(actx_factory):
@@ -49,18 +50,21 @@ def test_trace_pair(actx_factory):
         a=(-1,)*dim, b=(1,)*dim,
         nelements_per_axis=(n,)*dim)
 
-    dcoll = DiscretizationCollection(actx, mesh, order=order)
+    dcoll = make_discretization_collection(actx, mesh, order=order)
+
+    rng = np.random.default_rng(1234)
 
     def rand():
         return DOFArray(
                 actx,
                 tuple(actx.from_numpy(
-                    np.random.rand(grp.nelements, grp.nunit_dofs))
+                    rng.uniform(size=(grp.nelements, grp.nunit_dofs)))
                     for grp in dcoll.discr_from_dd("vol").groups))
 
+    from grudge.dof_desc import DD_VOLUME_ALL
     interior = rand()
     exterior = rand()
-    tpair = TracePair("vol", interior=interior, exterior=exterior)
+    tpair = TracePair(DD_VOLUME_ALL, interior=interior, exterior=exterior)
 
     import grudge.op as op
     assert op.norm(dcoll, tpair.avg - 0.5*(exterior + interior), np.inf) == 0

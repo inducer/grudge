@@ -28,18 +28,16 @@ THE SOFTWARE.
 """
 
 
+import numpy as np
+
 from arraycontext import get_container_context_recursively
-
-from grudge.models import HyperbolicOperator
-
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-
-from pytools import memoize_method, levi_civita
+from pytools import levi_civita, memoize_method
 from pytools.obj_array import flat_obj_array, make_obj_array
 
-import grudge.op as op
 import grudge.geometry as geo
-import numpy as np
+import grudge.op as op
+from grudge.models import HyperbolicOperator
 
 
 # {{{ helpers
@@ -246,6 +244,8 @@ class MaxwellOperator(HyperbolicOperator):
             e, h = self.split_eh(wtpair)
             epsilon = self.epsilon
             mu = self.mu
+        else:
+            raise NotImplementedError("only fixed material spported for now")
 
         Z_int = (mu/epsilon)**0.5  # noqa: N806
         Y_int = 1/Z_int  # noqa: N806
@@ -261,13 +261,13 @@ class MaxwellOperator(HyperbolicOperator):
                     1/2*(
                         -self.space_cross_h(normal, h.ext-h.int)
                         # multiplication by epsilon undoes material divisor below
-                        #-max_c*(epsilon*e.int - epsilon*e.ext)
+                        # -max_c*(epsilon*e.int - epsilon*e.ext)
                     ),
                     # flux h
                     1/2*(
                         self.space_cross_e(normal, e.ext-e.int)
                         # multiplication by mu undoes material divisor below
-                        #-max_c*(mu*h.int - mu*h.ext)
+                        # -max_c*(mu*h.int - mu*h.ext)
                     ))
         elif isinstance(self.flux_type, (int, float)):
             # see doc/maxima/maxwell.mac
@@ -286,8 +286,7 @@ class MaxwellOperator(HyperbolicOperator):
                         ),
                     )
         else:
-            raise ValueError("maxwell: invalid flux_type (%s)"
-                    % self.flux_type)
+            raise ValueError(f"maxwell: invalid flux_type ({self.flux_type})")
 
     def local_derivatives(self, w):
         """Template for the spatial derivatives of the relevant components of
@@ -348,6 +347,8 @@ class MaxwellOperator(HyperbolicOperator):
         if self.fixed_material:
             epsilon = self.epsilon
             mu = self.mu
+        else:
+            raise NotImplementedError("only fixed material supported for now")
 
         absorb_Z = (mu/epsilon)**0.5  # noqa: N806
         absorb_Y = 1/absorb_Z  # noqa: N806
@@ -394,6 +395,8 @@ class MaxwellOperator(HyperbolicOperator):
             # need to check this
             material_divisor = (
                     [self.epsilon]*elec_components+[self.mu]*mag_components)
+        else:
+            raise NotImplementedError("only fixed material supported for now")
 
         tags_and_bcs = [
                 (self.pec_tag, self.pec_bc(w)),
@@ -407,6 +410,8 @@ class MaxwellOperator(HyperbolicOperator):
         def flux(pair):
             return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
 
+        from grudge.dof_desc import as_dofdesc
+
         return (
             - self.local_derivatives(w)
             - op.inverse_mass(
@@ -414,7 +419,7 @@ class MaxwellOperator(HyperbolicOperator):
                 op.face_mass(
                     dcoll,
                     sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, w))
-                    + sum(flux(op.bv_trace_pair(dcoll, tag, w, bc))
+                    + sum(flux(op.bv_trace_pair(dcoll, as_dofdesc(tag), w, bc))
                           for tag, bc in tags_and_bcs)
                 )
             )
@@ -459,7 +464,8 @@ class MaxwellOperator(HyperbolicOperator):
             self.pec_tag,
             self.pmc_tag,
             self.absorb_tag,
-            self.incident_tag])
+            self.incident_tag,
+            ])
 
 # }}}
 
@@ -476,8 +482,7 @@ class TMMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (False, False, True)  # only ez
-                + (True, True, False)  # hx and hy
+                (False, False, True, True, True, False)  # ez, hx and hy
                 )
 
 # }}}
@@ -495,8 +500,7 @@ class TEMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (True, True, False)  # ex and ey
-                + (False, False, True)  # only hz
+                (True, True, False, False, False, True)  # ex and ey, only hz
                 )
 
 # }}}
@@ -514,8 +518,7 @@ class TE1DMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (True, True, False)
-                + (False, False, True)
+                (True, True, False, False, False, True)
                 )
 
 # }}}
@@ -533,8 +536,7 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
 
     def get_eh_subset(self):
         return (
-                (False, True, False)
-                + (False, False, True)
+                (False, True, False, False, False, True)
                 )
 
 # }}}
@@ -567,9 +569,6 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
     cx = actx.np.cos(kx*x)
     sy = actx.np.sin(ky*y)
     cy = actx.np.cos(ky*y)
-    if dims == 3:
-        sz = actx.np.sin(kz*z)
-        cz = actx.np.cos(kz*z)
 
     if dims == 2:
         tfac = t * omega
@@ -584,7 +583,10 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
              * np.sin(tfac) / omega),  # hy
             zeros,
         )
-    else:
+    elif dims == 3:
+        sz = actx.np.sin(kz*z)
+        cz = actx.np.cos(kz*z)
+
         tdep = np.exp(-1j * omega * t)
 
         gamma_squared = ky**2 + kx**2
@@ -596,6 +598,8 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
             1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,
             zeros,
         )
+    else:
+        raise NotImplementedError("only 2D and 3D supported")
 
     return result
 
