@@ -101,17 +101,16 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext import ArrayContext
+from arraycontext import ArrayContext, NumpyArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
+    _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoPyOpenCLArrayContextFactory,
     register_pytest_array_context_factory,
 )
 
-
-from arraycontext import NumpyArrayContext
 
 if TYPE_CHECKING:
     import pytato as pt
@@ -558,10 +557,19 @@ class PytestPytatoPyOpenCLArrayContextFactory(
         return self.actx_class(queue, allocator=alloc)
 
 
+class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
+    actx_class = NumpyArrayContext
+
+    def __call__(self):
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
         PytestPytatoPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory("grudge.numpy",
+        PytestNumpyArrayContextFactory)
 
 # }}}
 
@@ -593,12 +601,21 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
 
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True,
-        fusion: Optional[bool] = None,
+        fusion: Optional[bool] = None, numpy: bool = False,
         ) -> Type[ArrayContext]:
-    """Returns a reasonable :class:`PyOpenCLArrayContext` currently
+    """Returns a reasonable :class:`ArrayContext` currently
     supported given the constraints of *lazy* and *distributed*."""
     if fusion is None:
         fusion = lazy
+
+    if numpy:
+        assert not lazy
+        if distributed:
+            actx_class = MPINumpyArrayContext
+        else:
+            actx_class = NumpyArrayContext
+
+        return actx_class
 
     if lazy:
         if fusion:

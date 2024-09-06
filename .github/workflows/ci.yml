@@ -69,6 +69,8 @@ jobs:
                 # have a sufficient number of cores.
                 mpiexec -np 2 --oversubscribe python wave/wave-op-mpi.py --lazy
 
+                mpiexec -np 2 --oversubscribe python wave/wave-op-mpi.py --numpy
+
     docs:
         name: Documentation
         runs-on: ubuntu-latest
