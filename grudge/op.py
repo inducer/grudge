@@ -245,14 +245,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # weak form ref_gradient
         if metric_in_matvec:
-            mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
+            mass_mat, diff_mat = get_diff_mat(actx, out_grp, in_grp)
 
             ref_grad = []
             for rst_axis in range(out_grp.dim):
                 ref_grad.append(vec_tp)
 
                 # apply mass matrix to all axes except current axis
-                apply_mass_axes = set(range(out_grp.dim)) - {rst_axis}
+                apply_mass_axes = set(range(out_grp.dim))
                 for axis in apply_mass_axes:
                     ref_grad[rst_axis] = single_axis_contraction(
                         actx, in_grp.dim, axis, mass_mat, ref_grad[rst_axis],
@@ -263,7 +263,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 ref_grad[rst_axis] = unfold(
                     out_grp.space,
                     single_axis_contraction(
-                        actx, in_grp.dim, rst_axis, stiff_mat, ref_grad[rst_axis],
+                        actx, in_grp.dim, rst_axis, diff_mat.T,
+                        ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_1d",
@@ -588,13 +589,13 @@ def _reference_stiffness_transpose_matrices(
                         { i: TensorProductOperatorAxisTag() for i in range(2) },
                         actx.from_numpy(mass_mat_1d)))
 
-                stiff_mat_1d = actx.freeze(
+                diff_mat_1d = actx.freeze(
                     tag_axes(
                         actx,
                         { i: TensorProductOperatorAxisTag() for i in range(2) },
-                        actx.from_numpy(stiff_mat_1d)))
+                        actx.from_numpy(diff_mat_1d)))
 
-                return mass_mat_1d, stiff_mat_1d
+                return mass_mat_1d, diff_mat_1d
 
             else:
                 mass_mat = mp.mass_matrix(out_grp.basis_obj(),
