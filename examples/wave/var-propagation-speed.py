@@ -143,7 +143,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
             if step % 10 == 0:
                 logger.info("step: %d t: %.8e L2: %.8e",
                             step, time() - t_last_step,
-                            norm(event.state_component[0]))
+                            actx.to_numpy(norm(event.state_component[0])))
                 if visualize:
                     vis.write_vtk_file(
                         f"fld-var-propogation-speed-{step:04d}.vtu",
