@@ -637,8 +637,9 @@ def _reference_stiffness_transpose_matrices(
                                      weights, vand_inv_t, grad_vand)
 
             vand_in = vandermonde(basis_1d.functions, in_nodes_1d)
-            mass_mat_1d = np.linalg.solve(vand, vand_in.T)
-            mass_mat_1d = np.einsum("c,bc->bc", weights, mass_mat_1d)
+            mass_mat_1d = np.einsum("c,bz,cz->bc",
+                                    weights, vand, vand_in)
+            pu.db
 
             stiff_mat_1d = tag_axes(
                 actx,
