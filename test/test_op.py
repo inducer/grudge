@@ -61,16 +61,17 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["weak-overint"])
-@pytest.mark.parametrize("dim", [2])
-@pytest.mark.parametrize("order", [2])
-@pytest.mark.parametrize("warp_mesh", [False])
+@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("warp_mesh", [False, True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
@@ -83,14 +84,16 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     if dim == 1 and group_cls == TensorProductElementGroup:
         pytest.skip()
 
+    if form == "weak-overint" and group_cls == TensorProductElementGroup:
+        pytest.skip()
+
     for n in [8, 12, 16] if warp_mesh else [4, 6, 8]:
         if warp_mesh:
             if dim == 1:
                 pytest.skip("warped mesh in 1D not implemented")
 
             if group_cls == TensorProductElementGroup:
-                # FIXME: curvilinear meshes break tensor-product form so a
-                # workaround is needed in the case where mesh element order > 1
+                # FIXME: mesh order > 1 breaks tensor product form
                 mesh = mgen.generate_warped_rect_mesh(
                             dim=dim, order=1, nelements_side=n,
                             group_cls=group_cls)
