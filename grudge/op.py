@@ -240,64 +240,73 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm,
                                         metric_in_matvec):
+        # makes overintegration case easier to handle in TP form
+        if metric_in_matvec:
+            vec = actx.einsum(
+                "xrej,ej->xrej",
+                ijm,
+                vec,
+                arg_names=("inv_jac_t", "vec"),
+                tagged=(FirstAxisIsElementsTag(),))
+
         # expose tensor product structure
         vec_tp = fold(in_grp.space, vec)
 
-        # weak form gradient
-        if out_grp == in_grp:
+        # weak form ref_gradient
+        if metric_in_matvec:
             mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
 
-            grad = []
-            for xyz_axis in range(out_grp.dim):
-                grad.append(vec_tp)
+            ref_grad = []
+            for rst_axis in range(out_grp.dim):
+                ref_grad.append(vec_tp)
 
                 # apply mass matrix to all axes except current axis
-                apply_mass_axes = set(range(out_grp.dim)) - {xyz_axis}
+                apply_mass_axes = set(range(out_grp.dim)) - {rst_axis}
                 for axis in apply_mass_axes:
-                    grad[xyz_axis] = single_axis_contraction(
-                        actx, in_grp.dim, axis, mass_mat, grad[xyz_axis],
+                    ref_grad[rst_axis] = single_axis_contraction(
+                        actx, in_grp.dim, axis, mass_mat, ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered()),
-                        arg_names=("mass_1d", f"dofs_{xyz_axis}"))
+                        arg_names=("mass_1d", f"dofs_{rst_axis}"))
 
-                grad[xyz_axis] = unfold(
+                ref_grad[rst_axis] = unfold(
                     out_grp.space,
                     single_axis_contraction(
-                        actx, in_grp.dim, xyz_axis, stiff_mat, grad[xyz_axis],
+                        actx, in_grp.dim, rst_axis, stiff_mat, ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_1d",
-                                   f"dofs_with_mass_applied_{xyz_axis}")))
+                                   f"dofs_with_mass_applied_{rst_axis}")))
 
-        # strong form gradient
+        # strong form ref_gradient
         else:
             diff_mat = get_diff_mat(actx, out_grp, in_grp)
-            grad = []
-            for xyz_axis in range(in_grp.dim):
+            ref_grad = []
+            for rst_axis in range(in_grp.dim):
                 partial = unfold(
                     out_grp.space,
                     single_axis_contraction(
-                    actx, in_grp.dim, xyz_axis, diff_mat, vec_tp,
+                    actx, in_grp.dim, rst_axis, diff_mat, vec_tp,
                     tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("diff_mat", "dofs")))
 
-                grad.append(partial)
+                ref_grad.append(partial)
 
-        grad = actx.np.stack(grad)
-        return tag_axes(
-            actx,
-            {
-                0: DiscretizationAmbientDimAxisTag(),
-                1: DiscretizationElementAxisTag(),
-                2: DiscretizationDOFAxisTag()
-            },
-            actx.einsum(
-                "xrej,rej->xej",
-                ijm,
-                grad,
-                tagged=(FirstAxisIsElementsTag(),),
-                arg_names=("inv_jac_t", "ref_grad")))
+            ref_grad = actx.np.stack(ref_grad)
+            return tag_axes(
+                actx,
+                {
+                    0: DiscretizationAmbientDimAxisTag(),
+                    1: DiscretizationElementAxisTag(),
+                    2: DiscretizationDOFAxisTag()
+                },
+                actx.einsum(
+                    "xrej,rej->xej",
+                    ijm,
+                    ref_grad,
+                    tagged=(FirstAxisIsElementsTag(),),
+                    arg_names=("inv_jac_t", "ref_ref_grad")))
 
 
     per_group_grads = []
@@ -624,15 +633,24 @@ def _reference_stiffness_transpose_matrices(
 
             weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
 
-            return actx.freeze(
-                tag_axes(
-                    actx,
-                    { i : TensorProductOperatorAxisTag() for i in range(2) },
-                    actx.from_numpy(np.einsum(
-                        "c,bz,cz->bc",
-                        weights,
-                        vand_inv_t,
-                        grad_vand))))
+            stiff_mat_1d = np.einsum("c,bz,cz->bc",
+                                     weights, vand_inv_t, grad_vand)
+
+            vand_in = vandermonde(basis_1d.functions, in_nodes_1d)
+            mass_mat_1d = np.linalg.solve(vand, vand_in.T)
+            mass_mat_1d = np.einsum("c,bc->bc", weights, mass_mat_1d)
+
+            stiff_mat_1d = tag_axes(
+                actx,
+                { i : TensorProductOperatorAxisTag() for i in range(2) },
+                actx.from_numpy(stiff_mat_1d))
+
+            mass_mat_1d = tag_axes(
+                actx,
+                { i : TensorProductOperatorAxisTag() for i in range(2) },
+                actx.from_numpy(mass_mat_1d))
+
+            return mass_mat_1d, stiff_mat_1d
 
         else:
 
