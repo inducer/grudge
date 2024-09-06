@@ -248,16 +248,15 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             mass_mat, diff_mat = get_diff_mat(actx, out_grp, in_grp)
 
             ref_grad = []
-            for rst_axis in range(out_grp.dim):
+            for rst_axis in range(in_grp.dim):
                 ref_grad.append(vec_tp)
 
                 # apply mass matrix to all axes except current axis
-                apply_mass_axes = set(range(out_grp.dim))
-                for axis in apply_mass_axes:
+                for axis in range(in_grp.dim):
                     ref_grad[rst_axis] = single_axis_contraction(
                         actx, in_grp.dim, axis, mass_mat, ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered()),
+                            OutputIsTensorProductDOFArrayOrdered()),
                         arg_names=("mass_1d", f"dofs_{rst_axis}"))
 
                 ref_grad[rst_axis] = unfold(
@@ -266,9 +265,9 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                         actx, in_grp.dim, rst_axis, diff_mat.T,
                         ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered(),),
+                            OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("diff_1d_T",
-                                   f"dofs_with_mass_applied_{rst_axis}")))
+                            f"dofs_with_mass_{rst_axis}")))
 
         # strong form ref_gradient
         else:
@@ -280,7 +279,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     single_axis_contraction(
                     actx, in_grp.dim, rst_axis, diff_mat, vec_tp,
                     tagged=(FirstAxisIsElementsTag(),
-                            OutputIsTensorProductDOFArrayOrdered(),),
+                        OutputIsTensorProductDOFArrayOrdered(),),
                     arg_names=("diff_mat", "dofs")))
 
                 ref_grad.append(partial)
@@ -303,7 +302,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
     per_group_grads = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec,inv_jac_mat):
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
 
         if isinstance(in_grp, SimplexElementGroupBase) and \
             isinstance(out_grp, SimplexElementGroupBase):
@@ -334,22 +333,88 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         *, metric_in_matvec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
-    per_group_divs = [
-        # r for rst axis
-        # x for xyz axis
-        actx.einsum("xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
-                    ijm_i,
-                    get_diff_mat(
-                        actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
-                    ),
-                    vec_i,
-                    arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-                    tagged=(FirstAxisIsElementsTag(),))
-        for out_grp, in_grp, vec_i, ijm_i in zip(
-            out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+
+    def compute_simplicial_divergence(actx, out_grp, in_grp, vec, ijm,
+                                      metric_in_matvec):
+        return actx.einsum(
+            "xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
+            ijm,
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp
+            ),
+            vec,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
+    def compute_tensor_product_divergence(actx, out_grp, in_grp, vec, ijm,
+                                          metric_in_matvec):
+        vec_tp = fold(in_grp.space, vec)
+
+        div = 0.0
+        if metric_in_matvec:
+            mass_mat, diff_mat = get_diff_mat(actx, out_grp, in_grp)
+
+            for func_axis in range(in_grp.dim):
+                for rst_axis in range(in_grp.dim):
+
+                    ref_deriv = vec_tp[func_axis]
+                    for axis in range(in_grp.dim):
+                        ref_deriv = single_axis_contraction(
+                            actx, in_grp.dim, axis, mass_mat, ref_deriv,
+                            tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
+                            arg_names=("mass_1d",
+                                f"dofs_{func_axis}_{rst_axis}"))
+
+                    ref_deriv = unfold(
+                        out_grp.space,
+                        single_axis_contraction(
+                            actx, in_grp.dim, rst_axis, diff_mat.T, ref_deriv,
+                            tagged=(FirstAxisIsElementsTag(),
+                                OutputIsTensorProductDOFArrayOrdered(),),
+                            arg_names=("diff_1d_T",
+                                f"dofs_with_mass_{func_axis}_{rst_axis}")))
+
+                    div += ref_deriv*ijm[func_axis, rst_axis]
+
+        else:
+            diff_mat = get_diff_mat(actx, out_grp, in_grp)
+            for func_axis in range(vec_tp.shape[0]):
+                for rst_axis in range(in_grp.dim):
+                    ref_deriv = vec_tp[func_axis]
+                    ref_deriv = unfold(
+                        out_grp.space,
+                        single_axis_contraction(
+                            actx, in_grp.dim, rst_axis, diff_mat, ref_deriv,
+                            tagged=(FirstAxisIsElementsTag(),
+                                    OutputIsTensorProductDOFArrayOrdered(),),
+                            arg_names=("diff_mat", "dofs")))
+
+                    div += ref_deriv*ijm[func_axis, rst_axis]
+
+        return tag_axes(actx, { 0: DiscretizationElementAxisTag() }, div)
+
+
+    per_group_divs = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        if isinstance(in_grp, SimplexElementGroupBase) and \
+            isinstance(out_grp, SimplexElementGroupBase):
+            per_group_divs.append(compute_simplicial_divergence(
+                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+
+        elif isinstance(in_grp, TensorProductElementGroupBase) and \
+            isinstance(out_grp, TensorProductElementGroupBase):
+            per_group_divs.append(compute_tensor_product_divergence(
+                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
+                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
 
     return DOFArray(actx, data=tuple(per_group_divs))
 
@@ -580,8 +645,6 @@ def _reference_stiffness_transpose_matrices(
 
                 diff_mat_1d = mp.diff_matrices(basis_1d, nodes_1d)[0]
                 mass_mat_1d = mp.mass_matrix(basis_1d, nodes_1d)
-
-                stiff_mat_1d = diff_mat_1d.T @ mass_mat_1d.T
 
                 mass_mat_1d = actx.freeze(
                     tag_axes(

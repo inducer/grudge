@@ -76,16 +76,15 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
+    if dim == 1 and group_cls == TensorProductElementGroup:
+        pytest.skip()
+    if form == "weak-overint" and group_cls == TensorProductElementGroup:
+        pytest.skip()
+
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
-
-    if dim == 1 and group_cls == TensorProductElementGroup:
-        pytest.skip()
-
-    if form == "weak-overint" and group_cls == TensorProductElementGroup:
-        pytest.skip()
 
     for n in [8, 12, 16] if warp_mesh else [4, 6, 8]:
         if warp_mesh:
@@ -248,8 +247,15 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     (True, False),
     (True, True)
     ])
+@pytest.mark.parametrize("group_cls", [
+    TensorProductElementGroup
+])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+                    group_cls, visualize=False):
+
+    if dim == 1 and group_cls == TensorProductElementGroup:
+        pytest.skip()
+
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -258,9 +264,15 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
     for n in [4, 6, 8]:
         mesh = mgen.generate_regular_rect_mesh(
                 a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim)
+                nelements_per_axis=(n,)*dim, group_cls=group_cls)
 
-        dcoll = make_discretization_collection(actx, mesh, order=order)
+        dcoll = make_discretization_collection(
+            actx, mesh,
+            discr_tag_to_group_factory={
+                DISCR_TAG_BASE:
+                    InterpolatoryEdgeClusteredGroupFactory(order),
+                DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+            })
 
         def f(x, dcoll=dcoll):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
