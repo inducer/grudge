@@ -903,11 +903,24 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                                  in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
         if out_grp == in_grp:
-            return actx.freeze(
-                actx.from_numpy(
-                    mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
-                    )
-                )
+            if isinstance(out_grp, TensorProductElementGroupBase):
+                basis_1d = out_grp.basis_obj().bases[0]
+                nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                    1, out_grp.order+1)
+
+                return actx.tag(
+                    MassMatrix1D(),
+                    tag_axes(
+                        actx,
+                        { i :
+                            TensorProductOperatorAxisTag() for i in range(2) },
+                        actx.from_numpy(mp.mass_matrix(basis_1d, nodes_1d))))
+
+            else:
+                return actx.freeze(
+                    actx.from_numpy(
+                        mp.mass_matrix(out_grp.basis_obj(),
+                                       out_grp.unit_nodes)))
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -933,6 +946,39 @@ def _apply_mass_operator(
             partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
+    def tensor_product_apply_mass(in_grp, out_grp, area_element, vec):
+        vec_tp = fold(in_grp.space, vec)
+        ref_mass_1d = reference_mass_matrix(
+            actx, out_element_group=out_grp, in_element_group=in_grp)
+
+        for xyz_axis in range(in_grp.dim):
+            vec_tp = single_axis_contraction(
+                actx, in_grp.dim, xyz_axis, ref_mass_1d, vec_tp,
+                tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered()),
+                arg_names=("ref_mass_1d", "dofs"))
+
+        vec = unfold(out_grp.space, vec_tp)
+
+        return actx.einsum(
+            "ej,ej->ej",
+            area_element,
+            vec,
+            tagged=(FirstAxisIsElementsTag(),),
+            arg_names=("jac", "dofs"))
+
+    def simplicial_apply_mass(in_grp, out_grp, area_element, vec):
+        return actx.einsum("ij,ej,ej->ei",
+            reference_mass_matrix(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp
+                ),
+            area_element,
+            vec,
+            arg_names=("mass_mat", "jac", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
     from grudge.geometry import area_element
 
     in_discr = dcoll.discr_from_dd(dd_in)
@@ -941,24 +987,27 @@ def _apply_mass_operator(
     actx = vec.array_context
     area_elements = area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ij,ej,ej->ei",
-                reference_mass_matrix(
-                    actx,
-                    out_element_group=out_grp,
-                    in_element_group=in_grp
-                    ),
-                ae_i,
-                vec_i,
-                arg_names=("mass_mat", "jac", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
 
-            for in_grp, out_grp, ae_i, vec_i in zip(
-                    in_discr.groups, out_discr.groups, area_elements, vec)
-        )
-    )
+    group_data = []
+    for in_grp, out_grp, ae_i, vec_i in zip(
+        in_discr.groups, out_discr.groups, area_elements, vec):
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+            isinstance(out_grp, TensorProductElementGroupBase):
+            group_data.append(tensor_product_apply_mass(
+                in_grp, out_grp, ae_i, vec_i))
+
+        elif isinstance(in_grp, SimplexElementGroupBase) and \
+            isinstance(out_grp, SimplexElementGroupBase):
+            group_data.append(simplicial_apply_mass(
+                in_grp, out_grp, ae_i, vec_i))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
+                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
+
+    return DOFArray(actx, data=tuple(group_data))
 
 
 def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
