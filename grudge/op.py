@@ -250,7 +250,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
         # weak form ref_gradient
         if metric_in_matvec:
-            mass_mat, diff_mat = get_diff_mat(actx, out_grp, in_grp)
+            mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
 
             ref_grad = []
             for rst_axis in range(in_grp.dim):
@@ -258,6 +258,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
                 # apply mass matrix to all axes except current axis
                 for axis in range(in_grp.dim):
+                    if axis == rst_axis:
+                        continue
                     ref_grad[rst_axis] = single_axis_contraction(
                         actx, in_grp.dim, axis, mass_mat, ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
@@ -267,11 +269,11 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                 ref_grad[rst_axis] = unfold(
                     out_grp.space,
                     single_axis_contraction(
-                        actx, in_grp.dim, rst_axis, diff_mat.T,
+                        actx, in_grp.dim, rst_axis, stiff_mat,
                         ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered(),),
-                        arg_names=("diff_1d_T",
+                        arg_names=("stiff_mat",
                             f"dofs_with_mass_{rst_axis}")))
 
         # strong form ref_gradient
@@ -651,6 +653,8 @@ def _reference_stiffness_transpose_matrices(
                 diff_mat_1d = mp.diff_matrices(basis_1d, nodes_1d)[0]
                 mass_mat_1d = mp.mass_matrix(basis_1d, nodes_1d)
 
+                stiff_mat_1d = diff_mat_1d.T @ mass_mat_1d.T
+
                 mass_mat_1d = actx.freeze(
                     actx.tag(
                         MassMatrix1D(),
@@ -660,13 +664,13 @@ def _reference_stiffness_transpose_matrices(
                                 for i in range(2) },
                             actx.from_numpy(mass_mat_1d))))
 
-                diff_mat_1d = actx.freeze(
+                stiff_mat_1d = actx.freeze(
                     tag_axes(
                         actx,
                         { i: TensorProductOperatorAxisTag() for i in range(2) },
-                        actx.from_numpy(diff_mat_1d)))
+                        actx.from_numpy(stiff_mat_1d)))
 
-                return mass_mat_1d, diff_mat_1d
+                return mass_mat_1d, stiff_mat_1d
 
             else:
                 mass_mat = mp.mass_matrix(out_grp.basis_obj(),
@@ -683,8 +687,31 @@ def _reference_stiffness_transpose_matrices(
 
         if isinstance(out_grp, TensorProductElementGroupBase) and \
             isinstance(in_grp, TensorProductElementGroupBase):
-            raise NotImplementedError("Overintegration and fast operator "
-                                      "evaluation is not supported")
+
+            basis_1d = out_grp.basis_obj().bases[0]
+            nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                1, out_grp.order+1)
+            nodes_1d_in = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
+                1, in_grp.order+1)
+
+            vand = vandermonde(basis_1d.functions, nodes_1d_out)
+            vand_inv_t = np.linalg.inv(vand).T
+            grad_vand = multi_vandermonde(basis_1d.gradients, nodes_1d_in)[0]
+
+            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
+
+            stiff_mat = np.einsum("c,bz,cz->bc", weights, vand_inv_t, grad_vand)
+            stiff_mat = actx.freeze(
+                tag_axes(
+                    actx,
+                    { i : TensorProductOperatorAxisTag() for i in range(2) },
+                    actx.from_numpy(stiff_mat)))
+
+            mass_mat = reference_mass_matrix(
+                actx, in_element_group=in_grp, out_element_group=out_grp)
+
+            return mass_mat, stiff_mat
+
         else:
 
             basis = out_grp.basis_obj()
@@ -922,18 +949,46 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                         mp.mass_matrix(out_grp.basis_obj(),
                                        out_grp.unit_nodes)))
 
-        from modepy import vandermonde
-        basis = out_grp.basis_obj()
-        vand = vandermonde(basis.functions, out_grp.unit_nodes)
-        o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
-        vand_inv_t = np.linalg.inv(vand).T
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+            isinstance(out_grp, TensorProductElementGroupBase):
 
-        weights = in_grp.quadrature_rule().weights
-        return actx.freeze(
+            basis_1d = out_grp.basis_obj().bases[0]
+            nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                1, out_grp.order+1)
+            nodes_1d_in = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
+                1, in_grp.order+1)
+
+            vand = vandermonde(basis_1d.functions, nodes_1d_out)
+            vand_inv_t = np.linalg.inv(vand).T
+            in_vand = vandermonde(basis_1d.functions, nodes_1d_in)
+
+            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
+
+            mass_matrix = np.einsum("j,ik,jk->ij", weights, vand_inv_t, in_vand)
+
+            return actx.freeze(
+                actx.tag(
+                    MassMatrix1D(),
+                    tag_axes(
+                        actx,
+                        { i : TensorProductOperatorAxisTag()
+                            for i in range(2) },
+                        actx.from_numpy(mass_matrix))))
+
+        elif isinstance(in_grp, SimplexElementGroupBase) and \
+            isinstance(out_grp, SimplexElementGroupBase):
+            basis = out_grp.basis_obj()
+            vand = vandermonde(basis.functions, out_grp.unit_nodes)
+            o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
+            vand_inv_t = np.linalg.inv(vand).T
+
+            weights = in_grp.quadrature_rule().weights
+            return actx.freeze(
                 actx.tag_axis(0, DiscretizationDOFAxisTag(),
                     actx.from_numpy(
                         np.asarray(
-                            np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                            np.einsum(
+                              "j,ik,jk->ij", weights, vand_inv_t, o_vand),
                             order="C"))))
 
     return get_ref_mass_mat(out_element_group, in_element_group)
