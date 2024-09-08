@@ -246,7 +246,8 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm,
                                         metric_in_matvec):
         # expose tensor product structure
-        vec_tp = fold(in_grp.space, vec)
+        if in_grp.dim != 1:
+            vec = fold(in_grp.space, vec)
 
         # weak form ref_gradient
         if metric_in_matvec:
@@ -254,7 +255,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
             ref_grad = []
             for rst_axis in range(in_grp.dim):
-                ref_grad.append(vec_tp)
+                ref_grad.append(vec)
 
                 # apply mass matrix to all axes except current axis
                 for axis in range(in_grp.dim):
@@ -266,30 +267,33 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                             OutputIsTensorProductDOFArrayOrdered()),
                         arg_names=("mass_1d", f"dofs_{rst_axis}"))
 
-                ref_grad[rst_axis] = unfold(
-                    out_grp.space,
-                    single_axis_contraction(
+                ref_grad[rst_axis] = single_axis_contraction(
                         actx, in_grp.dim, rst_axis, stiff_mat,
                         ref_grad[rst_axis],
                         tagged=(FirstAxisIsElementsTag(),
                             OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("stiff_mat",
-                            f"dofs_with_mass_{rst_axis}")))
+                            f"dofs_with_mass_{rst_axis}"))
+
+                if in_grp.dim != 1:
+                    ref_grad[rst_axis] = unfold(out_grp.space,
+                                                ref_grad[rst_axis])
 
         # strong form ref_gradient
         else:
             diff_mat = get_diff_mat(actx, out_grp, in_grp)
             ref_grad = []
             for rst_axis in range(in_grp.dim):
-                partial = unfold(
-                    out_grp.space,
-                    single_axis_contraction(
-                    actx, in_grp.dim, rst_axis, diff_mat, vec_tp,
+                partial = single_axis_contraction(
+                    actx, in_grp.dim, rst_axis, diff_mat, vec,
                     tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered(),),
-                    arg_names=("diff_mat", "dofs")))
+                    arg_names=("diff_mat", "dofs"))
 
-                ref_grad.append(partial)
+                if out_grp.dim != 1:
+                    ref_grad.append(unfold(out_grp.space, partial))
+                else:
+                    ref_grad.append(partial)
 
         ref_grad = actx.np.stack(ref_grad)
         return tag_axes(
@@ -357,17 +361,20 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
 
     def compute_tensor_product_divergence(actx, out_grp, in_grp, vec, ijm,
                                           metric_in_matvec):
-        vec_tp = fold(in_grp.space, vec)
+        if in_grp.dim != 1:
+            vec = fold(in_grp.space, vec)
 
         div = 0.0
         if metric_in_matvec:
-            mass_mat, diff_mat = get_diff_mat(actx, out_grp, in_grp)
+            mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
 
             for func_axis in range(in_grp.dim):
                 for rst_axis in range(in_grp.dim):
 
-                    ref_deriv = vec_tp[func_axis]
+                    ref_deriv = vec[func_axis]
                     for axis in range(in_grp.dim):
+                        if axis == rst_axis:
+                            continue
                         ref_deriv = single_axis_contraction(
                             actx, in_grp.dim, axis, mass_mat, ref_deriv,
                             tagged=(FirstAxisIsElementsTag(),
@@ -375,29 +382,31 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                             arg_names=("mass_1d",
                                 f"dofs_{func_axis}_{rst_axis}"))
 
-                    ref_deriv = unfold(
-                        out_grp.space,
-                        single_axis_contraction(
-                            actx, in_grp.dim, rst_axis, diff_mat.T, ref_deriv,
+                    ref_deriv = single_axis_contraction(
+                            actx, in_grp.dim, rst_axis, stiff_mat, ref_deriv,
                             tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
-                            arg_names=("diff_1d_T",
-                                f"dofs_with_mass_{func_axis}_{rst_axis}")))
+                            arg_names=("stiff_1d",
+                                f"dofs_with_mass_{func_axis}_{rst_axis}"))
+
+                    if in_grp.dim != 1:
+                        ref_deriv = unfold(out_grp.space, ref_deriv)
 
                     div += ref_deriv*ijm[func_axis, rst_axis]
 
         else:
             diff_mat = get_diff_mat(actx, out_grp, in_grp)
-            for func_axis in range(vec_tp.shape[0]):
+            for func_axis in range(vec.shape[0]):
                 for rst_axis in range(in_grp.dim):
-                    ref_deriv = vec_tp[func_axis]
-                    ref_deriv = unfold(
-                        out_grp.space,
-                        single_axis_contraction(
+                    ref_deriv = vec[func_axis]
+                    ref_deriv = single_axis_contraction(
                             actx, in_grp.dim, rst_axis, diff_mat, ref_deriv,
                             tagged=(FirstAxisIsElementsTag(),
                                     OutputIsTensorProductDOFArrayOrdered(),),
-                            arg_names=("diff_mat", "dofs")))
+                            arg_names=("diff_mat", "dofs"))
+
+                    if in_grp.dim != 1:
+                        ref_deriv = unfold(out_grp.space, ref_deriv)
 
                     div += ref_deriv*ijm[func_axis, rst_axis]
 
@@ -1002,18 +1011,21 @@ def _apply_mass_operator(
         )
 
     def tensor_product_apply_mass(in_grp, out_grp, area_element, vec):
-        vec_tp = fold(in_grp.space, vec)
+        if in_grp.dim != 1:
+            vec = fold(in_grp.space, vec)
+
         ref_mass_1d = reference_mass_matrix(
             actx, out_element_group=out_grp, in_element_group=in_grp)
 
         for xyz_axis in range(in_grp.dim):
-            vec_tp = single_axis_contraction(
-                actx, in_grp.dim, xyz_axis, ref_mass_1d, vec_tp,
+            vec = single_axis_contraction(
+                actx, in_grp.dim, xyz_axis, ref_mass_1d, vec,
                 tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()),
                 arg_names=("ref_mass_1d", "dofs"))
 
-        vec = unfold(out_grp.space, vec_tp)
+        if in_grp.dim != 1:
+            vec = unfold(out_grp.space, vec)
 
         return actx.einsum(
             "ej,ej->ej",
@@ -1125,7 +1137,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
                     actx,
                     { i : TensorProductOperatorAxisTag() for i in range(2) },
                     actx.from_numpy(
-                        np.asarray(inverse_mass_matrix(basis_1d, nodes_1d))))))
+                        inverse_mass_matrix(basis_1d, nodes_1d)))))
 
         else:
             basis = grp.basis_obj()
@@ -1157,18 +1169,20 @@ def _apply_inverse_mass_operator(
         )
 
     def tensor_product_apply_inverse_mass(grp, jac_inv, vec):
-        vec_tp = fold(grp.space, vec)
+        if grp.dim != 1:
+            vec = fold(grp.space, vec)
 
         for rst_axis in range(grp.dim):
-            vec_tp = single_axis_contraction(
+            vec = single_axis_contraction(
                 actx, grp.dim, rst_axis,
                 reference_inverse_mass_matrix(actx, element_group=grp),
-                vec_tp,
+                vec,
                 tagged=(FirstAxisIsElementsTag(),
                         OutputIsTensorProductDOFArrayOrdered()),
                 arg_names=("ref_inv_mass", "dofs"))
 
-        vec = unfold(grp.space, vec_tp)
+        if grp.dim != 1:
+            vec = unfold(grp.space, vec)
 
         return actx.einsum(
             "ei,ei->ei",
