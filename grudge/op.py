@@ -310,7 +310,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
                     ref_grad[xyz_axis] += partial
 
-        return actx.np.stack(ref_grad)
+        return tag_axes(
+            actx,
+            {
+                0: DiscretizationAmbientDimAxisTag(),
+                1: DiscretizationElementAxisTag(),
+                2: DiscretizationDOFAxisTag()
+            },
+            actx.np.stack(ref_grad))
 
     per_group_grads = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
