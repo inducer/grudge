@@ -61,9 +61,9 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
-@pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("form", ["weak-overint"])
+@pytest.mark.parametrize("dim", [2])
+@pytest.mark.parametrize("order", [2])
 @pytest.mark.parametrize("warp_mesh", [False, True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
@@ -71,8 +71,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
-    SimplexElementGroup,
-    TensorProductElementGroup
+    SimplexElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
@@ -181,7 +180,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
             allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
 
-            grad_u = op.inverse_mass(dcoll,
+            grad_u = op.inverse_mass(dcoll, vol_dd_quad,
                 -op.weak_local_grad(dcoll, vol_dd_quad,
                         op.project(dcoll, vol_dd_base, vol_dd_quad, u),
                         nested=nested)

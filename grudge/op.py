@@ -1162,20 +1162,21 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
 
 
 def _apply_inverse_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec,
+        uses_quadrature=False):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in), vec
+            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in,
+                    uses_quadrature), vec
         )
 
     from grudge.geometry import area_element
 
-    if dd_out != dd_in:
+    if dd_out != dd_in and not uses_quadrature:
         raise ValueError(
             "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups; inverse is not "
-            "guaranteed to be well-defined"
-        )
+            "between different element groups unless using overintegration; "
+            "inverse is not guaranteed to be well-defined")
 
     def tensor_product_apply_inverse_mass(grp, jac_inv, vec):
         vec = jac_inv * vec
@@ -1198,8 +1199,6 @@ def _apply_inverse_mass_operator(
         return vec
 
     def simplicial_apply_inverse_mass(grp, jac_inv, vec):
-        # Based on https://arxiv.org/pdf/1608.03836.pdf
-        # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
         return actx.einsum("ei,ij,ej->ei",
             jac_inv,
             reference_inverse_mass_matrix(actx, element_group=grp),
@@ -1207,23 +1206,89 @@ def _apply_inverse_mass_operator(
             tagged=(FirstAxisIsElementsTag(),))
 
     actx = vec.array_context
-    discr = dcoll.discr_from_dd(dd_in)
+
+    # compute on quadrature discretization if used
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
     group_data = []
-    for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
-        if isinstance(grp, TensorProductElementGroupBase):
-            group_data.append(tensor_product_apply_inverse_mass(
-                grp, jac_inv, vec_i))
+    if not uses_quadrature: # no overintegration
+        # Both element type versions use a weighted approximation to inv mass
+        # based on https://arxiv.org/pdf/1608.03836.pdf, i.e.
+        # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
 
-        elif isinstance(grp, SimplexElementGroupBase):
-            group_data.append(simplicial_apply_inverse_mass(
-                grp, jac_inv, vec_i))
+        discr = dcoll.discr_from_dd(dd_in)
+        for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec):
+            if isinstance(grp, TensorProductElementGroupBase):
+                group_data.append(tensor_product_apply_inverse_mass(
+                    grp, jac_inv, vec_i))
 
-        else:
-            raise TypeError(
-                "Expected grp to be either `TensorProductElementGroupBase` or "
-                f"`SimplexElementGroupBase`. Found grp = {grp}")
+            elif isinstance(grp, SimplexElementGroupBase):
+                group_data.append(simplicial_apply_inverse_mass(
+                    grp, jac_inv, vec_i))
+
+            else:
+                raise TypeError(
+                    "Expected grp to be either `TensorProductElementGroupBase` "
+                    f"or f`SimplexElementGroupBase`. Found grp = {grp}")
+
+    else: # overintegration
+        # Weighted approximation as above, but needs a projection to the
+        # quadrature domain. The formula above becomes:
+        # true_Minv ~ ref_Minv * (ref_M)_qtb * (1/Jac)_quad * P(Minv*vec)
+        # P => projection to quadrature, qti => quad-to-base
+
+        discr_base = dcoll.discr_from_dd(dd_out)
+        discr_quad = dcoll.discr_from_dd(dd_in)
+
+        # apply base discretization inverse mass to vec
+        base_group_data = []
+        for grp, vec_i in zip(discr_base.groups, vec):
+            if isinstance(grp, TensorProductElementGroupBase):
+                pass
+
+            elif isinstance(grp, SimplexElementGroupBase):
+                vec_i = actx.einsum(
+                    "ij,ej->ei",
+                    reference_inverse_mass_matrix(actx, element_group=grp),
+                    vec_i,
+                    tagged=(FirstAxisIsElementsTag(),))
+
+            else:
+                raise TypeError(
+                    "Expected grp to be either `TensorProductElementGroupBase` "
+                    f"or f`SimplexElementGroupBase`. Found grp = {grp}")
+
+            base_group_data.append(vec_i)
+
+        # apply metric terms to projected result
+        projection = inv_area_elements * project(
+            dcoll, dd_out, dd_in,
+            DOFArray(actx, data=tuple(base_group_data)))
+
+        # apply WADG
+        for in_grp, out_grp, vec_i in zip(
+            discr_quad.groups, discr_base.groups, projection):
+            if isinstance(in_grp, TensorProductElementGroupBase):
+                pass
+
+            elif isinstance(in_grp, SimplexElementGroupBase):
+                vec_i = actx.einsum(
+                    "ni,ij,ej->en",
+                    reference_inverse_mass_matrix(actx, out_grp),
+                    reference_mass_matrix(actx, out_grp, in_grp),
+                    vec_i,
+                    tagged=(FirstAxisIsElementsTag(),),
+                    arg_names=("base_mass_inverse", "quad_mass", "dofs"))
+
+            else:
+                raise TypeError(
+                    "`in_grp` and `out_grp` must both be either "
+                    "`SimplexElementGroupBase` or "
+                    "`TensorProductElementGroupBase`. "
+                    f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
+
+            group_data.append(vec_i)
 
     return DOFArray(actx, data=tuple(group_data))
 
@@ -1275,7 +1340,15 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_inverse_mass_operator(dcoll, dd, dd, vec)
+    if dd.uses_quadrature():
+        dd_in = dd.with_discr_tag(DISCR_TAG_QUAD)
+        dd_out = dd.with_discr_tag(DISCR_TAG_BASE)
+    else:
+        dd_in = dd
+        dd_out = dd
+
+    return _apply_inverse_mass_operator(dcoll, dd_out, dd_in, vec,
+                                        uses_quadrature=dd.uses_quadrature())
 
 # }}}
 
