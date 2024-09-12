@@ -30,7 +30,8 @@ import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
-    QuadratureGroupFactory
+    QuadratureGroupFactory,
+    TensorProductElementGroupBase
 )
 from meshmode.mesh import (
     SimplexElementGroup,
@@ -71,7 +72,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
-    SimplexElementGroup
+    SimplexElementGroup,
+    TensorProductElementGroupBase
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
