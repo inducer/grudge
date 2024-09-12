@@ -30,7 +30,7 @@ import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
-    QuadratureGroupFactory,
+    QuadratureGroupFactory
 )
 from meshmode.mesh import (
     SimplexElementGroup,
@@ -76,7 +76,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
-    if form == "weak-overint" and group_cls == TensorProductElementGroup:
+
+    if group_cls == TensorProductElementGroup and "overint" in form:
         pytest.skip()
 
     actx = actx_factory()
@@ -246,6 +247,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
