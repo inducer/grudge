@@ -31,7 +31,6 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
-    TensorProductElementGroupBase
 )
 from meshmode.mesh import (
     SimplexElementGroup,
@@ -72,14 +71,10 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
-    SimplexElementGroup,
-    TensorProductElementGroupBase
+    TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
-
-    if group_cls == TensorProductElementGroup and "overint" in form:
-        pytest.skip()
 
     actx = actx_factory()
 

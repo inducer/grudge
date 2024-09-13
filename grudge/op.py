@@ -1279,8 +1279,6 @@ def _apply_inverse_mass_operator(
             dcoll, dd_out, dd_in,
             DOFArray(actx, data=tuple(base_group_data)))
 
-        pu.db
-
         # apply WADG
         for in_grp, out_grp, vec_i in zip(
             discr_quad.groups, discr_base.groups, projection):
@@ -1291,7 +1289,7 @@ def _apply_inverse_mass_operator(
                 for rst_axis in range(in_grp.dim):
                     vec_i = single_axis_contraction(
                         actx, in_grp.dim, rst_axis,
-                        reference_inverse_mass_matrix(actx, out_grp),
+                        reference_mass_matrix(actx, out_grp, in_grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
@@ -1300,14 +1298,14 @@ def _apply_inverse_mass_operator(
                 for rst_axis in range(in_grp.dim):
                     vec_i = single_axis_contraction(
                         actx, in_grp.dim, rst_axis,
-                        reference_mass_matrix(actx, out_grp, in_grp),
+                        reference_inverse_mass_matrix(actx, out_grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
                         arg_names=("base_mass_inv", "dofs"))
 
-                if in_grp.dim != 1:
-                    unfold(out_grp.space, vec_i)
+                if out_grp.dim != 1:
+                    vec_i = unfold(out_grp.space, vec_i)
 
             elif isinstance(in_grp, SimplexElementGroupBase):
                 vec_i = actx.einsum(
