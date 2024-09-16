@@ -231,6 +231,7 @@ def test_mass_surface_area(actx_factory, name):
     "warped_rect2",
     "warped_rect3",
     "gh-339-1",
+    "gh-339-1-overint",
     "gh-339-4",
     ])
 def test_mass_operator_inverse(actx_factory, name):
@@ -280,7 +281,7 @@ def test_mass_operator_inverse(actx_factory, name):
                            dof_desc.DISCR_TAG_BASE: (
                                InterpolatoryEdgeClusteredGroupFactory(order)),
                            dof_desc.DISCR_TAG_QUAD: (
-                               QuadratureGroupFactory(order))
+                               QuadratureGroupFactory(3*order))
                        })
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 

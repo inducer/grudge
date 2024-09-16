@@ -717,7 +717,7 @@ def _reference_stiffness_transpose_matrices(
 
             weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
 
-            stiff_mat_1d = np.einsum("c,bz,cz->bc",
+            stiff_mat_1d = np.einsum("j,ik,jk->ij",
                                      weights, vand_inv_t, grad_vand)
             stiff_mat_1d = actx.freeze(
                 tag_axes(
@@ -1020,6 +1020,8 @@ def _apply_mass_operator(
         )
 
     def tensor_product_apply_mass(in_grp, out_grp, area_element, vec):
+        vec = area_element * vec
+
         if in_grp.dim != 1:
             vec = fold(in_grp.space, vec)
 
@@ -1034,14 +1036,9 @@ def _apply_mass_operator(
                 arg_names=("ref_mass_1d", "dofs"))
 
         if in_grp.dim != 1:
-            vec = unfold(out_grp.space, vec)
+            return unfold(out_grp.space, vec)
 
-        return actx.einsum(
-            "ej,ej->ej",
-            area_element,
-            vec,
-            tagged=(FirstAxisIsElementsTag(),),
-            arg_names=("jac", "dofs"))
+        return vec
 
     def simplicial_apply_mass(in_grp, out_grp, area_element, vec):
         return actx.einsum("ij,ej,ej->ei",
@@ -1289,11 +1286,13 @@ def _apply_inverse_mass_operator(
                 for rst_axis in range(in_grp.dim):
                     vec_i = single_axis_contraction(
                         actx, in_grp.dim, rst_axis,
-                        reference_mass_matrix(actx, out_grp, in_grp),
+                        reference_mass_matrix(actx,
+                            in_element_group=in_grp,
+                            out_element_group=out_grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),
                                 OutputIsTensorProductDOFArrayOrdered(),),
-                        arg_names=("base_mass_inv", "dofs"))
+                        arg_names=("ref_mass_quad", "dofs"))
 
                 for rst_axis in range(in_grp.dim):
                     vec_i = single_axis_contraction(
@@ -1309,7 +1308,7 @@ def _apply_inverse_mass_operator(
 
             elif isinstance(in_grp, SimplexElementGroupBase):
                 vec_i = actx.einsum(
-                    "ni,ij,ej->en",
+                    "ik,kj,ej->ei",
                     reference_inverse_mass_matrix(actx, out_grp),
                     reference_mass_matrix(actx, out_grp, in_grp),
                     vec_i,

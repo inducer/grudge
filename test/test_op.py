@@ -61,6 +61,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 # {{{ gradient
 
+# FIXME: dim = 1 failing because base discretization is dim 0 in TP case
 @pytest.mark.parametrize("form", ["weak-overint"])
 @pytest.mark.parametrize("dim", [2])
 @pytest.mark.parametrize("order", [2])
