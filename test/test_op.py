@@ -61,10 +61,9 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 # {{{ gradient
 
-# FIXME: dim = 1 failing because base discretization is dim 0 in TP case
-@pytest.mark.parametrize("form", ["weak-overint"])
-@pytest.mark.parametrize("dim", [2])
-@pytest.mark.parametrize("order", [2])
+@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [False, True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
@@ -72,6 +71,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,

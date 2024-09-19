@@ -76,6 +76,7 @@ import numpy as np
 import modepy as mp
 from modepy import (
     multi_vandermonde,
+    nodal_quad_mass_matrix,
     vandermonde,
     inverse_mass_matrix,
     mass_matrix
@@ -715,10 +716,10 @@ def _reference_stiffness_transpose_matrices(
             vand_inv_t = np.linalg.inv(vand).T
             grad_vand = multi_vandermonde(basis_1d.gradients, nodes_1d_in)[0]
 
-            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
+            weights = in_grp.quadrature_rule().quadratures[0].weights
 
-            stiff_mat_1d = np.einsum("j,ik,jk->ij",
-                                     weights, vand_inv_t, grad_vand)
+            stiff_mat_1d = np.einsum("ik,kj,j->ij",
+                                     vand_inv_t, grad_vand.T, weights)
             stiff_mat_1d = actx.freeze(
                 tag_axes(
                     actx,
@@ -974,16 +975,11 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
             basis_1d = out_grp.basis_obj().bases[0]
             nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
                 1, out_grp.order+1)
-            nodes_1d_in = in_grp.unit_nodes[0][:in_grp.order+1].reshape(
-                1, in_grp.order+1)
 
-            vand = vandermonde(basis_1d.functions, nodes_1d_out)
-            vand_inv_t = np.linalg.inv(vand)
-            o_vand = vandermonde(basis_1d.functions, nodes_1d_in)
+            mass_matrix = nodal_quad_mass_matrix(
+                in_grp.quadrature_rule().quadratures[0], basis_1d.functions,
+                nodes_1d_out)
 
-            weights = in_grp.quadrature_rule().weights[:in_grp.order+1]
-            mass_matrix = np.einsum("j,ik,jk->ij",
-                                    weights, vand_inv_t, o_vand)
             return actx.freeze(
                 actx.tag(
                     MassMatrix1D(),
