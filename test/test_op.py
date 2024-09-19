@@ -87,15 +87,13 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             if dim == 1:
                 pytest.skip("warped mesh in 1D not implemented")
 
-            if group_cls == TensorProductElementGroup:
-                # FIXME: mesh order > 1 breaks tensor product form
-                mesh = mgen.generate_warped_rect_mesh(
-                            dim=dim, order=1, nelements_side=n,
-                            group_cls=group_cls)
-            else:
-                mesh = mgen.generate_warped_rect_mesh(
-                            dim=dim, order=order, nelements_side=n,
-                            group_cls=group_cls)
+            # FIXME: strong form fails for meshes with order > 1
+            if group_cls == TensorProductElementGroup and form == "strong":
+                pytest.skip("strong form + mesh with order > 1 not implemented")
+
+            mesh = mgen.generate_warped_rect_mesh(
+                        dim=dim, order=order, nelements_side=n,
+                        group_cls=group_cls)
         else:
             mesh = mgen.generate_regular_rect_mesh(
                     a=(-1,)*dim, b=(1,)*dim,

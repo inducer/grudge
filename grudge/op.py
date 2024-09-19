@@ -193,6 +193,13 @@ __all__ = (
     "weak_local_grad",
     )
 
+# {{{ helper functions
+
+def _check_matching_grp_class(grp_cls, in_grp, out_grp):
+    return isinstance(in_grp, grp_cls) and isinstance(out_grp, grp_cls)
+
+# }}}
+
 
 # {{{ common derivative "kernels"
 
@@ -207,24 +214,45 @@ def _single_axis_derivative_kernel(
     # - whether the chain rule terms ("inv_jac_mat") sit outside (strong)
     #   or inside (weak) the matrix-vector product that carries out the
     #   derivative, cf. "metric_in_matvec".
-    return DOFArray(
-        actx,
-        data=tuple(
-            # r for rst axis
-            actx.einsum(
-                "rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
-                ijm_i[xyz_axis],
-                get_diff_mat(
-                    actx,
-                    out_element_group=out_grp,
-                    in_element_group=in_grp),
-                vec_i,
-                arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
-                tagged=(FirstAxisIsElementsTag(),))
 
-            for out_grp, in_grp, vec_i, ijm_i in zip(
-                out_discr.groups, in_discr.groups, vec,
-                inv_jac_mat)))
+    def compute_simplicial_derivative(actx, out_grp, in_grp, vec, ijm,
+                                      metric_in_matvec):
+
+        return actx.einsum(
+            "rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
+            ijm[xyz_axis],
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp),
+            vec,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
+            tagged=(FirstAxisIsElementsTag(),))
+
+    def compute_tensor_product_derivative(actx, out_grp, in_grp, vec, ijm,
+                                          metric_in_matvec):
+        pass
+
+    group_data = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+
+        if _check_matching_grp_class(SimplexElementGroupBase, in_grp, out_grp):
+            group_data.append(compute_simplicial_derivative(
+                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+
+        elif _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
+            group_data.append(compute_tensor_product_derivative(
+                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
+                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
+
+    return DOFArray(actx, data=tuple(group_data))
 
 
 def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
@@ -256,7 +284,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
         if in_grp.dim != 1:
             vec = fold(in_grp.space, vec)
 
-        # weak form ref_gradient
+        # weak form
         if metric_in_matvec:
             mass_mat, stiff_mat = get_diff_mat(actx, out_grp, in_grp)
 
@@ -290,7 +318,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
 
                     ref_grad[xyz_axis] += partial
 
-        # strong form ref_gradient
+        # strong form
         else:
             diff_mat = get_diff_mat(actx, out_grp, in_grp)
 
@@ -324,14 +352,13 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
     for out_grp, in_grp, vec_i, ijm_i in zip(
         out_discr.groups, in_discr.groups, vec, inv_jac_mat):
 
-        if isinstance(in_grp, SimplexElementGroupBase) and \
-            isinstance(out_grp, SimplexElementGroupBase):
+        if _check_matching_grp_class(SimplexElementGroupBase, in_grp, out_grp):
             per_group_grads.append(
                 compute_simplicial_gradient(
                     actx, out_grp, in_grp, vec_i, ijm_i,metric_in_matvec))
 
-        elif isinstance(in_grp, TensorProductElementGroupBase) and \
-              isinstance(out_grp, TensorProductElementGroupBase):
+        elif _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
             per_group_grads.append(
                 compute_tensor_product_gradient(
                     actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
@@ -425,13 +452,12 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
     per_group_divs = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
         out_discr.groups, in_discr.groups, vec, inv_jac_mat):
-        if isinstance(in_grp, SimplexElementGroupBase) and \
-            isinstance(out_grp, SimplexElementGroupBase):
+        if _check_matching_grp_class(SimplexElementGroupBase, in_grp, out_grp):
             per_group_divs.append(compute_simplicial_divergence(
                 actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
 
-        elif isinstance(in_grp, TensorProductElementGroupBase) and \
-            isinstance(out_grp, TensorProductElementGroupBase):
+        elif _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
             per_group_divs.append(compute_tensor_product_divergence(
                 actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
 
@@ -460,8 +486,8 @@ def _reference_derivative_matrices(actx: ArrayContext,
     def get_ref_derivative_mats(
                 out_grp: NodalElementGroupBase,
                 in_grp: InterpolatoryElementGroupBase):
-        if isinstance(in_grp, TensorProductElementGroupBase) and \
-            isinstance(out_grp, TensorProductElementGroupBase):
+        if _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
 
             basis_1d = in_grp.basis_obj().bases[0]
             to_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
@@ -478,8 +504,9 @@ def _reference_derivative_matrices(actx: ArrayContext,
                     { i: TensorProductOperatorAxisTag() for i in range(2) },
                     actx.from_numpy(diff_mat)))
 
-        elif isinstance(in_grp, SimplexElementGroupBase) and \
-              isinstance(out_grp, SimplexElementGroupBase):
+        elif _check_matching_grp_class(
+            SimplexElementGroupBase, in_grp, out_grp):
+
             return actx.freeze(
                     actx.tag_axis(
                         1, DiscretizationDOFAxisTag(),
@@ -703,8 +730,8 @@ def _reference_stiffness_transpose_matrices(
                                   dmat.T @ mass_mat.T
                                   for dmat in diff_matrices]))))
 
-        if isinstance(out_grp, TensorProductElementGroupBase) and \
-            isinstance(in_grp, TensorProductElementGroupBase):
+        if _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
 
             basis_1d = out_grp.basis_obj().bases[0]
             nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
@@ -731,7 +758,8 @@ def _reference_stiffness_transpose_matrices(
 
             return mass_mat_1d, stiff_mat_1d
 
-        else:
+        elif _check_matching_grp_class(
+            SimplexElementGroupBase, in_grp, out_grp):
 
             basis = out_grp.basis_obj()
             vand = vandermonde(basis.functions, out_grp.unit_nodes)
@@ -969,8 +997,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                         mp.mass_matrix(out_grp.basis_obj(),
                                        out_grp.unit_nodes)))
 
-        if isinstance(in_grp, TensorProductElementGroupBase) and \
-            isinstance(out_grp, TensorProductElementGroupBase):
+        if _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
 
             basis_1d = out_grp.basis_obj().bases[0]
             nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
@@ -989,8 +1017,9 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                             for i in range(2) },
                         actx.from_numpy(mass_matrix))))
 
-        elif isinstance(in_grp, SimplexElementGroupBase) and \
-            isinstance(out_grp, SimplexElementGroupBase):
+        elif _check_matching_grp_class(
+            SimplexElementGroupBase, in_grp, out_grp):
+
             basis = out_grp.basis_obj()
             vand = vandermonde(basis.functions, out_grp.unit_nodes)
             o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
@@ -1060,13 +1089,13 @@ def _apply_mass_operator(
     group_data = []
     for in_grp, out_grp, ae_i, vec_i in zip(
         in_discr.groups, out_discr.groups, area_elements, vec):
-        if isinstance(in_grp, TensorProductElementGroupBase) and \
-            isinstance(out_grp, TensorProductElementGroupBase):
+        if _check_matching_grp_class(
+            TensorProductElementGroupBase, in_grp, out_grp):
             group_data.append(tensor_product_apply_mass(
                 in_grp, out_grp, ae_i, vec_i))
 
-        elif isinstance(in_grp, SimplexElementGroupBase) and \
-            isinstance(out_grp, SimplexElementGroupBase):
+        elif _check_matching_grp_class(
+            SimplexElementGroupBase, in_grp, out_grp):
             group_data.append(simplicial_apply_mass(
                 in_grp, out_grp, ae_i, vec_i))
 
@@ -1595,8 +1624,8 @@ def single_axis_contraction(actx, dim, axis, operator, data,
         { i: TensorProductOperatorAxisTag() for i in range(2) },
         operator)
 
-    # NOTE: shift j into the correct position and contract over j in the einsum
-    # example of a 3D gradient using
+    # NOTE: works by shifting and contracting over j
+    # example of a 3D gradient
     #   x-axis (axis = 0): ij,ejop->eiop
     #   y-axis (axis = 1): ij,eajo->eaio
     #   z-axis (axis = 2): ij,eabj->eabi
