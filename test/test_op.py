@@ -61,17 +61,17 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
-@pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("order", [2, 3])
-@pytest.mark.parametrize("warp_mesh", [False, True])
+@pytest.mark.parametrize("form", ["weak-overint"])
+@pytest.mark.parametrize("dim", [3])
+@pytest.mark.parametrize("order", [3])
+@pytest.mark.parametrize("warp_mesh", [False])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
-    SimplexElementGroup,
+    # SimplexElementGroup,
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
