@@ -117,14 +117,20 @@ class _BoxMeshBuilderBase(MeshBuilder):
     a = (-0.5, -0.5, -0.5)
     b = (+0.5, +0.5, +0.5)
 
+    tpe: bool
+
+    def __init__(self, tpe=False):
+        self._tpe = tpe
+
     def get_mesh(self, resolution, mesh_order=4):
         if not isinstance(resolution, (list, tuple)):
             resolution = (resolution,) * self.ambient_dim
-
+            from meshmode.mesh import TensorProductElementGroup
+            group_cls = TensorProductElementGroup if self._tpe else None
         return mgen.generate_regular_rect_mesh(
                 a=self.a, b=self.b,
                 nelements_per_axis=resolution,
-                order=mesh_order)
+                order=mesh_order, group_cls=group_cls)
 
 
 class BoxMeshBuilder1D(_BoxMeshBuilderBase):

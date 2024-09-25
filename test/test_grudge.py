@@ -155,26 +155,31 @@ def _spheroid_surface_area(radius, aspect_ratio):
 
 
 @pytest.mark.parametrize("name", [
-    "2-1-ellipse", "spheroid", "box2d", "box3d"
+    "box2d-tpe", "box3d-tpe", "box2d", "box3d", "2-1-ellipse", "spheroid",
     ])
-def test_mass_surface_area(actx_factory, name):
+@pytest.mark.parametrize("oi", [False, True])
+def test_mass_surface_area(actx_factory, name, oi):
+    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
     actx = actx_factory()
+    qtag = DISCR_TAG_QUAD if oi else DISCR_TAG_BASE
+    vol_dd_base = as_dofdesc(dof_desc.DTAG_VOLUME_ALL)
+    vol_dd_quad = vol_dd_base.with_discr_tag(qtag)
 
     # {{{ cases
 
     order = 4
-
+    tpe = name.endswith("-tpe")
     if name == "2-1-ellipse":
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
         surface_area = _ellipse_surface_area(builder.radius, builder.aspect_ratio)
     elif name == "spheroid":
         builder = mesh_data.SpheroidMeshBuilder()
         surface_area = _spheroid_surface_area(builder.radius, builder.aspect_ratio)
-    elif name == "box2d":
-        builder = mesh_data.BoxMeshBuilder2D()
+    elif name.startswith("box2d"):
+        builder = mesh_data.BoxMeshBuilder2D(tpe=tpe)
         surface_area = 1.0
-    elif name == "box3d":
-        builder = mesh_data.BoxMeshBuilder3D()
+    elif name.startswith("box3d"):
+        builder = mesh_data.BoxMeshBuilder3D(tpe=tpe)
         surface_area = 1.0
     else:
         raise ValueError(f"unknown geometry name: {name}")
@@ -189,15 +194,20 @@ def test_mass_surface_area(actx_factory, name):
 
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, order)
-        dcoll = make_discretization_collection(actx, mesh, order=order)
-        volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
+        dcoll = make_discretization_collection(
+                   actx, mesh,
+                   discr_tag_to_group_factory={
+                       DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order),
+                       DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+                   })
+        volume_discr = dcoll.discr_from_dd(vol_dd_quad)
 
         logger.info("ndofs:     %d", volume_discr.ndofs)
         logger.info("nelements: %d", volume_discr.mesh.nelements)
 
         # {{{ compute surface area
 
-        dd = dof_desc.DD_VOLUME_ALL
+        dd = vol_dd_quad
         ones_volm = volume_discr.zeros(actx) + 1
         approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
