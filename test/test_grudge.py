@@ -159,7 +159,7 @@ def _spheroid_surface_area(radius, aspect_ratio):
     ])
 @pytest.mark.parametrize("oi", [False, True])
 def test_mass_surface_area(actx_factory, name, oi):
-    from grudge.dof_desc import as_dofdesc, DISCR_TAG_BASE, DISCR_TAG_QUAD
+    from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc
     actx = actx_factory()
     qtag = DISCR_TAG_QUAD if oi else DISCR_TAG_BASE
     vol_dd_base = as_dofdesc(dof_desc.DTAG_VOLUME_ALL)

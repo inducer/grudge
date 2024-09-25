@@ -125,8 +125,8 @@ class _BoxMeshBuilderBase(MeshBuilder):
     def get_mesh(self, resolution, mesh_order=4):
         if not isinstance(resolution, (list, tuple)):
             resolution = (resolution,) * self.ambient_dim
-            from meshmode.mesh import TensorProductElementGroup
-            group_cls = TensorProductElementGroup if self._tpe else None
+        from meshmode.mesh import TensorProductElementGroup
+        group_cls = TensorProductElementGroup if self._tpe else None
         return mgen.generate_regular_rect_mesh(
                 a=self.a, b=self.b,
                 nelements_per_axis=resolution,
