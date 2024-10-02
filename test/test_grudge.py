@@ -153,7 +153,9 @@ def _spheroid_surface_area(radius, aspect_ratio):
         e = np.sqrt(1.0 - (c/a)**2)
         return 2.0 * np.pi * radius**2 * (1 + (c/a)**2 / e * np.arctanh(e))
 
-
+# This tests uses op.integral which has been changed to directly use quadrature
+# weights instead of the mass matrix.  We either need to reimplement this test
+# to do what it was intended to do, or rename it appropriately.
 @pytest.mark.parametrize("name", [
     "box2d-tpe", "box3d-tpe", "box2d", "box3d", "2-1-ellipse", "spheroid",
     ])
