@@ -79,6 +79,7 @@ from modepy import (
     nodal_quad_mass_matrix,
     vandermonde,
     inverse_mass_matrix,
+    mass_matrix
 )
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
@@ -97,7 +98,6 @@ from meshmode.discretization import (
     NodalElementGroupBase
 )
 from meshmode.discretization.poly_element import (
-    GaussLegendreTensorProductElementGroup,
     TensorProductElementGroupBase,
     SimplexElementGroupBase
 )
@@ -1421,45 +1421,30 @@ def reference_face_mass_matrix(
         lambda face_grp, vol_grp: (face_grp.discretization_key(),
                                    vol_grp.discretization_key()))
     def get_ref_face_mass_mat(face_grp, vol_grp):
-        import modepy as mp
+        nfaces = vol_grp.mesh_el_group.nfaces
+        assert face_grp.nelements == nfaces * vol_grp.nelements
 
+        matrix = np.empty(
+            (vol_grp.nunit_dofs,
+            nfaces,
+            face_grp.nunit_dofs),
+            dtype=dtype
+        )
+
+        import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
         from meshmode.discretization.poly_element import \
             QuadratureSimplexElementGroup
 
-        nfaces = vol_grp.mesh_el_group.nfaces
-        assert face_grp.nelements == nfaces * vol_grp.nelements
-
-        if _check_matching_grp_class(
-            TensorProductElementGroupBase, face_grp, vol_grp):
-
-            shape = (vol_grp.order + 1, nfaces, face_grp.order + 1)
-            vol_basis = vol_grp.basis_obj().bases[0]
-
-        elif _check_matching_grp_class(
-            SimplexElementGroupBase, face_grp, vol_grp):
-
-            shape = (vol_grp.nunit_dofs, nfaces, face_grp.nunit_dofs)
-            vol_basis = vol_grp.basis_obj()
-
-        else:
-            raise TypeError(
-                "`face_grp` and `vol_grp` must both be either "
-                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
-                f"Found `face_grp` = {face_grp}, `vol_grp` = {vol_grp}")
-
-        matrix = np.empty(shape, dtype=dtype)
-
         n = vol_grp.order
         m = face_grp.order
+        vol_basis = vol_grp.basis_obj()
         faces = mp.faces_for_shape(vol_grp.shape)
 
         for iface, face in enumerate(faces):
             # If the face group is defined on a higher-order
             # quadrature grid, use the underlying quadrature rule
-
-            if isinstance(face_grp, QuadratureSimplexElementGroup) or \
-                isinstance(face_grp, GaussLegendreTensorProductElementGroup):
+            if isinstance(face_grp, QuadratureSimplexElementGroup):
                 face_quadrature = face_grp.quadrature_rule()
                 if face_quadrature.exact_to < m:
                     raise ValueError(
@@ -1477,26 +1462,12 @@ def reference_face_mass_matrix(
                     face
                 )
 
-            if isinstance(face_grp, TensorProductElementGroupBase):
-                face_quadrature = face_quadrature.quadratures[0]
-                vol_nodes = vol_grp.unit_nodes[0][:n+1].reshape(1, n+1)
-                face_nodes = face_grp.unit_nodes[0][:m+1].reshape(1, m+1)
-
-            else:
-                vol_nodes = vol_grp.unit_nodes
-                face_nodes = face_grp.unit_nodes
-
-            pu.db
-
             # If the group has a nodal basis and is unisolvent,
             # we use the basis on the face to compute the face mass matrix
             if (isinstance(face_grp, ElementGroupWithBasis)
                     and face_grp.space.space_dim == face_grp.nunit_dofs):
 
-                if isinstance(face_grp, TensorProductElementGroupBase):
-                    face_basis = face_grp.basis_obj().bases[0]
-                else:
-                    face_basis = face_grp.basis_obj()
+                face_basis = face_grp.basis_obj()
 
                 # Sanity check for face quadrature accuracy. Not integrating
                 # degree N + M polynomials here is asking for a bad time.
@@ -1511,8 +1482,8 @@ def reference_face_mass_matrix(
                 matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
                     face, face_quadrature,
                     face_basis.functions, vol_basis.functions,
-                    vol_nodes,
-                    face_nodes,
+                    vol_grp.unit_nodes,
+                    face_grp.unit_nodes,
                 )
             else:
                 # Otherwise, we use a routine that is purely quadrature-based
@@ -1521,10 +1492,8 @@ def reference_face_mass_matrix(
                     face,
                     face_quadrature,
                     vol_basis.functions,
-                    vol_nodes,
+                    vol_grp.unit_nodes,
                 )
-
-        pu.db
 
         return actx.freeze(
                 tag_axes(actx, {
@@ -1557,50 +1526,32 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
     surf_area_elements = area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-
-    def simplicial_apply_face_mass(actx, face_grp, vol_grp, vec, surf_ae):
-        return  actx.einsum("ifj,fej,fej->ei",
-            reference_face_mass_matrix(
-                actx,
-                face_element_group=face_grp,
-                vol_element_group=vol_grp,
-                dtype=dtype),
-            actx.tag_axis(1, DiscretizationElementAxisTag(),
-                surf_ae.reshape(
-                    vgrp.mesh_el_group.nfaces,
-                    vgrp.nelements,
-                    surf_ae.shape[-1])),
-            actx.tag_axis(0, DiscretizationFaceAxisTag(),
-                vec.reshape(
-                    vol_grp.mesh_el_group.nfaces,
-                    vol_grp.nelements,
-                    face_grp.nunit_dofs)),
-            arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
-            tagged=(FirstAxisIsElementsTag(),))
-
-
-    def tensor_product_apply_face_mass(actx, face_grp, vol_grp, vec, surf_ae):
-        return simplicial_apply_face_mass(actx, face_grp, vol_grp, vec, surf_ae)
-
-
-    face_group_data = []
-    for vgrp, afgrp, vec_i, surf_ae_i in zip(
-        volm_discr.groups, face_discr.groups, vec, surf_area_elements):
-
-        if _check_matching_grp_class(SimplexElementGroupBase, vgrp, afgrp):
-            face_group_data.append(
-                simplicial_apply_face_mass(actx, afgrp, vgrp, vec_i, surf_ae_i))
-
-        elif _check_matching_grp_class(
-            TensorProductElementGroupBase, vgrp, afgrp):
-
-            face_group_data.append(
-                tensor_product_apply_face_mass(
-                    actx, afgrp, vgrp, vec_i, surf_ae_i))
-
     return DOFArray(
         actx,
-        data=tuple(face_group_data))
+        data=tuple(
+            actx.einsum("ifj,fej,fej->ei",
+                        reference_face_mass_matrix(
+                            actx,
+                            face_element_group=afgrp,
+                            vol_element_group=vgrp,
+                            dtype=dtype),
+                        actx.tag_axis(1, DiscretizationElementAxisTag(),
+                            surf_ae_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                surf_ae_i.shape[-1])),
+                        actx.tag_axis(0, DiscretizationFaceAxisTag(),
+                            vec_i.reshape(
+                                vgrp.mesh_el_group.nfaces,
+                                vgrp.nelements,
+                                afgrp.nunit_dofs)),
+                        arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
+                        tagged=(FirstAxisIsElementsTag(),))
+
+            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
+                                                     face_discr.groups,
+                                                     vec,
+                                                     surf_area_elements)))
 
 
 def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
