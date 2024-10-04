@@ -462,7 +462,7 @@ def _dispatch_bilinear_form(
         dd_in: DOFDesc,
         trial_derivative: int | None = None,
         test_derivative: int | None = None,
-        use_tensor_product_fast_eval: bool = True) -> ArrayOrContainer:
+        use_tensor_product_fast_eval: bool = True) -> DOFArray:
     """
     An general intermediate routine that dispatches arguments to the correct
     bilinear form appliers. The routine that is chosen is based on desired
