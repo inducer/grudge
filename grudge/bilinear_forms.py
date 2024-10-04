@@ -1,5 +1,4 @@
 from __future__ import annotations
-from collections.abc import Callable
 
 __copyright__ = """
 Copyright (C) 2024 Addison Alvey-Blanco
@@ -29,6 +28,8 @@ THE SOFTWARE.
 
 from arraycontext import Array, ArrayContext, ArrayOrContainer, tag_axes
 
+from collections.abc import Callable
+
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     dof_desc,
@@ -39,6 +40,11 @@ from grudge.geometry import (
     inverse_surface_metric_derivative_mat
 )
 from grudge.tools import rec_map_subarrays
+from grudge.transform.metadata import (
+    ReferenceTensorProductMassOperatorTag,
+    TensorProductDOFAxisTag,
+    TensorProductOperatorAxisTag
+)
 
 from meshmode.discretization import InterpolatoryElementGroupBase
 from meshmode.discretization.poly_element import (
@@ -46,16 +52,19 @@ from meshmode.discretization.poly_element import (
     TensorProductElementGroupBase
 )
 from meshmode.dof_array import DOFArray
-
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
     DiscretizationTopologicalDimAxisTag
 )
 
 import modepy as mp
+from modepy.spaces import TensorProductSpace
 
 import numpy as np
 import numpy.linalg as la
+
+from typing import Optional
 
 
 class BilinearForm:
@@ -93,8 +102,6 @@ class BilinearForm:
     metrics: DOFArray
     test_derivative: int | None
     trial_derivative: int | None
-
-    operator: Array
 
     def __init__(self,
                  actx: ArrayContext,
@@ -141,6 +148,8 @@ class NonseparableBilinearForm(BilinearForm):
     tensor-product discretization, then this is used instead.
     """
 
+    operator: Array
+
     def __init__(self,
                  actx: ArrayContext,
                  input_group: InterpolatoryElementGroupBase,
@@ -153,11 +162,7 @@ class NonseparableBilinearForm(BilinearForm):
                          trial_derivative=trial_derivative,
                          test_derivative=test_derivative)
 
-        # {{{ build the discrete operator
-
         self._build_discrete_reference_operator()
-
-        # }}}
 
     def _build_discrete_reference_operator(self):
 
@@ -236,12 +241,22 @@ class NonseparableBilinearForm(BilinearForm):
 
 
 class SeparableBilinearForm(BilinearForm):
-    """
+    r"""
     Represents a bilinear form whose corresponding discrete operator can be
     applied as a sequence of tensor contractions using a 1D operator. Typically,
     this is the case with bilinear forms arising from a tensor-product
     discretization.
+
+    :attr mass_operator: an :class:`~arraycontext.Array` representing a 1D mass
+        operator. Mass operator will always be defined.
+
+    :attr differentiation_operator: an :class:`~arraycontext.Array` representing
+        a 1D stiffness operator. The differentiation operator is only defined if
+        a derivative is requested.
     """
+
+    mass_operator: Array
+    differentiation_operator: Optional[Array]
 
     def __init__(self,
                  actx: ArrayContext,
@@ -254,6 +269,191 @@ class SeparableBilinearForm(BilinearForm):
         super().__init__(actx, input_group, output_group, metrics,
                          trial_derivative=trial_derivative,
                          test_derivative=test_derivative)
+
+        self._build_discrete_reference_operator()
+
+    def _build_discrete_reference_operator(self):
+        assert isinstance(self.input_group, TensorProductElementGroupBase)
+        assert isinstance(self.output_group, TensorProductElementGroupBase)
+
+        # {{{ recover 1d bases and nodes used in the tensor product
+
+        test_basis_1d = self.output_group.basis_obj().bases[0]
+        trial_basis_1d = self.input_group.basis_obj().bases[0]
+
+        test_nodes_1d = self.output_group.unit_nodes[:self.output_group.order+1]
+        test_nodes_1d = test_nodes_1d.reshape(-1, 1)
+
+        trial_nodes_1d = self.input_group.unit_nodes[:self.input_group.order+1]
+        trial_nodes_1d = trial_nodes_1d.reshape(-1, 1)
+
+        # }}}
+
+        # {{{ vandermonde matrices
+
+        if self.test_derivative is not None:
+            vdm_p_out = mp.multi_vandermonde(test_basis_1d.gradients,
+                                           test_nodes_1d)
+
+        if self.trial_derivative is not None:
+            vdm_p_in = mp.multi_vandermonde(trial_basis_1d.gradients,
+                                          trial_nodes_1d)
+
+        # we need non-derivative operators regardless of whether we want derivs
+        vdm_out = mp.vandermonde(test_basis_1d.functions,
+                                 test_nodes_1d)
+
+        vdm_in = mp.vandermonde(trial_basis_1d.functions,
+                                trial_nodes_1d)
+
+        # }}}
+
+        # {{{ apply weights and form the operator
+
+        axes_to_tags = {
+            0: TensorProductOperatorAxisTag(),
+            1: TensorProductOperatorAxisTag()
+        }
+
+        weights = self.input_group.quadrature_rule().quadratures[0]
+
+        mass_operator = np.einsum(
+            "kj,ij,i->ki",
+            la.inv(vdm_out).T,
+            vdm_in,
+            weights)
+
+        self.mass_operator = self.actx.freeze(
+        tag_axes(self.actx, axes_to_tags,
+                 self.actx.tag(ReferenceTensorProductMassOperatorTag(),
+                               self.actx.freeze(mass_operator))))
+
+        # need a 1D differentiation operator if we want derivatives
+        if self.trial_derivative is not None:
+            weak_diff_operator = np.einsum(
+                "kj,ij,i->ki",
+                la.inv(vdm_out).T,
+                vdm_p_in,
+                weights)
+
+            weak_diff_operator = self.actx.freeze(
+                tag_axes(self.actx, axes_to_tags,
+                         self.actx.from_numpy(weak_diff_operator)))
+
+            self.differentiation_operator = weak_diff_operator
+
+        # }}}
+
+    def _single_axis_contraction(self,
+                                 dim: int,
+                                 axis: int,
+                                 data: DOFArray,
+                                 operator: Array,
+                                 tagged=None, arg_names=None):
+        """
+        TODO: add docs
+        """
+
+        data = tag_axes(
+            self.actx,
+            {
+                i: (DiscretizationElementAxisTag() if i == 0 else
+                    TensorProductDOFAxisTag(i-1))
+                for i in range(dim+1)
+            },
+            data)
+
+        operator_spec = "ij"
+        data_spec = f"e{"abcdfghklmn"[:axis]}j{"opqrstuvwxy"[:dim-axis-1]}"
+        out_spec = f"e{"abcdfghklmn"[:axis]}i{"opqrstuvwxy"[:dim-axis-1]}"
+        spec = operator_spec + "," + data_spec + "->" + out_spec
+
+        return tag_axes(
+            self.actx,
+            {
+                i: (DiscretizationElementAxisTag() if i == 0 else
+                    TensorProductDOFAxisTag(i-1))
+                for i in range(dim+1)
+            },
+            self.actx.einsum(spec, operator, data, arg_names=arg_names,
+                        tagged=tagged))
+
+    def _apply_mass_operator(self, vec: DOFArray, exclude_axis=None) -> DOFArray:
+        """
+        Apply a mass operator to all axes other than *exclude_axis*.
+
+        Since a mass operator is applied even in the case of differentiation, we
+        exclude the axis that the differentiation operator is being applied to.
+        """
+        apply_mass_axes = set(np.arange(self.input_group.dim)) - {exclude_axis}
+        for ax in apply_mass_axes:
+            vec = self._single_axis_contraction(
+                self.input_group.dim, ax, vec, self.mass_operator,
+                arg_names=("mass_1d", "vec"))
+
+        return vec
+
+    def _compute_partial_derivative(self, vec: DOFArray) -> DOFArray:
+        """
+        Compute the physical-space partial derivative using a 1D differentiation
+        operator. This is done by computing n-dimensions worth of reference
+        partial derivatives and summing over the results.
+
+        :arg vec: a :class:`~meshmode.dof_array.DOFArray` assumed to have
+            already been pointwise multiplied with chain rule and metric terms.
+            It is also assumed *vec* has been reshaped to expose the underlying
+            tensor-product structure. The shape of *vec* is expected to be
+            (dim, dim, n_elements, ndofs_x, ndofs_y, ...), where the number of
+            DOF axes is equal to the dimension of the problem.
+        """
+        dim = self.input_group.dim
+        ndofs_1d = self.output_group.order + 1
+
+        partial_derivative = self.actx.zeros((ndofs_1d,)*dim, dtype=vec.dtype)
+        for rst_axis in range(self.input_group.dim):
+            reference_partial = vec[self.trial_derivative, rst_axis]
+
+            reference_partial = self._apply_mass_operator(reference_partial,
+                                                          exclude_axis=rst_axis)
+            reference_partial = self._single_axis_contraction(
+                self.input_group.dim, rst_axis, reference_partial,
+                self.mass_operator,
+                arg_names=("stiff_1d", f"ref_partial_{rst_axis}"))
+
+            partial_derivative += reference_partial
+
+        return partial_derivative
+
+    def apply_to(self, vec):
+        """
+        TODO: add docs
+        """
+
+        from modepy.tools import (
+            reshape_array_for_tensor_product_space as fold,
+            unreshape_array_for_tensor_product_space as unfold
+        )
+
+        # apply metrics
+        vec = vec * self.metrics
+
+        # reveal tensor product structure
+        if self.input_group.dim != 1:
+            assert isinstance(self.input_group.space, TensorProductSpace)
+            vec = fold(self.input_group.space, vec)
+
+        if self.trial_derivative is not None:
+            vec = self._compute_partial_derivative(vec)
+
+        else:
+            vec = self._apply_mass_operator(vec)
+
+        # hide tensor product structure
+        if self.output_group.dim != 1:
+            assert isinstance(self.output_group.space, TensorProductSpace)
+            return unfold(self.output_group.space, vec)
+
+        return vec
 
 
 def _dispatch_bilinear_form(

@@ -1142,9 +1142,8 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     else:
         raise TypeError("invalid number of arguments")
 
-    dd_out = dd_in.with_discr_tag(DISCR_TAG_BASE)
-
-    return _apply_mass_operator(dcoll, dd_out, dd_in, vec)
+    from grudge.bilinear_forms import apply_bilinear_form
+    return apply_bilinear_form(dcoll, vec, dd_in)
 
 # }}}
 
