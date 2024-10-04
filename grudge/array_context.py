@@ -45,6 +45,8 @@ from typing import (
 )
 from warnings import warn
 
+from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
+
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
@@ -137,6 +139,33 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
+
+    def transform_loopy_program(self, t_unit):
+        knl = t_unit.default_entrypoint
+
+        # {{{ process tensor product specific metadata
+
+        # NOTE: This differs from the lazy case b/c we don't have access to axis
+        # tags that can be manipulated pre-execution. In eager, we update
+        # strides/loop nest ordering for the output array
+        if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+            new_args = []
+            for arg in knl.args:
+                if arg.is_output:
+                    arg = arg.copy(dim_tags=(
+                        f"N{len(arg.shape)-1},"
+                        + ",".join(f"N{i}"
+                                for i in range(len(arg.shape)-1))
+                        ))
+
+                new_args.append(arg)
+
+            knl = knl.copy(args=new_args)
+            t_unit = t_unit.with_kernel(knl)
+
+        # }}}
+
+        return super().transform_loopy_program(t_unit)
 
 # }}}
 
