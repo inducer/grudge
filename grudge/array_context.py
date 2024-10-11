@@ -3,6 +3,7 @@
 .. autoclass:: PytatoPyOpenCLArrayContext
 .. autoclass:: MPIBasedArrayContext
 .. autoclass:: MPIPyOpenCLArrayContext
+.. autoclass:: MPINumpyArrayContext
 .. class:: MPIPytatoArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
@@ -100,10 +101,11 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext import ArrayContext
+from arraycontext import ArrayContext, NumpyArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
+    _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoPyOpenCLArrayContextFactory,
     register_pytest_array_context_factory,
@@ -468,6 +470,26 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
 # }}}
 
 
+# {{{ distributed + numpy
+
+class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`numpy`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator) -> None:
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self):
+        return type(self)(self.mpi_communicator)
+
+# }}}
+
+
 # {{{ distributed + pytato array context subclasses
 
 class MPIBasePytatoPyOpenCLArrayContext(
@@ -535,10 +557,19 @@ class PytestPytatoPyOpenCLArrayContextFactory(
         return self.actx_class(queue, allocator=alloc)
 
 
+class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
+    actx_class = NumpyArrayContext
+
+    def __call__(self):
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
         PytestPytatoPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory("grudge.numpy",
+        PytestNumpyArrayContextFactory)
 
 # }}}
 
@@ -570,12 +601,21 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
 
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True,
-        fusion: Optional[bool] = None,
+        fusion: Optional[bool] = None, numpy: bool = False,
         ) -> Type[ArrayContext]:
-    """Returns a reasonable :class:`PyOpenCLArrayContext` currently
-    supported given the constraints of *lazy* and *distributed*."""
+    """Returns a reasonable :class:`~arraycontext.ArrayContext` currently
+    supported given the constraints of *lazy*, *distributed*, and *numpy*."""
     if fusion is None:
         fusion = lazy
+
+    if numpy:
+        assert not (lazy or fusion)
+        if distributed:
+            actx_class = MPINumpyArrayContext
+        else:
+            actx_class = NumpyArrayContext
+
+        return actx_class
 
     if lazy:
         if fusion:
