@@ -147,4 +147,4 @@ class WarpedRectMeshBuilder(MeshBuilder):
 
     def get_mesh(self, resolution, mesh_order=4):
         return mgen.generate_warped_rect_mesh(
-                dim=self.dim, order=4, nelements_side=6)
+                dim=self.dim, order=mesh_order, nelements_side=resolution)
