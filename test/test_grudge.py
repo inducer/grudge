@@ -245,7 +245,6 @@ def test_mass_operator_inverse(actx_factory, name):
     if name == "2-1-ellipse":
         # curve
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
-        quad_order = order
     elif name == "spheroid":
         # surface
         builder = mesh_data.SpheroidMeshBuilder()
