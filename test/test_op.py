@@ -40,7 +40,7 @@ from meshmode.mesh import (
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestNumpyArrayContextFactory
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import (
     DISCR_TAG_BASE,
@@ -56,14 +56,14 @@ from grudge.trace_pair import bv_trace_pair
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestNumpyArrayContextFactory])
 
 
 # {{{ gradient
 
-@pytest.mark.parametrize("form", ["weak-overint"])
-@pytest.mark.parametrize("dim", [3])
-@pytest.mark.parametrize("order", [3])
+@pytest.mark.parametrize("form", ["strong", "weak-overint"])
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [False])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
@@ -71,7 +71,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, True)
     ])
 @pytest.mark.parametrize("group_cls", [
-    # SimplexElementGroup,
+    SimplexElementGroup,
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
@@ -105,7 +105,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                    discr_tag_to_group_factory={
                        DISCR_TAG_BASE:
                            InterpolatoryEdgeClusteredGroupFactory(order),
-                       DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+                       DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
                    })
 
         def f(x):
@@ -233,7 +233,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
 # {{{ divergence
 
-@pytest.mark.parametrize("form", ["strong", "weak"])
+@pytest.mark.parametrize("form", ["strong", "weak-overint"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize(("vectorize", "nested"), [
@@ -263,7 +263,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             discr_tag_to_group_factory={
                 DISCR_TAG_BASE:
                     InterpolatoryEdgeClusteredGroupFactory(order),
-                DISCR_TAG_QUAD: QuadratureGroupFactory(3 * order)
+                DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
             })
 
         def f(x, dcoll=dcoll):
@@ -291,14 +291,14 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             result = result + deriv
             return result
 
-        x = actx.thaw(dcoll.nodes())
+        def vectorize_if_requested(vec):
+            if vectorize:
+                return make_obj_array([(i+1)*vec for i in range(dim)])
+            else:
+                return vec
 
-        if vectorize:
-            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
-            if not nested:
-                u = np.stack(u, axis=0)
-        else:
-            u = f(x)
+        x = actx.thaw(dcoll.nodes())
+        u = vectorize_if_requested(f(x))
 
         def get_flux(u_tpair, dcoll=dcoll):
             dd = u_tpair.dd
@@ -309,24 +309,34 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             flux = u_tpair.avg @ normal
             return op.project(dcoll, dd, dd_allfaces, flux)
 
-        dd_allfaces = as_dofdesc(FACE_RESTR_ALL)
-
         if form == "strong":
             div_u = (
                 op.local_div(dcoll, u)
                 # No flux terms because u doesn't have inter-el jumps
                 )
-        elif form == "weak":
-            div_u = op.inverse_mass(dcoll,
-                -op.weak_local_div(dcoll, u)
+        elif form.startswith("weak"):
+            assert form in ["weak", "weak-overint"]
+            if "overint" in form:
+                quad_discr_tag = DISCR_TAG_QUAD
+            else:
+                quad_discr_tag = DISCR_TAG_BASE
+
+            allfaces_dd_base = as_dofdesc(FACE_RESTR_ALL, quad_discr_tag)
+            vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
+            vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
+            allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
+
+            div_u = op.inverse_mass(dcoll, vol_dd_quad,
+                -op.weak_local_div(dcoll, vol_dd_quad,
+                    op.project(dcoll, vol_dd_base, vol_dd_quad, u))
                 +
                 op.face_mass(dcoll,
-                    dd_allfaces,
+                    allfaces_dd_quad,
                     # Note: no boundary flux terms here because u_ext == u_int == 0
-                    sum(get_flux(utpair)
-                        for utpair in op.interior_trace_pairs(dcoll, u))
-                )
-            )
+                    sum(get_flux(
+                        op.project_tracepair(dcoll, allfaces_dd_quad, utpair))
+                        for utpair in op.interior_trace_pairs(
+                             dcoll, u, volume_dd=vol_dd_base))))
         else:
             raise ValueError("Invalid form argument.")
 

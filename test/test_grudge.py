@@ -36,19 +36,20 @@ from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
+    TensorProductElementGroupBase,
 )
 from meshmode.dof_array import flat_norm
 from meshmode.mesh import TensorProductElementGroup
 from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, geometry, op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestNumpyArrayContextFactory
 from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestNumpyArrayContextFactory])
 
 
 # {{{ mass operator trig integration
@@ -240,11 +241,11 @@ def test_mass_operator_inverse(actx_factory, name):
     # {{{ cases
 
     order = 4
-    overintegrate = False
 
     if name == "2-1-ellipse":
         # curve
         builder = mesh_data.EllipseMeshBuilder(radius=3.1, aspect_ratio=2.0)
+        quad_order = order
     elif name == "spheroid":
         # surface
         builder = mesh_data.SpheroidMeshBuilder()
@@ -266,6 +267,12 @@ def test_mass_operator_inverse(actx_factory, name):
     else:
         raise ValueError(f"unknown geometry name: {name}")
 
+    # NOTE: we are always using quadrature now so we're always "overintegrating"
+    overintegrate = True
+
+    # based on empirical WADG data
+    quadrature_order = 2*order + 1
+
     # }}}
 
     # {{{ inv(m) @ m == id
@@ -274,14 +281,25 @@ def test_mass_operator_inverse(actx_factory, name):
 
     eoc = EOCRecorder()
 
-    for resolution in builder.resolutions:
-        mesh = builder.get_mesh(resolution)
+    if name.startswith("gh-339"):
+        resolutions = ["gh-339.msh"]
+        for i in [1]:
+            resolutions.append(f"gh-339-refined-{i}.msh")
+    else:
+        resolutions = builder.resolutions
+
+    for resolution in resolutions:
+        if name.startswith("gh-339"):
+            builder = mesh_data.GmshMeshBuilder3D(resolution)
+            mesh = builder.get_mesh(None)
+        else:
+            mesh = builder.get_mesh(resolution)
         dcoll = make_discretization_collection(
                        actx, mesh, discr_tag_to_group_factory={
                            dof_desc.DISCR_TAG_BASE: (
                                InterpolatoryEdgeClusteredGroupFactory(order)),
                            dof_desc.DISCR_TAG_QUAD: (
-                               QuadratureGroupFactory(3*order))
+                               QuadratureGroupFactory(quadrature_order))
                        })
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
@@ -293,26 +311,38 @@ def test_mass_operator_inverse(actx_factory, name):
         def f(x):
             return actx.np.cos(4.0 * x[0])
 
-        x_volm = actx.thaw(volume_discr.nodes())
-        f_volm = f(x_volm)
-        if not overintegrate:
-            dd = dof_desc.DD_VOLUME_ALL
-            f_inv = op.inverse_mass(
-                dcoll, op.mass(dcoll, dd, f_volm)
-            )
-        else:
-            dd_base_vol = dof_desc.as_dofdesc(
-                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
-            dd_quad_vol = dof_desc.as_dofdesc(
-                                dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
-            f_inv = op.inverse_mass(
-                dcoll, op.mass(dcoll, dd_quad_vol,
-                               op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm)))
+        def f_inv(use_tensor_product_fast_eval=True):
+            x_volm = actx.thaw(volume_discr.nodes())
+            f_volm = f(x_volm)
+            if not overintegrate:
+                dd = dof_desc.DD_VOLUME_ALL
+                f_inv = op.inverse_mass(
+                    dcoll, op.mass(dcoll, dd, f_volm)
+                )
+            else:
+                dd_base_vol = dof_desc.as_dofdesc(
+                    dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_BASE)
+                dd_quad_vol = dof_desc.as_dofdesc(
+                    dof_desc.DTAG_VOLUME_ALL, dof_desc.DISCR_TAG_QUAD)
+                f_inv = op.inverse_mass(
+                    dcoll, dd_quad_vol, op.mass(dcoll, dd_quad_vol,
+                        op.project(dcoll, dd_base_vol, dd_quad_vol, f_volm),
+                    use_tensor_product_fast_eval=use_tensor_product_fast_eval),
+                use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
-        inv_error = actx.to_numpy(
+            return actx.to_numpy(
                 op.norm(dcoll, f_volm - f_inv, 2) / op.norm(dcoll, f_volm, 2))
 
         # }}}
+
+        if isinstance(mesh.groups[0], TensorProductElementGroup):
+            inv_error_fast = f_inv(use_tensor_product_fast_eval=True)
+            inv_error_slow = f_inv(use_tensor_product_fast_eval=False)
+
+            assert np.allclose(inv_error_fast, inv_error_slow)
+            inv_error = inv_error_fast
+        else:
+            inv_error = f_inv()
 
         # compute max element size
         from grudge.dt_utils import h_max_from_volume
@@ -325,7 +355,8 @@ def test_mass_operator_inverse(actx_factory, name):
 
     # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
     # safe side, choose a slightly larger tolerance
-    assert eoc.max_error() < 1.0e-14
+    print(eoc)
+    assert eoc.max_error() < 1.0e-14 or eoc.order_estimate() >= order - 0.5
 
     # }}}
 

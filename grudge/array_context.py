@@ -106,6 +106,7 @@ from arraycontext import ArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
+    _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoPyOpenCLArrayContextFactory,
     register_pytest_array_context_factory,
@@ -564,9 +565,19 @@ class PytestPytatoPyOpenCLArrayContextFactory(
         return self.actx_class(queue, allocator=alloc)
 
 
+class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
+    from arraycontext import NumpyArrayContext
+    actx_class = NumpyArrayContext
+
+    def __call__(self):
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
+        PytestPytatoPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory("grudge.numpy",
         PytestPytatoPyOpenCLArrayContextFactory)
 
 # }}}

@@ -34,7 +34,8 @@ from dataclasses import dataclass
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
-    dof_desc,
+    DISCR_TAG_BASE,
+    DD_VOLUME_ALL,
     DOFDesc
 )
 from grudge.geometry import (
@@ -55,22 +56,30 @@ from meshmode.discretization import (
 )
 from meshmode.discretization.poly_element import (
     PolynomialSimplexElementGroupBase,
+    SimplexElementGroupBase,
     TensorProductElementGroupBase
 )
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
+    FirstAxisIsElementsTag,
 )
 
 import modepy as mp
 from modepy.spaces import TensorProductSpace
+from modepy.tools import (
+    reshape_array_for_tensor_product_space as fold,
+    unreshape_array_for_tensor_product_space as unfold
+)
 
 import numpy as np
 import numpy.linalg as la
 
 from typing import Optional
 
+
+# {{{ BilinearForm base class
 
 @dataclass
 class _BilinearForm:
@@ -108,13 +117,13 @@ class _BilinearForm:
     the result of applying the operator will live.
     """
 
-    area_element: DOFArray
+    area_element: Optional[DOFArray]
     """
     Area scaling term found by computing the determinant of the inverse of the
     Jacobian of the mapping from the reference to physical space.
     """
 
-    metric_terms: DOFArray
+    metric_terms: Optional[DOFArray]
     """
     Chain rule terms arising from taking derivatives of functions whose
     arguments are the inverse mapping from the reference space to physical
@@ -126,7 +135,6 @@ class _BilinearForm:
     An integer signifying the physical axis to differentiate the test functions
     with respect to or None signifying that no derivatives should be taken.
     """
-
 
     def _build_discrete_reference_operator(self):
         """
@@ -142,6 +150,10 @@ class _BilinearForm:
         raise NotImplementedError("Subclasses should implement how discrete "
                                   "operators are applied")
 
+# }}}
+
+
+# {{{ NonTensorProductBilinearForm
 
 class _NonTensorProductBilinearForm(_BilinearForm):
     """
@@ -159,8 +171,8 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                  actx: ArrayContext,
                  input_group: NodalElementGroupBase,
                  output_group: InterpolatoryElementGroupBase,
-                 area_element: DOFArray,
                  metric_terms: DOFArray,
+                 area_element: DOFArray,
                  test_derivative: int | None = None):
 
         super().__init__(actx, input_group, output_group, area_element,
@@ -176,7 +188,8 @@ class _NonTensorProductBilinearForm(_BilinearForm):
         test_basis = self.output_group.basis_obj()
         out_nodes = self.output_group.unit_nodes
 
-        quad_rule = self.input_group.quadrature_rule()
+        in_nodes = self.input_group.quadrature_rule().nodes
+        weights = self.input_group.quadrature_rule().weights
 
         # }}}
 
@@ -186,29 +199,29 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
         # construct stiffness operator
         if self.test_derivative is not None:
-            vdm_in = mp.multi_vandermonde(test_basis.gradients, quad_rule.nodes)
+            vdm_in = mp.multi_vandermonde(test_basis.gradients, in_nodes)
 
             # r is reference partial derivative direction
             stiffness_operator = np.einsum(
-                "ki,rjk,j->rij",
-                la.inv(vdm_out),
+                "ik,rjk,j->rij",
+                la.inv(vdm_out).T,
                 vdm_in,
-                quad_rule.weights)
+                weights)
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
                     1,
                     DiscretizationDOFAxisTag(),
-                    self.actx.from_numpy(stiffness_operator)))
+                    self.actx.from_numpy(stiffness_operator.copy())))
 
         # construct mass operator
         else:
-            vdm_in = mp.vandermonde(test_basis.functions, quad_rule.nodes)
+            vdm_in = mp.vandermonde(test_basis.functions, in_nodes)
             mass_operator = np.einsum(
-                "ki,jk,j->ij",
-                la.inv(vdm_out),
+                "ik,jk,j->ij",
+                la.inv(vdm_out).T,
                 vdm_in,
-                quad_rule.weights)
+                weights)
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
@@ -218,28 +231,56 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
         # }}}
 
+    def _compute_partial_derivative(self, vec: DOFArray) -> DOFArray:
+        """
+        Compute physical partial derivative using the chain rule with reference
+        partial derivatives.
+        """
+        if self.metric_terms is None or self.area_element is None:
+            raise ValueError("Metric terms and area scaling multipliers "
+                             "need to be supplied.")
+
+        vec = vec * self.area_element * self.metric_terms[self.test_derivative]
+        return self.actx.einsum(
+            "rij,rej->ei",
+            self.operator,
+            vec,
+            arg_names=(f"stiffness_T_{self.test_derivative}",
+                       "vec_with_metrics"),
+            tagged=(FirstAxisIsElementsTag(),))
+
+    def _apply_mass_operator(self, vec: DOFArray) -> DOFArray:
+        """
+        Apply the element-local mass operator.
+        """
+        if self.metric_terms is None or self.area_element is None:
+            raise ValueError("Metric terms and area scaling multipliers "
+                             "need to be supplied.")
+
+        vec = vec * self.area_element
+        return self.actx.einsum(
+            "ij,ej->ei",
+            self.operator,
+            vec,
+            arg_names=("mass_operator", "area_element", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
     def __call__(self, vec: DOFArray) -> DOFArray:
         """
         Implements operator application as a matvec. Pointwise multiplication by
         area scaling and metric terms happens before operator application.
         """
 
-        # compute partial derivative
         if self.test_derivative is not None:
-            return self.actx.einsum(
-                "rij,rej->ei",
-                self.operator,
-                vec*self.metric_terms[self.test_derivative]*self.area_element,
-                arg_names=(f"stiffness_T_{self.test_derivative}", "vec"))
-
-        # apply mass operator
+            return self._compute_partial_derivative(vec)
         else:
-            return self.actx.einsum(
-                "ij,ej->ei",
-                self.operator,
-                vec * self.area_element,
-                arg_names=("mass_operator", "vec"))
+            return self._apply_mass_operator(vec)
 
+
+# }}}
+
+
+# {{{ TensorProductBilinearForm
 
 class _TensorProductBilinearForm(_BilinearForm):
     r"""
@@ -258,7 +299,7 @@ class _TensorProductBilinearForm(_BilinearForm):
     operator is always constructed.
     """
 
-    differentiation_operator: Optional[Array]
+    stiffness_operator: Optional[Array]
     """
     An :class:`~arraycontext.Array` representing a 1D stiffness operator. This
     operator is only constructed if derivatives are requested.
@@ -268,14 +309,16 @@ class _TensorProductBilinearForm(_BilinearForm):
                  actx: ArrayContext,
                  input_group: TensorProductElementGroupBase,
                  output_group: TensorProductElementGroupBase,
-                 area_element: DOFArray,
                  metric_terms: DOFArray,
+                 area_element: DOFArray,
                  test_derivative: int | None = None):
 
         super().__init__(actx, input_group, output_group, area_element,
                          metric_terms, test_derivative=test_derivative)
 
         self._build_discrete_reference_operator()
+
+    # {{{ operator construction
 
     def _build_discrete_reference_operator(self):
         assert isinstance(self.input_group, TensorProductElementGroupBase)
@@ -285,11 +328,13 @@ class _TensorProductBilinearForm(_BilinearForm):
 
         test_basis_1d = self.output_group.basis_obj().bases[0]
 
-        out_nodes_1d = self.output_group.unit_nodes[:self.output_group.order+1]
-        out_nodes_1d = out_nodes_1d.reshape(-1, 1)
+        out_nodes_1d = self.output_group.unit_nodes[0][:self.output_group.order+1]
+        out_nodes_1d = out_nodes_1d.reshape(1, -1)
 
+        # NOTE: we assume that the same 1D quadrature rule is used for all
+        # components of the tensor-product
         quad_rule_1d = self.input_group.quadrature_rule().quadratures[0]
-        in_nodes_1d = quad_rule_1d.nodes
+        in_nodes_1d = quad_rule_1d.nodes.reshape(1, -1)
         weights_1d = quad_rule_1d.weights
 
         # }}}
@@ -332,13 +377,17 @@ class _TensorProductBilinearForm(_BilinearForm):
                 vdm_p_in,
                 weights_1d)
 
-            self.differentiation_operator = self.actx.freeze(
+            self.stiffness_operator = self.actx.freeze(
                 tag_axes(
                     self.actx,
                     axes_to_tags,
                     self.actx.from_numpy(stiff_1d)))
 
         # }}}
+
+    # }}}
+
+    # {{{ application routines and helpers
 
     def _single_axis_contraction(self,
                                  dim: int,
@@ -403,15 +452,23 @@ class _TensorProductBilinearForm(_BilinearForm):
             already been pointwise multiplied with chain rule and area scaling
             terms. It is also assumed *vec* has been properly reshaped.
         """
-        partial_derivative = self.actx.zeros_like(vec[0])
+        assert self.metric_terms is not None
+
+        if self.input_group.dim != 1:
+            vec = (vec * fold(self.input_group.space,
+                              self.metric_terms[self.test_derivative]))
+        else:
+            vec = vec * self.metric_terms[self.test_derivative]
+
+        partial_derivative = 0.
         for rst_axis in range(self.input_group.dim):
             reference_partial = vec[rst_axis]
             reference_partial = self._apply_mass_operator(reference_partial,
                                                           exclude_axis=rst_axis)
             reference_partial = self._single_axis_contraction(
                 self.input_group.dim, rst_axis, reference_partial,
-                self.mass_operator,
-                arg_names=("stiff_1d", f"ref_partial_{rst_axis}"))
+                self.stiffness_operator,
+                arg_names=("stiffness_1d", f"ref_partial_{rst_axis}"))
 
             partial_derivative += reference_partial
 
@@ -426,12 +483,8 @@ class _TensorProductBilinearForm(_BilinearForm):
         differentiation operator will be applied.
         """
 
-        from modepy.tools import (
-            reshape_array_for_tensor_product_space as fold,
-            unreshape_array_for_tensor_product_space as unfold
-        )
-
-        # apply area scaling
+        # apply area scaling regardless of whether there are derivatives
+        assert self.area_element is not None
         vec = vec * self.area_element
 
         # reveal tensor product structure
@@ -441,7 +494,6 @@ class _TensorProductBilinearForm(_BilinearForm):
 
         # apply the bilinear form
         if self.test_derivative is not None:
-            vec = vec * self.metric_terms[self.test_derivative]
             vec = self._compute_partial_derivative(vec)
         else:
             vec = self._apply_mass_operator(vec)
@@ -453,11 +505,15 @@ class _TensorProductBilinearForm(_BilinearForm):
 
         return vec
 
+    # }}}
+
+# }}}
+
 
 def _dispatch_bilinear_form(
         dcoll: DiscretizationCollection,
-        vec: DOFArray,
         dd_in: DOFDesc,
+        vec: DOFArray,
         test_derivative: int | None = None,
         use_tensor_product_fast_eval: bool = True) -> DOFArray:
     """
@@ -476,7 +532,7 @@ def _dispatch_bilinear_form(
 
     input_discr = dcoll.discr_from_dd(dd_in)
     output_discr = dcoll.discr_from_dd(
-        dd_in.with_discr_tag(dof_desc.DISCR_TAG_BASE))
+        dd_in.with_discr_tag(DISCR_TAG_BASE))
 
     # }}}
 
@@ -497,7 +553,6 @@ def _dispatch_bilinear_form(
     for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
         input_discr.groups, output_discr.groups, vec, metrics, area_elements):
 
-        # FIXME: separate out metric terms from area/volume scaling
         if isinstance(in_group, TensorProductElementGroupBase):
             assert isinstance(out_group, TensorProductElementGroupBase)
             if use_tensor_product_fast_eval:
@@ -509,7 +564,7 @@ def _dispatch_bilinear_form(
                     actx, in_group, out_group, metric_i, area_elt_i,
                     test_derivative=test_derivative)
 
-        elif isinstance(in_group, PolynomialSimplexElementGroupBase):
+        elif isinstance(in_group, SimplexElementGroupBase):
             assert isinstance(out_group, PolynomialSimplexElementGroupBase)
             bilinear_form = _NonTensorProductBilinearForm(
                 actx, in_group, out_group, metric_i, area_elt_i,
@@ -533,7 +588,10 @@ def apply_bilinear_form(
         dd_in: DOFDesc | None = None,
         test_derivative: int | None = None,
         use_tensor_product_fast_eval: bool = True,
-        _dispatcher: Callable = _dispatch_bilinear_form) -> ArrayOrContainer:
+        dispatcher: Callable = _dispatch_bilinear_form,
+        return_nested: bool = False,
+        in_shape: tuple = (),
+        out_shape: tuple = ()) -> ArrayOrContainer:
     r"""
     Applies an element-local operator built by evaluating a bilinear form using
     quadrature to all element-local data contained in *vecs*.
@@ -593,9 +651,10 @@ def apply_bilinear_form(
     """
 
     if dd_in is None:
-        dd_in = dof_desc.DD_VOLUME_ALL
+        dd_in = DD_VOLUME_ALL
 
     return rec_map_subarrays(
-        lambda vec: _dispatcher(
+        lambda vec: dispatcher(
             dcoll, dd_in, vec, test_derivative, use_tensor_product_fast_eval),
-        in_shape=(), out_shape=(), ary=vecs, scalar_cls=DOFArray)
+        in_shape=in_shape, out_shape=out_shape, ary=vecs, scalar_cls=DOFArray,
+        return_nested=return_nested)

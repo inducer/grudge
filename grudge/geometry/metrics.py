@@ -59,6 +59,7 @@ THE SOFTWARE.
 
 
 from typing import Optional, Tuple, Union
+from warnings import warn
 
 import numpy as np
 
@@ -522,21 +523,32 @@ def inverse_surface_metric_derivative_mat(
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
         times_area_element, _use_geoderiv_connection))
     def _inv_surf_metric_deriv():
+        # FIXME: two branches to avoid multiplication by 1 (for now)
         if times_area_element:
+            warn("Passing `times_area_element` to "
+                 "`inverse_surface_metric_derivative_mat` is deprecated and "
+                 "will stop working in 2025")
+
             multiplier = area_element(actx, dcoll, dd=dd,
                     _use_geoderiv_connection=_use_geoderiv_connection)
-        else:
-            multiplier = 1
+            mat = actx.np.stack([
+                actx.np.stack([
+                    multiplier * inverse_surface_metric_derivative(
+                        actx, dcoll,
+                        rst_axis, xyz_axis, dd=dd,
+                        _use_geoderiv_connection=_use_geoderiv_connection)
+                    for rst_axis in range(dcoll.dim)])
+                for xyz_axis in range(dcoll.ambient_dim)])
 
-        mat = actx.np.stack([
-            actx.np.stack([
-                multiplier
-                * inverse_surface_metric_derivative(
-                    actx, dcoll,
-                    rst_axis, xyz_axis, dd=dd,
-                    _use_geoderiv_connection=_use_geoderiv_connection)
-                for rst_axis in range(dcoll.dim)])
-            for xyz_axis in range(dcoll.ambient_dim)])
+        else:
+            mat = actx.np.stack([
+                actx.np.stack([
+                    inverse_surface_metric_derivative(
+                        actx, dcoll,
+                        rst_axis, xyz_axis, dd=dd,
+                        _use_geoderiv_connection=_use_geoderiv_connection)
+                    for rst_axis in range(dcoll.dim)])
+                for xyz_axis in range(dcoll.ambient_dim)])
 
         return actx.freeze(
                 actx.tag(NameHint(f"inv_metric_deriv_{dd.as_identifier()}"),
