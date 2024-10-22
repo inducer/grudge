@@ -25,17 +25,29 @@ THE SOFTWARE.
 
 import logging
 
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory
+)
 import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-from arraycontext import ArrayContext
-from meshmode.mesh import BTAG_ALL
+from arraycontext import ArrayContext, NumpyArrayContext
+from meshmode.mesh import (
+        BTAG_ALL,
+        SimplexElementGroup,
+        TensorProductElementGroup
+)
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
-from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
-from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
+from grudge.array_context import PytatoPyOpenCLArrayContext
+from grudge.models.euler import (
+    ConservedEulerField,
+    EulerOperator,
+    InviscidWallBC
+)
 from grudge.shortcuts import rk4_step
 
 
@@ -106,7 +118,8 @@ def run_acoustic_pulse(actx,
                        final_time=1,
                        resolution=16,
                        overintegration=False,
-                       visualize=False):
+                       visualize=False,
+                       tensor_product_elements=False):
 
     # eos-related parameters
     gamma = 1.4
@@ -115,18 +128,19 @@ def run_acoustic_pulse(actx,
 
     from meshmode.mesh.generation import generate_regular_rect_mesh
 
+    if tensor_product_elements:
+        group_cls = TensorProductElementGroup
+    else:
+        group_cls = SimplexElementGroup
+
     dim = 2
     box_ll = -0.5
     box_ur = 0.5
     mesh = generate_regular_rect_mesh(
         a=(box_ll,)*dim,
         b=(box_ur,)*dim,
-        nelements_per_axis=(resolution,)*dim)
-
-    from meshmode.discretization.poly_element import (
-        QuadratureSimplexGroupFactory,
-        default_simplex_group_factory,
-    )
+        nelements_per_axis=(resolution,)*dim,
+        group_cls=group_cls)
 
     from grudge.discretization import make_discretization_collection
     from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD
@@ -141,9 +155,8 @@ def run_acoustic_pulse(actx,
     dcoll = make_discretization_collection(
         actx, mesh,
         discr_tag_to_group_factory={
-            DISCR_TAG_BASE: default_simplex_group_factory(
-                base_dim=mesh.dim, order=order),
-            DISCR_TAG_QUAD: QuadratureSimplexGroupFactory(2*order)
+            DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order=order),
+            DISCR_TAG_QUAD: QuadratureGroupFactory(2*order)
         }
     )
 
@@ -208,7 +221,8 @@ def run_acoustic_pulse(actx,
 
 
 def main(ctx_factory, order=3, final_time=1, resolution=16,
-         overintegration=False, visualize=False, lazy=False):
+         overintegration=False, visualize=False, lazy=False,
+         tensor_product_elements=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
 
@@ -218,11 +232,7 @@ def main(ctx_factory, order=3, final_time=1, resolution=16,
             allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
         )
     else:
-        actx = PyOpenCLArrayContext(
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
-        )
+        actx = NumpyArrayContext()
 
     run_acoustic_pulse(
         actx,
@@ -230,7 +240,8 @@ def main(ctx_factory, order=3, final_time=1, resolution=16,
         resolution=resolution,
         overintegration=overintegration,
         final_time=final_time,
-        visualize=visualize
+        visualize=visualize,
+        tensor_product_elements=tensor_product_elements
     )
 
 
@@ -238,6 +249,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--tpe", action="store_true")
     parser.add_argument("--order", default=3, type=int)
     parser.add_argument("--tfinal", default=0.1, type=float)
     parser.add_argument("--resolution", default=16, type=int)
@@ -256,4 +268,5 @@ if __name__ == "__main__":
          resolution=args.resolution,
          overintegration=args.oi,
          visualize=args.visualize,
-         lazy=args.lazy)
+         lazy=args.lazy,
+         tensor_product_elements=args.tpe)

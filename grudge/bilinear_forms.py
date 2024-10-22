@@ -72,6 +72,7 @@ from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold
 )
+from modepy.quadrature import Quadrature, quadrature_for_space
 
 import numpy as np
 import numpy.linalg as la
@@ -169,7 +170,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
     def __init__(self,
                  actx: ArrayContext,
-                 input_group: NodalElementGroupBase,
+                 input_group: ElementGroupBase,
                  output_group: InterpolatoryElementGroupBase,
                  metric_terms: DOFArray,
                  area_element: DOFArray,
@@ -177,6 +178,21 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
         super().__init__(actx, input_group, output_group, area_element,
                          metric_terms, test_derivative=test_derivative)
+
+        # default quadrature not good enough, choose 2N + 1
+        if self.input_group == self.output_group:
+            self._quadrature_rule = mp.quadrature_for_space(
+                mp.space_for_shape(self.output_group.shape,
+                                   2*self.output_group.order + 1),
+                self.output_group.shape)
+
+            # used to map interp -> quad nodes since we dont have a quad discr
+            self._resampler = self.actx.freeze(
+                self.actx.from_numpy(
+                    mp.resampling_matrix(
+                        self.output_group.basis_obj().functions,
+                        self._quadrature_rule.nodes,
+                        self.output_group.unit_nodes)))
 
         self._build_discrete_reference_operator()
 
@@ -188,8 +204,12 @@ class _NonTensorProductBilinearForm(_BilinearForm):
         test_basis = self.output_group.basis_obj()
         out_nodes = self.output_group.unit_nodes
 
-        in_nodes = self.input_group.quadrature_rule().nodes
-        weights = self.input_group.quadrature_rule().weights
+        if not self.input_group == self.output_group:
+            in_nodes = self.input_group.quadrature_rule().nodes
+            weights = self.input_group.quadrature_rule().weights
+        else:
+            in_nodes = self._quadrature_rule.nodes
+            weights = self._quadrature_rule.weights
 
         # }}}
 
@@ -241,6 +261,14 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                              "need to be supplied.")
 
         vec = vec * self.area_element * self.metric_terms[self.test_derivative]
+
+        if self.input_group == self.output_group:
+            vec = self.actx.einsum(
+                "ij,rej->rei",
+                self._resampler,
+                vec,
+                arg_names=("resampler", "vec_with_metrics"))
+
         return self.actx.einsum(
             "rij,rej->ei",
             self.operator,
@@ -249,32 +277,41 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                        "vec_with_metrics"),
             tagged=(FirstAxisIsElementsTag(),))
 
-    def _apply_mass_operator(self, vec: DOFArray) -> DOFArray:
+    def _apply_mass_operator(self, vec: DOFArray,
+                             exclude_metric: bool = False) -> DOFArray:
         """
         Apply the element-local mass operator.
         """
-        if self.metric_terms is None or self.area_element is None:
+        if self.area_element is None and not exclude_metric:
             raise ValueError("Metric terms and area scaling multipliers "
                              "need to be supplied.")
 
-        vec = vec * self.area_element
+        if not exclude_metric:
+            vec = vec * self.area_element
+
+        if self.input_group == self.output_group:
+            vec = self.actx.einsum(
+                "ij,ej->ei",
+                self._resampler,
+                vec,
+                arg_names=("resampler", "vec"))
+
         return self.actx.einsum(
             "ij,ej->ei",
             self.operator,
             vec,
-            arg_names=("mass_operator", "area_element", "vec"),
+            arg_names=("mass_operator", "vec"),
             tagged=(FirstAxisIsElementsTag(),))
 
-    def __call__(self, vec: DOFArray) -> DOFArray:
+    def __call__(self, vec: DOFArray, exclude_metric: bool = False) -> DOFArray:
         """
         Implements operator application as a matvec. Pointwise multiplication by
         area scaling and metric terms happens before operator application.
         """
-
         if self.test_derivative is not None:
             return self._compute_partial_derivative(vec)
         else:
-            return self._apply_mass_operator(vec)
+            return self._apply_mass_operator(vec, exclude_metric)
 
 
 # }}}
@@ -316,6 +353,27 @@ class _TensorProductBilinearForm(_BilinearForm):
         super().__init__(actx, input_group, output_group, area_element,
                          metric_terms, test_derivative=test_derivative)
 
+        # default quadrature not good enough, choose 2N + 1
+        if self.input_group == self.output_group:
+            self._quadrature_rule = mp.quadrature_for_space(
+                mp.space_for_shape(self.output_group.shape,
+                                   5*self.output_group.order + 1),
+                self.output_group.shape)
+
+            # used to map interp -> quad nodes since we dont have a quad discr
+            if self.input_group.dim == 1:
+                new_nodes = self._quadrature_rule.nodes
+            else:
+                new_nodes = self._quadrature_rule.quadratures[0].nodes
+
+            old_nodes = self.output_group.unit_nodes_1d
+
+            self._resampler = self.actx.freeze(
+                self.actx.from_numpy(
+                    mp.resampling_matrix(
+                        self.output_group.basis_obj().bases[0].functions,
+                        new_nodes, old_nodes)))
+
         self._build_discrete_reference_operator()
 
     # {{{ operator construction
@@ -328,12 +386,17 @@ class _TensorProductBilinearForm(_BilinearForm):
 
         test_basis_1d = self.output_group.basis_obj().bases[0]
 
-        out_nodes_1d = self.output_group.unit_nodes[0][:self.output_group.order+1]
+        out_nodes_1d = self.output_group.unit_nodes_1d
         out_nodes_1d = out_nodes_1d.reshape(1, -1)
 
-        # NOTE: we assume that the same 1D quadrature rule is used for all
-        # components of the tensor-product
-        quad_rule_1d = self.input_group.quadrature_rule().quadratures[0]
+        if self.input_group == self.output_group:
+            if self.input_group.dim != 1:
+                quad_rule_1d = self._quadrature_rule.quadratures[0]
+            else:
+                quad_rule_1d = self._quadrature_rule
+        else:
+            quad_rule_1d = self.input_group.quadrature_rule().quadratures[0]
+
         in_nodes_1d = quad_rule_1d.nodes.reshape(1, -1)
         weights_1d = quad_rule_1d.weights
 
@@ -389,45 +452,8 @@ class _TensorProductBilinearForm(_BilinearForm):
 
     # {{{ application routines and helpers
 
-    def _single_axis_contraction(self,
-                                 dim: int,
-                                 axis: int,
-                                 data: DOFArray,
-                                 operator: Array,
-                                 tagged=None, arg_names=None):
-        """
-        Generic routine to apply a 1D operator to a particular axis of *data*.
-
-        The einsum specification is constructed based on the dimension of the
-        problem and can support up to 1 reduction axis and 22 non-reduction
-        (DOF) axes. The element axis is not counted since it is reserved.
-        """
-
-        data = tag_axes(
-            self.actx,
-            {
-                i: (DiscretizationElementAxisTag() if i == 0 else
-                    TensorProductDOFAxisTag(i-1))
-                for i in range(dim+1)
-            },
-            data)
-
-        operator_spec = "ij"
-        data_spec = f"e{"abcdfghklmn"[:axis]}j{"opqrstuvwxy"[:dim-axis-1]}"
-        out_spec = f"e{"abcdfghklmn"[:axis]}i{"opqrstuvwxy"[:dim-axis-1]}"
-        spec = operator_spec + "," + data_spec + "->" + out_spec
-
-        return tag_axes(
-            self.actx,
-            {
-                i: (DiscretizationElementAxisTag() if i == 0 else
-                    TensorProductDOFAxisTag(i-1))
-                for i in range(dim+1)
-            },
-            self.actx.einsum(spec, operator, data, arg_names=arg_names,
-                        tagged=tagged))
-
-    def _apply_mass_operator(self, vec: DOFArray, exclude_axis=None) -> DOFArray:
+    def _apply_mass_operator(self, vec: DOFArray,
+                             exclude_axis: int | None = None) -> DOFArray:
         """
         Apply a mass operator to all axes other than *exclude_axis*.
 
@@ -436,9 +462,16 @@ class _TensorProductBilinearForm(_BilinearForm):
         """
         apply_mass_axes = set(np.arange(self.input_group.dim)) - {exclude_axis}
         for ax in apply_mass_axes:
-            vec = self._single_axis_contraction(
-                self.input_group.dim, ax, vec, self.mass_operator,
-                arg_names=("mass_1d", "vec"))
+
+            if self.input_group == self.output_group:
+                vec = single_axis_contraction(
+                    self.actx, self.input_group.dim, ax,
+                    self._resampler, vec,
+                    arg_names=("resampler_1d", "vec"))
+
+            vec = single_axis_contraction(self.actx, self.input_group.dim, ax,
+                                           self.mass_operator, vec,
+                                           arg_names=("mass_1d", "vec"))
 
         return vec
 
@@ -465,16 +498,21 @@ class _TensorProductBilinearForm(_BilinearForm):
             reference_partial = vec[rst_axis]
             reference_partial = self._apply_mass_operator(reference_partial,
                                                           exclude_axis=rst_axis)
-            reference_partial = self._single_axis_contraction(
-                self.input_group.dim, rst_axis, reference_partial,
-                self.stiffness_operator,
-                arg_names=("stiffness_1d", f"ref_partial_{rst_axis}"))
 
-            partial_derivative += reference_partial
+            if self.input_group == self.output_group:
+                reference_partial = single_axis_contraction(
+                    self.actx, self.input_group.dim, rst_axis,
+                    self._resampler, reference_partial,
+                    arg_names=("resampler_1d", f"ref_partial_{rst_axis}"))
+
+            partial_derivative += single_axis_contraction(
+                self.actx, self.input_group.dim, rst_axis,
+                self.stiffness_operator, reference_partial,
+                arg_names=("stiffness_1d", f"ref_partial_{rst_axis}"))
 
         return partial_derivative
 
-    def __call__(self, vec):
+    def __call__(self, vec: DOFArray, exclude_metric: bool = False) -> DOFArray:
         """
         Applies the action of the requested operator to *vec* via tensor
         contractions with a 1D operator.
@@ -484,8 +522,9 @@ class _TensorProductBilinearForm(_BilinearForm):
         """
 
         # apply area scaling regardless of whether there are derivatives
-        assert self.area_element is not None
-        vec = vec * self.area_element
+        if not exclude_metric:
+            assert self.area_element is not None
+            vec = vec * self.area_element
 
         # reveal tensor product structure
         if self.input_group.dim != 1:
@@ -506,6 +545,45 @@ class _TensorProductBilinearForm(_BilinearForm):
         return vec
 
     # }}}
+
+
+def single_axis_contraction(actx: ArrayContext,
+                            dim: int,
+                            axis: int,
+                            operator: Array,
+                            data: DOFArray,
+                            tagged=None, arg_names=None):
+    """
+    Generic routine to apply a 1D operator to a particular axis of *data*.
+
+    The einsum specification is constructed based on the dimension of the
+    problem and can support up to 1 reduction axis and 22 non-reduction
+    (DOF) axes. The element axis is not counted since it is reserved.
+    """
+
+    data = tag_axes(
+        actx,
+        {
+            i: (DiscretizationElementAxisTag() if i == 0 else
+                TensorProductDOFAxisTag(i-1))
+            for i in range(dim+1)
+        },
+        data)
+
+    operator_spec = "ij"
+    data_spec = f"e{"abcdfghklmn"[:axis]}j{"opqrstuvwxy"[:dim-axis-1]}"
+    out_spec = f"e{"abcdfghklmn"[:axis]}i{"opqrstuvwxy"[:dim-axis-1]}"
+    spec = operator_spec + "," + data_spec + "->" + out_spec
+
+    return tag_axes(
+        actx,
+        {
+            i: (DiscretizationElementAxisTag() if i == 0 else
+                TensorProductDOFAxisTag(i-1))
+            for i in range(dim+1)
+        },
+        actx.einsum(spec, operator, data, arg_names=arg_names,
+                    tagged=tagged))
 
 # }}}
 

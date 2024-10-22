@@ -36,7 +36,6 @@ from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
-    TensorProductElementGroupBase,
 )
 from meshmode.dof_array import flat_norm
 from meshmode.mesh import TensorProductElementGroup
@@ -241,6 +240,7 @@ def test_mass_operator_inverse(actx_factory, name):
     # {{{ cases
 
     order = 4
+    overintegrate = False
 
     if name == "2-1-ellipse":
         # curve
@@ -250,6 +250,7 @@ def test_mass_operator_inverse(actx_factory, name):
         builder = mesh_data.SpheroidMeshBuilder()
     elif name.startswith("warped_rect"):
         builder = mesh_data.WarpedRectMeshBuilder(dim=int(name[-1]))
+        overintegrate = True
     elif name == "gh-339-1":
         builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
         order = 1
@@ -265,12 +266,6 @@ def test_mass_operator_inverse(actx_factory, name):
         builder = mesh_data.GmshMeshBuilder3D("gh-339.msh")
     else:
         raise ValueError(f"unknown geometry name: {name}")
-
-    # NOTE: we are always using quadrature now so we're always "overintegrating"
-    overintegrate = True
-
-    # based on empirical WADG data
-    quadrature_order = 2*order + 1
 
     # }}}
 
@@ -298,7 +293,7 @@ def test_mass_operator_inverse(actx_factory, name):
                            dof_desc.DISCR_TAG_BASE: (
                                InterpolatoryEdgeClusteredGroupFactory(order)),
                            dof_desc.DISCR_TAG_QUAD: (
-                               QuadratureGroupFactory(quadrature_order))
+                               QuadratureGroupFactory(2*order + 1))
                        })
         volume_discr = dcoll.discr_from_dd(dof_desc.DD_VOLUME_ALL)
 
@@ -338,7 +333,7 @@ def test_mass_operator_inverse(actx_factory, name):
             inv_error_fast = f_inv(use_tensor_product_fast_eval=True)
             inv_error_slow = f_inv(use_tensor_product_fast_eval=False)
 
-            assert np.allclose(inv_error_fast, inv_error_slow)
+            assert np.abs(inv_error_fast - inv_error_slow) < 1e-14
             inv_error = inv_error_fast
         else:
             inv_error = f_inv()
@@ -354,8 +349,9 @@ def test_mass_operator_inverse(actx_factory, name):
 
     # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
     # safe side, choose a slightly larger tolerance
+    print("L^inf error:")
     print(eoc)
-    assert eoc.max_error() < 1.0e-14 or eoc.order_estimate() >= order - 0.5
+    assert eoc.max_error() <= 1.0e-14 or eoc.order_estimate() >= order - 0.5
 
     # }}}
 
