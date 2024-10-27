@@ -41,8 +41,8 @@ from grudge.discretization import make_discretization_collection
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestNumpyArrayContextFactory,
-         PytestPytatoPyOpenCLArrayContextFactory])
+        [PytestPytatoPyOpenCLArrayContextFactory,
+         PytestNumpyArrayContextFactory])
 
 
 # {{{ inverse metric

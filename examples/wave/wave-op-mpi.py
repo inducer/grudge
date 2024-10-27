@@ -175,19 +175,24 @@ def bump(actx, dcoll, t=0):
 
 
 def main(ctx_factory, dim=2, order=3,
-         visualize=False, lazy=False, use_quad=False, use_nonaffine_mesh=False,
-         no_diagnostics=False):
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-
+         visualize=False, lazy=False, numpy=False, use_quad=False,
+         use_nonaffine_mesh=False, no_diagnostics=False):
     comm = MPI.COMM_WORLD
     num_parts = comm.size
 
     from grudge.array_context import get_reasonable_array_context_class
-    actx_class = get_reasonable_array_context_class(lazy=lazy, distributed=True)
-    if lazy:
+    actx_class = get_reasonable_array_context_class(lazy=lazy,
+                                                    distributed=True, numpy=numpy)
+
+    if numpy:
+        actx = actx_class(comm)
+    elif lazy:
+        cl_ctx = ctx_factory()
+        queue = cl.CommandQueue(cl_ctx)
         actx = actx_class(comm, queue, mpi_base_tag=15000)
     else:
+        cl_ctx = ctx_factory()
+        queue = cl.CommandQueue(cl_ctx)
         actx = actx_class(comm, queue,
                 allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
                 force_device_scalars=True)
@@ -323,6 +328,8 @@ if __name__ == "__main__":
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--lazy", action="store_true",
                         help="switch to a lazy computation mode")
+    parser.add_argument("--numpy", action="store_true",
+                        help="switch to numpy-based array context")
     parser.add_argument("--quad", action="store_true")
     parser.add_argument("--nonaffine", action="store_true")
     parser.add_argument("--no-diagnostics", action="store_true")
@@ -335,6 +342,7 @@ if __name__ == "__main__":
          order=args.order,
          visualize=args.visualize,
          lazy=args.lazy,
+         numpy=args.numpy,
          use_quad=args.quad,
          use_nonaffine_mesh=args.nonaffine,
          no_diagnostics=args.no_diagnostics)

@@ -27,14 +27,14 @@ import numpy as np
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import (
-    # PytestNumpyArrayContextFactory,
+    PytestNumpyArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
 
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [#PytestNumpyArrayContextFactory,
-         PytestPytatoPyOpenCLArrayContextFactory])
+        [PytestPytatoPyOpenCLArrayContextFactory,
+         PytestNumpyArrayContextFactory])
 
 import logging
 
