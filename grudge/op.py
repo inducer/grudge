@@ -219,7 +219,6 @@ def _single_axis_derivative_kernel(
             arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
             tagged=(FirstAxisIsElementsTag(),))
 
-
     def compute_tensor_product_derivative(actx, out_grp, in_grp, vec, ijm):
         vec = vec * ijm[xyz_axis]
 
@@ -231,19 +230,18 @@ def _single_axis_derivative_kernel(
 
         return partial
 
-
     group_data = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
         out_discr.groups, in_discr.groups, vec, inv_jac_mat):
 
         if isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
-            group_data.append(compute_simplicial_derivative(
+            group_data.append(compute_tensor_product_derivative(
                 actx, out_grp, in_grp, vec_i, ijm_i))
 
         elif isinstance(in_grp, SimplexElementGroupBase):
             assert isinstance(out_grp, SimplexElementGroupBase)
-            group_data.append(compute_tensor_product_derivative(
+            group_data.append(compute_simplicial_derivative(
                 actx, out_grp, in_grp, vec_i, ijm_i))
 
         else:
@@ -255,26 +253,23 @@ def _single_axis_derivative_kernel(
     return DOFArray(actx, data=tuple(group_data))
 
 
-def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
-        *, metric_in_matvec):
+def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
 
-    def compute_simplicial_gradient(actx, out_grp, in_grp, vec, ijm,
-                                    metric_in_matvec):
+    def compute_simplicial_gradient(actx, out_grp, in_grp, vec, ijm):
         return actx.einsum(
-            "xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
-                ijm,
-                get_diff_mat(
-                    actx,
-                    out_element_group=out_grp,
-                    in_element_group=in_grp),
-                vec,
-                arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
+            "xrei,rij,ej->xei",
+            ijm,
+            get_diff_mat(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp),
+            vec,
+            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
 
-    def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm,
-                                        metric_in_matvec):
+    def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm):
         vec = actx.einsum(
             "xrej,ej->xrej", ijm, vec,
             tagged=(FirstAxisIsElementsTag(),),
@@ -320,12 +315,12 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             assert isinstance(out_grp, SimplexElementGroupBase)
             per_group_grads.append(
                 compute_simplicial_gradient(
-                    actx, out_grp, in_grp, vec_i, ijm_i,metric_in_matvec))
+                    actx, out_grp, in_grp, vec_i, ijm_i))
         elif isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
             per_group_grads.append(
                 compute_tensor_product_gradient(
-                    actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+                    actx, out_grp, in_grp, vec_i, ijm_i))
         else:
             raise TypeError(
                 "`in_grp` and `out_grp` must both be either "
@@ -339,15 +334,14 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
             for xyz_axis in range(out_discr.ambient_dim)])
 
 
-def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
-        *, metric_in_matvec):
+def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat,
+                       vec):
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
 
-    def compute_simplicial_divergence(actx, out_grp, in_grp, vec, ijm,
-                                      metric_in_matvec):
+    def compute_simplicial_divergence(actx, out_grp, in_grp, vec, ijm):
         return actx.einsum(
-            "xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
+            "xrei,rij,xej->ei",
             ijm,
             get_diff_mat(
                 actx,
@@ -358,8 +352,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
             arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
             tagged=(FirstAxisIsElementsTag(),))
 
-    def compute_tensor_product_divergence(actx, out_grp, in_grp, vec, ijm,
-                                          metric_in_matvec):
+    def compute_tensor_product_divergence(actx, out_grp, in_grp, vec, ijm):
         if in_grp.dim != 1:
             vec = fold(in_grp.space, vec)
 
@@ -389,12 +382,12 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
         if isinstance(in_grp, SimplexElementGroupBase):
             assert isinstance(out_grp, SimplexElementGroupBase)
             per_group_divs.append(compute_simplicial_divergence(
-                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+                actx, out_grp, in_grp, vec_i, ijm_i))
 
         elif isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
             per_group_divs.append(compute_tensor_product_divergence(
-                actx, out_grp, in_grp, vec_i, ijm_i, metric_in_matvec))
+                actx, out_grp, in_grp, vec_i, ijm_i))
 
         else:
             raise TypeError(
@@ -461,8 +454,7 @@ def _strong_scalar_grad(dcoll, dd_in, vec):
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     return _gradient_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
-            metric_in_matvec=False)
+            _reference_derivative_matrices, inverse_jac_mat, vec)
 
 
 def _strong_scalar_div(dcoll, dd, vecs):
@@ -482,8 +474,7 @@ def _strong_scalar_div(dcoll, dd, vecs):
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _divergence_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
-            metric_in_matvec=False)
+            _reference_derivative_matrices, inverse_jac_mat, vec)
 
 
 def local_grad(
@@ -563,8 +554,7 @@ def local_d_dx(
 
     return _single_axis_derivative_kernel(
         actx, discr, discr,
-        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec,
-        metric_in_matvec=False)
+        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec)
 
 
 def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:

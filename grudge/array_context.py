@@ -198,6 +198,9 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
 
+    def transform_loopy_program(self, t_unit):
+        return t_unit
+
 # }}}
 
 

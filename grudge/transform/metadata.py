@@ -41,7 +41,8 @@ class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
     iaxis: int
 
 
-class TensorProductOperatorAxisTag(AxisIgnoredForPropagationTag):
+class TensorProductOperatorAxisTag(DiscretizationDOFAxisTag,
+                                   AxisIgnoredForPropagationTag):
     """
     Signify an axis is part of a 1D operator applied to a tensor product
     discretization. No tags will be propagated to or along axes containing this

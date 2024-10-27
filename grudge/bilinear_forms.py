@@ -62,8 +62,7 @@ from meshmode.discretization.poly_element import (
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
-    DiscretizationElementAxisTag,
-    FirstAxisIsElementsTag,
+    DiscretizationElementAxisTag
 )
 
 import modepy as mp
@@ -72,7 +71,6 @@ from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold
 )
-from modepy.quadrature import Quadrature, quadrature_for_space
 
 import numpy as np
 import numpy.linalg as la
@@ -230,18 +228,18 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
-                    1,
+                    0,
                     DiscretizationDOFAxisTag(),
                     self.actx.from_numpy(stiffness_operator.copy())))
 
         # construct mass operator
         else:
             vdm_in = mp.vandermonde(test_basis.functions, in_nodes)
-            mass_operator = np.einsum(
+            mass_operator = np.asarray(np.einsum(
                 "ik,jk,j->ij",
                 la.inv(vdm_out).T,
                 vdm_in,
-                weights)
+                weights), order="C")
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
@@ -274,8 +272,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
             self.operator,
             vec,
             arg_names=(f"stiffness_T_{self.test_derivative}",
-                       "vec_with_metrics"),
-            tagged=(FirstAxisIsElementsTag(),))
+                       "vec_with_metrics"))
 
     def _apply_mass_operator(self, vec: DOFArray,
                              exclude_metric: bool = False) -> DOFArray:
@@ -300,8 +297,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
             "ij,ej->ei",
             self.operator,
             vec,
-            arg_names=("mass_operator", "vec"),
-            tagged=(FirstAxisIsElementsTag(),))
+            arg_names=("mass_operator", "vec"))
 
     def __call__(self, vec: DOFArray, exclude_metric: bool = False) -> DOFArray:
         """

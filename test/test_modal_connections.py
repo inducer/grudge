@@ -23,12 +23,12 @@ THE SOFTWARE.
 
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestNumpyArrayContextFactory
 from grudge.discretization import make_discretization_collection
 
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestNumpyArrayContextFactory])
 
 import pytest
 

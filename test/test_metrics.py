@@ -33,7 +33,7 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
-    PytestPyOpenCLArrayContextFactory,
+    PytestNumpyArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
 from grudge.discretization import make_discretization_collection
@@ -41,7 +41,7 @@ from grudge.discretization import make_discretization_collection
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory,
+        [PytestNumpyArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory])
 
 
