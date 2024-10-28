@@ -46,14 +46,14 @@ from typing import (
 )
 from warnings import warn
 
-from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
-
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
 from pytools import to_identifier
 from pytools.tag import Tag
+
+from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
 
 
 logger = logging.getLogger(__name__)

@@ -25,29 +25,21 @@ THE SOFTWARE.
 
 import logging
 
-from meshmode.discretization.poly_element import (
-    InterpolatoryEdgeClusteredGroupFactory,
-    QuadratureGroupFactory
-)
 import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 from arraycontext import ArrayContext, NumpyArrayContext
-from meshmode.mesh import (
-        BTAG_ALL,
-        SimplexElementGroup,
-        TensorProductElementGroup
+from meshmode.discretization.poly_element import (
+    InterpolatoryEdgeClusteredGroupFactory,
+    QuadratureGroupFactory,
 )
+from meshmode.mesh import BTAG_ALL, SimplexElementGroup, TensorProductElementGroup
 from pytools.obj_array import make_obj_array
 
 import grudge.op as op
 from grudge.array_context import PytatoPyOpenCLArrayContext
-from grudge.models.euler import (
-    ConservedEulerField,
-    EulerOperator,
-    InviscidWallBC
-)
+from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
 from grudge.shortcuts import rk4_step
 
 

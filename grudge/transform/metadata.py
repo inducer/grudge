@@ -18,9 +18,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from pytools.tag import Tag, tag_dataclass
 from pytato.transform.metadata import AxisIgnoredForPropagationTag
+
 from meshmode.transform_metadata import DiscretizationDOFAxisTag
+from pytools.tag import Tag, tag_dataclass
 
 
 class OutputIsTensorProductDOFArrayOrdered(Tag):

@@ -43,6 +43,7 @@ these symbols correctly.)
 
 from __future__ import annotations
 
+
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -75,28 +76,17 @@ from functools import partial
 import numpy as np
 
 import modepy as mp
-from modepy import inverse_mass_matrix
-from modepy.tools import (
-    reshape_array_for_tensor_product_space as fold,
-    unreshape_array_for_tensor_product_space as unfold
-)
-
-from arraycontext import (
-    ArrayContext,
-    ArrayOrContainer,
-    map_array_container,
-    tag_axes
-)
-from meshmode.dof_array import DOFArray
+from arraycontext import ArrayContext, ArrayOrContainer, map_array_container, tag_axes
 from meshmode.discretization import (
     Discretization,
     InterpolatoryElementGroupBase,
-    NodalElementGroupBase
+    NodalElementGroupBase,
 )
 from meshmode.discretization.poly_element import (
+    SimplexElementGroupBase,
     TensorProductElementGroupBase,
-    SimplexElementGroupBase
 )
+from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
     DiscretizationDOFAxisTag,
@@ -104,16 +94,21 @@ from meshmode.transform_metadata import (
     DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
+from modepy import inverse_mass_matrix
+from modepy.tools import (
+    reshape_array_for_tensor_product_space as fold,
+    unreshape_array_for_tensor_product_space as unfold,
+)
 from pytools import keyed_memoize_in
 from pytools.obj_array import make_obj_array
 
+import grudge.dof_desc as dof_desc
 from grudge.bilinear_forms import (
+    _NonTensorProductBilinearForm,
+    _TensorProductBilinearForm,
     apply_bilinear_form,
     single_axis_contraction,
-    _TensorProductBilinearForm,
-    _NonTensorProductBilinearForm
 )
-import grudge.dof_desc as dof_desc
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
@@ -124,7 +119,7 @@ from grudge.dof_desc import (
     VolumeDomainTag,
     as_dofdesc,
 )
-from grudge.geometry import inverse_surface_metric_derivative_mat, area_element
+from grudge.geometry import area_element, inverse_surface_metric_derivative_mat
 from grudge.interpolation import interp
 from grudge.projection import project
 from grudge.reductions import (
@@ -154,9 +149,9 @@ from grudge.trace_pair import (
 )
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
-    ReferenceTensorProductMassOperatorTag as MassMatrix1D,
     ReferenceTensorProductMassInverseOperatorTag as InverseMassMatrix1D,
-    TensorProductOperatorAxisTag
+    ReferenceTensorProductMassOperatorTag as MassMatrix1D,
+    TensorProductOperatorAxisTag,
 )
 
 
@@ -373,8 +368,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat,
 
                 div += ref_deriv * ijm[func_axis, rst_axis]
 
-        return tag_axes(actx, { 0: DiscretizationElementAxisTag() }, div)
-
+        return tag_axes(actx, {0: DiscretizationElementAxisTag()}, div)
 
     per_group_divs = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
@@ -427,7 +421,7 @@ def _reference_derivative_matrices(actx: ArrayContext,
             return actx.freeze(
                 tag_axes(
                     actx,
-                    { i: TensorProductOperatorAxisTag() for i in range(2) },
+                    {i: TensorProductOperatorAxisTag() for i in range(2)},
                     actx.from_numpy(diff_mat)))
 
         return actx.freeze(
@@ -663,10 +657,8 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
 
 def _weak_scalar_div(dcoll, dd_in, vecs, *args,
                      use_tensor_product_fast_eval=True):
-    from arraycontext import (
-        get_container_context_recursively,
-        serialize_container
-    )
+    from arraycontext import get_container_context_recursively, serialize_container
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     assert isinstance(vecs, np.ndarray)
@@ -862,7 +854,7 @@ def weak_local_div(dcoll: DiscretizationCollection, *args,
 # {{{ Mass operator
 
 def mass(dcoll: DiscretizationCollection, *args,
-         use_tensor_product_fast_eval = True) -> ArrayOrContainer:
+         use_tensor_product_fast_eval=True) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an :class:`~arraycontext.ArrayContainer`,
@@ -923,7 +915,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group,
                     InverseMassMatrix1D(),
                     tag_axes(
                     actx,
-                    { i : TensorProductOperatorAxisTag() for i in range(2) },
+                    {i: TensorProductOperatorAxisTag() for i in range(2)},
                     actx.from_numpy(
                         inverse_mass_matrix(basis_1d, nodes_1d)))))
 
@@ -1120,8 +1112,7 @@ def reference_face_mass_matrix(
 
         import modepy as mp
         from meshmode.discretization import ElementGroupWithBasis
-        from meshmode.discretization.poly_element import \
-            QuadratureSimplexElementGroup
+        from meshmode.discretization.poly_element import QuadratureSimplexElementGroup
 
         n = vol_grp.order
         m = face_grp.order
@@ -1307,8 +1298,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                     MassMatrix1D(),
                     tag_axes(
                         actx,
-                        { i : TensorProductOperatorAxisTag()
-                            for i in range(2) },
+                        {i: TensorProductOperatorAxisTag()
+                            for i in range(2)},
                         actx.from_numpy(mp.mass_matrix(basis_1d, nodes_1d))))
 
             else:
@@ -1332,8 +1323,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                     MassMatrix1D(),
                     tag_axes(
                         actx,
-                        { i : TensorProductOperatorAxisTag()
-                            for i in range(2) },
+                        {i: TensorProductOperatorAxisTag()
+                            for i in range(2)},
                         actx.from_numpy(mass_matrix))))
 
         elif isinstance(out_grp, SimplexElementGroupBase):
@@ -1353,6 +1344,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                             order="C"))))
 
     return get_ref_mass_mat(out_element_group, in_element_group)
+
 
 def _apply_mass_operator(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec):

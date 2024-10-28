@@ -32,11 +32,7 @@ from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
-from meshmode.mesh import (
-    SimplexElementGroup,
-    TensorProductElementGroup,
-    BTAG_ALL
-)
+from meshmode.mesh import BTAG_ALL, SimplexElementGroup, TensorProductElementGroup
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op

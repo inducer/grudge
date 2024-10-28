@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 __copyright__ = """
 Copyright (C) 2024 Addison Alvey-Blanco
 Copyright (C) 2024 University of Illinois Board of Trustees
@@ -26,56 +27,45 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import Array, ArrayContext, ArrayOrContainer, tag_axes
-
 from collections.abc import Callable
-
 from dataclasses import dataclass
-
-from grudge.discretization import DiscretizationCollection
-from grudge.dof_desc import (
-    DISCR_TAG_BASE,
-    DD_VOLUME_ALL,
-    DOFDesc
-)
-from grudge.geometry import (
-    area_element,
-    inverse_surface_metric_derivative_mat
-)
-from grudge.tools import rec_map_subarrays
-from grudge.transform.metadata import (
-    ReferenceTensorProductMassOperatorTag,
-    TensorProductDOFAxisTag,
-    TensorProductOperatorAxisTag
-)
-
-from meshmode.discretization import (
-    ElementGroupBase,
-    InterpolatoryElementGroupBase,
-    NodalElementGroupBase
-)
-from meshmode.discretization.poly_element import (
-    PolynomialSimplexElementGroupBase,
-    SimplexElementGroupBase,
-    TensorProductElementGroupBase
-)
-from meshmode.dof_array import DOFArray
-from meshmode.transform_metadata import (
-    DiscretizationDOFAxisTag,
-    DiscretizationElementAxisTag
-)
-
-import modepy as mp
-from modepy.spaces import TensorProductSpace
-from modepy.tools import (
-    reshape_array_for_tensor_product_space as fold,
-    unreshape_array_for_tensor_product_space as unfold
-)
+from typing import Optional
 
 import numpy as np
 import numpy.linalg as la
 
-from typing import Optional
+import modepy as mp
+from arraycontext import Array, ArrayContext, ArrayOrContainer, tag_axes
+from meshmode.discretization import (
+    ElementGroupBase,
+    InterpolatoryElementGroupBase,
+    NodalElementGroupBase,
+)
+from meshmode.discretization.poly_element import (
+    PolynomialSimplexElementGroupBase,
+    SimplexElementGroupBase,
+    TensorProductElementGroupBase,
+)
+from meshmode.dof_array import DOFArray
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
+)
+from modepy.spaces import TensorProductSpace
+from modepy.tools import (
+    reshape_array_for_tensor_product_space as fold,
+    unreshape_array_for_tensor_product_space as unfold,
+)
+
+from grudge.discretization import DiscretizationCollection
+from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, DOFDesc
+from grudge.geometry import area_element, inverse_surface_metric_derivative_mat
+from grudge.tools import rec_map_subarrays
+from grudge.transform.metadata import (
+    ReferenceTensorProductMassOperatorTag,
+    TensorProductDOFAxisTag,
+    TensorProductOperatorAxisTag,
+)
 
 
 # {{{ BilinearForm base class
