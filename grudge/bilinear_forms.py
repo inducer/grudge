@@ -218,7 +218,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
-                    0,
+                    1,
                     DiscretizationDOFAxisTag(),
                     self.actx.from_numpy(stiffness_operator.copy())))
 
