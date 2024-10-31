@@ -684,7 +684,7 @@ def apply_bilinear_form(
     discretization. Otherwise, a default quadrature rule will be used (as
     determined by :func:`~modepy.quadrature_for_space`. If a quadrature rule
     other than the default is to be used, then *dd_in* must be specified as the
-    quadrature :class:`grudge.dof_desc.DOFDesc`.
+    quadrature :class:`~grudge.dof_desc.DOFDesc`.
 
     This is a top-level routine that dispatches to routines that are specific to
     an element type. Since bilinear forms arising from a tensor-product
