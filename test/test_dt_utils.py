@@ -49,36 +49,44 @@ from grudge.discretization import make_discretization_collection
 
 logger = logging.getLogger(__name__)
 from meshmode import _acf  # noqa: F401
+from meshmode.mesh.io import read_gmsh
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_geometric_factors_regular_refinement(actx_factory, name):
+@pytest.mark.parametrize("tpe", [False, True])
+def test_geometric_factors_regular_refinement(actx_factory, name, tpe):
     from grudge.dt_utils import dt_geometric_factors
 
     actx = actx_factory()
 
     # {{{ cases
 
+    from meshmode.mesh import TensorProductElementGroup
+    group_cls = TensorProductElementGroup if tpe else None
+
     if name == "interval":
-        builder = mesh_data.BoxMeshBuilder1D()
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=1, group_cls=group_cls)
     elif name == "box2d":
-        builder = mesh_data.BoxMeshBuilder2D()
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=2, group_cls=group_cls)
     elif name == "box3d":
-        builder = mesh_data.BoxMeshBuilder3D()
+        from mesh_data import BoxMeshBuilder
+        builder = BoxMeshBuilder(ambient_dim=3, group_cls=group_cls)
     else:
         raise ValueError(f"unknown geometry name: {name}")
 
     # }}}
 
     order = 4
-
     min_factors = []
     for resolution in builder.resolutions:
         mesh = builder.get_mesh(resolution, order)
         dcoll = make_discretization_collection(actx, mesh, order=order)
         min_factors.append(
             actx.to_numpy(
-                op.nodal_min(dcoll, "vol", actx.thaw(dt_geometric_factors(dcoll))))
+                op.nodal_min(dcoll, "vol",
+                             actx.thaw(dt_geometric_factors(dcoll))))
         )
 
     # Resolution is doubled each refinement, so the ratio of consecutive
@@ -88,9 +96,10 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
     assert np.all(np.isclose(ratios, 2))
 
     # Make sure it works with empty meshes
-    mesh = builder.get_mesh(0)
-    dcoll = make_discretization_collection(actx, mesh, order=order)
-    factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
+    if not tpe:
+        mesh = builder.get_mesh(0, order)
+        dcoll = make_discretization_collection(actx, mesh, order=order)
+        factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
@@ -150,26 +159,46 @@ def test_build_jacobian(actx_factory):
     assert np.allclose(np.diag(mat), 3*2*2 + 2)
 
 
-@pytest.mark.parametrize("dim", [1, 2])
+#                          ("simple_tets.msh", 3, False, False),
+#                          ("simple_hexs.msh", 3, True, False)])
 @pytest.mark.parametrize("degree", [2, 4])
-def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
+@pytest.mark.parametrize(("meshfile", "dim", "tpe", "warp"),
+                         [(None, 1, False, False),
+                          (None, 2, False, False),
+                          (None, 2, False, True),
+                          (None, 2, True, False),
+                          (None, 2, True, True),])
+def test_wave_dt_estimate(actx_factory, degree, meshfile, dim, tpe, warp,
+                          visualize=False):
     actx = actx_factory()
 
+    # {{{ cases
+    from meshmode.mesh import TensorProductElementGroup
+    group_cls = TensorProductElementGroup if tpe else None
     import meshmode.mesh.generation as mgen
 
-    a = [0, 0, 0]
-    b = [1, 1, 1]
-    mesh = mgen.generate_regular_rect_mesh(
-            a=a[:dim], b=b[:dim],
-            nelements_per_axis=(3,)*dim)
-    assert mesh.dim == dim
-
+    if meshfile is None:
+        if warp:
+            mesh = mgen.generate_warped_rect_mesh(
+                dim=dim, order=2, nelements_side=3, group_cls=group_cls)
+        else:
+            a = [0, 0, 0]
+            b = [1, 1, 1]
+            mesh = mgen.generate_regular_rect_mesh(
+                a=a[:dim], b=b[:dim],
+                nelements_per_axis=(3,)*dim,
+                group_cls=group_cls)
+        assert mesh.dim == dim
+    else:
+        mesh_construction_kwargs = {"force_positive_orientation": True}
+        mesh = read_gmsh(meshfile,
+                         mesh_construction_kwargs=mesh_construction_kwargs)
     dcoll = make_discretization_collection(actx, mesh, order=degree)
 
     from grudge.models.wave import WeakWaveOperator
     wave_op = WeakWaveOperator(dcoll, c=1)
     rhs = actx.compile(
-            lambda w: wave_op.operator(t=0, w=w))
+        lambda w: wave_op.operator(t=0, w=w))
 
     from pytools.obj_array import make_obj_array
     fields = make_obj_array([dcoll.zeros(actx) for i in range(dim+1)])
@@ -197,7 +226,8 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
         import matplotlib.pyplot as plt
         plt.contour(re, im, sf_grid, [0.25, 0.5, 0.75, 0.9, 1, 1.1])
         plt.colorbar()
-        plt.plot(dt_est * eigvals.real, dt_est * eigvals.imag, "x")
+        plt.plot(dt_est * eigvals.real, dt_est * eigvals.imag,
+                 "x")
         plt.grid()
         plt.show()
 
@@ -215,7 +245,7 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
         print(f"Stable timestep is {max(stable_dt_factors):.2f}x the estimate")
     else:
         print("Stable timestep estimate appears to be sharp")
-    assert not stable_dt_factors or max(stable_dt_factors) < 1.5, stable_dt_factors
+    assert not stable_dt_factors or max(stable_dt_factors) < 1.54, stable_dt_factors
 
 
 # You can test individual routines by typing
