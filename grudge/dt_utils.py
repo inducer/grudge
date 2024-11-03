@@ -42,8 +42,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -71,7 +70,7 @@ from grudge.dof_desc import (
 
 def characteristic_lengthscales(
         actx: ArrayContext, dcoll: DiscretizationCollection,
-        dd: Optional[DOFDesc] = None) -> DOFArray:
+        dd: DOFDesc | None = None) -> DOFArray:
     r"""Computes the characteristic length scale :math:`h_{\text{loc}}` at
     each node. The characteristic length scale is mainly useful for estimating
     the stable time step size. E.g. for a hyperbolic system, an estimate of the
@@ -119,7 +118,7 @@ def characteristic_lengthscales(
 
 @memoize_on_first_arg
 def dt_non_geometric_factors(
-        dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None
+        dcoll: DiscretizationCollection, dd: DOFDesc | None = None
         ) -> Sequence[float]:
     r"""Computes the non-geometric scale factors following [Hesthaven_2008]_,
     section 6.4, for each element group in the *dd* discretization:
@@ -169,8 +168,9 @@ def dt_non_geometric_factors(
 
 @memoize_on_first_arg
 def h_max_from_volume(
-        dcoll: DiscretizationCollection, dim=None,
-        dd: Optional[DOFDesc] = None) -> Scalar:
+        dcoll: DiscretizationCollection,
+        dim: int  | None = None,
+        dd: DOFDesc | None = None) -> Scalar:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -201,8 +201,9 @@ def h_max_from_volume(
 
 @memoize_on_first_arg
 def h_min_from_volume(
-        dcoll: DiscretizationCollection, dim=None,
-        dd: Optional[DOFDesc] = None) -> Scalar:
+        dcoll: DiscretizationCollection,
+        dim: int | None = None,
+        dd: DOFDesc | None = None) -> Scalar:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -232,7 +233,7 @@ def h_min_from_volume(
 
 
 def dt_geometric_factors(
-        dcoll: DiscretizationCollection, dd: Optional[DOFDesc] = None) -> DOFArray:
+        dcoll: DiscretizationCollection, dd: DOFDesc | None = None) -> DOFArray:
     r"""Computes a geometric scaling factor for each cell following
     [Hesthaven_2008]_, section 6.4, defined as the inradius (radius of an
     inscribed circle/sphere).
