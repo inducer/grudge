@@ -191,8 +191,10 @@ def _single_axis_derivative_kernel(
                         tagged=(FirstAxisIsElementsTag(),))
 
             for out_grp, in_grp, vec_i, ijm_i in zip(
-                out_discr.groups, in_discr.groups, vec,
-                inv_jac_mat)))
+                out_discr.groups,
+                in_discr.groups,
+                vec,
+                inv_jac_mat, strict=True)))
 
 
 def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
@@ -214,7 +216,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec,
                     tagged=(FirstAxisIsElementsTag(),))
         for out_grp, in_grp, vec_i, ijm_i in zip(
             out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+            inv_jac_mat, strict=True)]
 
     return make_obj_array([
             DOFArray(actx, data=tuple([  # noqa: C409
@@ -241,8 +243,10 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
         for out_grp, in_grp, vec_i, ijm_i in zip(
-            out_discr.groups, in_discr.groups, vec,
-            inv_jac_mat)]
+            out_discr.groups,
+            in_discr.groups,
+            vec,
+            inv_jac_mat, strict=True)]
 
     return DOFArray(actx, data=tuple(per_group_divs))
 
@@ -721,7 +725,8 @@ def _apply_mass_operator(
                 tagged=(FirstAxisIsElementsTag(),))
 
             for in_grp, out_grp, ae_i, vec_i in zip(
-                    in_discr.groups, out_discr.groups, area_elements, vec)
+                    in_discr.groups, out_discr.groups, area_elements, vec,
+                    strict=True)
         )
     )
 
@@ -815,7 +820,8 @@ def _apply_inverse_mass_operator(
                         reference_inverse_mass_matrix(actx, element_group=grp),
                         vec_i,
                         tagged=(FirstAxisIsElementsTag(),))
-            for grp, jac_inv, vec_i in zip(discr.groups, inv_area_elements, vec)]
+            for grp, jac_inv, vec_i in zip(
+                discr.groups, inv_area_elements, vec, strict=True)]
 
     return DOFArray(actx, data=tuple(group_data))
 
@@ -1010,7 +1016,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
             for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_discr.groups,
                                                      vec,
-                                                     surf_area_elements)))
+                                                     surf_area_elements,
+                                                     strict=True)))
 
 
 def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:

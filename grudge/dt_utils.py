@@ -111,7 +111,8 @@ def characteristic_lengthscales(
                             cng * geo_facts
                             for cng, geo_facts in zip(
                                 dt_non_geometric_factors(dcoll, dd),
-                                actx.thaw(dt_geometric_factors(dcoll, dd)))))))
+                                actx.thaw(dt_geometric_factors(dcoll, dd)),
+                                strict=True)))))
 
     return actx.thaw(_compute_characteristic_lengthscales())
 
@@ -141,7 +142,7 @@ def dt_non_geometric_factors(
     discr = dcoll.discr_from_dd(dd)
     min_delta_rs = []
     for grp in discr.groups:
-        nodes = np.asarray(list(zip(*grp.unit_nodes)))
+        nodes = np.asarray(list(zip(*grp.unit_nodes, strict=True)))
         nnodes = grp.nunit_dofs
 
         # NOTE: order 0 elements have 1 node located at the centroid of
@@ -314,7 +315,7 @@ def dt_geometric_factors(
                             face_ae_i.shape[-1])),
                     tagged=(FirstAxisIsElementsTag(),))
 
-                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas)))
+                for vgrp, face_ae_i in zip(volm_discr.groups, face_areas, strict=True)))
     else:
         surface_areas = DOFArray(
             actx,
@@ -336,7 +337,7 @@ def dt_geometric_factors(
 
                 for vgrp, afgrp, face_ae_i in zip(volm_discr.groups,
                                                   face_discr.groups,
-                                                  face_areas)
+                                                  face_areas, strict=True)
             )
         )
 
@@ -349,7 +350,8 @@ def dt_geometric_factors(
                             1/sae_i,
                             actx.tag_axis(1, DiscretizationDOFAxisTag(), cv_i),
                             tagged=(FirstAxisIsElementsTag(),)) * dcoll.dim
-                        for cv_i, sae_i in zip(cell_vols, surface_areas)))))
+                        for cv_i, sae_i in zip(cell_vols, surface_areas,
+                                               strict=True)))))
 
 # }}}
 
