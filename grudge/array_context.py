@@ -33,17 +33,9 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    FrozenSet,
-    Mapping,
-    Optional,
-    Tuple,
-    Type,
-)
+from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
 from meshmode.array_context import (
@@ -129,7 +121,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """
     def __init__(self, queue: "pyopencl.CommandQueue",
             allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
-            wait_event_queue_length: Optional[int] = None,
+            wait_event_queue_length: int | None = None,
             force_device_scalars: bool = True) -> None:
 
         if allocator is None:
@@ -152,7 +144,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """
     def __init__(self, queue, allocator=None,
             *,
-            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
+            compile_trace_callback: Callable[[Any, str, Any], None] | None
              = None) -> None:
         """
         :arg compile_trace_callback: A function of three arguments
@@ -356,10 +348,10 @@ class _DistributedCompiledFunction:
     actx: "MPISingleGridWorkBalancingPytatoArrayContext"
     distributed_partition: "DistributedGraphPartition"
     part_id_to_prg: "Mapping[PartId, pt.target.BoundProgram]"
-    input_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
-    output_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
-    name_in_program_to_tags: Mapping[str, FrozenSet[Tag]]
-    name_in_program_to_axes: Mapping[str, Tuple["pt.Axis", ...]]
+    input_id_to_name_in_program: Mapping[tuple[Any, ...], str]
+    output_id_to_name_in_program: Mapping[tuple[Any, ...], str]
+    name_in_program_to_tags: Mapping[str, frozenset[Tag]]
+    name_in_program_to_axes: Mapping[str, tuple["pt.Axis", ...]]
     output_template: ArrayContainer
 
     def __call__(self, arg_id_to_arg) -> ArrayContainer:
@@ -398,8 +390,8 @@ class _DistributedCompiledFunction:
 class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
             self, mpi_communicator, queue, *, mpi_base_tag, allocator=None,
-            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
-            = None) -> None:
+            compile_trace_callback: Callable[[Any, str, Any], None] | None = None,
+            ) -> None:
         """
         :arg compile_trace_callback: A function of three arguments
             *(what, stage, ir)*, where *what* identifies the object
@@ -447,7 +439,7 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
             mpi_communicator,
             queue: "pyopencl.CommandQueue",
             *, allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
-            wait_event_queue_length: Optional[int] = None,
+            wait_event_queue_length: int | None = None,
             force_device_scalars: bool = True) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
@@ -577,7 +569,7 @@ register_pytest_array_context_factory("grudge.numpy",
 # {{{ actx selection
 
 
-def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
+def _get_single_grid_pytato_actx_class(distributed: bool) -> type[ArrayContext]:
     if not _HAVE_SINGLE_GRID_WORK_BALANCING:
         warn("No device-parallel actx available, execution will be slow. "
              "Please make sure you have the right branches for loopy "
@@ -601,8 +593,8 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
 
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True,
-        fusion: Optional[bool] = None, numpy: bool = False,
-        ) -> Type[ArrayContext]:
+        fusion: bool | None = None, numpy: bool = False,
+        ) -> type[ArrayContext]:
     """Returns a reasonable :class:`~arraycontext.ArrayContext` currently
     supported given the constraints of *lazy*, *distributed*, and *numpy*."""
     if fusion is None:

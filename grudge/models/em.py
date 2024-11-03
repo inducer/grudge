@@ -269,7 +269,7 @@ class MaxwellOperator(HyperbolicOperator):
                         # multiplication by mu undoes material divisor below
                         # -max_c*(mu*h.int - mu*h.ext)
                     ))
-        elif isinstance(self.flux_type, (int, float)):
+        elif isinstance(self.flux_type, int | float):
             # see doc/maxima/maxwell.mac
             return flat_obj_array(
                     # flux e,

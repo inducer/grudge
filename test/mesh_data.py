@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import ClassVar, Hashable, Optional, Sequence
+from collections.abc import Hashable, Sequence
+from typing import ClassVar
 
 import numpy as np
 
@@ -16,7 +17,7 @@ class MeshBuilder(ABC):
     def get_mesh(
              self,
              resolution: Hashable,
-             mesh_order: Optional[int] = None
+             mesh_order: int | None = None
          ) -> Mesh:
         ...
 
@@ -118,7 +119,7 @@ class _BoxMeshBuilderBase(MeshBuilder):
     b = (+0.5, +0.5, +0.5)
 
     def get_mesh(self, resolution, mesh_order=4):
-        if not isinstance(resolution, (list, tuple)):
+        if not isinstance(resolution, list | tuple):
             resolution = (resolution,) * self.ambient_dim
 
         return mgen.generate_regular_rect_mesh(
