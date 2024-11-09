@@ -50,10 +50,13 @@ from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag)
 from pytools import to_identifier
 from pytools.tag import Tag
 
-from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
+from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered, TensorProductDOFAxisTag, unify_discretization_entity_tags
 
 
 logger = logging.getLogger(__name__)
@@ -179,6 +182,10 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
+
+    dot_codes_before_mass = []
+    dot_codes_after_mass = []
+
     def __init__(self, queue, allocator=None,
             *,
             compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
@@ -199,7 +206,61 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
 
+    def transform_dag(self, dag):
+        import pytato as pt
+
+        from grudge.transform.mappers import (
+            InverseMassRemoverMapper,
+            MassCounter,
+            MassInverseCounter
+        )
+        self.dot_codes_before_mass.append(pt.visualization.get_dot_graph(dag))
+        # print("BEFORE, M: ", MassCounter()(dag),
+        #       "Minv: ", MassInverseCounter()(dag))
+        # dag = InverseMassRemoverMapper()(dag)
+        # print("AFTER,  M: ", MassCounter()(dag),
+        #       "Minv: ", MassInverseCounter()(dag))
+        self.dot_codes_after_mass.append(pt.visualization.get_dot_graph(dag))
+
+        # dag = unify_discretization_entity_tags(dag)
+
+        return dag
+
     def transform_loopy_program(self, t_unit):
+        import loopy as lp
+
+        knl = t_unit.default_entrypoint
+
+        el_ax_to_inames = {}
+        for iname in knl.inames:
+            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
+                key = "iel"
+                el_ax_to_inames.setdefault(key, []).append(iname)
+
+            # if knl.inames[iname].tags_of_type(DiscretizationDOFAxisTag):
+            #     key = "idof"
+            #     el_ax_to_inames.setdefault(key, []).append(iname)
+            #
+            # if knl.inames[iname].tags_of_type(TensorProductDOFAxisTag):
+            #     tag, = knl.inames[iname].tags_of_type(TensorProductDOFAxisTag)
+            #     key = f"idof_tp_{tag.iaxis}"
+            #     el_ax_to_inames.setdefault(key, []).append(iname)
+
+        for new_iname, inames in el_ax_to_inames.items():
+            for iname in inames:
+                knl = lp.rename_iname(knl, iname, new_iname, existing_ok=True)
+
+        for iname in knl.inames:
+            if iname == "iel":
+                knl = lp.tag_inames(knl, [(iname, "g.0")])
+            # if iname == "idof":
+            #     knl = lp.split_iname(knl, iname, 32, inner_tag="l.0")
+            # if "idof_tp" in iname:
+            #     knl = lp.tag_inames(knl, [(iname, f"l.{iname[-1]}")])
+
+        t_unit = t_unit.with_kernel(knl)
+        t_unit = lp.set_options(t_unit, "insert_gbarriers")
+        # print(t_unit)
         return t_unit
 
 # }}}
@@ -266,7 +327,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                            "transform_dag.infer_axes_tags[pre-partition]"):
             from meshmode.transform_metadata import DiscretizationEntityAxisTag
             dict_of_named_arrays = pt.unify_axes_tags(
-                dict_of_named_arrays,
+            dict_of_named_arrays,
                 tag_t=DiscretizationEntityAxisTag,
             )
 

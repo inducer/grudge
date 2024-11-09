@@ -28,12 +28,41 @@ THE SOFTWARE.
 
 
 from grudge.transform.metadata import (
-    ReferenceTensorProductMassOperatorTag,
-    ReferenceTensorProductMassInverseOperatorTag
+    TensorProductMassOperatorTag,
+    TensorProductMassOperatorInverseTag
 )
 
 from pytato.array import EinsumElementwiseAxis
 from pytato.transform import CopyMapperWithExtraArgs
+
+
+from pytato.transform import CombineMapper
+class MassCounter(CombineMapper):
+    def combine(self, *n_list):
+        return sum(n_list)
+
+    def map_einsum(self, expr):
+        acc = 0
+        for arg in expr.args:
+            if arg.tags_of_type(TensorProductMassOperatorTag):
+                acc += 1
+            acc += self.rec(arg)
+
+        return acc
+
+
+class MassInverseCounter(CombineMapper):
+    def combine(self, *n_list):
+        return sum(n_list)
+
+    def map_einsum(self, expr):
+        acc = 0
+        for arg in expr.args:
+            if arg.tags_of_type(TensorProductMassOperatorInverseTag):
+                acc += 1
+            acc += self.rec(arg)
+
+        return acc
 
 
 class MassRemoverMapper(CopyMapperWithExtraArgs):
@@ -44,7 +73,7 @@ class MassRemoverMapper(CopyMapperWithExtraArgs):
         new_args = []
         out_access_descr, = args
         for arg in expr.args:
-            if arg.tags_of_type(ReferenceTensorProductMassOperatorTag):
+            if arg.tags_of_type(TensorProductMassOperatorTag):
                 if expr.access_descriptors[0][0] == out_access_descr:
                     return self.rec(expr.args[1], out_access_descr)
 
@@ -53,7 +82,7 @@ class MassRemoverMapper(CopyMapperWithExtraArgs):
         return expr.copy(args=tuple(new_args))
 
 
-class InverseMassRemover(CopyMapperWithExtraArgs):
+class InverseMassRemoverMapper(CopyMapperWithExtraArgs):
     r"""
     Applying a full mass inverse operator when using a tensor-product
     discretization results in redundant work. For example, suppose we have a 3D
@@ -95,7 +124,7 @@ class InverseMassRemover(CopyMapperWithExtraArgs):
     def map_einsum(self, expr, *args, **kwargs):
         new_args = []
         for arg in expr.args:
-            if arg.tags_of_type(ReferenceTensorProductMassInverseOperatorTag):
+            if arg.tags_of_type(TensorProductMassOperatorInverseTag):
                 out_access_descr = expr.access_descriptors[0][0]
                 assert isinstance(out_access_descr, EinsumElementwiseAxis)
 

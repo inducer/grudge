@@ -62,7 +62,7 @@ from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, DOFDesc
 from grudge.geometry import area_element, inverse_surface_metric_derivative_mat
 from grudge.tools import rec_map_subarrays
 from grudge.transform.metadata import (
-    ReferenceTensorProductMassOperatorTag,
+    TensorProductMassOperatorTag,
     TensorProductDOFAxisTag,
     TensorProductOperatorAxisTag,
 )
@@ -354,11 +354,9 @@ class _TensorProductBilinearForm(_BilinearForm):
 
             old_nodes = self.output_group.unit_nodes_1d
 
-            self._resampler = self.actx.freeze(
-                self.actx.from_numpy(
-                    mp.resampling_matrix(
+            self._resampler = mp.resampling_matrix(
                         self.output_group.basis_obj().bases[0].functions,
-                        new_nodes, old_nodes)))
+                        new_nodes, old_nodes)
 
         self._build_discrete_reference_operator()
 
@@ -408,13 +406,22 @@ class _TensorProductBilinearForm(_BilinearForm):
             vdm_in,
             weights_1d)
 
-        self.mass_operator = self.actx.freeze(
-            self.actx.tag(
-                ReferenceTensorProductMassOperatorTag(),
-                tag_axes(
-                    self.actx,
-                    axes_to_tags,
-                    self.actx.from_numpy(mass_1d))))
+        if self.input_group == self.output_group:
+            self.mass_operator = self.actx.freeze(
+                self.actx.tag(
+                    TensorProductMassOperatorTag(),
+                    tag_axes(
+                        self.actx,
+                        axes_to_tags,
+                        self.actx.from_numpy(mass_1d @ self._resampler))))
+        else:
+            self.mass_operator = self.actx.freeze(
+                self.actx.tag(
+                    TensorProductMassOperatorTag(),
+                    tag_axes(
+                        self.actx,
+                        axes_to_tags,
+                        self.actx.from_numpy(mass_1d))))
 
         if self.test_derivative is not None:
             vdm_p_in = mp.multi_vandermonde(test_basis_1d.gradients,
@@ -426,11 +433,18 @@ class _TensorProductBilinearForm(_BilinearForm):
                 vdm_p_in,
                 weights_1d)
 
-            self.stiffness_operator = self.actx.freeze(
-                tag_axes(
-                    self.actx,
-                    axes_to_tags,
-                    self.actx.from_numpy(stiff_1d)))
+            if self.input_group == self.output_group:
+                self.stiffness_operator = self.actx.freeze(
+                    tag_axes(
+                        self.actx,
+                        axes_to_tags,
+                        self.actx.from_numpy(stiff_1d @ self._resampler)))
+            else:
+                self.stiffness_operator = self.actx.freeze(
+                    tag_axes(
+                        self.actx,
+                        axes_to_tags,
+                        self.actx.from_numpy(stiff_1d)))
 
         # }}}
 
@@ -448,13 +462,6 @@ class _TensorProductBilinearForm(_BilinearForm):
         """
         apply_mass_axes = set(np.arange(self.input_group.dim)) - {exclude_axis}
         for ax in apply_mass_axes:
-
-            if self.input_group == self.output_group:
-                vec = single_axis_contraction(
-                    self.actx, self.input_group.dim, ax,
-                    self._resampler, vec,
-                    arg_names=("resampler_1d", "vec"))
-
             vec = single_axis_contraction(self.actx, self.input_group.dim, ax,
                                            self.mass_operator, vec,
                                            arg_names=("mass_1d", "vec"))
@@ -484,12 +491,6 @@ class _TensorProductBilinearForm(_BilinearForm):
             reference_partial = vec[rst_axis]
             reference_partial = self._apply_mass_operator(reference_partial,
                                                           exclude_axis=rst_axis)
-
-            if self.input_group == self.output_group:
-                reference_partial = single_axis_contraction(
-                    self.actx, self.input_group.dim, rst_axis,
-                    self._resampler, reference_partial,
-                    arg_names=("resampler_1d", f"ref_partial_{rst_axis}"))
 
             partial_derivative += single_axis_contraction(
                 self.actx, self.input_group.dim, rst_axis,

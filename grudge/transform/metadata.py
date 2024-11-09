@@ -18,10 +18,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from arraycontext import ArrayContainer
+from arraycontext.container.traversal import rec_map_array_container
+
 from pytato.transform.metadata import AxisIgnoredForPropagationTag
 
-from meshmode.transform_metadata import DiscretizationDOFAxisTag
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationEntityAxisTag
+)
 from pytools.tag import Tag, tag_dataclass
+
+import pytato as pt
+from pytato.transform import ArrayOrNames
+from pytato.transform.metadata import (
+    AxesTagsEquationCollector as BaseAxesTagsEquationCollector)
+
+from typing import Union
 
 
 class OutputIsTensorProductDOFArrayOrdered(Tag):
@@ -33,7 +46,7 @@ class OutputIsTensorProductDOFArrayOrdered(Tag):
 
 
 @tag_dataclass
-class TensorProductDOFAxisTag(DiscretizationDOFAxisTag):
+class TensorProductDOFAxisTag(DiscretizationEntityAxisTag):
     """
     Signify an axis as containing the DOFs of a tensor product discretization.
     `iaxis` is later interpreted to determine the relative update speed (i.e.
@@ -52,7 +65,7 @@ class TensorProductOperatorAxisTag(DiscretizationDOFAxisTag,
     pass
 
 
-class ReferenceTensorProductMassOperatorTag(Tag):
+class TensorProductMassOperatorTag(Tag):
     """
     Tag an operator as being a reference mass operator. Used to realize an
     algebraic simplification of redundant mass-times-mass-inverse operations
@@ -61,8 +74,47 @@ class ReferenceTensorProductMassOperatorTag(Tag):
     pass
 
 
-class ReferenceTensorProductMassInverseOperatorTag(Tag):
+class TensorProductMassOperatorInverseTag(Tag):
     """
     See `ReferenceTensorProductMassOperatorTag`.
     """
     pass
+
+
+# {{{ solve for discretization metadata for arrays' axes
+
+class AxesTagsEquationCollector(BaseAxesTagsEquationCollector):
+    def map_reshape(self, expr: pt.Reshape) -> None:
+        super().map_reshape(expr)
+
+        if (expr.size > 0
+                and (1 not in (expr.array.shape))  # leads to ambiguous newaxis
+                and (set(expr.shape) <= (set(expr.array.shape) | {1}))):
+            i_in_axis = 0
+            for i_out_axis, dim in enumerate(expr.shape):
+                if dim != 1:
+                    assert dim == expr.array.shape[i_in_axis]
+                    self.record_equation(
+                                    self.get_var_for_axis(expr.array,
+                                                          i_in_axis),
+                                    self.get_var_for_axis(expr,
+                                                          i_out_axis)
+                    )
+                    i_in_axis += 1
+        else:
+            # print(f"Skipping: {expr.array.shape} -> {expr.shape}")
+            # Wacky reshape => bail.
+            pass
+
+
+def unify_discretization_entity_tags(expr: Union[ArrayContainer, ArrayOrNames]
+                                     ) -> ArrayOrNames:
+    if not isinstance(expr, (pt.Array, pt.DictOfNamedArrays)):
+        return rec_map_array_container(unify_discretization_entity_tags,
+                                       expr)
+
+    return pt.unify_axes_tags(expr,
+                              tag_t=DiscretizationEntityAxisTag,
+                              equations_collector_t=AxesTagsEquationCollector)
+
+# }}}

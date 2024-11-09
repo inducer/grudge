@@ -149,8 +149,8 @@ from grudge.trace_pair import (
 )
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
-    ReferenceTensorProductMassInverseOperatorTag as InverseMassMatrix1D,
-    ReferenceTensorProductMassOperatorTag as MassMatrix1D,
+    TensorProductMassOperatorInverseTag,
+    TensorProductMassOperatorTag,
     TensorProductOperatorAxisTag,
 )
 
@@ -627,12 +627,12 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
                 bilinear_form = _TensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
                     test_derivative=test_derivative)
+                group_grad.append(bilinear_form(vec_i))
             else:
                 bilinear_form = _NonTensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
                     test_derivative=test_derivative)
-
-            group_grad.append(bilinear_form(vec_i))
+                group_grad.append(bilinear_form(vec_i))
 
         group_data.append(
             tag_axes(
@@ -912,7 +912,7 @@ def reference_inverse_mass_matrix(actx: ArrayContext, element_group,
 
             return actx.freeze(
                 actx.tag(
-                    InverseMassMatrix1D(),
+                    TensorProductMassOperatorInverseTag(),
                     tag_axes(
                     actx,
                     {i: TensorProductOperatorAxisTag() for i in range(2)},
@@ -998,8 +998,7 @@ def _apply_inverse_mass_operator(
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     vec = inv_area_elements * project(
-        dcoll, dd_out, dd_in,
-        DOFArray(actx, data=tuple(group_data)))
+        dcoll, dd_out, dd_in, DOFArray(actx, data=tuple(group_data)))
 
     # finish applying WADG
     group_data = []
@@ -1295,7 +1294,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
                     1, out_grp.order+1)
 
                 return actx.tag(
-                    MassMatrix1D(),
+                    TensorProductMassOperatorTag(),
                     tag_axes(
                         actx,
                         {i: TensorProductOperatorAxisTag()
@@ -1320,7 +1319,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
 
             return actx.freeze(
                 actx.tag(
-                    MassMatrix1D(),
+                    TensorProductMassOperatorTag(),
                     tag_axes(
                         actx,
                         {i: TensorProductOperatorAxisTag()

@@ -242,9 +242,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--tpe", action="store_true")
-    parser.add_argument("--order", default=3, type=int)
+    parser.add_argument("--order", default=2, type=int)
     parser.add_argument("--tfinal", default=0.1, type=float)
-    parser.add_argument("--resolution", default=16, type=int)
+    parser.add_argument("--resolution", default=4, type=int)
     parser.add_argument("--oi", action="store_true",
                         help="use overintegration")
     parser.add_argument("--visualize", action="store_true",

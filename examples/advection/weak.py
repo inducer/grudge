@@ -33,10 +33,13 @@ import pyopencl as cl
 import pyopencl.tools as cl_tools
 from arraycontext import flatten
 from meshmode.mesh import BTAG_ALL
+from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
-from grudge.array_context import PyOpenCLArrayContext
+from grudge.array_context import (
+    NumpyArrayContext,
+    PytatoPyOpenCLArrayContext)
 
 
 logger = logging.getLogger(__name__)
@@ -96,24 +99,27 @@ class Plotter:
 # }}}
 
 
-def main(ctx_factory, dim=2, order=4, visualize=False):
+def main(ctx_factory, dim=1, order=2, lazy=False,
+         visualize=False, group_cls=TensorProductElementGroup):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+
+    if lazy is False:
+        actx = NumpyArrayContext()
+    else:
+        actx = PytatoPyOpenCLArrayContext(
+            queue,
+            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),)
 
     # {{{ parameters
 
     # domain [-d/2, d/2]^dim
     d = 1.0
     # number of points in each dimension
-    npoints = 20
+    npoints = 10
 
     # final time
-    final_time = 1.0
+    final_time = 0.5
 
     # velocity field
     c = np.array([0.5] * dim)
@@ -129,7 +135,8 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     from meshmode.mesh.generation import generate_box_mesh
     mesh = generate_box_mesh(
             [np.linspace(-d/2, d/2, npoints) for _ in range(dim)],
-            order=order)
+            order=order,
+            group_cls=group_cls)
 
     from grudge.discretization import make_discretization_collection
 
@@ -163,7 +170,10 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     def rhs(t, u):
         return adv_operator.operator(t, u)
 
-    dt = actx.to_numpy(adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u))
+    rhs_compiled = actx.compile(rhs)
+
+    # dt = actx.to_numpy(adv_operator.estimate_rk4_timestep(actx, dcoll, fields=u))
+    dt = 0.01
 
     logger.info("Timestep size: %g", dt)
 
@@ -172,7 +182,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
     # {{{ time stepping
 
     from grudge.shortcuts import set_up_rk4
-    dt_stepper = set_up_rk4("u", float(dt), u, rhs)
+    dt_stepper = set_up_rk4("u", float(dt), u, rhs_compiled)
     plot = Plotter(actx, dcoll, order, visualize=visualize,
             ylim=[-1.1, 1.1])
 
@@ -200,13 +210,16 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dim", default=2, type=int)
-    parser.add_argument("--order", default=4, type=int)
+    parser.add_argument("--dim", default=1, type=int)
+    parser.add_argument("--order", default=2, type=int)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--lazy", action="store_true")
+    parser.add_argument("--tp-elements", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     main(cl.create_some_context,
          dim=args.dim,
          order=args.order,
-         visualize=args.visualize)
+         visualize=args.visualize,
+         lazy=args.lazy)

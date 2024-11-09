@@ -72,7 +72,6 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                   warp_mesh, group_cls, visualize=False):
-
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
