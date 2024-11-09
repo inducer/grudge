@@ -33,7 +33,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Union
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
 import numpy as np
@@ -74,14 +75,17 @@ if TYPE_CHECKING:
     import mpi4py.MPI
 
 
+MeshOrDiscr = Mesh | Discretization
+TagToElementGroupFactory = Mapping[DiscretizationTag, ElementGroupFactory]
+
+
 # {{{ discr_tag_to_group_factory normalization
 
 def _normalize_discr_tag_to_group_factory(
         dim: int,
-        discr_tag_to_group_factory: Optional[
-            Mapping[DiscretizationTag, ElementGroupFactory]],
-        order: Optional[int]
-        ) -> Mapping[DiscretizationTag, ElementGroupFactory]:
+        discr_tag_to_group_factory: TagToElementGroupFactory | None,
+        order: int | None
+        ) -> TagToElementGroupFactory:
     if discr_tag_to_group_factory is None:
         if order is None:
             raise TypeError(
@@ -147,10 +151,9 @@ class DiscretizationCollection:
     # {{{ constructor
 
     def __init__(self, array_context: ArrayContext,
-            volume_discrs: Union[Mesh, Mapping[VolumeTag, Discretization]],
-            order: Optional[int] = None,
-            discr_tag_to_group_factory: Optional[
-                Mapping[DiscretizationTag, ElementGroupFactory]] = None,
+            volume_discrs: Mesh | Mapping[VolumeTag, Discretization],
+            order: int | None = None,
+            discr_tag_to_group_factory: TagToElementGroupFactory | None = None,
             mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None,
             ) -> None:
         """
@@ -715,7 +718,7 @@ class DiscretizationCollection:
     # {{{ array creators
 
     def empty(self, array_context: ArrayContext, dtype=None,
-            *, dd: Optional[DOFDesc] = None) -> DOFArray:
+            *, dd: DOFDesc | None = None) -> DOFArray:
         """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
         the volume nodes: :class:`grudge.dof_desc.DD_VOLUME_ALL`.
 
@@ -729,7 +732,7 @@ class DiscretizationCollection:
         return self.discr_from_dd(dd).empty(array_context, dtype)
 
     def zeros(self, array_context: ArrayContext, dtype=None,
-            *, dd: Optional[DOFDesc] = None) -> DOFArray:
+            *, dd: DOFDesc | None = None) -> DOFArray:
         """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`
         defined at the volume nodes, :class:`grudge.dof_desc.DD_VOLUME_ALL`.
 
@@ -783,17 +786,12 @@ class DiscretizationCollection:
 
 # {{{ make_discretization_collection
 
-MeshOrDiscr = Union[Mesh, Discretization]
-
 
 def make_discretization_collection(
         array_context: ArrayContext,
-        volumes: Union[
-            MeshOrDiscr,
-            Mapping[VolumeTag, MeshOrDiscr]],
-        order: Optional[int] = None,
-        discr_tag_to_group_factory: Optional[
-            Mapping[DiscretizationTag, ElementGroupFactory]] = None,
+        volumes: MeshOrDiscr | Mapping[VolumeTag, MeshOrDiscr],
+        order: int | None = None,
+        discr_tag_to_group_factory: TagToElementGroupFactory | None = None,
         ) -> DiscretizationCollection:
     """
     :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -828,7 +826,7 @@ def make_discretization_collection(
         i.e. all ranks in the communicator must enter this function at the same
         time.
     """
-    if isinstance(volumes, (Mesh, Discretization)):
+    if isinstance(volumes, Mesh | Discretization):
         volumes = {VTAG_ALL: volumes}
 
     from pytools import is_single_valued

@@ -1228,7 +1228,8 @@ def _apply_face_mass_operator(dcoll: DiscretizationCollection, dd_in, vec):
             for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
                                                      face_discr.groups,
                                                      vec,
-                                                     surf_area_elements)))
+                                                     surf_area_elements,
+                                                     strict=True)))
 
 
 def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:

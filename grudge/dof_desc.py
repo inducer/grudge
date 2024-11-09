@@ -76,8 +76,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from collections.abc import Hashable
 from dataclasses import dataclass, replace
-from typing import Any, Hashable, Optional, Tuple, Type, Union
+from typing import Any
 from warnings import warn
 
 from meshmode.discretization.connection import FACE_RESTR_ALL, FACE_RESTR_INTERIOR
@@ -140,7 +141,7 @@ class BoundaryDomainTag:
     volume_tag: VolumeTag = VTAG_ALL
 
 
-DomainTag = Union[ScalarDomainTag, VolumeDomainTag, BoundaryDomainTag]
+DomainTag = ScalarDomainTag | VolumeDomainTag | BoundaryDomainTag
 
 # }}}
 
@@ -151,7 +152,7 @@ class _DiscretizationTag:
     pass
 
 
-DiscretizationTag = Type[_DiscretizationTag]
+DiscretizationTag = type[_DiscretizationTag]
 
 
 class DISCR_TAG_BASE(_DiscretizationTag):  # noqa: N801
@@ -232,11 +233,11 @@ class DOFDesc:
 
     def __init__(self,
             domain_tag: Any,
-            discretization_tag: Optional[Type[DiscretizationTag]] = None):
+            discretization_tag: type[DiscretizationTag] | None = None) -> None:
 
         if (
-                not (isinstance(domain_tag,
-                    (ScalarDomainTag, BoundaryDomainTag, VolumeDomainTag)))
+                not isinstance(domain_tag,
+                               ScalarDomainTag | BoundaryDomainTag | VolumeDomainTag)
                 or discretization_tag is None
                 or (
                     not isinstance(discretization_tag, type)
@@ -279,7 +280,7 @@ class DOFDesc:
             if issubclass(self.discretization_tag, DISCR_TAG_QUAD):
                 return True
             elif issubclass(self.discretization_tag,
-                            (DISCR_TAG_BASE, DISCR_TAG_MODAL)):
+                            DISCR_TAG_BASE | DISCR_TAG_MODAL):
                 return False
 
         raise ValueError(
@@ -384,16 +385,16 @@ DD_VOLUME_ALL_MODAL = DOFDesc(DTAG_VOLUME_ALL, DISCR_TAG_MODAL)
 
 def _normalize_domain_and_discr_tag(
         domain: Any,
-        discretization_tag: Optional[DiscretizationTag] = None,
-        *, _contextual_volume_tag: Optional[VolumeTag] = None
-        ) -> Tuple[DomainTag, DiscretizationTag]:
+        discretization_tag: DiscretizationTag | None = None,
+        *, _contextual_volume_tag: VolumeTag | None = None
+        ) -> tuple[DomainTag, DiscretizationTag]:
 
     if _contextual_volume_tag is None:
         _contextual_volume_tag = VTAG_ALL
 
     if domain == "scalar":
         domain = DTAG_SCALAR
-    elif isinstance(domain, (ScalarDomainTag, BoundaryDomainTag, VolumeDomainTag)):
+    elif isinstance(domain, ScalarDomainTag | BoundaryDomainTag | VolumeDomainTag):
         pass
     elif domain in [VTAG_ALL, "vol"]:
         domain = DTAG_VOLUME_ALL
@@ -422,8 +423,8 @@ ConvertibleToDOFDesc = Any
 
 def as_dofdesc(
         domain: "ConvertibleToDOFDesc",
-        discretization_tag: Optional[DiscretizationTag] = None,
-        *, _contextual_volume_tag: Optional[VolumeTag] = None) -> DOFDesc:
+        discretization_tag: DiscretizationTag | None = None,
+        *, _contextual_volume_tag: VolumeTag | None = None) -> DOFDesc:
     """
     :arg domain_tag: One of the following:
         :class:`DTAG_SCALAR` (or the string ``"scalar"``),
