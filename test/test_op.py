@@ -61,6 +61,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [True, False])
+@pytest.mark.parametrize("rotate_mesh", [True, False])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
@@ -71,7 +72,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-                  warp_mesh, group_cls, visualize=False):
+                  warp_mesh, rotate_mesh, group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -95,13 +96,35 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     nelements_per_axis=(n,)*dim,
                     group_cls=group_cls)
 
+        if rotate_mesh:
+            if dim == 1:
+                pytest.skip()
+            elif dim == 2:
+                theta = np.pi / 2
+                a = np.array([
+                    [np.cos(theta), -np.sin(theta)],
+                    [np.sin(theta), np.cos(theta)]
+                ])
+            elif dim == 3:
+                theta = np.pi / 2
+                a = np.array([
+                    [1.0, 0.0, 0.0],
+                    [0.0, np.cos(theta), -np.sin(theta)],
+                    [0.0, np.sin(theta), np.cos(theta)]
+                ])
+
+            b = np.array([0.33, -0.21, 0.0])[:dim]
+
+            from meshmode.mesh.processing import affine_map
+            mesh = affine_map(mesh, A=a, b=b)
+
         dcoll = make_discretization_collection(
-                   actx, mesh,
-                   discr_tag_to_group_factory={
-                       DISCR_TAG_BASE:
-                           InterpolatoryEdgeClusteredGroupFactory(order),
-                       DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
-                   })
+           actx, mesh,
+           discr_tag_to_group_factory={
+               DISCR_TAG_BASE:
+                   InterpolatoryEdgeClusteredGroupFactory(order),
+               DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
+           })
 
         def f(x):
             result = 1
@@ -231,6 +254,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 @pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("warp_mesh", [True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
@@ -241,7 +265,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     TensorProductElementGroup
 ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-                    group_cls, visualize=False):
+                    group_cls, warp_mesh, visualize=False):
 
     actx = actx_factory()
 
@@ -251,15 +275,16 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
     for n in [4, 6, 8]:
         mesh = mgen.generate_regular_rect_mesh(
                 a=(-1,)*dim, b=(1,)*dim,
-                nelements_per_axis=(n,)*dim, group_cls=group_cls)
+                nelements_per_axis=(n,)*dim,
+                group_cls=group_cls)
 
         dcoll = make_discretization_collection(
-            actx, mesh,
-            discr_tag_to_group_factory={
-                DISCR_TAG_BASE:
-                    InterpolatoryEdgeClusteredGroupFactory(order),
-                DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
-            })
+           actx, mesh,
+           discr_tag_to_group_factory={
+               DISCR_TAG_BASE:
+                   InterpolatoryEdgeClusteredGroupFactory(order),
+               DISCR_TAG_QUAD: QuadratureGroupFactory(3*order)
+           })
 
         def f(x, dcoll=dcoll):
             result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])

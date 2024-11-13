@@ -84,7 +84,7 @@ class _BilinearForm:
 
     .. autoattribute:: metric_terms
 
-    .. autoattribute:: test_derivative
+    .. autoattribute:: compute_stiffness
 
     """
 
@@ -118,10 +118,9 @@ class _BilinearForm:
     space.
     """
 
-    test_derivative: int | None
+    compute_stiffness: bool
     """
-    An integer signifying the physical axis to differentiate the test functions
-    with respect to or None signifying that no derivatives should be taken.
+    A flag used to determine whether a stiffness operator should be computed.
     """
 
     def _build_discrete_reference_operator(self):
@@ -130,13 +129,6 @@ class _BilinearForm:
         """
         raise NotImplementedError("Subclasses should implement how discrete "
                                   "operators are built")
-
-    def __call__(self, vec: DOFArray) -> DOFArray:
-        """
-        Apply the discrete operator elementwise to the data in *vec*.
-        """
-        raise NotImplementedError("Subclasses should implement how discrete "
-                                  "operators are applied")
 
 # }}}
 
@@ -161,10 +153,10 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                  output_group: InterpolatoryElementGroupBase,
                  metric_terms: DOFArray = None,
                  area_element: DOFArray = None,
-                 test_derivative: int | None = None):
+                 compute_stiffness: bool = False):
 
         super().__init__(actx, input_group, output_group, area_element,
-                         metric_terms, test_derivative=test_derivative)
+                         metric_terms, compute_stiffness=compute_stiffness)
 
         # default quadrature not good enough, choose 2N + 1
         if self.input_group == self.output_group:
@@ -174,12 +166,10 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                 self.output_group.shape)
 
             # used to map interp -> quad nodes since we dont have a quad discr
-            self._resampler = self.actx.freeze(
-                self.actx.from_numpy(
-                    mp.resampling_matrix(
+            self._resampler = mp.resampling_matrix(
                         self.output_group.basis_obj().functions,
                         self._quadrature_rule.nodes,
-                        self.output_group.unit_nodes)))
+                        self.output_group.unit_nodes)
 
         self._build_discrete_reference_operator()
 
@@ -205,7 +195,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
         vdm_out = mp.vandermonde(test_basis.functions, out_nodes)
 
         # construct stiffness operator
-        if self.test_derivative is not None:
+        if self.compute_stiffness:
             vdm_in = mp.multi_vandermonde(test_basis.gradients, in_nodes)
 
             # r is reference partial derivative direction
@@ -214,6 +204,12 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                 la.inv(vdm_out).T,
                 vdm_in,
                 weights)
+
+            if self.input_group == self.output_group:
+                stiffness_operator = np.einsum(
+                    "rik,kj->rij",
+                    stiffness_operator,
+                    self._resampler)
 
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
@@ -230,6 +226,9 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                 vdm_in,
                 weights), order="C")
 
+            if self.input_group == self.output_group:
+                mass_operator = mass_operator @ self._resampler
+
             self.operator = self.actx.freeze(
                 self.actx.tag_axis(
                     0,
@@ -238,7 +237,38 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
         # }}}
 
-    def _compute_partial_derivative(self, vec: DOFArray) -> DOFArray:
+    def gradient_operator(self, vec: DOFArray) -> DOFArray:
+        """
+        Computes the physical weak gradient using *vec*. Using this routine
+        avoids recomputing the reference gradient for each physical partial
+        derivative.
+        """
+        if self.metric_terms is None or self.area_element is None:
+            raise ValueError("Metric terms and area scaling multipliers "
+                             "need to be supplied.")
+        return self.actx.einsum(
+            "xrej,rij->xei",
+            vec * self.metric_terms * self.area_element,
+            self.operator,
+            arg_names=("vec_with_metrics", "stiffness_operator"))
+
+    def divergence_operator(self, vec: DOFArray) -> DOFArray:
+        """
+        Compute the physical weak divergence using *vec*. Using this routine
+        avoids recomputing the reference gradient for each physical partial
+        derivative in the field.
+        """
+        if self.metric_terms is None or self.area_element is None:
+            raise ValueError("Metric terms and area scaling multipliers "
+                             "need to be supplied.")
+        return self.actx.einsum(
+            "xrej,xej,rij->ei",
+            self.metric_terms,
+            vec * self.area_element,
+            self.operator,
+            arg_names=("metrics", "scaled_vec", "stiffness_operator"))
+
+    def derivative_operator(self, vec: DOFArray, derivative: int) -> DOFArray:
         """
         Compute physical partial derivative using the chain rule with reference
         partial derivatives.
@@ -246,25 +276,15 @@ class _NonTensorProductBilinearForm(_BilinearForm):
         if self.metric_terms is None or self.area_element is None:
             raise ValueError("Metric terms and area scaling multipliers "
                              "need to be supplied.")
-
-        vec = vec * self.area_element * self.metric_terms[self.test_derivative]
-
-        if self.input_group == self.output_group:
-            vec = self.actx.einsum(
-                "ij,rej->rei",
-                self._resampler,
-                vec,
-                arg_names=("resampler", "vec_with_metrics"))
-
         return self.actx.einsum(
             "rij,rej->ei",
             self.operator,
-            vec,
-            arg_names=(f"stiffness_T_{self.test_derivative}",
-                       "vec_with_metrics"))
+            vec * self.metric_terms[derivative] * self.area_element,
+            arg_names=("stiffness_T",
+                       f"vec_with_metrics_{derivative}"))
 
-    def _apply_mass_operator(self, vec: DOFArray,
-                             exclude_metric: bool = False) -> DOFArray:
+    def mass_operator(self, vec: DOFArray,
+                      exclude_metric: bool = False) -> DOFArray:
         """
         Apply the element-local mass operator.
         """
@@ -275,29 +295,11 @@ class _NonTensorProductBilinearForm(_BilinearForm):
         if not exclude_metric:
             vec = vec * self.area_element
 
-        if self.input_group == self.output_group:
-            vec = self.actx.einsum(
-                "ij,ej->ei",
-                self._resampler,
-                vec,
-                arg_names=("resampler", "vec"))
-
         return self.actx.einsum(
             "ij,ej->ei",
             self.operator,
             vec,
             arg_names=("mass_operator", "vec"))
-
-    def __call__(self, vec: DOFArray, exclude_metric: bool = False) -> DOFArray:
-        """
-        Implements operator application as a matvec. Pointwise multiplication by
-        area scaling and metric terms happens before operator application.
-        """
-        if self.test_derivative is not None:
-            return self._compute_partial_derivative(vec)
-        else:
-            return self._apply_mass_operator(vec, exclude_metric)
-
 
 # }}}
 
@@ -315,13 +317,13 @@ class _TensorProductBilinearForm(_BilinearForm):
     .. autoattribute:: differentiation_operator
     """
 
-    mass_operator: Array
+    _mass_operator: Array
     """
     An :class:`~arraycontext.Array` representing a 1D mass operator. This
     operator is always constructed.
     """
 
-    stiffness_operator: Array | None
+    _stiffness_operator: Array | None
     """
     An :class:`~arraycontext.Array` representing a 1D stiffness operator. This
     operator is only constructed if derivatives are requested.
@@ -333,10 +335,10 @@ class _TensorProductBilinearForm(_BilinearForm):
                  output_group: TensorProductElementGroupBase,
                  metric_terms: DOFArray = None,
                  area_element: DOFArray = None,
-                 test_derivative: int | None = None):
+                 compute_stiffness: bool = False):
 
         super().__init__(actx, input_group, output_group, area_element,
-                         metric_terms, test_derivative=test_derivative)
+                         metric_terms, compute_stiffness=compute_stiffness)
 
         # default quadrature not good enough, choose 2N + 1
         if self.input_group == self.output_group:
@@ -406,7 +408,7 @@ class _TensorProductBilinearForm(_BilinearForm):
             weights_1d)
 
         if self.input_group == self.output_group:
-            self.mass_operator = self.actx.freeze(
+            self._mass_operator = self.actx.freeze(
                 self.actx.tag(
                     TensorProductMassOperatorTag(),
                     tag_axes(
@@ -414,7 +416,7 @@ class _TensorProductBilinearForm(_BilinearForm):
                         axes_to_tags,
                         self.actx.from_numpy(mass_1d @ self._resampler))))
         else:
-            self.mass_operator = self.actx.freeze(
+            self._mass_operator = self.actx.freeze(
                 self.actx.tag(
                     TensorProductMassOperatorTag(),
                     tag_axes(
@@ -422,7 +424,7 @@ class _TensorProductBilinearForm(_BilinearForm):
                         axes_to_tags,
                         self.actx.from_numpy(mass_1d))))
 
-        if self.test_derivative is not None:
+        if self.compute_stiffness:
             vdm_p_in = mp.multi_vandermonde(test_basis_1d.gradients,
                                             in_nodes_1d)[0]
 
@@ -433,13 +435,13 @@ class _TensorProductBilinearForm(_BilinearForm):
                 weights_1d)
 
             if self.input_group == self.output_group:
-                self.stiffness_operator = self.actx.freeze(
+                self._stiffness_operator = self.actx.freeze(
                     tag_axes(
                         self.actx,
                         axes_to_tags,
                         self.actx.from_numpy(stiff_1d @ self._resampler)))
             else:
-                self.stiffness_operator = self.actx.freeze(
+                self._stiffness_operator = self.actx.freeze(
                     tag_axes(
                         self.actx,
                         axes_to_tags,
@@ -451,23 +453,107 @@ class _TensorProductBilinearForm(_BilinearForm):
 
     # {{{ application routines and helpers
 
-    def _apply_mass_operator(self, vec: DOFArray,
-                             exclude_axis: int | None = None) -> DOFArray:
+    def _compute_reference_gradient(self, vec: DOFArray) -> DOFArray:
+        reference_gradient = []
+        for rst_axis in range(self.input_group.dim):
+            reference_partial = self.mass_operator(
+                vec, exclude_axis=rst_axis, exclude_metric=True)
+
+            reference_gradient.append(
+                    single_axis_contraction(
+                        self.actx, self.input_group.dim, rst_axis,
+                        self._stiffness_operator, reference_partial,
+                        arg_names=("stiffness_1d", f"ref_partial_{rst_axis}")))
+
+            if self.input_group.dim != 1:
+                reference_gradient[rst_axis] = unfold(
+                    self.output_group.space,
+                    reference_gradient[rst_axis])
+
+        return DOFArray(self.actx, data=tuple(reference_gradient))
+
+    def mass_operator(self, vec: DOFArray,
+                      exclude_axis: int | None = None,
+                      exclude_metric: bool = False) -> DOFArray:
         """
         Apply a mass operator to all axes other than *exclude_axis*.
 
         Since a mass operator is applied even in the case of differentiation, we
         exclude the axis that the differentiation operator is being applied to.
         """
+        if not exclude_metric:
+            vec = vec * self.area_element
+
+        unreshape = False
+        if len(vec.shape) != (self.input_group.dim + 1) \
+                and self.input_group.dim != 1:
+            unreshape = True
+            vec = fold(self.input_group.space, vec)
+
+
         apply_mass_axes = set(np.arange(self.input_group.dim)) - {exclude_axis}
         for ax in apply_mass_axes:
             vec = single_axis_contraction(self.actx, self.input_group.dim, ax,
-                                           self.mass_operator, vec,
+                                           self._mass_operator, vec,
                                            arg_names=("mass_1d", "vec"))
 
+        if unreshape and (self.output_group != 1):
+            return unfold(self.output_group.space, vec)
         return vec
 
-    def _compute_partial_derivative(self, vec: DOFArray) -> DOFArray:
+    def gradient_operator(self, vec: DOFArray) -> list:
+        """
+        Computes the physical weak gradient using *vec*. Using this routine
+        avoids recomputing the reference gradient for each physical partial
+        derivative.
+        """
+        vec = vec * self.area_element * self.metric_terms
+
+        if self.input_group.dim != 1:
+            vec = fold(self.input_group.space, vec)
+
+        gradient = []
+        for xyz_axis in range(self.input_group.dim):
+            partial = 0.0
+            for rst_axis in range(self.input_group.dim):
+                reference_partial = self.mass_operator(
+                    vec[xyz_axis, rst_axis],
+                    exclude_axis=rst_axis, exclude_metric=True)
+
+                partial += single_axis_contraction(
+                        self.actx, self.input_group.dim, rst_axis,
+                        self._stiffness_operator, reference_partial,
+                        arg_names=("stiffness_1d", f"ref_partial_{rst_axis}"))
+
+            if self.input_group.dim != 1:
+                partial = unfold(self.output_group.space, partial)
+            gradient.append(partial)
+
+        return gradient
+
+    def divergence_operator(self, vec: DOFArray) -> DOFArray:
+        """
+        Compute the physical weak divergence using *vec*. Using this routine
+        avoids recomputing the reference gradient for each physical partial
+        derivative in the field.
+        """
+
+        vec = vec * self.area_element
+
+        if self.input_group.dim != 1:
+            vec = fold(self.input_group.space, vec)
+
+        reference_gradients = DOFArray(self.actx, data=tuple([
+            self._compute_reference_gradient(vec[func_axis])
+            for func_axis in range(self.input_group.dim)]))
+
+        return self.actx.einsum(
+            "xrej,xrej->ej",
+            self.metric_terms,
+            reference_gradients,
+            arg_names=("metrics", "vec"))
+
+    def derivative_operator(self, vec: DOFArray, derivative: int) -> DOFArray:
         """
         Compute the physical space partial derivative using a 1D differentiation
         operator. This is done by computing n-dimensions worth of reference
@@ -479,56 +565,24 @@ class _TensorProductBilinearForm(_BilinearForm):
         """
         assert self.metric_terms is not None
 
+        vec = vec * self.area_element * self.metric_terms[derivative]
+
         if self.input_group.dim != 1:
-            vec = (vec * fold(self.input_group.space,
-                              self.metric_terms[self.test_derivative]))
-        else:
-            vec = vec * self.metric_terms[self.test_derivative]
-
-        partial_derivative = 0.
-        for rst_axis in range(self.input_group.dim):
-            reference_partial = vec[rst_axis]
-            reference_partial = self._apply_mass_operator(reference_partial,
-                                                          exclude_axis=rst_axis)
-
-            partial_derivative += single_axis_contraction(
-                self.actx, self.input_group.dim, rst_axis,
-                self.stiffness_operator, reference_partial,
-                arg_names=("stiffness_1d", f"ref_partial_{rst_axis}"))
-
-        return partial_derivative
-
-    def __call__(self, vec: DOFArray, exclude_metric: bool = False) -> DOFArray:
-        """
-        Applies the action of the requested operator to *vec* via tensor
-        contractions with a 1D operator.
-
-        If a derivative is to be taken, then a 1D mass operator and
-        differentiation operator will be applied.
-        """
-
-        # apply area scaling regardless of whether there are derivatives
-        if not exclude_metric:
-            assert self.area_element is not None
-            vec = vec * self.area_element
-
-        # reveal tensor product structure
-        if self.input_group.dim != 1:
-            assert isinstance(self.input_group.space, TensorProductSpace)
             vec = fold(self.input_group.space, vec)
 
-        # apply the bilinear form
-        if self.test_derivative is not None:
-            vec = self._compute_partial_derivative(vec)
-        else:
-            vec = self._apply_mass_operator(vec)
+        partial_derivative = 0.0
+        for rst_axis in range(self.input_group.dim):
+            reference_partial = self.mass_operator(
+                vec[derivative], exclude_axis=rst_axis, exclude_metric=True)
 
-        # hide tensor product structure
-        if self.output_group.dim != 1:
-            assert isinstance(self.output_group.space, TensorProductSpace)
-            return unfold(self.output_group.space, vec)
+            partial_derivative += unfold(
+                self.output_group.space,
+                single_axis_contraction(
+                    self.actx, self.input_group.dim, rst_axis,
+                    self.stiffness_operator, reference_partial,
+                    arg_names=("stiffness_1d", f"ref_partial_{rst_axis}")))
 
-        return vec
+        return partial_derivative
 
     # }}}
 
@@ -590,6 +644,11 @@ def _dispatch_bilinear_form(
     operators like the mass and stiffness operators.
     """
 
+    if test_derivative is not None:
+        compute_stiffness = True
+    else:
+        compute_stiffness = False
+
     # {{{ grab discretizations
 
     actx = vec.array_context
@@ -619,6 +678,7 @@ def _dispatch_bilinear_form(
         strict=False):
 
         if isinstance(in_group, TensorProductElementGroupBase):
+            assert isinstance(out_group, TensorProductElementGroupBase)
 
             # NOTE: overintegration + fast operator evaluation is not supported
             fast_eval = use_tensor_product_fast_eval and (in_group == out_group)
@@ -628,28 +688,32 @@ def _dispatch_bilinear_form(
                      "tensor-product fast operator evaluation. Defaulting to " +
                      "typical operator evaluation.", stacklevel=1)
 
-            assert isinstance(out_group, TensorProductElementGroupBase)
             if fast_eval:
                 bilinear_form = _TensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
-                    test_derivative=test_derivative)
+                    compute_stiffness=compute_stiffness)
             else:
                 bilinear_form = _NonTensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
-                    test_derivative=test_derivative)
+                    compute_stiffness=compute_stiffness)
 
         elif isinstance(in_group, SimplexElementGroupBase):
             assert isinstance(out_group, PolynomialSimplexElementGroupBase)
             bilinear_form = _NonTensorProductBilinearForm(
                 actx, in_group, out_group, metric_i, area_elt_i,
-                test_derivative=test_derivative)
+                compute_stiffness=compute_stiffness)
 
         else:
             raise ValueError(
                 "Element groups must either be subclasses of "
                 "`TensorProductElemenGroupBase` or `SimplexElemenGroupBase`")
 
-        group_data.append(bilinear_form(vec_i))
+        if test_derivative is not None:
+            vec_i = bilinear_form.derivative_operator(vec_i, test_derivative)
+        else:
+            vec_i = bilinear_form.mass_operator(vec_i)
+
+        group_data.append(vec_i)
 
     # }}}
 
