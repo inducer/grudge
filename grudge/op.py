@@ -646,22 +646,15 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
                 actx, in_group, out_group, metric_i, area_elt_i,
                 compute_stiffness=True)
 
-        group_data.append(
-            tag_axes(
-                actx,
-                {
-                    0: DiscretizationAmbientDimAxisTag(),
-                    1: DiscretizationElementAxisTag(),
-                    2: DiscretizationDOFAxisTag()
-                },
-               bilinear_form.gradient_operator(vec_i)))
+        group_data.append(bilinear_form.gradient_operator(vec_i))
 
     # }}}
 
     return make_obj_array([
-        DOFArray(actx, data=tuple([
-            group_grad_i[xyz_axis] for group_grad_i in group_data
-        ]))
+        DOFArray(actx, data=tuple(
+            group_grad_i[xyz_axis]
+            for group_grad_i in group_data
+        ))
         for xyz_axis in range(output_discr.ambient_dim)
     ])
 
