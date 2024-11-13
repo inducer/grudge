@@ -27,16 +27,15 @@ THE SOFTWARE.
 """
 
 
+from pytato.array import EinsumElementwiseAxis
+from pytato.transform import CombineMapper, CopyMapperWithExtraArgs
+
 from grudge.transform.metadata import (
+    TensorProductMassOperatorInverseTag,
     TensorProductMassOperatorTag,
-    TensorProductMassOperatorInverseTag
 )
 
-from pytato.array import EinsumElementwiseAxis
-from pytato.transform import CopyMapperWithExtraArgs
 
-
-from pytato.transform import CombineMapper
 class MassCounter(CombineMapper):
     def combine(self, *n_list):
         return sum(n_list)

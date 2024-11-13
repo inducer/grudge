@@ -43,12 +43,14 @@ from meshmode.array_context import (
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
 from meshmode.transform_metadata import (
-    DiscretizationDOFAxisTag,
-    DiscretizationElementAxisTag)
+    DiscretizationElementAxisTag,
+)
 from pytools import to_identifier
 from pytools.tag import Tag
 
-from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered, TensorProductDOFAxisTag, unify_discretization_entity_tags
+from grudge.transform.metadata import (
+    OutputIsTensorProductDOFArrayOrdered,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -201,11 +203,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     def transform_dag(self, dag):
         import pytato as pt
 
-        from grudge.transform.mappers import (
-            InverseMassRemoverMapper,
-            MassCounter,
-            MassInverseCounter
-        )
         self.dot_codes_before_mass.append(pt.visualization.get_dot_graph(dag))
         # print("BEFORE, M: ", MassCounter()(dag),
         #       "Minv: ", MassInverseCounter()(dag))

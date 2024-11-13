@@ -29,7 +29,6 @@ THE SOFTWARE.
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import numpy.linalg as la
@@ -62,8 +61,8 @@ from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, DOFDesc
 from grudge.geometry import area_element, inverse_surface_metric_derivative_mat
 from grudge.tools import rec_map_subarrays
 from grudge.transform.metadata import (
-    TensorProductMassOperatorTag,
     TensorProductDOFAxisTag,
+    TensorProductMassOperatorTag,
     TensorProductOperatorAxisTag,
 )
 
@@ -106,13 +105,13 @@ class _BilinearForm:
     the result of applying the operator will live.
     """
 
-    area_element: Optional[DOFArray]
+    area_element: DOFArray | None
     """
     Area scaling term found by computing the determinant of the inverse of the
     Jacobian of the mapping from the reference to physical space.
     """
 
-    metric_terms: Optional[DOFArray]
+    metric_terms: DOFArray | None
     """
     Chain rule terms arising from taking derivatives of functions whose
     arguments are the inverse mapping from the reference space to physical
@@ -160,8 +159,8 @@ class _NonTensorProductBilinearForm(_BilinearForm):
                  actx: ArrayContext,
                  input_group: ElementGroupBase,
                  output_group: InterpolatoryElementGroupBase,
-                 metric_terms: DOFArray,
-                 area_element: DOFArray,
+                 metric_terms: DOFArray = None,
+                 area_element: DOFArray = None,
                  test_derivative: int | None = None):
 
         super().__init__(actx, input_group, output_group, area_element,
@@ -322,7 +321,7 @@ class _TensorProductBilinearForm(_BilinearForm):
     operator is always constructed.
     """
 
-    stiffness_operator: Optional[Array]
+    stiffness_operator: Array | None
     """
     An :class:`~arraycontext.Array` representing a 1D stiffness operator. This
     operator is only constructed if derivatives are requested.
@@ -332,8 +331,8 @@ class _TensorProductBilinearForm(_BilinearForm):
                  actx: ArrayContext,
                  input_group: TensorProductElementGroupBase,
                  output_group: TensorProductElementGroupBase,
-                 metric_terms: DOFArray,
-                 area_element: DOFArray,
+                 metric_terms: DOFArray = None,
+                 area_element: DOFArray = None,
                  test_derivative: int | None = None):
 
         super().__init__(actx, input_group, output_group, area_element,
@@ -343,7 +342,7 @@ class _TensorProductBilinearForm(_BilinearForm):
         if self.input_group == self.output_group:
             self._quadrature_rule = mp.quadrature_for_space(
                 mp.space_for_shape(self.output_group.shape,
-                                   5*self.output_group.order + 1),
+                                   2*self.output_group.order + 1),
                 self.output_group.shape)
 
             # used to map interp -> quad nodes since we dont have a quad discr
@@ -616,11 +615,21 @@ def _dispatch_bilinear_form(
 
     group_data = []
     for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
-        input_discr.groups, output_discr.groups, vec, metrics, area_elements):
+        input_discr.groups, output_discr.groups, vec, metrics, area_elements,
+        strict=False):
 
         if isinstance(in_group, TensorProductElementGroupBase):
+
+            # NOTE: overintegration + fast operator evaluation is not supported
+            fast_eval = use_tensor_product_fast_eval and (in_group == out_group)
+            if use_tensor_product_fast_eval and not fast_eval:
+                from warnings import warn
+                warn("Input and output groups must match to use " +
+                     "tensor-product fast operator evaluation. Defaulting to " +
+                     "typical operator evaluation.", stacklevel=1)
+
             assert isinstance(out_group, TensorProductElementGroupBase)
-            if use_tensor_product_fast_eval:
+            if fast_eval:
                 bilinear_form = _TensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
                     test_derivative=test_derivative)

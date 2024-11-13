@@ -18,23 +18,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from arraycontext import ArrayContainer
-from arraycontext.container.traversal import rec_map_array_container
-
-from pytato.transform.metadata import AxisIgnoredForPropagationTag
-
-from meshmode.transform_metadata import (
-    DiscretizationDOFAxisTag,
-    DiscretizationEntityAxisTag
-)
-from pytools.tag import Tag, tag_dataclass
 
 import pytato as pt
 from pytato.transform import ArrayOrNames
 from pytato.transform.metadata import (
-    AxesTagsEquationCollector as BaseAxesTagsEquationCollector)
+    AxesTagsEquationCollector as BaseAxesTagsEquationCollector,
+    AxisIgnoredForPropagationTag,
+)
 
-from typing import Union
+from arraycontext import ArrayContainer
+from arraycontext.container.traversal import rec_map_array_container
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationEntityAxisTag,
+)
+from pytools.tag import Tag, tag_dataclass
 
 
 class OutputIsTensorProductDOFArrayOrdered(Tag):
@@ -107,7 +105,7 @@ class AxesTagsEquationCollector(BaseAxesTagsEquationCollector):
             pass
 
 
-def unify_discretization_entity_tags(expr: Union[ArrayContainer, ArrayOrNames]
+def unify_discretization_entity_tags(expr: ArrayContainer | ArrayOrNames
                                      ) -> ArrayOrNames:
     if not isinstance(expr, (pt.Array, pt.DictOfNamedArrays)):
         return rec_map_array_container(unify_discretization_entity_tags,

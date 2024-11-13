@@ -32,14 +32,11 @@ import numpy.linalg as la
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 from arraycontext import flatten
-from meshmode.mesh import BTAG_ALL
-from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+from meshmode.mesh import BTAG_ALL, TensorProductElementGroup
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
-from grudge.array_context import (
-    NumpyArrayContext,
-    PytatoPyOpenCLArrayContext)
+from grudge.array_context import NumpyArrayContext, PytatoPyOpenCLArrayContext
 
 
 logger = logging.getLogger(__name__)

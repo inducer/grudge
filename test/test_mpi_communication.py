@@ -36,7 +36,9 @@ from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, op
 from grudge.array_context import (
-    MPIPyOpenCLArrayContext, MPIPytatoArrayContext, MPINumpyArrayContext
+    MPINumpyArrayContext,
+    MPIPyOpenCLArrayContext,
+    MPIPytatoArrayContext,
 )
 from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import rk4_step

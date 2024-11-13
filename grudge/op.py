@@ -227,7 +227,7 @@ def _single_axis_derivative_kernel(
 
     group_data = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
 
         if isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
@@ -304,7 +304,7 @@ def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec):
 
     per_group_grads = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
 
         if isinstance(in_grp, SimplexElementGroupBase):
             assert isinstance(out_grp, SimplexElementGroupBase)
@@ -372,7 +372,7 @@ def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat,
 
     per_group_divs = []
     for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat):
+        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
         if isinstance(in_grp, SimplexElementGroupBase):
             assert isinstance(out_grp, SimplexElementGroupBase)
             per_group_divs.append(compute_simplicial_divergence(
@@ -618,21 +618,37 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
 
     group_data = []
     for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
-        input_discr.groups, output_discr.groups, vec, metrics, area_elements):
+        input_discr.groups, output_discr.groups, vec, metrics, area_elements,
+        strict=False):
 
         group_grad = []
         for test_derivative in range(in_group.dim):
-            if isinstance(in_group, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
-                bilinear_form = _TensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    test_derivative=test_derivative)
-                group_grad.append(bilinear_form(vec_i))
+            if isinstance(in_group, TensorProductElementGroupBase):
+                assert isinstance(out_group, TensorProductElementGroupBase)
+
+                fast_eval = (use_tensor_product_fast_eval and
+                             (in_group == out_group))
+                if use_tensor_product_fast_eval and not fast_eval:
+                    from warnings import warn
+                    warn("Input and output groups must match to use " +
+                         "tensor-product fast operator evaluation. " +
+                         "Defaulting to typical operator evaluation.",
+                         stacklevel=1)
+
+                if fast_eval:
+                    bilinear_form = _TensorProductBilinearForm(
+                        actx, in_group, out_group, metric_i, area_elt_i,
+                        test_derivative=test_derivative)
+                else:
+                    bilinear_form = _NonTensorProductBilinearForm(
+                        actx, in_group, out_group, metric_i, area_elt_i,
+                        test_derivative=test_derivative)
             else:
                 bilinear_form = _NonTensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
                     test_derivative=test_derivative)
-                group_grad.append(bilinear_form(vec_i))
+
+            group_grad.append(bilinear_form(vec_i))
 
         group_data.append(
             tag_axes(
@@ -691,16 +707,31 @@ def _weak_scalar_div(dcoll, dd_in, vecs, *args,
 
     group_divs = []
     for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
-        input_discr.groups, output_discr.groups, vec, metrics, area_elements):
+        input_discr.groups, output_discr.groups, vec, metrics, area_elements,
+        strict=False):
 
         group_div = 0.
         for func_axis in range(in_group.dim):
-            if isinstance(in_group, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
+            if isinstance(in_group, TensorProductElementGroupBase):
+                assert isinstance(out_group, TensorProductElementGroupBase)
 
-                bilinear_form = _TensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    test_derivative=func_axis)
+                fast_eval = (use_tensor_product_fast_eval and
+                             (in_group == out_group))
+                if use_tensor_product_fast_eval and not fast_eval:
+                    from warnings import warn
+                    warn("Input and output groups must match to use " +
+                         "tensor-product fast operator evaluation. " +
+                         "Defaulting to typical operator evaluation.",
+                         stacklevel=1)
+
+                if fast_eval:
+                    bilinear_form = _TensorProductBilinearForm(
+                        actx, in_group, out_group, metric_i, area_elt_i,
+                        test_derivative=func_axis)
+                else:
+                    bilinear_form = _NonTensorProductBilinearForm(
+                        actx, in_group, out_group, metric_i, area_elt_i,
+                        test_derivative=func_axis)
             else:
                 bilinear_form = _NonTensorProductBilinearForm(
                     actx, in_group, out_group, metric_i, area_elt_i,
@@ -985,14 +1016,28 @@ def _apply_inverse_mass_operator(
 
     # apply reference inverse mass
     group_data = []
-    for grp, vec_i in zip(discr_base.groups, vec):
-        if isinstance(grp, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
-            group_data.append(_tensor_product_apply_inverse_mass_operator(
-                actx, grp, vec_i))
+    for in_grp, out_grp, vec_i in zip(discr_quad.groups, discr_base.groups, vec,
+                          strict=False):
+        if isinstance(out_grp, TensorProductElementGroupBase):
+            assert isinstance(out_grp, TensorProductElementGroupBase)
+
+            fast_eval = (use_tensor_product_fast_eval and (in_grp == out_grp))
+            if use_tensor_product_fast_eval and not fast_eval:
+                from warnings import warn
+                warn("Input and output groups must match to use " +
+                     "tensor-product fast operator evaluation. " +
+                     "Defaulting to typical operator evaluation.",
+                     stacklevel=1)
+
+            if fast_eval:
+                group_data.append(_tensor_product_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i))
+            else:
+                group_data.append(_simplicial_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i))
         else:
             group_data.append(_simplicial_apply_inverse_mass_operator(
-                actx, grp, vec_i))
+                actx, out_grp, vec_i))
 
     # project to quadrature discretization
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
@@ -1003,24 +1048,34 @@ def _apply_inverse_mass_operator(
     # finish applying WADG
     group_data = []
     for in_grp, out_grp, vec_i in zip(
-            discr_quad.groups, discr_base.groups, vec):
-        if isinstance(in_grp, TensorProductElementGroupBase) and \
-            use_tensor_product_fast_eval:
+            discr_quad.groups, discr_base.groups, vec, strict=False):
+        if isinstance(in_grp, TensorProductElementGroupBase):
+            assert isinstance(out_grp, TensorProductElementGroupBase)
 
-            bilinear_form = _TensorProductBilinearForm(
-                actx, in_grp, out_grp, None, None)
+            fast_eval = (use_tensor_product_fast_eval and (in_grp == out_grp))
+            if use_tensor_product_fast_eval and not fast_eval:
+                from warnings import warn
+                warn("Input and output groups must match to use " +
+                     "tensor-product fast operator evaluation. " +
+                     "Defaulting to typical operator evaluation.",
+                     stacklevel=1)
 
-            vec_i = bilinear_form(vec_i, exclude_metric=True)
-
-            group_data.append(_tensor_product_apply_inverse_mass_operator(
-                actx, out_grp, vec_i))
+            if fast_eval:
+                bilinear_form = _TensorProductBilinearForm(actx, in_grp,
+                                                           out_grp)
+                vec_i = bilinear_form(vec_i, exclude_metric=True)
+                group_data.append(_tensor_product_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i))
+            else:
+                bilinear_form = _NonTensorProductBilinearForm(actx, in_grp,
+                                                              out_grp)
+                vec_i = bilinear_form(vec_i, exclude_metric=True)
+                group_data.append(_simplicial_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i))
 
         else:
-            bilinear_form = _NonTensorProductBilinearForm(
-                actx, in_grp, out_grp, None, None)
-
+            bilinear_form = _NonTensorProductBilinearForm(actx, in_grp, out_grp)
             vec_i = bilinear_form(vec_i, exclude_metric=True)
-
             group_data.append(_simplicial_apply_inverse_mass_operator(
                 actx, out_grp, vec_i))
 
@@ -1397,7 +1452,7 @@ def _apply_mass_operator(
 
     group_data = []
     for in_grp, out_grp, ae_i, vec_i in zip(
-        in_discr.groups, out_discr.groups, area_elements, vec):
+        in_discr.groups, out_discr.groups, area_elements, vec, strict=False):
         if isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
             group_data.append(tensor_product_apply_mass(
