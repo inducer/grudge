@@ -3,6 +3,7 @@
 .. autoclass:: PytatoPyOpenCLArrayContext
 .. autoclass:: MPIBasedArrayContext
 .. autoclass:: MPIPyOpenCLArrayContext
+.. autoclass:: MPINumpyArrayContext
 .. autoclass:: MPICupyArrayContext
 .. class:: MPIPytatoArrayContext
 .. autofunction:: get_reasonable_array_context_class
@@ -33,17 +34,9 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    FrozenSet,
-    Mapping,
-    Optional,
-    Tuple,
-    Type,
-)
+from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
 from meshmode.array_context import (
@@ -101,10 +94,11 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext import ArrayContext
+from arraycontext import ArrayContext, NumpyArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
+    _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoPyOpenCLArrayContextFactory,
     register_pytest_array_context_factory,
@@ -130,7 +124,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     """
     def __init__(self, queue: "pyopencl.CommandQueue",
             allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
-            wait_event_queue_length: Optional[int] = None,
+            wait_event_queue_length: int | None = None,
             force_device_scalars: bool = True) -> None:
 
         if allocator is None:
@@ -153,7 +147,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """
     def __init__(self, queue, allocator=None,
             *,
-            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
+            compile_trace_callback: Callable[[Any, str, Any], None] | None
              = None) -> None:
         """
         :arg compile_trace_callback: A function of three arguments
@@ -357,10 +351,10 @@ class _DistributedCompiledFunction:
     actx: "MPISingleGridWorkBalancingPytatoArrayContext"
     distributed_partition: "DistributedGraphPartition"
     part_id_to_prg: "Mapping[PartId, pt.target.BoundProgram]"
-    input_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
-    output_id_to_name_in_program: Mapping[Tuple[Any, ...], str]
-    name_in_program_to_tags: Mapping[str, FrozenSet[Tag]]
-    name_in_program_to_axes: Mapping[str, Tuple["pt.Axis", ...]]
+    input_id_to_name_in_program: Mapping[tuple[Any, ...], str]
+    output_id_to_name_in_program: Mapping[tuple[Any, ...], str]
+    name_in_program_to_tags: Mapping[str, frozenset[Tag]]
+    name_in_program_to_axes: Mapping[str, tuple["pt.Axis", ...]]
     output_template: ArrayContainer
 
     def __call__(self, arg_id_to_arg) -> ArrayContainer:
@@ -399,8 +393,8 @@ class _DistributedCompiledFunction:
 class MPIPytatoArrayContextBase(MPIBasedArrayContext):
     def __init__(
             self, mpi_communicator, queue, *, mpi_base_tag, allocator=None,
-            compile_trace_callback: Optional[Callable[[Any, str, Any], None]]
-            = None) -> None:
+            compile_trace_callback: Callable[[Any, str, Any], None] | None = None,
+            ) -> None:
         """
         :arg compile_trace_callback: A function of three arguments
             *(what, stage, ir)*, where *what* identifies the object
@@ -468,7 +462,7 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
             mpi_communicator,
             queue: "pyopencl.CommandQueue",
             *, allocator: Optional["pyopencl.tools.AllocatorBase"] = None,
-            wait_event_queue_length: Optional[int] = None,
+            wait_event_queue_length: int | None = None,
             force_device_scalars: bool = True) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
@@ -487,6 +481,26 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
                 allocator=self.allocator,
                 wait_event_queue_length=self._wait_event_queue_length,
                 force_device_scalars=self._force_device_scalars)
+
+# }}}
+
+
+# {{{ distributed + numpy
+
+class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`numpy`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator) -> None:
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self):
+        return type(self)(self.mpi_communicator)
 
 # }}}
 
@@ -558,10 +572,19 @@ class PytestPytatoPyOpenCLArrayContextFactory(
         return self.actx_class(queue, allocator=alloc)
 
 
+class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
+    actx_class = NumpyArrayContext
+
+    def __call__(self):
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
         PytestPytatoPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory("grudge.numpy",
+        PytestNumpyArrayContextFactory)
 
 # }}}
 
@@ -569,7 +592,7 @@ register_pytest_array_context_factory("grudge.pytato-pyopencl",
 # {{{ actx selection
 
 
-def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
+def _get_single_grid_pytato_actx_class(distributed: bool) -> type[ArrayContext]:
     if not _HAVE_SINGLE_GRID_WORK_BALANCING:
         warn("No device-parallel actx available, execution will be slow. "
              "Please make sure you have the right branches for loopy "
@@ -593,12 +616,21 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> Type[ArrayContext]:
 
 def get_reasonable_array_context_class(
         lazy: bool = True, distributed: bool = True,
-        fusion: Optional[bool] = None,
-        ) -> Type[ArrayContext]:
-    """Returns a reasonable :class:`PyOpenCLArrayContext` currently
-    supported given the constraints of *lazy* and *distributed*."""
+        fusion: bool | None = None, numpy: bool = False,
+        ) -> type[ArrayContext]:
+    """Returns a reasonable :class:`~arraycontext.ArrayContext` currently
+    supported given the constraints of *lazy*, *distributed*, and *numpy*."""
     if fusion is None:
         fusion = lazy
+
+    if numpy:
+        assert not (lazy or fusion)
+        if distributed:
+            actx_class = MPINumpyArrayContext
+        else:
+            actx_class = NumpyArrayContext
+
+        return actx_class
 
     if lazy:
         if fusion:
