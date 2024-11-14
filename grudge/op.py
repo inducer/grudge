@@ -977,13 +977,13 @@ def _tensor_product_apply_inverse_mass_operator(actx, grp, vec):
     return vec
 
 
-def _apply_inverse_mass_operator(
+def _dispatch_inverse_mass_applier(
         dcoll: DiscretizationCollection, dd_out, dd_in, vec,
         uses_quadrature=False,
         use_tensor_product_fast_eval=True):
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in,
+            partial(_dispatch_inverse_mass_applier, dcoll, dd_out, dd_in,
                     uses_quadrature), vec
         )
 
@@ -996,6 +996,25 @@ def _apply_inverse_mass_operator(
     actx = vec.array_context
     discr_base = dcoll.discr_from_dd(dd_out)
     discr_quad = dcoll.discr_from_dd(dd_in)
+
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    if discr_base == discr_quad:
+        group_data = []
+        for in_grp, out_grp, vec_i, inv_ae_i in zip(discr_quad.groups,
+                discr_base.groups, vec, inv_area_elements, strict=False):
+
+            if isinstance(in_grp, TensorProductElementGroupBase) and \
+                    use_tensor_product_fast_eval:
+                assert isinstance(out_grp, TensorProductElementGroupBase)
+                group_data.append(_tensor_product_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i) * inv_ae_i)
+            else:
+                group_data.append(_simplicial_apply_inverse_mass_operator(
+                    actx, out_grp, vec_i) * inv_ae_i)
+
+        return DOFArray(actx, data=tuple(group_data))
 
     # see WADG: https://arxiv.org/pdf/1608.03836
 
@@ -1025,8 +1044,6 @@ def _apply_inverse_mass_operator(
                 actx, out_grp, vec_i))
 
     # project to quadrature discretization
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     vec = inv_area_elements * project(
         dcoll, dd_out, dd_in, DOFArray(actx, data=tuple(group_data)))
 
@@ -1123,7 +1140,7 @@ def inverse_mass(dcoll: DiscretizationCollection, *args,
         dd_in = dd
         dd_out = dd
 
-    return _apply_inverse_mass_operator(
+    return _dispatch_inverse_mass_applier(
         dcoll, dd_out, dd_in, vec,
         uses_quadrature=dd.uses_quadrature(),
         use_tensor_product_fast_eval=use_tensor_product_fast_eval)

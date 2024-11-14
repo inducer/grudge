@@ -36,6 +36,9 @@ from grudge.transform.metadata import (
 )
 
 
+# {{{ utilities
+
+
 class MassCounter(CombineMapper):
     def combine(self, *n_list):
         return sum(n_list)
@@ -63,6 +66,10 @@ class MassInverseCounter(CombineMapper):
 
         return acc
 
+# }}}
+
+
+# {{{ algebraic dag rewrites
 
 class MassRemoverMapper(CopyMapperWithExtraArgs):
     """
@@ -74,7 +81,7 @@ class MassRemoverMapper(CopyMapperWithExtraArgs):
         for arg in expr.args:
             if arg.tags_of_type(TensorProductMassOperatorTag):
                 if expr.access_descriptors[0][0] == out_access_descr:
-                    return self.rec(expr.args[1], out_access_descr)
+                    return expr.args[1]
 
             new_args.append(self.rec(arg, out_access_descr))
 
@@ -129,8 +136,10 @@ class InverseMassRemoverMapper(CopyMapperWithExtraArgs):
 
                 new_expr = self.mass_remover(expr.args[1], out_access_descr)
                 if new_expr != expr.args[1]:
-                    return self.rec(new_expr, out_access_descr)
+                    return self.rec(new_expr, arg, out_access_descr)
 
             new_args.append(self.rec(arg))
 
         return expr.copy(args=tuple(new_args))
+
+# }}}

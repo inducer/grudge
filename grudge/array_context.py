@@ -38,6 +38,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
+import pytato as pt
+
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
@@ -177,8 +179,8 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
-    dot_codes_before_mass = []
-    dot_codes_after_mass = []
+    dot_codes_before: list[str] = []
+    dot_codes_after: list[str] = []
 
     def __init__(self, queue, allocator=None,
             *,
@@ -201,17 +203,13 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
                 compile_trace_callback=compile_trace_callback)
 
     def transform_dag(self, dag):
-        import pytato as pt
 
-        self.dot_codes_before_mass.append(pt.visualization.get_dot_graph(dag))
-        # print("BEFORE, M: ", MassCounter()(dag),
-        #       "Minv: ", MassInverseCounter()(dag))
+        self.dot_codes_before.append(pt.visualization.get_dot_graph(dag))
         # dag = InverseMassRemoverMapper()(dag)
-        # print("AFTER,  M: ", MassCounter()(dag),
-        #       "Minv: ", MassInverseCounter()(dag))
-        self.dot_codes_after_mass.append(pt.visualization.get_dot_graph(dag))
+        self.dot_codes_after.append(pt.visualization.get_dot_graph(dag))
 
         # dag = unify_discretization_entity_tags(dag)
+        from pytato.visualization import show_fancy_placeholder_data_flow
 
         return dag
 

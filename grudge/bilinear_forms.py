@@ -50,7 +50,6 @@ from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
 )
-from modepy.spaces import TensorProductSpace
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold,
@@ -489,7 +488,6 @@ class _TensorProductBilinearForm(_BilinearForm):
                 and self.input_group.dim != 1:
             unreshape = True
             vec = fold(self.input_group.space, vec)
-
 
         apply_mass_axes = set(np.arange(self.input_group.dim)) - {exclude_axis}
         for ax in apply_mass_axes:
