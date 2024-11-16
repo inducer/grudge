@@ -74,7 +74,15 @@ class TensorProductMassOperatorTag(Tag):
 
 class TensorProductMassOperatorInverseTag(Tag):
     """
-    See `ReferenceTensorProductMassOperatorTag`.
+    See `TensorProductMassOperatorTag`.
+    """
+    pass
+
+
+class TensorProductStiffnessOperatorTag(Tag):
+    """
+    Similar to `TensorProductMassOperatorTag`. Used to implement an
+    associativity DAG transformation.
     """
     pass
 

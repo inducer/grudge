@@ -47,8 +47,15 @@ from meshmode.array_context import (
 from meshmode.transform_metadata import (
     DiscretizationElementAxisTag,
 )
+from pytato.analysis import get_num_nodes
 from pytools import to_identifier
 from pytools.tag import Tag
+
+from grudge.transform.mappers import (
+    InverseMassPropagator,
+    InverseMassRemover,
+    MassInverseTimesStiffnessSimplifier
+)
 
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
@@ -173,6 +180,41 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
 # {{{ pytato
 
+def deduplicate_data_wrappers(dag):
+    import pytato as pt
+    data_wrapper_cache = {}
+    data_wrappers_encountered = 0
+
+    def cached_data_wrapper_if_present(ary):
+        nonlocal data_wrappers_encountered
+
+        if isinstance(ary, pt.DataWrapper):
+
+            data_wrappers_encountered += 1
+            cache_key = (ary.data.base_data.int_ptr, ary.data.offset,
+                         ary.shape, ary.data.strides)
+            try:
+                result = data_wrapper_cache[cache_key]
+            except KeyError:
+                result = ary
+                data_wrapper_cache[cache_key] = result
+
+            return result
+        else:
+            return ary
+
+    dag = pt.transform.map_and_copy(dag, cached_data_wrapper_if_present)
+
+    if data_wrappers_encountered:
+        logger.info("data wrapper de-duplication: "
+                "%d encountered, %d kept, %d eliminated",
+                data_wrappers_encountered,
+                len(data_wrapper_cache),
+                data_wrappers_encountered - len(data_wrapper_cache))
+
+    return dag
+
+
 class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
@@ -181,6 +223,11 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     dot_codes_before: list[str] = []
     dot_codes_after: list[str] = []
+
+    num_nodes_before: int = 0
+    num_nodes_after: int = 0
+
+    device_code: str = ""
 
     def __init__(self, queue, allocator=None,
             *,
@@ -204,50 +251,45 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     def transform_dag(self, dag):
 
+        self.num_nodes_before += get_num_nodes(dag)
         self.dot_codes_before.append(pt.visualization.get_dot_graph(dag))
-        # dag = InverseMassRemoverMapper()(dag)
-        self.dot_codes_after.append(pt.visualization.get_dot_graph(dag))
 
-        # dag = unify_discretization_entity_tags(dag)
-        from pytato.visualization import show_fancy_placeholder_data_flow
+        # {{{ tensor-product algebraic DAG rewrites
+
+        # FIXME: remove after enough cases have been tested
+        if 1:
+            # step 1: distribute mass inverse through DAG, across index lambdas
+            dag = InverseMassPropagator()(dag)
+
+            # step 2: remove mass-times-mass-inverse einsums
+            dag = InverseMassRemover()(dag)
+
+            # step 3: create new operator out of inverse mass times stiffness
+            dag = MassInverseTimesStiffnessSimplifier()(dag)
+
+        # }}}
+
+        dag = pt.transform.materialize_with_mpms(dag)
+        dag = deduplicate_data_wrappers(dag)
+
+        def eliminate_reshapes_of_data_wrappers(ary):
+            if (isinstance(ary, pt.Reshape)
+                    and isinstance(ary.array, pt.DataWrapper)):
+                return pt.make_data_wrapper(ary.array.data.reshape(ary.shape),
+                                            tags=ary.tags,
+                                            axes=ary.axes)
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag,
+                                        eliminate_reshapes_of_data_wrappers)
+        self.dot_codes_after.append(pt.visualization.get_dot_graph(dag))
+        self.num_nodes_after += get_num_nodes(dag)
 
         return dag
 
     def transform_loopy_program(self, t_unit):
-        import loopy as lp
-
-        knl = t_unit.default_entrypoint
-
-        el_ax_to_inames = {}
-        for iname in knl.inames:
-            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
-                key = "iel"
-                el_ax_to_inames.setdefault(key, []).append(iname)
-
-            # if knl.inames[iname].tags_of_type(DiscretizationDOFAxisTag):
-            #     key = "idof"
-            #     el_ax_to_inames.setdefault(key, []).append(iname)
-            #
-            # if knl.inames[iname].tags_of_type(TensorProductDOFAxisTag):
-            #     tag, = knl.inames[iname].tags_of_type(TensorProductDOFAxisTag)
-            #     key = f"idof_tp_{tag.iaxis}"
-            #     el_ax_to_inames.setdefault(key, []).append(iname)
-
-        for new_iname, inames in el_ax_to_inames.items():
-            for iname in inames:
-                knl = lp.rename_iname(knl, iname, new_iname, existing_ok=True)
-
-        for iname in knl.inames:
-            if iname == "iel":
-                knl = lp.tag_inames(knl, [(iname, "g.0")])
-            # if iname == "idof":
-            #     knl = lp.split_iname(knl, iname, 32, inner_tag="l.0")
-            # if "idof_tp" in iname:
-            #     knl = lp.tag_inames(knl, [(iname, f"l.{iname[-1]}")])
-
-        t_unit = t_unit.with_kernel(knl)
-        t_unit = lp.set_options(t_unit, "insert_gbarriers")
-        # print(t_unit)
+        # NOTE: fix tag propagation before trying to implement transforms here
         return t_unit
 
 # }}}

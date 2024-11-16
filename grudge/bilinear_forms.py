@@ -63,6 +63,7 @@ from grudge.transform.metadata import (
     TensorProductDOFAxisTag,
     TensorProductMassOperatorTag,
     TensorProductOperatorAxisTag,
+    TensorProductStiffnessOperatorTag,
 )
 
 
@@ -435,16 +436,20 @@ class _TensorProductBilinearForm(_BilinearForm):
 
             if self.input_group == self.output_group:
                 self._stiffness_operator = self.actx.freeze(
-                    tag_axes(
-                        self.actx,
-                        axes_to_tags,
-                        self.actx.from_numpy(stiff_1d @ self._resampler)))
+                    self.actx.tag(
+                        TensorProductStiffnessOperatorTag(),
+                        tag_axes(
+                            self.actx,
+                            axes_to_tags,
+                            self.actx.from_numpy(stiff_1d @ self._resampler))))
             else:
                 self._stiffness_operator = self.actx.freeze(
-                    tag_axes(
+                    self.actx.tag(
+                        TensorProductStiffnessOperatorTag(),
+                        tag_axes(
                         self.actx,
                         axes_to_tags,
-                        self.actx.from_numpy(stiff_1d)))
+                        self.actx.from_numpy(stiff_1d))))
 
         # }}}
 
