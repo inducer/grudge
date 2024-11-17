@@ -593,7 +593,7 @@ class _TensorProductBilinearForm(_BilinearForm):
                 self.output_group.space,
                 single_axis_contraction(
                     self.actx, self.input_group.dim, rst_axis,
-                    self.stiffness_operator, reference_partial,
+                    self._stiffness_operator, reference_partial,
                     arg_names=("stiffness_1d", f"ref_partial_{rst_axis}")))
 
         return partial_derivative

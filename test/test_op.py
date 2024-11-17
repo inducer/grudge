@@ -97,6 +97,8 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     group_cls=group_cls)
 
         if rotate_mesh:
+            from meshmode.mesh.processing import affine_map
+            b = np.array([0.33, -0.21, 0.0])[:dim]
             if dim == 1:
                 pytest.skip()
             elif dim == 2:
@@ -105,6 +107,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     [np.cos(theta), -np.sin(theta)],
                     [np.sin(theta), np.cos(theta)]
                 ])
+                mesh = affine_map(mesh, A=a, b=b)
             elif dim == 3:
                 theta = np.pi / 2
                 a = np.array([
@@ -112,11 +115,8 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     [0.0, np.cos(theta), -np.sin(theta)],
                     [0.0, np.sin(theta), np.cos(theta)]
                 ])
+                mesh = affine_map(mesh, A=a, b=b)
 
-            b = np.array([0.33, -0.21, 0.0])[:dim]
-
-            from meshmode.mesh.processing import affine_map
-            mesh = affine_map(mesh, A=a, b=b)
 
         dcoll = make_discretization_collection(
            actx, mesh,
