@@ -99,6 +99,12 @@ class MassInverseTimesStiffnessSimplifier(CopyMapperWithExtraArgs):
 
             d = mass_inverse @ stiffness
 
+            from grudge.transform.metadata import AxisIgnoredForPropagationTag
+            d_axes = []
+            for ax in d.axes:
+                d_axes.append(ax.tagged(AxisIgnoredForPropagationTag()))
+            d = d.copy(axes=tuple(d_axes))
+
             new_args = [d, data]
             new_access_descriptors = [
                 expr.access_descriptors[iarg_stiffness],
@@ -167,11 +173,6 @@ class InverseMassPropagator(CopyMapperWithExtraArgs):
     The goal of this mapper is to remove redundant mass-times-mass inverse
     operations from an expression graph of operations involved with a
     tensor-product discretization.
-
-    Once an inverse mass operator is identified, this mapper uses
-    :class:`MassRemoverMapper` to find and remove the corresponding mass
-    operator based on the output axis of the einsum that the inverse mass is an
-    argument of.
     """
     def map_einsum(self, expr, *args, **kwargs):
         new_args = []

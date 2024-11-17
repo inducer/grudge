@@ -33,6 +33,9 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
+
+import loopy as lp
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
@@ -59,6 +62,7 @@ from grudge.transform.mappers import (
 
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
+    TensorProductDOFAxisTag,
 )
 
 
@@ -221,6 +225,9 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
+    dot_codes_before: list[str] = []
+    dot_codes_after: list[str] = []
+
     def __init__(self, queue, allocator=None,
             *,
             compile_trace_callback: Callable[[Any, str, Any], None] | None
@@ -246,25 +253,29 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         # {{{ tensor-product algebraic DAG rewrites
 
         num_nodes_before = get_num_nodes(dag)
-        # step 1: distribute mass inverse through DAG, across index lambdas
-        dag = InverseMassPropagator()(dag)
+        self.dot_codes_before.append(pt.get_dot_graph(dag))
+        if 1:
+            # step 1: distribute mass inverse through DAG, across index lambdas
+            dag = InverseMassPropagator()(dag)
 
-        # step 2: remove mass-times-mass-inverse einsums
-        dag = InverseMassRemover()(dag)
+            # step 2: remove mass-times-mass-inverse einsums
+            dag = InverseMassRemover()(dag)
 
-        # step 3: create new operator out of inverse mass times stiffness
-        dag = MassInverseTimesStiffnessSimplifier()(dag)
-        num_nodes_after = get_num_nodes(dag)
-
-        if num_nodes_before != num_nodes_after:
-            logger.info("tensor-product xforms: %d nodes via tensor-product "
-                        "algebraic transformations ",
-                        num_nodes_before - num_nodes_after)
+            # step 3: create new operator out of inverse mass times stiffness
+            dag = MassInverseTimesStiffnessSimplifier()(dag)
 
         # }}}
 
-        dag = pt.transform.materialize_with_mpms(dag)
+        # dag = pt.transform.materialize_with_mpms(dag)
         dag = deduplicate_data_wrappers(dag)
+        num_nodes_after = get_num_nodes(dag)
+        self.dot_codes_after.append(pt.get_dot_graph(dag))
+
+        if num_nodes_before != num_nodes_after:
+            logger.info("tensor-product xforms: removed %d nodes via "
+                        "tensor-product algebraic transformations + "
+                        "deduplication",
+                        (num_nodes_before - num_nodes_after))
 
         def eliminate_reshapes_of_data_wrappers(ary):
             if (isinstance(ary, pt.Reshape)
@@ -278,10 +289,89 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         dag = pt.transform.map_and_copy(dag,
                                         eliminate_reshapes_of_data_wrappers)
 
+        def materialize_all_einsums_or_reduces(expr):
+            from pytato.raising import (index_lambda_to_high_level_op,
+                                        ReduceOp)
+
+            if isinstance(expr, pt.Einsum):
+                return expr.tagged(pt.tags.ImplStored())
+            elif (isinstance(expr, pt.IndexLambda)
+                    and isinstance(index_lambda_to_high_level_op(expr), ReduceOp)):
+                return expr.tagged(pt.tags.ImplStored())
+            else:
+                return expr
+
+        # logger.info("transform_dag.materialize_all_einsums_or_reduces")
+        # dag = pt.transform.map_and_copy(dag, materialize_all_einsums_or_reduces)
+
+        logger.info("transform_dag.infer_axes_tags")
+        from grudge.transform.metadata import unify_discretization_entity_tags
+        dag = unify_discretization_entity_tags(dag)
+
+        def untag_loopy_call_results(expr):
+            from pytato.loopy import LoopyCallResult
+            if isinstance(expr, LoopyCallResult):
+                return expr.copy(tags=frozenset(),
+                                 axes=(pt.Axis(frozenset()),)*expr.ndim)
+            else:
+                return expr
+
+        dag = pt.transform.map_and_copy(dag, untag_loopy_call_results)
+
+        def _untag_impl_stored(expr):
+            if isinstance(expr, pt.InputArgumentBase):
+                return expr
+            else:
+                return expr.without_tags(pt.tags.ImplStored(),
+                                         verify_existence=False)
+
+        dag = pt.make_dict_of_named_arrays({
+                name: _untag_impl_stored(named_ary.expr)
+                for name, named_ary in dag.items()})
+
         return dag
 
     def transform_loopy_program(self, t_unit):
-        # NOTE: fix tag propagation before trying to implement transforms here
+        knl = t_unit.default_entrypoint
+
+        redn_inames = []
+        for insn in knl.instructions:
+            redn_inames = redn_inames + list(insn.reduction_inames())
+        redn_inames = frozenset(redn_inames)
+
+        discr_iname_to_inames = {}
+        for iname in knl.inames:
+            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
+                key = "iel"
+
+                if iname not in redn_inames:
+                    discr_iname_to_inames.setdefault(key, []).append(iname)
+
+            if knl.inames[iname].tags_of_type(TensorProductDOFAxisTag):
+                key = "idof"
+                tag, = knl.inames[iname].tags_of_type(TensorProductDOFAxisTag)
+                key += f"_{tag.iaxis}"
+
+                if iname not in redn_inames:
+                    discr_iname_to_inames.setdefault(key, []).append(iname)
+
+        for discr_iname, inames in discr_iname_to_inames.items():
+            if discr_iname == "iel":
+                knl = lp.rename_inames(knl, inames, discr_iname,
+                                      existing_ok=True)
+            if discr_iname == "idof":
+                knl = lp.rename_inames(knl, inames, discr_iname,
+                                      existing_ok=True)
+
+        for iname in knl.inames:
+            if iname == "iel":
+                knl = lp.tag_inames(knl, [(iname, "g.0")])
+            if "idof" in iname:
+                # knl = lp.tag_inames(knl, [(iname, f"l.{iname[-1]}")])
+                knl = lp.split_iname(knl, iname, 8, inner_tag=f"l.{iname[-1]}")
+
+        t_unit = t_unit.with_kernel(knl)
+        t_unit = lp.set_options(t_unit, "insert_gbarriers")
         return t_unit
 
 # }}}

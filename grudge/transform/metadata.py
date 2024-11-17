@@ -92,25 +92,26 @@ class TensorProductStiffnessOperatorTag(Tag):
 class AxesTagsEquationCollector(BaseAxesTagsEquationCollector):
     def map_reshape(self, expr: pt.Reshape) -> None:
         super().map_reshape(expr)
-
-        if (expr.size > 0
-                and (1 not in (expr.array.shape))  # leads to ambiguous newaxis
-                and (set(expr.shape) <= (set(expr.array.shape) | {1}))):
-            i_in_axis = 0
-            for i_out_axis, dim in enumerate(expr.shape):
-                if dim != 1:
-                    assert dim == expr.array.shape[i_in_axis]
-                    self.record_equation(
-                                    self.get_var_for_axis(expr.array,
-                                                          i_in_axis),
-                                    self.get_var_for_axis(expr,
-                                                          i_out_axis)
-                    )
-                    i_in_axis += 1
-        else:
-            # print(f"Skipping: {expr.array.shape} -> {expr.shape}")
-            # Wacky reshape => bail.
-            pass
+    #
+    #     if (expr.size > 0
+    #             and (1 not in (expr.array.shape))  # leads to ambiguous newaxis
+    #             and (set(expr.shape) <= (set(expr.array.shape) | {1}))):
+    #         i_in_axis = 0
+    #         for i_out_axis, dim in enumerate(expr.shape):
+    #             if dim != 1:
+    #                 assert dim == expr.array.shape[i_in_axis]
+    #                 self.record_equation(
+    #                                 self.get_var_for_axis(expr.array,
+    #                                                       i_in_axis),
+    #                                 self.get_var_for_axis(expr,
+    #                                                       i_out_axis)
+    #                 )
+    #                 i_in_axis += 1
+    #     else:
+    #         # print(f"Skipping: {expr.array.shape} -> {expr.shape}")
+    #         # Wacky reshape => bail.
+    #         pass
+    # pass
 
 
 def unify_discretization_entity_tags(expr: ArrayContainer | ArrayOrNames

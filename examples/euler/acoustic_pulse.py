@@ -186,13 +186,20 @@ def run_acoustic_pulse(actx,
     vis = make_visualizer(dcoll)
 
     # {{{ time stepping
+    import time
 
     step = 0
     t = 0.0
+    elapsed = 0.0
     while t < final_time:
         if step % 10 == 0:
             norm_q = actx.to_numpy(op.norm(dcoll, fields, 2))
-            logger.info("[%04d] t = %.5f |q| = %.5e", step, t, norm_q)
+            if step != 0:
+                logger.info("[%04d] t = %.5f |q| = %.5e time per step = %.5f",
+                            step, t, norm_q, elapsed / step)
+            else:
+                logger.info("[%04d] t = %.5f |q| = %.5e time per step = %.5f",
+                            step, t, norm_q, 0)
             if visualize:
                 vis.write_vtk_file(
                     f"{exp_name}-{step:04d}.vtu",
@@ -204,8 +211,10 @@ def run_acoustic_pulse(actx,
                 )
             assert norm_q < 5
 
+        start = time.time()
         fields = actx.thaw(actx.freeze(fields))
         fields = rk4_step(fields, t, dt, compiled_rhs)
+        elapsed += time.time() - start
         t += dt
         step += 1
 
