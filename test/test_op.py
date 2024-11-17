@@ -117,7 +117,6 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 ])
                 mesh = affine_map(mesh, A=a, b=b)
 
-
         dcoll = make_discretization_collection(
            actx, mesh,
            discr_tag_to_group_factory={
