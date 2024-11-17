@@ -305,7 +305,9 @@ def test_mass_operator_inverse(actx_factory, name):
         def f(x):
             return actx.np.cos(4.0 * x[0])
 
-        def f_inv(use_tensor_product_fast_eval=True):
+        def f_inv(dcoll=dcoll,
+                  volume_discr=volume_discr,
+                  use_tensor_product_fast_eval=True):
             x_volm = actx.thaw(volume_discr.nodes())
             f_volm = f(x_volm)
             if not overintegrate:
@@ -347,8 +349,6 @@ def test_mass_operator_inverse(actx_factory, name):
 
     logger.info("inverse mass error\n%s", str(eoc))
 
-    # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
-    # safe side, choose a slightly larger tolerance
     print("L^inf error:")
     print(eoc)
     assert eoc.max_error() <= 1.0e-14 or eoc.order_estimate() >= order - 0.5

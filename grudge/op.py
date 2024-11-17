@@ -1346,6 +1346,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
         lambda out_grp, in_grp: (out_grp.discretization_key(),
                                  in_grp.discretization_key()))
     def get_ref_mass_mat(out_grp, in_grp):
+        import modepy as mp
+
         if out_grp == in_grp:
             if isinstance(out_grp, TensorProductElementGroupBase):
                 basis_1d = out_grp.basis_obj().bases[0]
@@ -1372,7 +1374,7 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
             nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
                 1, out_grp.order+1)
 
-            mass_matrix = nodal_quad_mass_matrix(
+            mass_matrix = mp.nodal_quad_mass_matrix(
                 in_grp.quadrature_rule().quadratures[0], basis_1d.functions,
                 nodes_1d_out)
 
@@ -1388,8 +1390,8 @@ def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_grou
         elif isinstance(out_grp, SimplexElementGroupBase):
 
             basis = out_grp.basis_obj()
-            vand = vandermonde(basis.functions, out_grp.unit_nodes)
-            o_vand = vandermonde(basis.functions, in_grp.unit_nodes)
+            vand = mp.vandermonde(basis.functions, out_grp.unit_nodes)
+            o_vand = mp.vandermonde(basis.functions, in_grp.unit_nodes)
             vand_inv_t = np.linalg.inv(vand).T
 
             weights = in_grp.quadrature_rule().weights

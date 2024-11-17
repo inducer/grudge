@@ -522,9 +522,10 @@ def inverse_surface_metric_derivative_mat(
     def _inv_surf_metric_deriv():
         # FIXME: two branches to avoid multiplication by 1 (for now)
         if times_area_element:
+            from warnings import warn
             warn("Passing `times_area_element` to "
                  "`inverse_surface_metric_derivative_mat` is deprecated and "
-                 "will stop working in 2025")
+                 "will stop working in 2025", stacklevel=1)
 
             multiplier = area_element(actx, dcoll, dd=dd,
                     _use_geoderiv_connection=_use_geoderiv_connection)

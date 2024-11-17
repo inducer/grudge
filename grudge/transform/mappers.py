@@ -28,13 +28,13 @@ THE SOFTWARE.
 
 
 import pytato as pt
-from pytato.array import Einsum, EinsumElementwiseAxis
+from pytato.array import Einsum
 from pytato.transform import CombineMapper, CopyMapperWithExtraArgs
 
 from grudge.transform.metadata import (
     TensorProductMassOperatorInverseTag,
     TensorProductMassOperatorTag,
-    TensorProductStiffnessOperatorTag
+    TensorProductStiffnessOperatorTag,
 )
 
 

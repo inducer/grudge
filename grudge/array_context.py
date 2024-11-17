@@ -33,16 +33,15 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
-
-import loopy as lp
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
 import pytato as pt
+from pytato.analysis import get_num_nodes
 
+import loopy as lp
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
@@ -50,16 +49,14 @@ from meshmode.array_context import (
 from meshmode.transform_metadata import (
     DiscretizationElementAxisTag,
 )
-from pytato.analysis import get_num_nodes
 from pytools import to_identifier
 from pytools.tag import Tag
 
 from grudge.transform.mappers import (
     InverseMassPropagator,
     InverseMassRemover,
-    MassInverseTimesStiffnessSimplifier
+    MassInverseTimesStiffnessSimplifier,
 )
-
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
     TensorProductDOFAxisTag,
@@ -225,8 +222,8 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
-    dot_codes_before: list[str] = []
-    dot_codes_after: list[str] = []
+    dot_codes_before: list[str]
+    dot_codes_after: list[str]
 
     def __init__(self, queue, allocator=None,
             *,
@@ -290,8 +287,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
                                         eliminate_reshapes_of_data_wrappers)
 
         def materialize_all_einsums_or_reduces(expr):
-            from pytato.raising import (index_lambda_to_high_level_op,
-                                        ReduceOp)
+            from pytato.raising import ReduceOp, index_lambda_to_high_level_op
 
             if isinstance(expr, pt.Einsum):
                 return expr.tagged(pt.tags.ImplStored())

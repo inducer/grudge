@@ -116,7 +116,7 @@ class AxesTagsEquationCollector(BaseAxesTagsEquationCollector):
 
 def unify_discretization_entity_tags(expr: ArrayContainer | ArrayOrNames
                                      ) -> ArrayOrNames:
-    if not isinstance(expr, (pt.Array, pt.DictOfNamedArrays)):
+    if not isinstance(expr, pt.Array | pt.DictOfNamedArrays):
         return rec_map_array_container(unify_discretization_entity_tags,
                                        expr)
 
