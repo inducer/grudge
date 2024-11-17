@@ -474,7 +474,7 @@ class _TensorProductBilinearForm(_BilinearForm):
                     self.output_group.space,
                     reference_gradient[rst_axis])
 
-        return DOFArray(self.actx, data=tuple(reference_gradient))
+        return reference_gradient
 
     def mass_operator(self, vec: DOFArray,
                       exclude_axis: int | None = None,
@@ -541,20 +541,31 @@ class _TensorProductBilinearForm(_BilinearForm):
         derivative in the field.
         """
 
-        vec = vec * self.area_element
+        vec = vec * self.area_element * self.metric_terms
 
         if self.input_group.dim != 1:
             vec = fold(self.input_group.space, vec)
 
-        reference_gradients = DOFArray(self.actx, data=tuple([
-            self._compute_reference_gradient(vec[func_axis])
-            for func_axis in range(self.input_group.dim)]))
+        div = 0.0
+        for xyz_axis in range(self.input_group.dim):
+            partial = 0.0
+            for rst_axis in range(self.input_group.dim):
+                reference_partial = self.mass_operator(
+                    vec[xyz_axis, rst_axis],
+                    exclude_axis=rst_axis,
+                    exclude_metric=True)
 
-        return self.actx.einsum(
-            "xrej,xrej->ej",
-            self.metric_terms,
-            reference_gradients,
-            arg_names=("metrics", "vec"))
+                partial += single_axis_contraction(
+                        self.actx, self.input_group.dim, rst_axis,
+                        self._stiffness_operator, reference_partial,
+                        arg_names=("stiffness_1d",
+                                   f"ref_partial_{rst_axis}"))
+
+            if self.input_group.dim != 1:
+                partial = unfold(self.output_group.space, partial)
+            div += partial
+
+        return div
 
     def derivative_operator(self, vec: DOFArray, derivative: int) -> DOFArray:
         """

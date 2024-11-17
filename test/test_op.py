@@ -233,8 +233,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             vis.write_vtk_file(filename, [
                 ("u", u),
                 ("grad_u", grad_u),
-                ("expected_grad_u", expected_grad_u),
-                ], overwrite=True)
+                ("expected_grad_u", expected_grad_u), ], overwrite=True)
 
         rel_linf_err = actx.to_numpy(
             op.norm(dcoll, grad_u - expected_grad_u, np.inf)
@@ -254,7 +253,6 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 @pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
-@pytest.mark.parametrize("warp_mesh", [True])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
@@ -265,7 +263,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     TensorProductElementGroup
 ])
 def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-                    group_cls, warp_mesh, visualize=False):
+                    group_cls, visualize=False):
 
     actx = actx_factory()
 

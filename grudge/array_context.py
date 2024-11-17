@@ -221,14 +221,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
-    dot_codes_before: list[str] = []
-    dot_codes_after: list[str] = []
-
-    num_nodes_before: int = 0
-    num_nodes_after: int = 0
-
-    device_code: str = ""
-
     def __init__(self, queue, allocator=None,
             *,
             compile_trace_callback: Callable[[Any, str, Any], None] | None
@@ -251,21 +243,23 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     def transform_dag(self, dag):
 
-        self.num_nodes_before += get_num_nodes(dag)
-        self.dot_codes_before.append(pt.visualization.get_dot_graph(dag))
-
         # {{{ tensor-product algebraic DAG rewrites
 
-        # FIXME: remove after enough cases have been tested
-        if 1:
-            # step 1: distribute mass inverse through DAG, across index lambdas
-            dag = InverseMassPropagator()(dag)
+        num_nodes_before = get_num_nodes(dag)
+        # step 1: distribute mass inverse through DAG, across index lambdas
+        dag = InverseMassPropagator()(dag)
 
-            # step 2: remove mass-times-mass-inverse einsums
-            dag = InverseMassRemover()(dag)
+        # step 2: remove mass-times-mass-inverse einsums
+        dag = InverseMassRemover()(dag)
 
-            # step 3: create new operator out of inverse mass times stiffness
-            dag = MassInverseTimesStiffnessSimplifier()(dag)
+        # step 3: create new operator out of inverse mass times stiffness
+        dag = MassInverseTimesStiffnessSimplifier()(dag)
+        num_nodes_after = get_num_nodes(dag)
+
+        if num_nodes_before != num_nodes_after:
+            logger.info("tensor-product xforms: %d nodes via tensor-product "
+                        "algebraic transformations ",
+                        num_nodes_before - num_nodes_after)
 
         # }}}
 
@@ -283,8 +277,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
         dag = pt.transform.map_and_copy(dag,
                                         eliminate_reshapes_of_data_wrappers)
-        self.dot_codes_after.append(pt.visualization.get_dot_graph(dag))
-        self.num_nodes_after += get_num_nodes(dag)
 
         return dag
 
