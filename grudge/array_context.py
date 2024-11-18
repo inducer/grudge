@@ -216,14 +216,34 @@ def deduplicate_data_wrappers(dag):
     return dag
 
 
+def remove_redundant_tensor_product_reshapes(ary):
+    # FIXME: variable names can be more clear
+    if isinstance(ary, pt.Reshape):
+        if isinstance(ary.array, pt.Reshape):
+            if ary.array.array.shape == ary.shape:
+                return ary.array.array
+
+    return ary
+
+
+def remove_redundant_index_lambda_expressions(ary):
+    # FIXME: this can be made much more robust
+    if isinstance(ary, pt.IndexLambda):
+        if len(ary.shape) >= 3:
+            if 0.0 in ary.expr.children:
+                return list(ary.bindings.values())[0]
+
+    return ary
+
+
 class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
 
-    dot_codes_before: list[str]
-    dot_codes_after: list[str]
+    dot_codes_before: list[str] = []
+    dot_codes_after: list[str] = []
 
     def __init__(self, queue, allocator=None,
             *,
@@ -260,6 +280,12 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
             # step 3: create new operator out of inverse mass times stiffness
             dag = MassInverseTimesStiffnessSimplifier()(dag)
+
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_tensor_product_reshapes)
+
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_index_lambda_expressions)
 
         # }}}
 
