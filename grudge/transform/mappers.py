@@ -74,6 +74,15 @@ class MassInverseCounter(CombineMapper):
 # {{{ algebraic dag rewrites
 
 class MassInverseTimesStiffnessSimplifier(CopyMapperWithExtraArgs):
+    """
+    This is part three of a three part transformation pipeline.
+
+    Creates a new operator that is the result of a mass inverse times weak
+    derivative operator and replaces all instances of these two operators in
+    each einsum with the new operator.
+
+    See `InverseMassDistributor` for background.
+    """
     def map_einsum(self, expr, *args, **kwargs):
         iarg_stiffness = None
         iarg_mass_inverse = None
@@ -121,7 +130,13 @@ class MassInverseTimesStiffnessSimplifier(CopyMapperWithExtraArgs):
         return expr.copy(args=tuple(new_args))
 
 
-class InverseMassRemover(CopyMapperWithExtraArgs):
+class RedundantMassTimesMassInverseRemover(CopyMapperWithExtraArgs):
+    """
+    This is part two of a three-part transformation pipeline. Removes einsum
+    nodes that contain both a mass inverse and mass operator.
+
+    See `InverseMassDistributor` for more information.
+    """
     def map_einsum(self, expr, *args, **kwargs):
         found_mass = False
         found_mass_inverse = False
@@ -142,37 +157,54 @@ class InverseMassRemover(CopyMapperWithExtraArgs):
         return expr.copy(args=tuple(new_args))
 
 
-class InverseMassPropagator(CopyMapperWithExtraArgs):
+class InverseMassDistributor(CopyMapperWithExtraArgs):
     r"""
-    Applying a full mass inverse operator when using a tensor-product
-    discretization results in redundant work. For example, suppose we have a 3D
-    tensor-product discretization. Then the weak differentiation operator
-    associated with the r-coordinate direction can be expressed as
+    Implements one part of a three-part transformation pipeline to realize an
+    algebraic simplification arising in tensor-product discretizations.
 
-    .. math::
+    Specifically, one can represent a weak derivative operator associated with
+    a tensor-product discretization as a Kronecker product of a 1D weak
+    derivative operator with a variable number of 1D mass matrices, which
+    depends on the dimension of the problem.
 
-        K_r = \hat{K} \otimes \hat{M} \otimes \hat{M},
-
-    where :math:`\hat{M}` is a 1D mass operator and :math:`\hat{K}` is a 1D weak
-    differentiation operator. Similarly, the inverse mass operator can be
+    Let $S$ be the full weak operator, $\hat{S}$ as the 1D weak derivative
+    operator and $\hat{M}$ as the 1D mass operator. For example, consider a 2D
+    tensor-product discretization. The weak $x$-derivative operator can be
     expressed as
 
+    ..math::
+
+        S_x = \hat{S} \otimes \hat{M}
+
+    Since we are using a tensor-product discretization, the mass operator can be
+    decomposed as a tensor-product of a variable number of mass operators.
+    Hence, the mass inverse operator can also be expressed via a tensor-product.
+
+    ..math::
+
+    M^{-1} S_x^k = (\hat{M}^{-1} \otimes \hat{M}^{-1})(\hat{S} \otimes \hat{M})
+
+    By associativity of the tensor-product,
+
     .. math::
 
-        M^{-1} = \hat{M}^{-1} \otimes \hat{M}^{-1} \otimes \hat{M}^{-1},
+        M^{-1} S_x^k = \hat{M}^{-1}\hat{S} \otimes \hat{M}^{-1}\hat{M}
 
-    By the properties of the tensor-product, multiplying the weak derivative
-    operator on the left by the inverse mass operator results in
+    Thus, we can instead apply the operator as
 
-    .. math::
+    ..math::
 
-        M^{-1} K_r = \hat{M}^{-1} \hat{K}_r \otimes \hat{I} \otimes \hat{I},
+        M^{-1} S_x^k = \hat{M}^{-1}\hat{S} \otimes \hat{I}
 
-    where :math:`\hat{I}` is a 1D identity operator.
+    where $\hat{I}$ is a 1D identity operator. This results in both a reduction
+    in the total number of operations and the required storage for the
+    operators.
 
-    The goal of this mapper is to remove redundant mass-times-mass inverse
-    operations from an expression graph of operations involved with a
-    tensor-product discretization.
+    This transformation takes care of the distribution of the mass inverse
+    operator through the DAG to other tensor-product application routines
+    Moreover, the mass inverse is distribtued to the face mass terms (if
+    included in the original einsum), and properly reshapes to and from
+    tensor-product form to apply the 1D mass operator.
     """
     def map_einsum(self, expr, *args, **kwargs):
         new_args = []
@@ -195,18 +227,9 @@ class InverseMassPropagator(CopyMapperWithExtraArgs):
                 nfaces, nelts, _ = expr.args[1].shape
                 ndofs = expr.shape[1]
 
-                if nfaces == 2:
-                    dim = 1
-                elif nfaces == 4:
-                    dim = 2
-                elif nfaces == 6:
-                    dim = 3
-                else:
-                    raise ValueError("Unable to determine the dimension of the",
-                                     " hypercube to apply transformations.")
-
                 from math import ceil
-                ndofs_1d = int(ceil(ndofs**(1/dim)))
+                dim = ceil(nfaces/2)
+                ndofs_1d = ceil(ndofs**(1/dim))
                 expr = expr.reshape(nelts, *(ndofs_1d,)*dim)
 
                 for axis in range(dim):

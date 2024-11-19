@@ -53,8 +53,8 @@ from pytools import to_identifier
 from pytools.tag import Tag
 
 from grudge.transform.mappers import (
-    InverseMassPropagator,
-    InverseMassRemover,
+    InverseMassDistributor,
+    RedundantMassTimesMassInverseRemover,
     MassInverseTimesStiffnessSimplifier,
 )
 from grudge.transform.metadata import (
@@ -273,10 +273,10 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         self.dot_codes_before.append(pt.get_dot_graph(dag))
         if 1:
             # step 1: distribute mass inverse through DAG, across index lambdas
-            dag = InverseMassPropagator()(dag)
+            dag = InverseMassDistributor()(dag)
 
             # step 2: remove mass-times-mass-inverse einsums
-            dag = InverseMassRemover()(dag)
+            dag = RedundantMassTimesMassInverseRemover()(dag)
 
             # step 3: create new operator out of inverse mass times stiffness
             dag = MassInverseTimesStiffnessSimplifier()(dag)
@@ -289,7 +289,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
         # }}}
 
-        # dag = pt.transform.materialize_with_mpms(dag)
         dag = deduplicate_data_wrappers(dag)
         num_nodes_after = get_num_nodes(dag)
         self.dot_codes_after.append(pt.get_dot_graph(dag))
@@ -312,33 +311,9 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         dag = pt.transform.map_and_copy(dag,
                                         eliminate_reshapes_of_data_wrappers)
 
-        def materialize_all_einsums_or_reduces(expr):
-            from pytato.raising import ReduceOp, index_lambda_to_high_level_op
-
-            if isinstance(expr, pt.Einsum):
-                return expr.tagged(pt.tags.ImplStored())
-            elif (isinstance(expr, pt.IndexLambda)
-                    and isinstance(index_lambda_to_high_level_op(expr), ReduceOp)):
-                return expr.tagged(pt.tags.ImplStored())
-            else:
-                return expr
-
-        # logger.info("transform_dag.materialize_all_einsums_or_reduces")
-        # dag = pt.transform.map_and_copy(dag, materialize_all_einsums_or_reduces)
-
         logger.info("transform_dag.infer_axes_tags")
         from grudge.transform.metadata import unify_discretization_entity_tags
         dag = unify_discretization_entity_tags(dag)
-
-        def untag_loopy_call_results(expr):
-            from pytato.loopy import LoopyCallResult
-            if isinstance(expr, LoopyCallResult):
-                return expr.copy(tags=frozenset(),
-                                 axes=(pt.Axis(frozenset()),)*expr.ndim)
-            else:
-                return expr
-
-        dag = pt.transform.map_and_copy(dag, untag_loopy_call_results)
 
         def _untag_impl_stored(expr):
             if isinstance(expr, pt.InputArgumentBase):
