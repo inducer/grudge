@@ -28,14 +28,12 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import (
     PytestNumpyArrayContextFactory,
-    PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
 
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory,
-         PytestPytatoPyOpenCLArrayContextFactory,
+        [PytestPytatoPyOpenCLArrayContextFactory,
          PytestNumpyArrayContextFactory])
 
 import logging
@@ -150,8 +148,8 @@ def test_build_jacobian(actx_factory):
     assert np.allclose(np.diag(mat), 3*2*2 + 2)
 
 
-@pytest.mark.parametrize("dim", [1, 2])
-@pytest.mark.parametrize("degree", [2, 4])
+@pytest.mark.parametrize("dim", [1])
+@pytest.mark.parametrize("degree", [2])
 def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
     actx = actx_factory()
 

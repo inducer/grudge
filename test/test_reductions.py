@@ -39,13 +39,13 @@ from meshmode.dof_array import DOFArray
 from pytools.obj_array import make_obj_array
 
 from grudge import op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestNumpyArrayContextFactory
 from grudge.discretization import make_discretization_collection
 
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestNumpyArrayContextFactory])
 
 
 @pytest.mark.parametrize(("mesh_size", "with_initial"), [

@@ -358,7 +358,7 @@ class EulerOperator(HyperbolicOperator):
             interface_fluxes = interface_fluxes + bc_fluxes
 
         return op.inverse_mass(
-            dcoll,
+            dcoll, dq,
             volume_fluxes - op.face_mass(dcoll, df, interface_fluxes)
         )
 

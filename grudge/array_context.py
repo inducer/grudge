@@ -38,12 +38,29 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 from warnings import warn
 
+import pytato as pt
+from pytato.analysis import get_num_nodes
+
+import loopy as lp
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
+from meshmode.transform_metadata import (
+    DiscretizationElementAxisTag,
+)
 from pytools import to_identifier
 from pytools.tag import Tag
+
+from grudge.transform.mappers import (
+    InverseMassDistributor,
+    RedundantMassTimesMassInverseRemover,
+    MassInverseTimesStiffnessSimplifier,
+)
+from grudge.transform.metadata import (
+    OutputIsTensorProductDOFArrayOrdered,
+    TensorProductDOFAxisTag,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -132,16 +149,102 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
 
+    def transform_loopy_program(self, t_unit):
+        knl = t_unit.default_entrypoint
+
+        # {{{ process tensor product specific metadata
+
+        # NOTE: This differs from the lazy case b/c we don't have access to axis
+        # tags that can be manipulated pre-execution. In eager, we update
+        # strides/loop nest ordering for the output array
+        if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+            new_args = []
+            for arg in knl.args:
+                if arg.is_output:
+                    arg = arg.copy(dim_tags=(
+                        f"N{len(arg.shape)-1},"
+                        + ",".join(f"N{i}"
+                                for i in range(len(arg.shape)-1))
+                        ))
+
+                new_args.append(arg)
+
+            knl = knl.copy(args=new_args)
+            t_unit = t_unit.with_kernel(knl)
+
+        # }}}
+
+        return super().transform_loopy_program(t_unit)
+
 # }}}
 
 
 # {{{ pytato
+
+def deduplicate_data_wrappers(dag):
+    import pytato as pt
+    data_wrapper_cache = {}
+    data_wrappers_encountered = 0
+
+    def cached_data_wrapper_if_present(ary):
+        nonlocal data_wrappers_encountered
+
+        if isinstance(ary, pt.DataWrapper):
+
+            data_wrappers_encountered += 1
+            cache_key = (ary.data.base_data.int_ptr, ary.data.offset,
+                         ary.shape, ary.data.strides)
+            try:
+                result = data_wrapper_cache[cache_key]
+            except KeyError:
+                result = ary
+                data_wrapper_cache[cache_key] = result
+
+            return result
+        else:
+            return ary
+
+    dag = pt.transform.map_and_copy(dag, cached_data_wrapper_if_present)
+
+    if data_wrappers_encountered:
+        logger.info("data wrapper de-duplication: "
+                "%d encountered, %d kept, %d eliminated",
+                data_wrappers_encountered,
+                len(data_wrapper_cache),
+                data_wrappers_encountered - len(data_wrapper_cache))
+
+    return dag
+
+
+def remove_redundant_tensor_product_reshapes(ary):
+    # FIXME: variable names can be more clear
+    if isinstance(ary, pt.Reshape):
+        if isinstance(ary.array, pt.Reshape):
+            if ary.array.array.shape == ary.shape:
+                return ary.array.array
+
+    return ary
+
+
+def remove_redundant_index_lambda_expressions(ary):
+    # FIXME: this can be made much more robust
+    if isinstance(ary, pt.IndexLambda):
+        if len(ary.shape) >= 3:
+            if 0.0 in ary.expr.children:
+                return list(ary.bindings.values())[0]
+
+    return ary
+
 
 class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     """Inherits from :class:`meshmode.array_context.PytatoPyOpenCLArrayContext`.
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
+
+    dot_codes_before: list[str] = []
+    dot_codes_after: list[str] = []
+
     def __init__(self, queue, allocator=None,
             *,
             compile_trace_callback: Callable[[Any, str, Any], None] | None
@@ -161,6 +264,112 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
         super().__init__(queue, allocator,
                 compile_trace_callback=compile_trace_callback)
+
+    def transform_dag(self, dag):
+
+        # {{{ tensor-product algebraic DAG rewrites
+
+        num_nodes_before = get_num_nodes(dag)
+        self.dot_codes_before.append(pt.get_dot_graph(dag))
+        if 1:
+            # step 1: distribute mass inverse through DAG, across index lambdas
+            dag = InverseMassDistributor()(dag)
+
+            # step 2: remove mass-times-mass-inverse einsums
+            dag = RedundantMassTimesMassInverseRemover()(dag)
+
+            # step 3: create new operator out of inverse mass times stiffness
+            dag = MassInverseTimesStiffnessSimplifier()(dag)
+
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_tensor_product_reshapes)
+
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_index_lambda_expressions)
+
+        # }}}
+
+        dag = deduplicate_data_wrappers(dag)
+        num_nodes_after = get_num_nodes(dag)
+        self.dot_codes_after.append(pt.get_dot_graph(dag))
+
+        if num_nodes_before != num_nodes_after:
+            logger.info("tensor-product xforms: removed %d nodes via "
+                        "tensor-product algebraic transformations + "
+                        "deduplication",
+                        (num_nodes_before - num_nodes_after))
+
+        def eliminate_reshapes_of_data_wrappers(ary):
+            if (isinstance(ary, pt.Reshape)
+                    and isinstance(ary.array, pt.DataWrapper)):
+                return pt.make_data_wrapper(ary.array.data.reshape(ary.shape),
+                                            tags=ary.tags,
+                                            axes=ary.axes)
+            else:
+                return ary
+
+        dag = pt.transform.map_and_copy(dag,
+                                        eliminate_reshapes_of_data_wrappers)
+
+        logger.info("transform_dag.infer_axes_tags")
+        from grudge.transform.metadata import unify_discretization_entity_tags
+        dag = unify_discretization_entity_tags(dag)
+
+        def _untag_impl_stored(expr):
+            if isinstance(expr, pt.InputArgumentBase):
+                return expr
+            else:
+                return expr.without_tags(pt.tags.ImplStored(),
+                                         verify_existence=False)
+
+        dag = pt.make_dict_of_named_arrays({
+                name: _untag_impl_stored(named_ary.expr)
+                for name, named_ary in dag.items()})
+
+        return dag
+
+    def transform_loopy_program(self, t_unit):
+        knl = t_unit.default_entrypoint
+
+        redn_inames = []
+        for insn in knl.instructions:
+            redn_inames = redn_inames + list(insn.reduction_inames())
+        redn_inames = frozenset(redn_inames)
+
+        discr_iname_to_inames = {}
+        for iname in knl.inames:
+            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
+                key = "iel"
+
+                if iname not in redn_inames:
+                    discr_iname_to_inames.setdefault(key, []).append(iname)
+
+            if knl.inames[iname].tags_of_type(TensorProductDOFAxisTag):
+                key = "idof"
+                tag, = knl.inames[iname].tags_of_type(TensorProductDOFAxisTag)
+                key += f"_{tag.iaxis}"
+
+                if iname not in redn_inames:
+                    discr_iname_to_inames.setdefault(key, []).append(iname)
+
+        for discr_iname, inames in discr_iname_to_inames.items():
+            if discr_iname == "iel":
+                knl = lp.rename_inames(knl, inames, discr_iname,
+                                      existing_ok=True)
+            if discr_iname == "idof":
+                knl = lp.rename_inames(knl, inames, discr_iname,
+                                      existing_ok=True)
+
+        for iname in knl.inames:
+            if iname == "iel":
+                knl = lp.tag_inames(knl, [(iname, "g.0")])
+            if "idof" in iname:
+                # knl = lp.tag_inames(knl, [(iname, f"l.{iname[-1]}")])
+                knl = lp.split_iname(knl, iname, 8, inner_tag=f"l.{iname[-1]}")
+
+        t_unit = t_unit.with_kernel(knl)
+        t_unit = lp.set_options(t_unit, "insert_gbarriers")
+        return t_unit
 
 # }}}
 
@@ -226,7 +435,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                            "transform_dag.infer_axes_tags[pre-partition]"):
             from meshmode.transform_metadata import DiscretizationEntityAxisTag
             dict_of_named_arrays = pt.unify_axes_tags(
-                dict_of_named_arrays,
+            dict_of_named_arrays,
                 tag_t=DiscretizationEntityAxisTag,
             )
 
@@ -550,6 +759,7 @@ class PytestPytatoPyOpenCLArrayContextFactory(
 
 
 class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
+    from arraycontext import NumpyArrayContext
     actx_class = NumpyArrayContext
 
     def __call__(self):
