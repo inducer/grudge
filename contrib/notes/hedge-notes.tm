@@ -802,7 +802,7 @@
   <with|math-font-series|bold|N+Z+1>, \<ldots\>, n>> as anisotropic
   (directionally-biased) unknowns with explicit connections to the
   <math|<with|math-font-series|bold|s><rsup|\<asterisk\>(i)>> given by the
-  auxilliary equations
+  auxiliary equations
 
   <\equation>
     <tabular|<tformat|<table|<row|<cell|(D\<b-s\>)<rsup|*\<ast\>(i)> =
@@ -861,7 +861,7 @@
   \;
 
   You make the comment above that ``We simply regard
-  <math|(D\<b-s\>)<rsup|\<ast\>(k)>> as another unkown of the system, which,
+  <math|(D\<b-s\>)<rsup|\<ast\>(k)>> as another unknown of the system, which,
   in addition to <math|{\<b-s\><rsup|*\<ast\>(i)>}<rsub|1><rsup|n-1>>, brings
   us to <math|n> unknowns.''
 
@@ -1100,7 +1100,7 @@
   </equation*>
 
   where the unknowns are <math|\<nu\><rsub|1>> and <math|\<nu\><rsub|3>>.
-  Note that we *need* this equation to be satisifed independent of the
+  Note that we *need* this equation to be satisfied independent of the
   unknowns <math|\<mu\><rsub|1><rsup|+>> and <math|\<mu\><rsub|3><rsup|->>,
   which are dependent on the incoming waves
   <math|<with|math-font-series|bold|u><rsup|\<pm\>>>, over which we have no

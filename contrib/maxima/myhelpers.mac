@@ -57,7 +57,7 @@ hypdiagonalize(A):=block([evA, V, invV,D],
 /* ------------------------------------------------------------------------- */
 /* compute upwind flux for a given operator with eigenvalues evs, sorted
  * in ascending order.
- * Sign assumptions for all variables occuring in evs must be in place.
+ * Sign assumptions for all variables occurring in evs must be in place.
  */
 /* ------------------------------------------------------------------------- */
 hyp_upwind_flux(evs, D):=block([evvars, Dp, Dm, n, midstates, states, unknowns],

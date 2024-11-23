@@ -42,8 +42,8 @@ Shortcuts
 .. data:: DD_VOLUME_ALL
 .. data:: DD_VOLUME_ALL_MODAL
 
-Internal things that are visble due to type annotations
--------------------------------------------------------
+Internal things that are visible due to type annotations
+--------------------------------------------------------
 
 .. class:: _DiscretizationTag
 .. class:: ConvertibleToDOFDesc

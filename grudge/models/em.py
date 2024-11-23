@@ -245,7 +245,7 @@ class MaxwellOperator(HyperbolicOperator):
             epsilon = self.epsilon
             mu = self.mu
         else:
-            raise NotImplementedError("only fixed material spported for now")
+            raise NotImplementedError("only fixed material supported for now")
 
         Z_int = (mu/epsilon)**0.5  # noqa: N806
         Y_int = 1/Z_int  # noqa: N806

@@ -44,19 +44,19 @@ psi_cand:E_0*sin(k_x*x)*sin(k_y*y);
 
 
 
-wave_eqn(f, gam_s):=nabla_t_squared(f) + mu*epsilon*gam_s*f;
-gam_s : gamma^2;
+wave_eqn(f, gamma_s):=nabla_t_squared(f) + mu*epsilon*gamma_s*f;
+gamma_s : gamma^2;
 
 /* The _t indicates transverse components (i.e. x and y components only) */
 /*
-E_t(psi):=(-k_z/gam_s)*sin(k_z * z)* nabla_t(psi);
-H_t(psi):=crossprod((%i * omega /gam_s)*cos(k_z * z)* [0,0,1], nabla_t(psi));
+E_t(psi):=(-k_z/gamma_s)*sin(k_z * z)* nabla_t(psi);
+H_t(psi):=crossprod((%i * omega /gamma_s)*cos(k_z * z)* [0,0,1], nabla_t(psi));
 */
-E_t(psi):=(-k_z/gam_s)*sin(k_z * z)* nabla_t(psi);
-H_t(psi):=crossprod((%i * omega * epsilon/gam_s)*cos(k_z * z)* [0,0,1], nabla_t(psi));
+E_t(psi):=(-k_z/gamma_s)*sin(k_z * z)* nabla_t(psi);
+H_t(psi):=crossprod((%i * omega * epsilon/gamma_s)*cos(k_z * z)* [0,0,1], nabla_t(psi));
 
 
-/* These are used as the analytic solution for a rectangular cavity resonator 
+/* These are used as the analytic solution for a rectangular cavity resonator
     with travsverse magnetic waves */
 
 E : E_t(psi_cand) + [0,0,psi_cand * cos(k_z * z)];
