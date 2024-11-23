@@ -295,14 +295,23 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         :class:`~arraycontext.ArrayContainer` of them.
     :returns: a device scalar denoting the evaluated integral.
     """
-    from grudge.op import _apply_mass_operator
-
     dd = dof_desc.as_dofdesc(dd)
+    discr = dcoll.discr_from_dd(dd)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return nodal_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+    from grudge.geometry import area_element
+    actx = vec.array_context
+    area_elements = area_element(
+        actx, dcoll, dd=dd,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    qwts = DOFArray(
+        actx,
+        data=tuple(
+            actx.from_numpy(
+                np.tile(grp.quadrature_rule().weights,
+                        (ae_i.shape[0], 1)))*ae_i
+            for grp, ae_i in zip(discr.groups, area_elements))
     )
+    return nodal_sum(dcoll, dd, vec*qwts)
 
 # }}}
 
@@ -509,13 +518,22 @@ def elementwise_integral(
         raise TypeError("invalid number of arguments")
 
     dd = dof_desc.as_dofdesc(dd)
+    discr = dcoll.discr_from_dd(dd)
 
-    from grudge.op import _apply_mass_operator
-
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
-    return elementwise_sum(
-        dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
+    from grudge.geometry import area_element
+    actx = vec.array_context
+    area_elements = area_element(
+        actx, dcoll, dd=dd,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    qwts = DOFArray(
+        actx,
+        data=tuple(
+            actx.from_numpy(
+                np.tile(grp.quadrature_rule().weights,
+                        (ae_i.shape[0], 1)))*ae_i
+            for grp, ae_i in zip(discr.groups, area_elements))
     )
+    return elementwise_sum(dcoll, dd, vec*qwts)
 
 # }}}
 
