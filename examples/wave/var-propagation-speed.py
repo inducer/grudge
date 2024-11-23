@@ -126,7 +126,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         u = fields[0]
         v = fields[1:]
         vis.write_vtk_file(
-            f"fld-var-propogation-speed-{step:04d}.vtu",
+            f"fld-var-propagation-speed-{step:04d}.vtu",
             [
                 ("u", u),
                 ("v", v),
@@ -146,7 +146,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
                             actx.to_numpy(norm(event.state_component[0])))
                 if visualize:
                     vis.write_vtk_file(
-                        f"fld-var-propogation-speed-{step:04d}.vtu",
+                        f"fld-var-propagation-speed-{step:04d}.vtu",
                         [
                             ("u", event.state_component[0]),
                             ("v", event.state_component[1:]),

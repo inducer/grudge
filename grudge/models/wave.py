@@ -218,7 +218,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             radiation_tag=BTAG_NONE):
         """
         :arg c: a frozen :class:`~meshmode.dof_array.DOFArray`
-            representing the propogation speed of the wave.
+            representing the propagation speed of the wave.
         """
         from arraycontext import get_container_context_recursively
         assert get_container_context_recursively(c) is None

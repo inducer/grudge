@@ -114,7 +114,7 @@ def forward_metric_nth_derivative(
         *, _use_geoderiv_connection=False) -> DOFArray:
     r"""Pointwise metric derivatives representing repeated derivatives of the
     physical coordinate enumerated by *xyz_axis*: :math:`x_{\mathrm{xyz\_axis}}`
-    with respect to the coordiantes on the reference element :math:`\xi_i`:
+    with respect to the coordinates on the reference element :math:`\xi_i`:
 
     .. math::
 

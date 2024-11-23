@@ -51,13 +51,13 @@ wave_known_dirbdrywp:vstack([-n.wave_vm/2 + um/2 + ubc],
 
 assert(norm_2_squared(fullhypsimp(wave_known_dirbdrywp - wave_dirbdrywp))=0);
 
-print("Hom-dirichlet in characteristic:");
+print("Homogeneous-dirichlet in characteristic:");
 print(fullhypsimp(wave_invV.vstack(
     -columnvector(first(wave_wmins)), 
     rest(wave_wmins))
     ));
 
-print("Hom-Neumann in characteristic:");
+print("Homogeneous-Neumann in characteristic:");
 print(fullhypsimp(wave_invV.vstack(
     columnvector(first(wave_wmins)), 
     -rest(wave_wmins))
