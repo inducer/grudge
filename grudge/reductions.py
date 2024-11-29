@@ -59,7 +59,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
 from functools import partial, reduce
 
 import numpy as np
@@ -77,6 +76,7 @@ from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
 )
+from pymbolic import Number, RealNumber
 from pytools import memoize_in
 
 import grudge.dof_desc as dof_desc
@@ -86,7 +86,7 @@ from grudge.discretization import DiscretizationCollection
 
 # {{{ Nodal reductions
 
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
+def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> RealNumber:
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
@@ -104,6 +104,8 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
     from arraycontext import get_container_context_recursively
     actx = get_container_context_recursively(vec)
 
+    assert actx is not None
+
     dd = dof_desc.as_dofdesc(dd)
 
     if p == 2:
@@ -120,7 +122,7 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> Scalar:
         raise ValueError("unsupported norm order")
 
 
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Number:
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -144,7 +146,7 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
-def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Number:
     r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -166,7 +168,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         for grp_ary in vec)
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
+def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -194,7 +196,7 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
 
 
 def nodal_min_loc(
-        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
+        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -206,10 +208,10 @@ def nodal_min_loc(
     :returns: a scalar denoting the rank-local nodal minimum.
     """
     if not isinstance(vec, DOFArray):
-        return min(
+        return np.min([
             nodal_min_loc(dcoll, dd, comp, initial=initial)
             for _, comp in serialize_container(vec)
-        )
+        ])
 
     actx = vec.array_context
 
@@ -226,7 +228,7 @@ def nodal_min_loc(
             vec, initial)
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
+def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -254,7 +256,7 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scal
 
 
 def nodal_max_loc(
-        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Scalar:
+        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
@@ -266,10 +268,10 @@ def nodal_max_loc(
     :returns: a scalar denoting the rank-local nodal maximum.
     """
     if not isinstance(vec, DOFArray):
-        return max(
+        return np.max([
             nodal_max_loc(dcoll, dd, comp, initial=initial)
             for _, comp in serialize_container(vec)
-        )
+        ])
 
     actx = vec.array_context
 

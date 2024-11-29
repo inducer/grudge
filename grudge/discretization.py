@@ -34,7 +34,7 @@ THE SOFTWARE.
 """
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from warnings import warn
 
 import numpy as np
@@ -44,6 +44,7 @@ from meshmode.discretization import Discretization, ElementGroupFactory
 from meshmode.discretization.connection import (
     FACE_RESTR_ALL,
     FACE_RESTR_INTERIOR,
+    DirectDiscretizationConnection,
     DiscretizationConnection,
     make_face_restriction,
 )
@@ -52,7 +53,7 @@ from meshmode.discretization.poly_element import (
     ModalGroupFactory,
 )
 from meshmode.dof_array import DOFArray
-from meshmode.mesh import BTAG_PARTITION, Mesh
+from meshmode.mesh import BTAG_PARTITION, Mesh, ModepyElementGroup
 from pytools import memoize_method, single_valued
 
 from grudge.dof_desc import (
@@ -82,7 +83,6 @@ TagToElementGroupFactory = Mapping[DiscretizationTag, ElementGroupFactory]
 # {{{ discr_tag_to_group_factory normalization
 
 def _normalize_discr_tag_to_group_factory(
-        dim: int,
         discr_tag_to_group_factory: TagToElementGroupFactory | None,
         order: int | None
         ) -> TagToElementGroupFactory:
@@ -206,7 +206,6 @@ class DiscretizationCollection:
             mesh = volume_discrs
 
             discr_tag_to_group_factory = _normalize_discr_tag_to_group_factory(
-                    dim=mesh.dim,
                     discr_tag_to_group_factory=discr_tag_to_group_factory,
                     order=order)
             self._discr_tag_to_group_factory = discr_tag_to_group_factory
@@ -363,7 +362,7 @@ class DiscretizationCollection:
         discr = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
         return any(
                 megrp.is_affine
-                and issubclass(megrp._modepy_shape_cls, Simplex)
+                and issubclass(cast(ModepyElementGroup, megrp).shape_cls, Simplex)
                 for megrp in discr.mesh.groups)
 
     @memoize_method
@@ -467,6 +466,8 @@ class DiscretizationCollection:
             from meshmode.discretization.connection import (
                 make_face_to_all_faces_embedding,
             )
+
+            assert isinstance(faces_conn, DirectDiscretizationConnection)
 
             return make_face_to_all_faces_embedding(
                     self._setup_actx,
@@ -789,7 +790,7 @@ class DiscretizationCollection:
 
 def make_discretization_collection(
         array_context: ArrayContext,
-        volumes: MeshOrDiscr | Mapping[VolumeTag, MeshOrDiscr],
+        volumes: Mesh | Mapping[VolumeTag, Mesh],
         order: int | None = None,
         discr_tag_to_group_factory: TagToElementGroupFactory | None = None,
         ) -> DiscretizationCollection:
@@ -826,34 +827,31 @@ def make_discretization_collection(
         i.e. all ranks in the communicator must enter this function at the same
         time.
     """
-    if isinstance(volumes, Mesh | Discretization):
-        volumes = {VTAG_ALL: volumes}
+    if not isinstance(volumes, Mesh):
+        volumes_dict = volumes
+    else:
+        volumes_dict = {VTAG_ALL: volumes}
 
     from pytools import is_single_valued
 
-    assert len(volumes) > 0
-    assert is_single_valued(mesh_or_discr.ambient_dim
-            for mesh_or_discr in volumes.values())
+    assert len(volumes_dict) > 0
+    if not is_single_valued(mesh_or_discr.ambient_dim
+            for mesh_or_discr in volumes_dict.values()):
+        raise ValueError("all parts of a discretization collection must share "
+                         "an ambient dimension")
 
     discr_tag_to_group_factory = _normalize_discr_tag_to_group_factory(
-            dim=single_valued(
-                mesh_or_discr.dim for mesh_or_discr in volumes.values()),
             discr_tag_to_group_factory=discr_tag_to_group_factory,
             order=order)
 
     del order
-
-    if any(
-            isinstance(mesh_or_discr, Discretization)
-            for mesh_or_discr in volumes.values()):
-        raise NotImplementedError("Doesn't work at the moment")
 
     volume_discrs = {
         vtag: Discretization(
             array_context,
             mesh,
             discr_tag_to_group_factory[DISCR_TAG_BASE])
-        for vtag, mesh in volumes.items()}
+        for vtag, mesh in volumes_dict.items()}
 
     return DiscretizationCollection(
             array_context=array_context,

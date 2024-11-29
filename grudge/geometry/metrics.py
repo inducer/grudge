@@ -62,6 +62,7 @@ import numpy as np
 
 from arraycontext import ArrayContext, register_multivector_as_array_container, tag_axes
 from arraycontext.metadata import NameHint
+from meshmode.discretization.connection import DirectDiscretizationConnection
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
@@ -558,6 +559,7 @@ def _signed_face_ones(
     all_faces_conn = dcoll.connection_from_dds(
         dd_base.untrace(), dd_base
     )
+    assert isinstance(all_faces_conn, DirectDiscretizationConnection)
     signed_ones = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE)).zeros(
         actx, dtype=dcoll.real_dtype
     ) + 1
@@ -566,6 +568,7 @@ def _signed_face_ones(
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
+            assert batch.to_element_face is not None
             i = actx.to_numpy(actx.thaw(batch.to_element_indices))
             grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
@@ -831,7 +834,7 @@ def second_fundamental_form(
     normal = rel_mv_normal(actx, dcoll, dd=dd).as_vector(dtype=object)
 
     if dim == 1:
-        second_ref_axes = [((0, 2),)]
+        second_ref_axes: list[tuple[tuple[int, int], ...]] = [((0, 2),)]
     elif dim == 2:
         second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
     else:
@@ -879,7 +882,7 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dd: DOFDesc | None = None) -> DOFArray:
+        dd: DOFDesc | None = None) -> DOFArray | float:
     r"""Computes the sum of the principal curvatures:
 
     .. math::
