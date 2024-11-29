@@ -35,7 +35,7 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import ArrayOrContainer
+from arraycontext import ArrayOrContainerOrScalarT
 
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
@@ -47,9 +47,10 @@ from grudge.dof_desc import (
 
 
 def project(
-        dcoll: DiscretizationCollection,
-        src: ConvertibleToDOFDesc,
-        tgt: ConvertibleToDOFDesc, vec) -> ArrayOrContainer:
+            dcoll: DiscretizationCollection,
+            src: ConvertibleToDOFDesc,
+            tgt: ConvertibleToDOFDesc, vec: ArrayOrContainerOrScalarT
+        ) -> ArrayOrContainerOrScalarT:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated
     quadrature discretization.

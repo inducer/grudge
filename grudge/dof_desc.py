@@ -233,7 +233,7 @@ class DOFDesc:
 
     def __init__(self,
             domain_tag: Any,
-            discretization_tag: type[DiscretizationTag] | None = None) -> None:
+            discretization_tag: DiscretizationTag | None = None) -> None:
 
         if (
                 not isinstance(domain_tag,

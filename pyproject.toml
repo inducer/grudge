@@ -36,7 +36,7 @@ dependencies = [
     "modepy>=2021.1",
     "pymbolic>=2022.2",
     "pyopencl>=2022.1",
-    "pytools>=2024.1.3",
+    "pytools>=2024.1.18",
 ]
 
 [project.optional-dependencies]
@@ -119,7 +119,11 @@ lines-after-imports = 2
 
 [tool.mypy]
 python_version = "3.10"
+ignore_missing_imports = true
 warn_unused_ignores = true
+# TODO: enable this at some point
+# check_untyped_defs = true
+
 
 [tool.typos.default]
 extend-ignore-re = [
