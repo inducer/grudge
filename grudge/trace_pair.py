@@ -557,7 +557,6 @@ class _RankBoundaryCommunicationLazy:
 
 def cross_rank_trace_pairs(
         dcoll: DiscretizationCollection, ary: ArrayOrContainer,
-        tag: Hashable = None,
         *, comm_tag: Hashable = None,
         volume_dd: DOFDesc | None = None) -> list[TracePair]:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
@@ -597,16 +596,6 @@ def cross_rank_trace_pairs(
         raise TypeError(f"expected a volume DOFDesc, got '{volume_dd}'")
     if volume_dd.discretization_tag != DISCR_TAG_BASE:
         raise TypeError(f"expected a base-discretized DOFDesc, got '{volume_dd}'")
-
-    if tag is not None:
-        warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
-                "Specify 'comm_tag' (keyword-only) instead.",
-                DeprecationWarning, stacklevel=2)
-        if comm_tag is not None:
-            raise TypeError("may only specify one of 'tag' and 'comm_tag'")
-        else:
-            comm_tag = tag
-    del tag
 
     # }}}
 
