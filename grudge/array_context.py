@@ -54,8 +54,8 @@ from pytools.tag import Tag
 
 from grudge.transform.mappers import (
     InverseMassDistributor,
-    RedundantMassTimesMassInverseRemover,
     MassInverseTimesStiffnessSimplifier,
+    RedundantMassTimesMassInverseRemover,
 )
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
@@ -270,28 +270,26 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
         # {{{ tensor-product algebraic DAG rewrites
 
         num_nodes_before = get_num_nodes(dag)
-        self.dot_codes_before.append(pt.get_dot_graph(dag))
-        if 1:
-            # step 1: distribute mass inverse through DAG, across index lambdas
-            dag = InverseMassDistributor()(dag)
 
-            # step 2: remove mass-times-mass-inverse einsums
-            dag = RedundantMassTimesMassInverseRemover()(dag)
+        # step 1: distribute mass inverse through DAG, across index lambdas
+        dag = InverseMassDistributor()(dag)
 
-            # step 3: create new operator out of inverse mass times stiffness
-            dag = MassInverseTimesStiffnessSimplifier()(dag)
+        # step 2: remove mass-times-mass-inverse einsums
+        dag = RedundantMassTimesMassInverseRemover()(dag)
 
-            dag = pt.transform.map_and_copy(
-                dag, remove_redundant_tensor_product_reshapes)
+        # step 3: create new operator out of inverse mass times stiffness
+        dag = MassInverseTimesStiffnessSimplifier()(dag)
 
-            dag = pt.transform.map_and_copy(
-                dag, remove_redundant_index_lambda_expressions)
+        # step 4: clean up
+        dag = pt.transform.map_and_copy(
+            dag, remove_redundant_tensor_product_reshapes)
+        dag = pt.transform.map_and_copy(
+            dag, remove_redundant_index_lambda_expressions)
 
         # }}}
 
         dag = deduplicate_data_wrappers(dag)
         num_nodes_after = get_num_nodes(dag)
-        self.dot_codes_after.append(pt.get_dot_graph(dag))
 
         if num_nodes_before != num_nodes_after:
             logger.info("tensor-product xforms: removed %d nodes via "

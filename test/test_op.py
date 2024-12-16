@@ -83,7 +83,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             if dim == 1:
                 pytest.skip("warped mesh in 1D not implemented")
 
-            # FIXME: strong form fails for meshes with order > 1
+            # NOTE: strong form fails for meshes with order > 1
             if group_cls == TensorProductElementGroup and form == "strong":
                 pytest.skip("strong form + mesh with order > 1 not implemented")
 

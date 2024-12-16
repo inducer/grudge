@@ -94,7 +94,7 @@ from meshmode.transform_metadata import (
     DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
-from modepy import inverse_mass_matrix
+from modepy import TensorProductQuadrature, inverse_mass_matrix
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
     unreshape_array_for_tensor_product_space as unfold,
@@ -136,6 +136,7 @@ from grudge.reductions import (
     nodal_sum_loc,
     norm,
 )
+from grudge.tools import rec_map_subarrays
 from grudge.trace_pair import (
     bdry_trace_pair,
     bv_trace_pair,
@@ -191,210 +192,13 @@ __all__ = (
     )
 
 
-# {{{ Strong derivative operators
+# {{{ Matrices
 
-def _single_axis_derivative_kernel(
+# FIXME: something should be changed about this, not sure what yet
+def _reference_derivative_matrices(
         actx: ArrayContext,
-        out_discr: Discretization,
-        in_discr: Discretization,
-        diff_mat: Callable,
-        inv_jac_mat: Iterable,
-        xyz_axis: int,
-        vec: DOFArray) -> DOFArray:
-
-    def compute_simplicial_derivative(actx, out_grp, in_grp, vec, ijm):
-        return actx.einsum(
-            "rei,rij,ej->ei",
-            ijm[xyz_axis],
-            _reference_derivative_matrices(
-                actx,
-                out_element_group=out_grp,
-                in_element_group=in_grp),
-            vec,
-            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
-            tagged=(FirstAxisIsElementsTag(),))
-
-    def compute_tensor_product_derivative(actx, out_grp, in_grp, vec, ijm):
-        vec = vec * ijm[xyz_axis]
-
-        partial = 0.
-        for rst_axis in range(in_grp.dim):
-            partial += single_axis_contraction(
-                actx, in_grp.dim, rst_axis, diff_mat(actx, out_grp, in_grp),
-                vec[rst_axis])
-
-        return partial
-
-    group_data = []
-    for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
-
-        if isinstance(in_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-            group_data.append(compute_tensor_product_derivative(
-                actx, out_grp, in_grp, vec_i, ijm_i))
-
-        elif isinstance(in_grp, SimplexElementGroupBase):
-            assert isinstance(out_grp, SimplexElementGroupBase)
-            group_data.append(compute_simplicial_derivative(
-                actx, out_grp, in_grp, vec_i, ijm_i))
-
-        else:
-            raise TypeError(
-                "`in_grp` and `out_grp` must both be either "
-                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
-                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
-
-    return DOFArray(actx, data=tuple(group_data))
-
-
-def _gradient_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat, vec):
-    # See _single_axis_derivative_kernel for comments on the usage scenarios
-    # (both strong and weak derivative) and their differences.
-
-    def compute_simplicial_gradient(actx, out_grp, in_grp, vec, ijm):
-        return actx.einsum(
-            "xrei,rij,ej->xei",
-            ijm,
-            get_diff_mat(
-                actx,
-                out_element_group=out_grp,
-                in_element_group=in_grp),
-            vec,
-            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-            tagged=(FirstAxisIsElementsTag(),))
-
-    def compute_tensor_product_gradient(actx, out_grp, in_grp, vec, ijm):
-        vec = actx.einsum(
-            "xrej,ej->xrej", ijm, vec,
-            tagged=(FirstAxisIsElementsTag(),),
-            arg_names=("inv_jac_t", "dofs"))
-
-        # expose tensor product structure
-        if in_grp.dim != 1:
-            vec = fold(in_grp.space, vec)
-
-        diff_mat = get_diff_mat(actx, out_grp, in_grp)
-
-        ref_grad = []
-        for xyz_axis in range(in_grp.dim):
-
-            ref_grad.append(0.0)
-            for rst_axis in range(in_grp.dim):
-                partial = single_axis_contraction(
-                    actx, in_grp.dim, rst_axis, diff_mat,
-                    vec[xyz_axis, rst_axis],
-                    tagged=(FirstAxisIsElementsTag(),
-                        OutputIsTensorProductDOFArrayOrdered(),),
-                    arg_names=("diff_mat", "dofs"))
-
-                if out_grp.dim != 1:
-                    partial = unfold(out_grp.space, partial)
-
-                ref_grad[xyz_axis] += partial
-
-        return tag_axes(
-            actx,
-            {
-                0: DiscretizationAmbientDimAxisTag(),
-                1: DiscretizationElementAxisTag(),
-                2: DiscretizationDOFAxisTag()
-            },
-            actx.np.stack(ref_grad))
-
-    per_group_grads = []
-    for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
-
-        if isinstance(in_grp, SimplexElementGroupBase):
-            assert isinstance(out_grp, SimplexElementGroupBase)
-            per_group_grads.append(
-                compute_simplicial_gradient(
-                    actx, out_grp, in_grp, vec_i, ijm_i))
-        elif isinstance(in_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-            per_group_grads.append(
-                compute_tensor_product_gradient(
-                    actx, out_grp, in_grp, vec_i, ijm_i))
-        else:
-            raise TypeError(
-                "`in_grp` and `out_grp` must both be either "
-                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
-                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
-
-    return make_obj_array([
-            DOFArray(actx, data=tuple([  # noqa: C409
-                pgg_i[xyz_axis] for pgg_i in per_group_grads
-                ]))
-            for xyz_axis in range(out_discr.ambient_dim)])
-
-
-def _divergence_kernel(actx, out_discr, in_discr, get_diff_mat, inv_jac_mat,
-                       vec):
-    # See _single_axis_derivative_kernel for comments on the usage scenarios
-    # (both strong and weak derivative) and their differences.
-
-    def compute_simplicial_divergence(actx, out_grp, in_grp, vec, ijm):
-        return actx.einsum(
-            "xrei,rij,xej->ei",
-            ijm,
-            get_diff_mat(
-                actx,
-                out_element_group=out_grp,
-                in_element_group=in_grp
-            ),
-            vec,
-            arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
-            tagged=(FirstAxisIsElementsTag(),))
-
-    def compute_tensor_product_divergence(actx, out_grp, in_grp, vec, ijm):
-        if in_grp.dim != 1:
-            vec = fold(in_grp.space, vec)
-
-        div = 0.0
-
-        diff_mat = get_diff_mat(actx, out_grp, in_grp)
-        for func_axis in range(vec.shape[0]):
-            for rst_axis in range(in_grp.dim):
-                ref_deriv = vec[func_axis]
-                ref_deriv = single_axis_contraction(
-                        actx, in_grp.dim, rst_axis, diff_mat, ref_deriv,
-                        tagged=(FirstAxisIsElementsTag(),
-                                OutputIsTensorProductDOFArrayOrdered(),),
-                        arg_names=("diff_mat", "dofs"))
-
-                if in_grp.dim != 1:
-                    ref_deriv = unfold(out_grp.space, ref_deriv)
-
-                div += ref_deriv * ijm[func_axis, rst_axis]
-
-        return tag_axes(actx, {0: DiscretizationElementAxisTag()}, div)
-
-    per_group_divs = []
-    for out_grp, in_grp, vec_i, ijm_i in zip(
-        out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
-        if isinstance(in_grp, SimplexElementGroupBase):
-            assert isinstance(out_grp, SimplexElementGroupBase)
-            per_group_divs.append(compute_simplicial_divergence(
-                actx, out_grp, in_grp, vec_i, ijm_i))
-
-        elif isinstance(in_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-            per_group_divs.append(compute_tensor_product_divergence(
-                actx, out_grp, in_grp, vec_i, ijm_i))
-
-        else:
-            raise TypeError(
-                "`in_grp` and `out_grp` must both be either "
-                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
-                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
-
-    return DOFArray(actx, data=tuple(per_group_divs))
-
-
-def _reference_derivative_matrices(actx: ArrayContext,
         out_element_group: NodalElementGroupBase,
-        in_element_group: InterpolatoryElementGroupBase):
+        in_element_group: InterpolatoryElementGroupBase) -> ArrayOrContainer:
 
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
@@ -402,13 +206,13 @@ def _reference_derivative_matrices(actx: ArrayContext,
             outgrp.discretization_key(),
             ingrp.discretization_key()))
     def get_ref_derivative_mats(
-                out_grp: NodalElementGroupBase,
-                in_grp: InterpolatoryElementGroupBase):
+            out_grp: NodalElementGroupBase,
+            in_grp: InterpolatoryElementGroupBase) -> ArrayOrContainer:
         if isinstance(in_grp, TensorProductElementGroupBase):
             assert isinstance(out_grp, TensorProductElementGroupBase)
+            assert (b == in_grp.basis_obj().bases[0]
+                    for b in in_grp.basis_obj().bases)
 
-            # FIXME: we make an assumption that the same basis is used for all
-            # coordinate directions; we need to enforce this somehow
             basis_1d = in_grp.basis_obj().bases[0]
             to_nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
                 1, out_grp.order+1)
@@ -437,42 +241,432 @@ def _reference_derivative_matrices(actx: ArrayContext,
     return get_ref_derivative_mats(out_element_group, in_element_group)
 
 
-def _strong_scalar_grad(dcoll, dd_in, vec):
-    assert isinstance(dd_in.domain_tag, VolumeDomainTag)
+def _reference_stiffness_transpose_matrices(
+        actx: ArrayContext,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase
+    ) -> ArrayOrContainer:
+
+    @keyed_memoize_in(
+        actx, _reference_stiffness_transpose_matrices,
+        lambda out_grp, in_grp: (
+            out_grp.discretization_key(),
+            in_grp.discretization_key()))
+    def get_reference_stiffness_transpose_matrices(
+            out_grp: InterpolatoryElementGroupBase,
+            in_grp: NodalElementGroupBase
+        ) -> ArrayOrContainer:
+
+        if in_grp == out_grp:
+            quadrature_rule = mp.quadrature_for_space(
+                mp.space_for_shape(out_grp.shape, 2*out_grp.order + 1),
+                out_grp.shape
+            )
+        else:
+            quadrature_rule = in_grp.quadrature_rule()
+
+        if isinstance(in_grp, SimplexElementGroupBase):
+            assert isinstance(out_grp, SimplexElementGroupBase)
+
+            if in_grp == out_grp:
+                stiffness_t = np.asarray([
+                    mp.nodal_quad_bilinear_form(
+                        quadrature=quadrature_rule,
+                        test_functions=out_grp.basis_obj().derivatives(rst_axis),
+                        trial_functions=out_grp.basis_obj().functions,
+                        proj_functions=out_grp.basis_obj().functions,
+                        nodes=out_grp.unit_nodes
+                    )
+                    for rst_axis in range(in_grp.dim)
+                ], order="C")
+
+            else:
+                stiffness_t = np.asarray([
+                    mp.nodal_quad_operator(
+                        quadrature=quadrature_rule,
+                        test_functions=out_grp.basis_obj().derivatives(rst_axis),
+                        proj_functions=out_grp.basis_obj().functions,
+                        nodes=out_grp.unit_nodes
+                    )
+                    for rst_axis in range(in_grp.dim)
+                ])
+
+        elif isinstance(in_grp, TensorProductElementGroupBase):
+
+            # {{{ sanity checks
+
+            assert isinstance(out_grp, TensorProductElementGroupBase)
+
+            if not in_grp.dim == 1:
+                assert isinstance(quadrature_rule, TensorProductQuadrature)
+                quadrature_1d = quadrature_rule.quadratures[0]
+                assert (q == quadrature_1d
+                        for q in quadrature_rule.quadratures)
+            else:
+                quadrature_1d = quadrature_rule
+
+            basis_obj_1d = out_grp.basis_obj().bases[0]
+            assert (b == basis_obj_1d for b in out_grp.basis_obj().bases)
+
+            # }}}
+
+            if in_grp == out_grp:
+                stiffness_t = mp.nodal_quad_bilinear_form(
+                    quadrature=quadrature_1d,
+                    test_functions=basis_obj_1d.derivatives(0),
+                    trial_functions=basis_obj_1d.functions,
+                    proj_functions=basis_obj_1d.functions,
+                    nodes=out_grp.unit_nodes_1d
+                )
+
+            else:
+                stiffness_t = mp.nodal_quad_operator(
+                    quadrature=quadrature_1d,
+                    test_functions=basis_obj_1d.derivatives(0),
+                    proj_functions=basis_obj_1d.functions,
+                    nodes=out_grp.unit_nodes_1d
+                )
+
+        else:
+            raise ValueError("Expected one of `SimplexElementGroupBase` or "
+                             f"`TensorProductElementGroupBase`, found {in_grp}")
+
+        return actx.freeze(actx.from_numpy(stiffness_t))
+
+    return get_reference_stiffness_transpose_matrices(out_grp, in_grp)
+
+
+def reference_mass_matrix(actx: ArrayContext,
+                          out_element_group: InterpolatoryElementGroupBase,
+                          in_element_group: NodalElementGroupBase):
+
+    @keyed_memoize_in(
+        actx, reference_mass_matrix,
+        lambda out_grp, in_grp: (out_grp.discretization_key(),
+                                 in_grp.discretization_key()))
+    def get_ref_mass_mat(out_grp, in_grp):
+        if out_grp == in_grp:
+            if isinstance(in_grp, TensorProductElementGroupBase):
+                basis_1d = out_grp.basis_obj().bases[0]
+                nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                    1, out_grp.order+1)
+
+                return actx.tag(
+                    TensorProductMassOperatorTag(),
+                    tag_axes(
+                        actx,
+                        {i: TensorProductOperatorAxisTag()
+                            for i in range(2)},
+                        actx.from_numpy(mp.mass_matrix(basis_1d, nodes_1d))))
+
+            else:
+                return actx.freeze(
+                    actx.from_numpy(
+                        mp.mass_matrix(out_grp.basis_obj(),
+                                       out_grp.unit_nodes)))
+
+        if isinstance(in_grp, TensorProductElementGroupBase):
+
+            basis_1d = out_grp.basis_obj().bases[0]
+            nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
+                1, out_grp.order+1)
+
+            mass_matrix = mp.nodal_quad_mass_matrix(
+                in_grp.quadrature_rule().quadratures[0], basis_1d.functions,
+                nodes_1d_out)
+
+            return actx.freeze(
+                actx.tag(
+                    TensorProductMassOperatorTag(),
+                    tag_axes(
+                        actx,
+                        {i: TensorProductOperatorAxisTag()
+                            for i in range(2)},
+                        actx.from_numpy(mass_matrix))))
+
+        elif isinstance(out_grp, SimplexElementGroupBase):
+
+            basis = out_grp.basis_obj()
+            vand = mp.vandermonde(basis.functions, out_grp.unit_nodes)
+            o_vand = mp.vandermonde(basis.functions, in_grp.unit_nodes)
+            vand_inv_t = np.linalg.inv(vand).T
+
+            weights = in_grp.quadrature_rule().weights
+            return actx.freeze(
+                actx.tag_axis(0, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray(
+                            np.einsum(
+                              "j,ik,jk->ij", weights, vand_inv_t, o_vand),
+                            order="C"))))
+
+    return get_ref_mass_mat(out_element_group, in_element_group)
+
+
+def reference_inverse_mass_matrix(actx: ArrayContext, element_group,
+                                  use_tensor_product_fast_eval=True):
+    @keyed_memoize_in(
+        actx, reference_inverse_mass_matrix,
+        lambda grp, use_tensor_product_fast_eval:
+            (grp.discretization_key(), use_tensor_product_fast_eval))
+    def get_ref_inv_mass_mat(grp, use_tensor_product_fast_eval):
+
+        if isinstance(grp, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+
+            basis_1d = grp.basis_obj().bases[0]
+            nodes_1d = grp.unit_nodes_1d
+
+            return actx.freeze(
+                actx.tag(
+                    TensorProductMassOperatorInverseTag(),
+                    tag_axes(
+                    actx,
+                    {i: TensorProductOperatorAxisTag() for i in range(2)},
+                    actx.from_numpy(
+                        inverse_mass_matrix(basis_1d, nodes_1d)))))
+
+        else:
+            basis = grp.basis_obj()
+
+            return actx.freeze(
+                actx.tag_axis(0, DiscretizationDOFAxisTag(),
+                    actx.from_numpy(
+                        np.asarray(
+                            inverse_mass_matrix(basis, grp.unit_nodes),
+                            order="C"))))
+
+    return get_ref_inv_mass_mat(element_group, use_tensor_product_fast_eval)
+
+# }}}
+
+
+# {{{ Derivative operator kernels
+
+def _single_axis_derivative_kernel(
+        actx: ArrayContext,
+        out_discr: Discretization,
+        in_discr: Discretization,
+        inv_jac_mat: Iterable,
+        xyz_axis: int,
+        vec: DOFArray,
+        compute_single_axis_derivative: Callable,
+        use_tensor_product_fast_eval: bool = True
+    ) -> DOFArray:
+    """
+    Computes the *xyz_axis*th derivative of *vec* using
+    *compute_single_axis_derivative*.
+
+    Strong and weak dispatch routines pass the corresponding
+    *compute_single_axis_derivative* routine so that the correct form is
+    computed.
+    """
+
+    group_data = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
+
+        group_data.append(compute_single_axis_derivative(
+            actx, xyz_axis, out_grp, in_grp, vec_i, ijm_i,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval))
+
+    return DOFArray(actx, data=tuple(group_data))
+
+
+def _gradient_kernel(
+        actx: ArrayContext,
+        out_discr: Discretization,
+        in_discr: Discretization,
+        inv_jac_mat: Iterable,
+        vec: DOFArray,
+        compute_single_axis_derivative: Callable,
+        use_tensor_product_fast_eval: bool = True
+    ) -> DOFArray:
+    """
+    Computes gradient of *vec* using *compute_single_axis_derivative* for each
+    entry in the gradient.
+
+    Strong and weak dispatch routines provide the proper
+    *compute_single_axis_derivative* routine.
+    """
+
+    per_group_grads = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
+
+        per_group_grads.append([compute_single_axis_derivative(
+            actx, xyz_axis, out_grp, in_grp, vec_i, ijm_i,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval)
+            for xyz_axis in range(in_grp.dim)
+        ])
+
+    return make_obj_array([
+        DOFArray(actx, data=tuple([  # noqa: C409
+            pgg_i[xyz_axis] for pgg_i in per_group_grads
+        ]))
+        for xyz_axis in range(out_discr.ambient_dim)
+    ])
+
+
+def _divergence_kernel(
+        actx: ArrayContext,
+        out_discr: Discretization,
+        in_discr: Discretization,
+        inv_jac_mat: Iterable,
+        vec: DOFArray,
+        compute_single_axis_derivative: Callable,
+        use_tensor_product_fast_eval: bool = True
+    ) -> DOFArray:
+    """
+    Computes divergence of *vec* by summing over each spatial derivative
+    computed by *compute_single_axis_derivative*.
+
+    Strong and weak dispatch routines provide the proper
+    *compute_single_axis_derivative* routine.
+    """
+
+    per_group_divs = []
+    for out_grp, in_grp, vec_i, ijm_i in zip(
+            out_discr.groups, in_discr.groups, vec, inv_jac_mat, strict=False):
+
+        per_group_divs.append(sum(compute_single_axis_derivative(
+            actx, xyz_axis, out_grp, in_grp, vec_ij, ijm_i,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval)
+            for xyz_axis, vec_ij in enumerate(vec_i)))
+
+    return DOFArray(actx, data=tuple(per_group_divs))
+
+# }}}
+
+
+# {{{ Strong derivative operators
+
+def _strong_tensor_product_single_axis_derivative(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer
+    ) -> ArrayOrContainer:
+
+    diff_mat = _reference_derivative_matrices(actx,
+                                              out_element_group=out_grp,
+                                              in_element_group=in_grp)
+    return sum(metrics[xyz_axis, rst_axis] * unfold(
+            out_grp.space,
+            single_axis_contraction(
+                actx,
+                in_grp.dim,
+                rst_axis,
+                diff_mat,
+                fold(in_grp.space, vec),
+                arg_names=("diff_op_1d", "vec")
+            )
+        )
+        for rst_axis in range(in_grp.dim)
+    )
+
+
+def _strong_simplicial_single_axis_derivative(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer
+    ) -> ArrayOrContainer:
+
+    diff_mat = _reference_derivative_matrices(actx,
+                                              out_element_group=out_grp,
+                                              in_element_group=in_grp)
+    return sum(metrics[xyz_axis, rst_axis] * actx.einsum(
+            "ij,ej->ei",
+            diff_mat[rst_axis],
+            vec,
+            arg_names=("diff_op", "vec"))
+        for rst_axis in range(in_grp.dim)
+    )
+
+
+def _strong_scalar_d_dx(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
+
+    if isinstance(in_grp, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+        return _strong_tensor_product_single_axis_derivative(
+            actx, xyz_axis, out_grp, in_grp, vec, metrics
+        )
+
+    return _strong_simplicial_single_axis_derivative(
+        actx, xyz_axis, out_grp, in_grp, vec, metrics
+    )
+
+
+def _strong_scalar_grad(
+        dcoll: DiscretizationCollection,
+        dd_in: DOFDesc,
+        vec: ArrayOrContainer,
+        *args,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
+    assert isinstance(dd_in.domain_tag, VolumeDomainTag)
+
     discr = dcoll.discr_from_dd(dd_in)
     actx = vec.array_context
+    metrics = inverse_surface_metric_derivative_mat(actx, dcoll,
+        dd=dd_in, _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    return _gradient_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec)
+    return _gradient_kernel(
+        actx, discr, discr, metrics, vec, _strong_scalar_d_dx,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 
-def _strong_scalar_div(dcoll, dd, vecs):
-    from arraycontext import get_container_context_recursively, serialize_container
+def _strong_scalar_div(
+        dcoll: DiscretizationCollection,
+        dd: DOFDesc,
+        vecs: ArrayOrContainer,
+        *args,
+        use_tensor_product_fast_eval: bool = True) -> ArrayOrContainer:
+    from arraycontext import (
+        get_container_context_recursively,
+        serialize_container,
+    )
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
 
-    discr = dcoll.discr_from_dd(dd)
-
     actx = get_container_context_recursively(vecs)
-    vec = actx.np.stack([v for k, v in serialize_container(vecs)])
+    assert actx is not None
 
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
+    discr = dcoll.discr_from_dd(dd)
+    vec = actx.np.stack([v for _, v in serialize_container(vecs)])
+    metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    return _divergence_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec)
+    return _divergence_kernel(
+        actx, discr, discr, metrics, vec, _strong_scalar_d_dx,
+       use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 
 def local_grad(
-        dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainer:
+        dcoll: DiscretizationCollection,
+        *args,
+        nested=False,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
 
@@ -503,13 +697,18 @@ def local_grad(
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        partial(_strong_scalar_grad, dcoll, dd_in),
+        partial(_strong_scalar_grad, dcoll, dd_in,
+                use_tensor_product_fast_eval=use_tensor_product_fast_eval),
         (), (dcoll.ambient_dim,),
         vec, scalar_cls=DOFArray, return_nested=nested,)
 
 
 def local_d_dx(
-        dcoll: DiscretizationCollection, xyz_axis, *args) -> ArrayOrContainer:
+        dcoll: DiscretizationCollection,
+        xyz_axis,
+        *args,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
     r"""Return the element-local derivative along axis *xyz_axis* of a
     function :math:`f` represented by *vec*:
 
@@ -537,21 +736,28 @@ def local_d_dx(
         raise TypeError("invalid number of arguments")
 
     if not isinstance(vec, DOFArray):
-        return map_array_container(partial(local_d_dx, dcoll, xyz_axis, dd), vec)
+        return map_array_container(
+            partial(local_d_dx, dcoll, xyz_axis, dd,
+                    use_tensor_product_fast_eval=use_tensor_product_fast_eval),
+            vec)
+
+    from grudge.geometry import inverse_surface_metric_derivative_mat
 
     discr = dcoll.discr_from_dd(dd)
     actx = vec.array_context
-
-    from grudge.geometry import inverse_surface_metric_derivative_mat
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
+    metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
-        actx, discr, discr,
-        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec)
+        actx, discr, discr, metrics, xyz_axis, vec, _strong_scalar_d_dx,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 
-def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+def local_div(
+        dcoll: DiscretizationCollection,
+        *args,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
     r"""Return the element-local divergence of the vector function
     :math:`\mathbf{f}` represented by *vecs*:
 
@@ -581,7 +787,9 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        lambda vec: _strong_scalar_div(dcoll, dd, vec),
+        lambda vec: _strong_scalar_div(
+            dcoll, dd, vec,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval),
         (dcoll.ambient_dim,), (),
         vecs, scalar_cls=DOFArray)
 
@@ -589,6 +797,101 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 
 # {{{ Weak derivative operators
+
+def _weak_tensor_product_single_axis_derivative(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer,
+    ) -> ArrayOrContainer:
+
+    stiffness_t = _reference_stiffness_transpose_matrices(actx, out_grp, in_grp)
+    vec_with_metrics = vec * metrics[xyz_axis]
+
+    # {{{ FIXME: this is pretty gross but can it be avoided?
+
+    # input and output shape won't be the same for overintegration
+    nelts = out_grp.nelements
+    ndofs = (out_grp.order + 1)**out_grp.dim
+    weak_derivative = actx.np.zeros((nelts, ndofs), dtype=vec.dtype)
+
+    # }}}
+
+    mass_1d = reference_mass_matrix(actx,
+                                    out_element_group=out_grp,
+                                    in_element_group=in_grp)
+    for rst_axis in range(in_grp.dim):
+        apply_mass_axes = set(range(in_grp.dim)) - {rst_axis}
+        weak_ref_derivative = fold(in_grp.space, vec_with_metrics[rst_axis])
+
+        for ax in apply_mass_axes:
+            weak_ref_derivative = single_axis_contraction(
+                actx,
+                in_grp.dim,
+                ax,
+                mass_1d,
+                weak_ref_derivative,
+                arg_names=("mass_1d", "vec")
+            )
+
+        weak_derivative += unfold(
+            out_grp.space,
+            single_axis_contraction(
+                actx,
+                in_grp.dim,
+                rst_axis,
+                stiffness_t,
+                weak_ref_derivative,
+                arg_names=("mass_1d", "vec")
+            )
+        )
+
+    return weak_derivative
+
+
+def _weak_simplicial_single_axis_derivative(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer
+    ) -> ArrayOrContainer:
+
+    stiffness_t = _reference_stiffness_transpose_matrices(actx, out_grp, in_grp)
+    vec_with_metrics = vec * metrics[xyz_axis]
+
+    return sum(actx.einsum(
+            "ij,ej->ei",
+            stiffness_t[rst_axis],
+            vec_with_metrics[rst_axis],
+            arg_names=(f"stiffness_t_{rst_axis}", "vec_scaled"))
+        for rst_axis in range(in_grp.dim)
+    )
+
+
+def _weak_scalar_d_dx(
+        actx: ArrayContext,
+        xyz_axis: int,
+        out_grp: NodalElementGroupBase,
+        in_grp: InterpolatoryElementGroupBase,
+        vec: ArrayOrContainer,
+        metrics: ArrayOrContainer,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
+
+    if isinstance(in_grp, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+        return _weak_tensor_product_single_axis_derivative(
+            actx, xyz_axis, out_grp, in_grp, vec, metrics
+        )
+
+    return _weak_simplicial_single_axis_derivative(
+        actx, xyz_axis, out_grp, in_grp, vec, metrics
+    )
+
 
 def _weak_scalar_grad(dcoll, dd_in, vec, *args,
                       use_tensor_product_fast_eval=True):
@@ -603,76 +906,36 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
 
     # }}}
 
-    # {{{ get metrics, scaling terms
+    # {{{ get metrics and apply scaling terms
 
     metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
         times_area_element=False,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    area_elements = area_element(actx, dcoll, dd=dd_in,
+    vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     # }}}
 
-    # {{{ build gradient at group granularity
-
-    group_data = []
-    for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
-        input_discr.groups, output_discr.groups, vec, metrics, area_elements,
-        strict=False):
-
-        if isinstance(in_group, TensorProductElementGroupBase):
-            assert isinstance(out_group, TensorProductElementGroupBase)
-
-            fast_eval = (use_tensor_product_fast_eval and
-                         (in_group == out_group))
-            if use_tensor_product_fast_eval and not fast_eval:
-                from warnings import warn
-                warn("Input and output groups must match to use " +
-                     "tensor-product fast operator evaluation. " +
-                     "Defaulting to typical operator evaluation.",
-                     stacklevel=1)
-
-            if fast_eval:
-                bilinear_form = _TensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    compute_stiffness=True)
-            else:
-                bilinear_form = _NonTensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    compute_stiffness=True)
-        else:
-            bilinear_form = _NonTensorProductBilinearForm(
-                actx, in_group, out_group, metric_i, area_elt_i,
-                compute_stiffness=True)
-
-        group_data.append(bilinear_form.gradient_operator(vec_i))
-
-    # }}}
-
-    return make_obj_array([
-        DOFArray(actx, data=tuple(
-            group_grad_i[xyz_axis]
-            for group_grad_i in group_data
-        ))
-        for xyz_axis in range(output_discr.ambient_dim)
-    ])
+    return _gradient_kernel(
+        actx, output_discr, input_discr, metrics, vec_scaled, _weak_scalar_d_dx,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval
+    )
 
 
 def _weak_scalar_div(dcoll, dd_in, vecs, *args,
                      use_tensor_product_fast_eval=True):
-    from arraycontext import get_container_context_recursively, serialize_container
-
-    from grudge.geometry import inverse_surface_metric_derivative_mat
-
-    assert isinstance(vecs, np.ndarray)
-    assert vecs.shape == (dcoll.ambient_dim,)
+    from arraycontext import (
+        get_container_context_recursively,
+        serialize_container,
+    )
 
     # {{{ setup and grab discretizations
 
     actx = get_container_context_recursively(vecs)
     assert actx is not None
-    vec = actx.np.stack([v for k, v in serialize_container(vecs)])
+
+    vec = actx.np.stack([v for _, v in serialize_container(vecs)])
 
     dd_in = as_dofdesc(dd_in)
     input_discr = dcoll.discr_from_dd(dd_in)
@@ -680,55 +943,21 @@ def _weak_scalar_div(dcoll, dd_in, vecs, *args,
 
     # }}}
 
-    # {{{ get metrics, scaling terms
+    # {{{ get metrics and apply scaling terms
 
     metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
         times_area_element=False,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    area_elements = area_element(actx, dcoll, dd=dd_in,
+    vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     # }}}
 
-    # {{{ compute divergence at group granularity
-
-    group_divs = []
-    for in_group, out_group, vec_i, metric_i, area_elt_i in zip(
-        input_discr.groups, output_discr.groups, vec, metrics, area_elements,
-        strict=False):
-
-        if isinstance(in_group, TensorProductElementGroupBase):
-            assert isinstance(out_group, TensorProductElementGroupBase)
-
-            fast_eval = (use_tensor_product_fast_eval and
-                         (in_group == out_group))
-
-            if use_tensor_product_fast_eval and not fast_eval:
-                from warnings import warn
-                warn("Input and output groups must match to use " +
-                     "tensor-product fast operator evaluation. " +
-                     "Defaulting to typical operator evaluation.",
-                     stacklevel=1)
-
-            if fast_eval:
-                bilinear_form = _TensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    compute_stiffness=True)
-            else:
-                bilinear_form = _NonTensorProductBilinearForm(
-                    actx, in_group, out_group, metric_i, area_elt_i,
-                    compute_stiffness=True)
-        else:
-            bilinear_form = _NonTensorProductBilinearForm(
-                actx, in_group, out_group, metric_i, area_elt_i,
-                compute_stiffness=True)
-
-        group_divs.append(bilinear_form.divergence_operator(vec_i))
-
-    # }}}
-
-    return DOFArray(actx, data=tuple(group_divs))
+    return _divergence_kernel(
+        actx, output_discr, input_discr, metrics, vec_scaled, _weak_scalar_d_dx,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval
+    )
 
 
 def weak_local_d_dx(dcoll: DiscretizationCollection, *args,
@@ -778,9 +1007,16 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args,
 
     dd_in = as_dofdesc(dd_in)
 
-    return apply_bilinear_form(dcoll, vec, dd_in,
-        use_tensor_product_fast_eval=use_tensor_product_fast_eval,
-        test_derivative=xyz_axis, in_shape=(), out_shape=(dcoll.ambient_dim,))
+    discr = dcoll.discr_from_dd(dd)
+    actx = vec.array_context
+    metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    return _single_axis_derivative_kernel(
+        actx, discr, discr, metrics, xyz_axis, vec_scaled, _weak_scalar_d_dx,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 
 def weak_local_grad(
@@ -815,10 +1051,10 @@ def weak_local_grad(
     else:
         raise TypeError("invalid number of arguments")
 
-    return apply_bilinear_form(dcoll, vecs, dd_in,
-        use_tensor_product_fast_eval=use_tensor_product_fast_eval,
-        dispatcher=_weak_scalar_grad, return_nested=nested,
-        in_shape=(), out_shape=(dcoll.ambient_dim,))
+    return rec_map_subarrays(
+        partial(_weak_scalar_grad, dcoll, dd_in), (), (dcoll.ambient_dim,),
+        vecs, scalar_cls=DOFArray, return_nested=nested
+    )
 
 
 def weak_local_div(dcoll: DiscretizationCollection, *args,
@@ -869,6 +1105,77 @@ def weak_local_div(dcoll: DiscretizationCollection, *args,
 
 # {{{ Mass operator
 
+def _apply_mass_operator(
+        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
+        )
+
+    def tensor_product_apply_mass(in_grp, out_grp, area_element, vec):
+        vec = area_element * vec
+
+        if in_grp.dim != 1:
+            vec = fold(in_grp.space, vec)
+
+        ref_mass_1d = reference_mass_matrix(
+            actx, out_element_group=out_grp, in_element_group=in_grp)
+
+        for xyz_axis in range(in_grp.dim):
+            vec = single_axis_contraction(
+                actx, in_grp.dim, xyz_axis, ref_mass_1d, vec,
+                tagged=(FirstAxisIsElementsTag(),
+                        OutputIsTensorProductDOFArrayOrdered()),
+                arg_names=("ref_mass_1d", "dofs"))
+
+        if in_grp.dim != 1:
+            return unfold(out_grp.space, vec)
+
+        return vec
+
+    def simplicial_apply_mass(in_grp, out_grp, area_element, vec):
+        return actx.einsum("ij,ej,ej->ei",
+            reference_mass_matrix(
+                actx,
+                out_element_group=out_grp,
+                in_element_group=in_grp
+                ),
+            area_element,
+            vec,
+            arg_names=("mass_mat", "jac", "vec"),
+            tagged=(FirstAxisIsElementsTag(),))
+
+    from grudge.geometry import area_element
+
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_out)
+
+    actx = vec.array_context
+    area_elements = area_element(actx, dcoll, dd=dd_in,
+            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    group_data = []
+    for in_grp, out_grp, ae_i, vec_i in zip(
+        in_discr.groups, out_discr.groups, area_elements, vec, strict=False):
+        if isinstance(in_grp, TensorProductElementGroupBase):
+            assert isinstance(out_grp, TensorProductElementGroupBase)
+            group_data.append(tensor_product_apply_mass(
+                in_grp, out_grp, ae_i, vec_i))
+
+        elif isinstance(in_grp, SimplexElementGroupBase):
+            assert isinstance(out_grp, SimplexElementGroupBase)
+            group_data.append(simplicial_apply_mass(
+                in_grp, out_grp, ae_i, vec_i))
+
+        else:
+            raise TypeError(
+                "`in_grp` and `out_grp` must both be either "
+                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
+                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
+
+    return DOFArray(actx, data=tuple(group_data))
+
+
 def mass(dcoll: DiscretizationCollection, *args,
          use_tensor_product_fast_eval=True) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
@@ -905,244 +1212,6 @@ def mass(dcoll: DiscretizationCollection, *args,
         raise TypeError("invalid number of arguments")
 
     return apply_bilinear_form(dcoll, vec, dd_in,
-        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
-
-# }}}
-
-
-# {{{ Mass inverse operator
-
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group,
-                                  use_tensor_product_fast_eval=True):
-    @keyed_memoize_in(
-        actx, reference_inverse_mass_matrix,
-        lambda grp, use_tensor_product_fast_eval:
-            (grp.discretization_key(), use_tensor_product_fast_eval))
-    def get_ref_inv_mass_mat(grp, use_tensor_product_fast_eval):
-
-        if isinstance(grp, TensorProductElementGroupBase) and \
-            use_tensor_product_fast_eval:
-
-            basis_1d = grp.basis_obj().bases[0]
-            nodes_1d = grp.unit_nodes_1d
-
-            return actx.freeze(
-                actx.tag(
-                    TensorProductMassOperatorInverseTag(),
-                    tag_axes(
-                    actx,
-                    {i: TensorProductOperatorAxisTag() for i in range(2)},
-                    actx.from_numpy(
-                        inverse_mass_matrix(basis_1d, nodes_1d)))))
-
-        else:
-            basis = grp.basis_obj()
-
-            return actx.freeze(
-                actx.tag_axis(0, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(
-                            inverse_mass_matrix(basis, grp.unit_nodes),
-                            order="C"))))
-
-    return get_ref_inv_mass_mat(element_group, use_tensor_product_fast_eval)
-
-
-def _simplicial_apply_inverse_mass_operator(actx, grp, vec):
-    return actx.einsum(
-        "ij,ej->ei",
-        reference_inverse_mass_matrix(actx, element_group=grp,
-                                      use_tensor_product_fast_eval=False),
-        vec,
-        tagged=(FirstAxisIsElementsTag(),))
-
-
-def _tensor_product_apply_inverse_mass_operator(actx, grp, vec):
-    if grp.dim != 1:
-        vec = fold(grp.space, vec)
-
-    for rst_axis in range(grp.dim):
-        vec = single_axis_contraction(
-            actx, grp.dim, rst_axis,
-            reference_inverse_mass_matrix(actx, element_group=grp,
-                                          use_tensor_product_fast_eval=True),
-            vec,
-            tagged=(FirstAxisIsElementsTag(),
-                    OutputIsTensorProductDOFArrayOrdered(),),
-            arg_names=("base_mass_inv", "dofs"))
-
-    if grp.dim != 1:
-        vec = unfold(grp.space, vec)
-
-    return vec
-
-
-def _dispatch_inverse_mass_applier(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec,
-        uses_quadrature=False,
-        use_tensor_product_fast_eval=True):
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(_dispatch_inverse_mass_applier, dcoll, dd_out, dd_in,
-                    uses_quadrature), vec
-        )
-
-    if dd_out != dd_in and not uses_quadrature:
-        raise ValueError(
-            "Cannot compute inverse of a mass matrix mapping "
-            "between different element groups unless using overintegration; "
-            "inverse is not guaranteed to be well-defined")
-
-    actx = vec.array_context
-    discr_base = dcoll.discr_from_dd(dd_out)
-    discr_quad = dcoll.discr_from_dd(dd_in)
-
-    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-
-    if discr_base == discr_quad:
-        group_data = []
-        for in_grp, out_grp, vec_i, inv_ae_i in zip(discr_quad.groups,
-                discr_base.groups, vec, inv_area_elements, strict=False):
-
-            if isinstance(in_grp, TensorProductElementGroupBase) and \
-                    use_tensor_product_fast_eval:
-                assert isinstance(out_grp, TensorProductElementGroupBase)
-                group_data.append(_tensor_product_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i) * inv_ae_i)
-            else:
-                group_data.append(_simplicial_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i) * inv_ae_i)
-
-        return DOFArray(actx, data=tuple(group_data))
-
-    # see WADG: https://arxiv.org/pdf/1608.03836
-
-    # apply reference inverse mass
-    group_data = []
-    for in_grp, out_grp, vec_i in zip(discr_quad.groups, discr_base.groups, vec,
-                          strict=False):
-        if isinstance(out_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-
-            fast_eval = (use_tensor_product_fast_eval and (in_grp == out_grp))
-            if use_tensor_product_fast_eval and not fast_eval:
-                from warnings import warn
-                warn("Input and output groups must match to use " +
-                     "tensor-product fast operator evaluation. " +
-                     "Defaulting to typical operator evaluation.",
-                     stacklevel=1)
-
-            if fast_eval:
-                group_data.append(_tensor_product_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i))
-            else:
-                group_data.append(_simplicial_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i))
-        else:
-            group_data.append(_simplicial_apply_inverse_mass_operator(
-                actx, out_grp, vec_i))
-
-    # project to quadrature discretization
-    vec = inv_area_elements * project(
-        dcoll, dd_out, dd_in, DOFArray(actx, data=tuple(group_data)))
-
-    # finish applying WADG
-    group_data = []
-    for in_grp, out_grp, vec_i in zip(
-            discr_quad.groups, discr_base.groups, vec, strict=False):
-        if isinstance(in_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-
-            fast_eval = (use_tensor_product_fast_eval and (in_grp == out_grp))
-            if use_tensor_product_fast_eval and not fast_eval:
-                from warnings import warn
-                warn("Input and output groups must match to use " +
-                     "tensor-product fast operator evaluation. " +
-                     "Defaulting to typical operator evaluation.",
-                     stacklevel=1)
-
-            if fast_eval:
-                bilinear_form = _TensorProductBilinearForm(
-                    actx, in_grp, out_grp, compute_stiffness=False)
-                vec_i = bilinear_form.mass_operator(vec_i, exclude_metric=True)
-                group_data.append(_tensor_product_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i))
-            else:
-                bilinear_form = _NonTensorProductBilinearForm(
-                    actx, in_grp, out_grp, compute_stiffness=False)
-                vec_i = bilinear_form.mass_operator(vec_i, exclude_metric=True)
-                group_data.append(_simplicial_apply_inverse_mass_operator(
-                    actx, out_grp, vec_i))
-
-        else:
-            bilinear_form = _NonTensorProductBilinearForm(
-                actx, in_grp, out_grp, compute_stiffness=False)
-            vec_i = bilinear_form.mass_operator(vec_i, exclude_metric=True)
-            group_data.append(_simplicial_apply_inverse_mass_operator(
-                actx, out_grp, vec_i))
-
-    return DOFArray(actx, data=tuple(group_data))
-
-
-def inverse_mass(dcoll: DiscretizationCollection, *args,
-                 use_tensor_product_fast_eval=True) -> ArrayOrContainer:
-    r"""Return the action of the DG mass matrix inverse on a vector
-    (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
-    In the case of *vec* being an :class:`~arraycontext.ArrayContainer`,
-    the inverse mass operator is applied component-wise.
-
-    For affine elements :math:`E`, the element-wise mass inverse
-    is computed directly as the inverse of the (physical) mass matrix:
-
-    .. math::
-
-        \left(\mathbf{M}_{J^e}\right)_{ij} =
-            \int_{\widehat{E}} \widehat{\phi}_i\cdot\widehat{\phi}_j J^e
-            \mathrm{d}\widehat{x},
-
-    where :math:`\widehat{\phi}_i` are basis functions over the reference
-    element :math:`\widehat{E}`, and :math:`J^e` is the (constant) Jacobian
-    scaling factor (see :func:`grudge.geometry.area_element`).
-
-    For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
-    weight-adjusted approximation is used instead following [Chan_2016]_:
-
-    .. math::
-
-        \mathbf{M}_{J^e}^{-1} \approx
-            \widehat{\mathbf{M}}^{-1}\mathbf{M}_{1/J^e}\widehat{\mathbf{M}}^{-1},
-
-    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
-    :math:`\widehat{E}`.
-
-    May be called with ``(vec)`` or ``(dd, vec)``.
-
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.ArrayContainer` of them.
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
-        Defaults to the base volume discretization if not provided.
-    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.ArrayContainer` like *vec*.
-    """
-    if len(args) == 1:
-        vec, = args
-        dd = DD_VOLUME_ALL
-    elif len(args) == 2:
-        dd, vec = args
-    else:
-        raise TypeError("invalid number of arguments")
-
-    if dd.uses_quadrature():
-        dd_in = dd.with_discr_tag(DISCR_TAG_QUAD)
-        dd_out = dd.with_discr_tag(DISCR_TAG_BASE)
-    else:
-        dd_in = dd
-        dd_out = dd
-
-    return _dispatch_inverse_mass_applier(
-        dcoll, dd_out, dd_in, vec,
-        uses_quadrature=dd.uses_quadrature(),
         use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 # }}}
@@ -1338,144 +1407,237 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 # }}}
 
 
-# {{{ deprecated functionality (gone in 2025)
+# {{{ Mass inverse operator
 
-def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
-    @keyed_memoize_in(
-        actx, reference_mass_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
-    def get_ref_mass_mat(out_grp, in_grp):
-        import modepy as mp
+def _apply_inverse_mass_tensor_product(actx, grp, vec):
+    vec = fold(grp.space, vec)
 
-        if out_grp == in_grp:
-            if isinstance(out_grp, TensorProductElementGroupBase):
-                basis_1d = out_grp.basis_obj().bases[0]
-                nodes_1d = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
-                    1, out_grp.order+1)
-
-                return actx.tag(
-                    TensorProductMassOperatorTag(),
-                    tag_axes(
-                        actx,
-                        {i: TensorProductOperatorAxisTag()
-                            for i in range(2)},
-                        actx.from_numpy(mp.mass_matrix(basis_1d, nodes_1d))))
-
-            else:
-                return actx.freeze(
-                    actx.from_numpy(
-                        mp.mass_matrix(out_grp.basis_obj(),
-                                       out_grp.unit_nodes)))
-
-        if isinstance(in_grp, TensorProductElementGroupBase):
-
-            basis_1d = out_grp.basis_obj().bases[0]
-            nodes_1d_out = out_grp.unit_nodes[0][:out_grp.order+1].reshape(
-                1, out_grp.order+1)
-
-            mass_matrix = mp.nodal_quad_mass_matrix(
-                in_grp.quadrature_rule().quadratures[0], basis_1d.functions,
-                nodes_1d_out)
-
-            return actx.freeze(
-                actx.tag(
-                    TensorProductMassOperatorTag(),
-                    tag_axes(
-                        actx,
-                        {i: TensorProductOperatorAxisTag()
-                            for i in range(2)},
-                        actx.from_numpy(mass_matrix))))
-
-        elif isinstance(out_grp, SimplexElementGroupBase):
-
-            basis = out_grp.basis_obj()
-            vand = mp.vandermonde(basis.functions, out_grp.unit_nodes)
-            o_vand = mp.vandermonde(basis.functions, in_grp.unit_nodes)
-            vand_inv_t = np.linalg.inv(vand).T
-
-            weights = in_grp.quadrature_rule().weights
-            return actx.freeze(
-                actx.tag_axis(0, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(
-                            np.einsum(
-                              "j,ik,jk->ij", weights, vand_inv_t, o_vand),
-                            order="C"))))
-
-    return get_ref_mass_mat(out_element_group, in_element_group)
-
-
-def _apply_mass_operator(
-        dcoll: DiscretizationCollection, dd_out, dd_in, vec):
-    if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
-        )
-
-    def tensor_product_apply_mass(in_grp, out_grp, area_element, vec):
-        vec = area_element * vec
-
-        if in_grp.dim != 1:
-            vec = fold(in_grp.space, vec)
-
-        ref_mass_1d = reference_mass_matrix(
-            actx, out_element_group=out_grp, in_element_group=in_grp)
-
-        for xyz_axis in range(in_grp.dim):
-            vec = single_axis_contraction(
-                actx, in_grp.dim, xyz_axis, ref_mass_1d, vec,
-                tagged=(FirstAxisIsElementsTag(),
-                        OutputIsTensorProductDOFArrayOrdered()),
-                arg_names=("ref_mass_1d", "dofs"))
-
-        if in_grp.dim != 1:
-            return unfold(out_grp.space, vec)
-
-        return vec
-
-    def simplicial_apply_mass(in_grp, out_grp, area_element, vec):
-        return actx.einsum("ij,ej,ej->ei",
-            reference_mass_matrix(
-                actx,
-                out_element_group=out_grp,
-                in_element_group=in_grp
-                ),
-            area_element,
+    for rst_axis in range(grp.dim):
+        vec = single_axis_contraction(
+            actx, grp.dim, rst_axis,
+            reference_inverse_mass_matrix(actx,
+                                          element_group=grp,
+                                          use_tensor_product_fast_eval=True),
             vec,
-            arg_names=("mass_mat", "jac", "vec"),
-            tagged=(FirstAxisIsElementsTag(),))
+            arg_names=("base_mass_inv", "dofs"))
 
-    from grudge.geometry import area_element
+    return unfold(grp.space, vec)
 
-    in_discr = dcoll.discr_from_dd(dd_in)
-    out_discr = dcoll.discr_from_dd(dd_out)
 
-    actx = vec.array_context
-    area_elements = area_element(actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+def _apply_inverse_mass_simplicial(actx, grp, vec):
+    return actx.einsum(
+        "ij,ej->ei",
+        reference_inverse_mass_matrix(actx,
+                                      element_group=grp,
+                                      use_tensor_product_fast_eval=False),
+        vec,
+        arg_names=("ref_inv_mass", "vec")
+    )
+
+
+# {{{ non-WADG
+
+def _apply_quad_inverse_mass(
+        actx: ArrayContext,
+        discr: Discretization,
+        vec: ArrayOrContainer,
+        inv_area_elements: ArrayOrContainer,
+        use_tensor_product_fast_eval: bool = True
+    ) -> DOFArray:
 
     group_data = []
-    for in_grp, out_grp, ae_i, vec_i in zip(
-        in_discr.groups, out_discr.groups, area_elements, vec, strict=False):
-        if isinstance(in_grp, TensorProductElementGroupBase):
-            assert isinstance(out_grp, TensorProductElementGroupBase)
-            group_data.append(tensor_product_apply_mass(
-                in_grp, out_grp, ae_i, vec_i))
-
-        elif isinstance(in_grp, SimplexElementGroupBase):
-            assert isinstance(out_grp, SimplexElementGroupBase)
-            group_data.append(simplicial_apply_mass(
-                in_grp, out_grp, ae_i, vec_i))
-
+    for in_grp, out_grp, vec_i, inv_ae_i in zip(
+            discr.groups, discr.groups, vec, inv_area_elements, strict=False):
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+                use_tensor_product_fast_eval:
+            group_data.append(_apply_inverse_mass_tensor_product(
+                actx, out_grp, vec_i) * inv_ae_i)
         else:
-            raise TypeError(
-                "`in_grp` and `out_grp` must both be either "
-                "`SimplexElementGroupBase` or `TensorProductElementGroupBase`. "
-                f"Found `in_grp` = {in_grp}, `out_grp` = {out_grp}")
+            group_data.append(_apply_inverse_mass_simplicial(
+                actx, out_grp, vec_i) * inv_ae_i)
 
     return DOFArray(actx, data=tuple(group_data))
 
 # }}}
+
+
+# {{{ WADG
+
+def _apply_wadg_inverse_mass(
+        actx: ArrayContext,
+        dcoll: DiscretizationCollection,
+        dd_out: DOFDesc,
+        dd_in: DOFDesc,
+        vec: ArrayOrContainer,
+        inv_area_elements: ArrayOrContainer,
+        use_tensor_product_fast_eval: bool = True
+    ) -> DOFArray:
+
+    discr_base = dcoll.discr_from_dd(dd_out)
+    discr_quad = dcoll.discr_from_dd(dd_in)
+
+    group_data = []
+    for in_grp, out_grp, vec_i in zip(
+            discr_quad.groups, discr_base.groups, vec, strict=False):
+
+        if isinstance(out_grp, TensorProductElementGroupBase):
+            fast_eval = use_tensor_product_fast_eval and (in_grp == out_grp)
+            if use_tensor_product_fast_eval and not fast_eval:
+                from warnings import warn
+                warn("Input and output groups must match to use " +
+                     "tensor-product fast operator evaluation + WADG. " +
+                     "Defaulting to typical operator evaluation.",
+                     stacklevel=1)
+
+            use_tensor_product_fast_eval = fast_eval
+
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+                use_tensor_product_fast_eval:
+            group_data.append(_apply_inverse_mass_tensor_product(
+                actx, out_grp, vec_i))
+
+        else:
+            group_data.append(_apply_inverse_mass_simplicial(
+                actx, out_grp, vec_i))
+
+    vec = inv_area_elements * project(
+        dcoll, dd_out, dd_in, DOFArray(actx, data=tuple(group_data)))
+
+    group_data = []
+    for in_grp, out_grp, vec_i in zip(
+            discr_quad.groups, discr_base.groups, vec, strict=False):
+
+        if isinstance(in_grp, TensorProductElementGroupBase):
+            fast_eval = (use_tensor_product_fast_eval and (in_grp == out_grp))
+            if use_tensor_product_fast_eval and not fast_eval:
+                from warnings import warn
+                warn("Input and output groups must match to use " +
+                     "tensor-product fast operator evaluation. " +
+                     "Defaulting to typical operator evaluation.",
+                     stacklevel=1)
+
+            use_tensor_product_fast_eval = fast_eval
+
+        if isinstance(in_grp, TensorProductElementGroupBase) and \
+                use_tensor_product_fast_eval:
+            bilinear_form = _TensorProductBilinearForm(
+                actx, in_grp, out_grp, compute_stiffness=False)
+            vec_i = bilinear_form.mass_operator(vec_i, exclude_metric=True)
+            group_data.append(_apply_inverse_mass_tensor_product(
+                actx, out_grp, vec_i))
+        else:
+            bilinear_form = _NonTensorProductBilinearForm(
+                actx, in_grp, out_grp, compute_stiffness=False)
+            vec_i = bilinear_form.mass_operator(vec_i, exclude_metric=True)
+            group_data.append(_apply_inverse_mass_simplicial(
+                actx, out_grp, vec_i))
+
+    return DOFArray(actx, data=tuple(group_data))
+
+# }}}
+
+
+def _dispatch_inverse_mass_applier(
+        dcoll: DiscretizationCollection,
+        dd_out: DOFDesc,
+        dd_in: DOFDesc,
+        vec: ArrayOrContainer,
+        uses_quadrature: bool = False,
+        use_tensor_product_fast_eval: bool = True):
+    if not isinstance(vec, DOFArray):
+        return map_array_container(
+            partial(_dispatch_inverse_mass_applier, dcoll, dd_out, dd_in,
+                    uses_quadrature, use_tensor_product_fast_eval), vec
+        )
+
+    if dd_out != dd_in and not uses_quadrature:
+        raise ValueError(
+            "Cannot compute inverse of a mass matrix mapping "
+            "between different element groups unless using overintegration; "
+            "inverse is not guaranteed to be well-defined")
+
+    actx = vec.array_context
+    discr_base = dcoll.discr_from_dd(dd_out)
+    discr_quad = dcoll.discr_from_dd(dd_in)
+
+    inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    if discr_base == discr_quad:
+        return _apply_quad_inverse_mass(
+            actx, discr_base, vec, inv_area_elements,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval
+        )
+
+    else:
+        # see WADG: https://arxiv.org/pdf/1608.03836
+        return _apply_wadg_inverse_mass(
+            actx, dcoll, dd_out, dd_in, vec, inv_area_elements,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval
+        )
+
+
+def inverse_mass(dcoll: DiscretizationCollection, *args,
+                 use_tensor_product_fast_eval=True) -> ArrayOrContainer:
+    r"""Return the action of the DG mass matrix inverse on a vector
+    (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
+    In the case of *vec* being an :class:`~arraycontext.ArrayContainer`,
+    the inverse mass operator is applied component-wise.
+
+    For affine elements :math:`E`, the element-wise mass inverse
+    is computed directly as the inverse of the (physical) mass matrix:
+
+    .. math::
+
+        \left(\mathbf{M}_{J^e}\right)_{ij} =
+            \int_{\widehat{E}} \widehat{\phi}_i\cdot\widehat{\phi}_j J^e
+            \mathrm{d}\widehat{x},
+
+    where :math:`\widehat{\phi}_i` are basis functions over the reference
+    element :math:`\widehat{E}`, and :math:`J^e` is the (constant) Jacobian
+    scaling factor (see :func:`grudge.geometry.area_element`).
+
+    For non-affine :math:`E`, :math:`J^e` is not constant. In this case, a
+    weight-adjusted approximation is used instead following [Chan_2016]_:
+
+    .. math::
+
+        \mathbf{M}_{J^e}^{-1} \approx
+            \widehat{\mathbf{M}}^{-1}\mathbf{M}_{1/J^e}\widehat{\mathbf{M}}^{-1},
+
+    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
+    :math:`\widehat{E}`.
+
+    May be called with ``(vec)`` or ``(dd, vec)``.
+
+    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.ArrayContainer` of them.
+    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
+        Defaults to the base volume discretization if not provided.
+    :returns: a :class:`~meshmode.dof_array.DOFArray` or an
+        :class:`~arraycontext.ArrayContainer` like *vec*.
+    """
+    if len(args) == 1:
+        vec, = args
+        dd = DD_VOLUME_ALL
+    elif len(args) == 2:
+        dd, vec = args
+    else:
+        raise TypeError("invalid number of arguments")
+
+    if dd.uses_quadrature():
+        dd_in = dd.with_discr_tag(DISCR_TAG_QUAD)
+        dd_out = dd.with_discr_tag(DISCR_TAG_BASE)
+    else:
+        dd_in = dd
+        dd_out = dd
+
+    return _dispatch_inverse_mass_applier(
+        dcoll, dd_out, dd_in, vec,
+        uses_quadrature=dd.uses_quadrature(),
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
+
+# }}}
+
 
 # vim: foldmethod=marker

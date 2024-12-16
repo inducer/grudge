@@ -108,10 +108,10 @@ class MassInverseTimesStiffnessSimplifier(CopyMapperWithExtraArgs):
 
             d = mass_inverse @ stiffness
 
-            from grudge.transform.metadata import AxisIgnoredForPropagationTag
+            from grudge.transform.metadata import TensorProductOperatorAxisTag
             d_axes = []
             for ax in d.axes:
-                d_axes.append(ax.tagged(AxisIgnoredForPropagationTag()))
+                d_axes.append(ax.tagged(TensorProductOperatorAxisTag()))
             d = d.copy(axes=tuple(d_axes))
 
             new_args = [d, data]

@@ -190,7 +190,7 @@ class _NonTensorProductBilinearForm(_BilinearForm):
 
         # }}}
 
-        # {{{ compute the operator using quadrature
+        # {{{ compute the operatorusing quadrature
 
         vdm_out = mp.vandermonde(test_basis.functions, out_nodes)
 
