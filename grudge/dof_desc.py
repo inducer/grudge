@@ -389,8 +389,11 @@ def _normalize_domain_and_discr_tag(
         *, _contextual_volume_tag: VolumeTag | None = None
         ) -> tuple[DomainTag, DiscretizationTag]:
 
-    if _contextual_volume_tag is None:
-        _contextual_volume_tag = VTAG_ALL
+    contextual_volume_tag = _contextual_volume_tag
+    del _contextual_volume_tag
+
+    if contextual_volume_tag is None:
+        contextual_volume_tag = VTAG_ALL
 
     if domain == "scalar":
         domain = DTAG_SCALAR
@@ -399,13 +402,13 @@ def _normalize_domain_and_discr_tag(
     elif domain in [VTAG_ALL, "vol"]:
         domain = DTAG_VOLUME_ALL
     elif domain in [FACE_RESTR_ALL, "all_faces"]:
-        domain = BoundaryDomainTag(FACE_RESTR_ALL, _contextual_volume_tag)
+        domain = BoundaryDomainTag(FACE_RESTR_ALL, contextual_volume_tag)
     elif domain in [FACE_RESTR_INTERIOR, "int_faces"]:
-        domain = BoundaryDomainTag(FACE_RESTR_INTERIOR, _contextual_volume_tag)
+        domain = BoundaryDomainTag(FACE_RESTR_INTERIOR, contextual_volume_tag)
     elif isinstance(domain, BTAG_PARTITION):
-        domain = BoundaryDomainTag(domain, _contextual_volume_tag)
+        domain = BoundaryDomainTag(domain, contextual_volume_tag)
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
-        domain = BoundaryDomainTag(domain, _contextual_volume_tag)
+        domain = BoundaryDomainTag(domain, contextual_volume_tag)
     else:
         raise ValueError(f"domain tag not understood: {domain}")
 
