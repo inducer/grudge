@@ -246,7 +246,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
 
         # type-ignore-reason: 'PytatoPyOpenCLArrayContext' has no 'mpi_communicator'
         # pylint: disable=no-member
-        distributed_partition, _new_mpi_base_tag = number_distributed_tags(
+        distributed_partition, new_mpi_base_tag = number_distributed_tags(
                 self.actx.mpi_communicator,
                 distributed_partition,
                 base_tag=prev_mpi_base_tag)
@@ -254,7 +254,7 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         assert prev_mpi_base_tag == self.actx.mpi_base_tag
         # FIXME: Updating stuff inside the array context from here is *cough*
         # not super pretty.
-        self.actx.mpi_base_tag = _new_mpi_base_tag
+        self.actx.mpi_base_tag = new_mpi_base_tag
 
         self.actx._compile_trace_callback(self.f, "post_number_distributed_tags",
                 distributed_partition)

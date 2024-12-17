@@ -330,7 +330,8 @@ def inverse_metric_derivative_mat(
     result = np.zeros((ambient_dim, dim), dtype=object)
     for i in range(dim):
         for j in range(ambient_dim):
-            result[i, j] = inverse_metric_derivative(
+            # type-ignore because numpy typing doesn't like object arrays
+            result[i, j] = inverse_metric_derivative(  # type: ignore[call-overload]
                 actx, dcoll, i, j, dd=dd,
                 _use_geoderiv_connection=_use_geoderiv_connection
             )
@@ -564,17 +565,17 @@ def _signed_face_ones(
         actx, dtype=dcoll.real_dtype
     ) + 1
 
-    _signed_face_ones_numpy = actx.to_numpy(signed_ones)
+    signed_face_ones_numpy = actx.to_numpy(signed_ones)
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
             assert batch.to_element_face is not None
             i = actx.to_numpy(actx.thaw(batch.to_element_indices))
-            grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
+            grp_field = signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
                 (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
 
-    return actx.from_numpy(_signed_face_ones_numpy)
+    return actx.from_numpy(signed_face_ones_numpy)
 
 
 def parametrization_derivative(
@@ -724,10 +725,13 @@ def mv_normal(
     """
     dd = dof_desc.as_dofdesc(dd)
 
-    if _use_geoderiv_connection is None:
-        _use_geoderiv_connection = actx.supports_nonscalar_broadcasting
+    use_geoderiv_connection = _use_geoderiv_connection
+    del _use_geoderiv_connection
 
-    @memoize_in(dcoll, (mv_normal, dd, _use_geoderiv_connection))
+    if use_geoderiv_connection is None:
+        use_geoderiv_connection = actx.supports_nonscalar_broadcasting
+
+    @memoize_in(dcoll, (mv_normal, dd, use_geoderiv_connection))
     def _normal():
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
@@ -740,7 +744,7 @@ def mv_normal(
         if dim == ambient_dim - 1:
             result = rel_mv_normal(
                 actx, dcoll, dd=dd,
-                _use_geoderiv_connection=_use_geoderiv_connection)
+                _use_geoderiv_connection=use_geoderiv_connection)
         else:
             # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
             # enough information on the face to decide what an "exterior face normal"
@@ -759,12 +763,12 @@ def mv_normal(
                         rel_mv_normal(
                             actx, dcoll,
                             dd=dd.untrace(),
-                            _use_geoderiv_connection=_use_geoderiv_connection
+                            _use_geoderiv_connection=use_geoderiv_connection
                         ).as_vector(dtype=object))
             )
             pder = pseudoscalar(
                 actx, dcoll, dd=dd,
-                _use_geoderiv_connection=_use_geoderiv_connection)
+                _use_geoderiv_connection=use_geoderiv_connection)
 
             mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
