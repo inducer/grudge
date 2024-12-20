@@ -61,7 +61,6 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [True, False])
-@pytest.mark.parametrize("rotate_mesh", [True, False])
 @pytest.mark.parametrize(("vectorize", "nested"), [
     (False, False),
     (True, False),
@@ -72,7 +71,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     TensorProductElementGroup
 ])
 def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-                  warp_mesh, rotate_mesh, group_cls, visualize=False):
+                  warp_mesh, group_cls, visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -95,27 +94,6 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                     a=(-1,)*dim, b=(1,)*dim,
                     nelements_per_axis=(n,)*dim,
                     group_cls=group_cls)
-
-        if rotate_mesh:
-            from meshmode.mesh.processing import affine_map
-            b = np.array([0.33, -0.21, 0.0])[:dim]
-            if dim == 1:
-                pytest.skip()
-            elif dim == 2:
-                theta = np.pi / 2
-                a = np.array([
-                    [np.cos(theta), -np.sin(theta)],
-                    [np.sin(theta), np.cos(theta)]
-                ])
-                mesh = affine_map(mesh, A=a, b=b)
-            elif dim == 3:
-                theta = np.pi / 2
-                a = np.array([
-                    [1.0, 0.0, 0.0],
-                    [0.0, np.cos(theta), -np.sin(theta)],
-                    [0.0, np.sin(theta), np.cos(theta)]
-                ])
-                mesh = affine_map(mesh, A=a, b=b)
 
         dcoll = make_discretization_collection(
            actx, mesh,

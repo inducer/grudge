@@ -36,6 +36,23 @@ from typing import Any
 import numpy as np
 
 from arraycontext import ArrayContext, ArrayOrContainer, ArrayOrContainerT
+from meshmode.discretization.poly_element import (
+    QuadratureSimplexElementGroup,
+    TensorProductElementGroupBase
+)
+from meshmode.discretization import (
+    ElementGroupBase,
+    ElementGroupWithBasis,
+    InterpolatoryElementGroupBase,
+    NodalElementGroupBase,
+)
+from modepy import (
+    Basis,
+    Face,
+    Quadrature,
+    TensorProductBasis,
+    TensorProductQuadrature
+)
 from pytools import product
 
 
@@ -75,6 +92,134 @@ def build_jacobian(
         mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
 
     return mat
+
+# }}}
+
+
+# {{{ discretization info extraction helpers
+
+def get_element_group_basis(
+        group: ElementGroupWithBasis,
+        use_tensor_product_fast_eval: bool = True
+    ) -> Basis:
+
+    if isinstance(group, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+
+        basis_obj = group.basis_obj().bases[0]
+
+        if not sum(b == basis_obj for b in group.basis_obj().bases):
+            raise ValueError(
+                 "Fast operator evaluation for tensor-product "
+                 "discretizations requires that only a single "
+                 "basis is used to construct the tensor-product")
+
+    else:
+        basis_obj = group.basis_obj()
+
+    return basis_obj
+
+
+def get_element_group_nodes(
+        group: NodalElementGroupBase,
+        use_tensor_product_fast_eval: bool = True
+    ) -> np.ndarray:
+
+    if isinstance(group, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+        return group.unit_nodes_1d
+    return group.unit_nodes
+
+
+def get_accurate_quadrature_rule(
+        group: NodalElementGroupBase,
+        required_exactness: int | None = None,
+        use_tensor_product_fast_eval: bool = True,
+    ) -> Quadrature:
+
+    import modepy as mp
+
+    if not isinstance(group.quadrature_rule().exact_to, int):
+        return group.quadrature_rule()
+
+    if required_exactness is None:
+        required_exactness = 2*group.order
+
+    if group.quadrature_rule().exact_to < required_exactness:
+        quadrature_rule = mp.quadrature_for_space(
+            mp.space_for_shape(group.shape, required_exactness),
+            group.shape
+        )
+
+    else:
+        quadrature_rule = group.quadrature_rule()
+
+    if isinstance(quadrature_rule, TensorProductQuadrature) and \
+            use_tensor_product_fast_eval:
+        return quadrature_rule.quadratures[0]
+
+    return quadrature_rule
+
+
+def get_quadrature_for_face(
+        face_group: NodalElementGroupBase,
+        face: Face,
+        required_exactness: int | None = None,
+        vol_group_order: int | None = None,
+        use_tensor_product_fast_eval: bool = True,
+    ) -> Quadrature:
+
+    import modepy as mp
+
+    if isinstance(face_group, QuadratureSimplexElementGroup):
+        if face_group.quadrature_rule().exact_to < face_group.order:
+            raise ValueError(
+                "The face quadrature rule is only exact for polynomials "
+                f"of total degree {face_group.quadrature_rule().exact_to}. "
+                "Please ensure a quadrature rule is used that is at least "
+                f"exact for degree {face_group.order}."
+            )
+
+        return face_group.quadrature_rule()
+
+    if required_exactness is None:
+        if vol_group_order is None:
+            raise ValueError("Must supply one of `required_exactness` or "
+                             "`vol_group_order` to construct a quadrature rule "
+                             "accurate enough to evaluate the face mass matrix")
+        required_exactness = 2*max(face_group.order, vol_group_order)
+
+    if not isinstance(face_group.quadrature_rule().exact_to, int):
+        return face_group.quadrature_rule()
+
+    if face_group.quadrature_rule().exact_to < required_exactness:
+        quadrature_rule = mp.quadrature_for_space(
+            mp.space_for_shape(face, required_exactness),
+            face
+        )
+
+    else:
+        quadrature_rule = face_group.quadrature_rule()
+
+    if isinstance(quadrature_rule, TensorProductQuadrature) and \
+            use_tensor_product_fast_eval:
+        return quadrature_rule.quadratures[0]
+
+    return quadrature_rule
+
+
+def get_basis_for_face_group(
+        face_group: ElementGroupBase,
+        use_tensor_product_fast_eval: bool = True
+) -> Basis | None:
+
+    if isinstance(face_group, ElementGroupWithBasis):
+        return get_element_group_basis(
+            face_group,
+            use_tensor_product_fast_eval=use_tensor_product_fast_eval
+        )
+
+    return None
 
 # }}}
 
