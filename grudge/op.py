@@ -624,10 +624,11 @@ def _weak_tensor_product_single_axis_derivative(
                 actx,
                 input_group.dim,
                 ax,
-                reference_mass_matrix(actx,
-                                      output_group=output_group,
-                                      input_group=input_group,
-                                      use_tensor_product_fast_eval=True),
+                reference_mass_matrix(
+                    actx,
+                    output_group=output_group,
+                    input_group=input_group,
+                    use_tensor_product_fast_eval=True),
                 weak_ref_derivative,
                 arg_names=("mass_1d", "vec")
             )
@@ -807,15 +808,18 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args,
 
     dd_in = as_dofdesc(dd_in)
 
-    discr = dcoll.discr_from_dd(dd)
+    in_discr = dcoll.discr_from_dd(dd_in)
+    out_discr = dcoll.discr_from_dd(dd_in.with_discr_tag(DISCR_TAG_BASE))
+
     actx = vec.array_context
-    metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
+    metrics = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     return _single_axis_derivative_kernel(
-        actx, discr, discr, metrics, xyz_axis, vec_scaled, _weak_scalar_d_dx,
+        actx, out_discr, in_discr, metrics, xyz_axis, vec_scaled,
+        _weak_scalar_d_dx,
         use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 
@@ -951,28 +955,26 @@ def _apply_mass_simplicial(
         arg_names=("mass_mat", "vec"))
 
 
-# FIXME: start here 12/17/2024
 def _apply_mass_operator(
         dcoll: DiscretizationCollection,
-        dd: DOFDesc,
+        dd_out: DOFDesc,
+        dd_in: DOFDesc,
         vec: ArrayOrContainer,
         use_tensor_product_fast_eval: bool = True
     ) -> DOFArray:
 
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_mass_operator, dcoll, dd), vec
+            partial(_apply_mass_operator, dcoll, dd_out, dd_in), vec
         )
 
     from grudge.geometry import area_element
 
-    dd_in = as_dofdesc(dd)
-
     input_discr = dcoll.discr_from_dd(dd_in)
-    output_discr = dcoll.discr_from_dd(dd_in.with_discr_tag(DISCR_TAG_BASE))
+    output_discr = dcoll.discr_from_dd(dd_out)
 
     actx = vec.array_context
-    vec = vec * area_element(actx, dcoll, dd=dd,
+    vec = vec * area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
     group_data = []
@@ -980,8 +982,13 @@ def _apply_mass_operator(
         input_discr.groups, output_discr.groups, vec, strict=False):
         if isinstance(input_group, TensorProductElementGroupBase) and \
                 use_tensor_product_fast_eval:
-            group_data.append(_apply_mass_tensor_product(
-                actx, input_group, output_group, vec_i))
+            group_data.append(
+                unfold(output_group.space,
+                    _apply_mass_tensor_product(
+                        actx,
+                       input_group,
+                       output_group,
+                       fold(input_group.space, vec_i))))
 
         else:
             group_data.append(_apply_mass_simplicial(
@@ -1026,8 +1033,10 @@ def mass(dcoll: DiscretizationCollection,
     else:
         raise TypeError("invalid number of arguments")
 
+    dd_out = dd_in.with_discr_tag(DISCR_TAG_BASE)
+
     return _apply_mass_operator(
-        dcoll, dd_in, vec,
+        dcoll, dd_out, dd_in, vec,
         use_tensor_product_fast_eval=use_tensor_product_fast_eval
     )
 
@@ -1043,7 +1052,17 @@ def _apply_face_mass_tensor_product(
         vec: ArrayOrContainer,
     ) -> ArrayOrContainer:
 
-    pass
+    vec = fold(face_group.space, vec)
+
+    face_mass_mat = reference_face_mass_matrix(
+        actx,
+        face_group=face_group,
+        vol_group=volume_group,
+        dtype=vec.dtype,
+        use_tensor_product_fast_eval=True
+    )
+
+    return unfold(volume_group.space, vec)
 
 
 def _apply_face_mass_simplicial(
@@ -1059,12 +1078,14 @@ def _apply_face_mass_simplicial(
             actx,
             face_group=face_group,
             vol_group=volume_group,
-            dtype=vec.dtype),
+            dtype=vec.dtype,
+            use_tensor_product_fast_eval=False
+        ),
         vec.reshape(
                 volume_group.mesh_el_group.nfaces,
                 volume_group.nelements,
                 face_group.nunit_dofs),
-        arg_names=("ref_face_mass_mat", "jac_surf", "vec")
+        arg_names=("ref_face_mass_mat",  "vec")
     )
 
 
@@ -1093,20 +1114,20 @@ def _apply_face_mass_operator(
     surf_area_elements = area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    # FIXME: enable fast operator evaluation at some point
-    use_tensor_product_fast_eval = False
-
     group_data = []
     for vgroup, afgroup, vec_i, surf_ae_i in zip(
             volm_discr.groups, face_discr.groups, vec, surf_area_elements,
             strict=True):
-        if isinstance(vgroup, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
+
+        # fast evaluation only applicable to faces of 3D (or higher) elements
+        use_fast_eval = (use_tensor_product_fast_eval and volm_discr.dim > 3)
+        if isinstance(vgroup, TensorProductElementGroupBase) and use_fast_eval:
             group_data.append(
                 _apply_face_mass_tensor_product(
                     actx, afgroup, vgroup, vec_i * surf_ae_i
                 )
               )
+
         else:
             group_data.append(
                 _apply_face_mass_simplicial(
@@ -1117,7 +1138,11 @@ def _apply_face_mass_operator(
     return DOFArray(actx, data=tuple(group_data))
 
 
-def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+def face_mass(
+        dcoll: DiscretizationCollection,
+        *args,
+        use_tensor_product_fast_eval: bool = True
+    ) -> ArrayOrContainer:
     r"""Return the action of the DG face mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an arbitrary :class:`~arraycontext.ArrayContainer`,
@@ -1160,7 +1185,9 @@ def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_face_mass_operator(dcoll, dd_in, vec)
+    return _apply_face_mass_operator(
+        dcoll, dd_in, vec,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
 # }}}
 
@@ -1313,7 +1340,6 @@ def _apply_inverse_mass(
         )
 
     else:
-        # FIXME: probably need to add a link to more details about this in docs
         if use_tensor_product_fast_eval:
             from warnings import warn
             warn("Fast operator evaluation + overintegration is not supported. "
@@ -1355,8 +1381,7 @@ def inverse_mass(dcoll: DiscretizationCollection, *args,
         \mathbf{M}_{J^e}^{-1} \approx
             \widehat{\mathbf{M}}^{-1}\mathbf{M}_{1/J^e}\widehat{\mathbf{M}}^{-1},
 
-    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on
-    :math:`\widehat{E}`.
+    where :math:`\widehat{\mathbf{M}}` is the reference mass matrix on :math:`\widehat{E}`.
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 

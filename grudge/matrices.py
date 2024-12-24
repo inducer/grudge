@@ -22,6 +22,8 @@ Mass, inverse mass, and face mass matrices
 
 from __future__ import annotations
 
+from meshmode.transform_metadata import DiscretizationAmbientDimAxisTag, DiscretizationFaceAxisTag
+
 
 __copyright__ = """
 Copyright (C) 2024 Addison Alvey-Blanco
@@ -56,17 +58,23 @@ import numpy as np
 import numpy.linalg as la
 
 from arraycontext import ArrayContext, ArrayOrContainer, tag_axes
+
 from grudge.tools import (
     get_basis_for_face_group,
+    get_faces_for_volume_group,
     get_accurate_quadrature_rule,
     get_element_group_basis,
     get_element_group_nodes,
     get_quadrature_for_face
 )
+from grudge.transform.metadata import get_dof_axis_tag_type
+
 from meshmode.discretization import (
+    DiscretizationDOFAxisTag,
     InterpolatoryElementGroupBase,
     NodalElementGroupBase,
 )
+
 from pytools.tag import Tag
 from pytools import keyed_memoize_on_first_arg
 
@@ -92,7 +100,12 @@ def reference_derivative_matrices(
     """
 
     if axis_tags is None:
-        axis_tags = {}  # type: ignore
+        dof_axis_tag = get_dof_axis_tag_type(output_group,
+                                             use_tensor_product_fast_eval)
+        axis_tags = {0: (DiscretizationAmbientDimAxisTag(),)}
+        axis_tags.update({
+            i+1: (dof_axis_tag(),) for i in range(output_group.dim)
+        })  # type: ignore
     if ary_tags is None:
         ary_tags = ()  # type: ignore
 
@@ -112,7 +125,8 @@ def reference_derivative_matrices(
             axis_tags,
             actx.from_numpy(
                 np.asarray(
-                    mp.diff_matrices(basis, output_nodes,
+                    mp.diff_matrices(basis,
+                                     output_nodes,
                                      from_nodes=input_nodes),
                 order="C")
             )
@@ -137,14 +151,19 @@ def reference_stiffness_transpose_matrices(
     ) -> ArrayOrContainer:
 
     if axis_tags is None:
-        axis_tags = {}  # type: ignore
+        dof_axis_tag = get_dof_axis_tag_type(output_group,
+                                             use_tensor_product_fast_eval)
+        axis_tags = {0: (DiscretizationAmbientDimAxisTag(),)}
+        axis_tags.update({
+            i+1: (dof_axis_tag(),) for i in range(output_group.dim)
+        })  # type: ignore
     if ary_tags is None:
         ary_tags = ()  # type: ignore
 
     basis = get_element_group_basis(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
-    output_nodes = get_element_group_nodes(
+    nodes = get_element_group_nodes(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
     quadrature = get_accurate_quadrature_rule(
@@ -168,10 +187,10 @@ def reference_stiffness_transpose_matrices(
                     np.asarray([
                         mp.nodal_quad_bilinear_form(
                             quadrature=quadrature,
-                            test_functions=basis.derivatives(rst_axis),
-                            trial_functions=basis.functions,
-                            proj_functions=basis.functions,
-                            nodes=output_nodes
+                            test_basis=basis,
+                            trial_basis=basis,
+                            input_nodes=nodes,
+                            test_derivative_ax=rst_axis
                         )
                         for rst_axis in range(num_matrices)
                     ], order="C")
@@ -188,9 +207,9 @@ def reference_stiffness_transpose_matrices(
                 np.asarray([
                     mp.nodal_quad_operator(
                         quadrature=quadrature,
-                        test_functions=basis.derivatives(rst_axis),
-                        proj_functions=basis.functions,
-                        nodes=output_nodes
+                        test_basis=basis,
+                        nodes=nodes,
+                        test_derivative_ax=rst_axis
                     )
                     for rst_axis in range(num_matrices)
                 ], order="C")
@@ -216,19 +235,21 @@ def reference_mass_matrix(
     ) -> ArrayOrContainer:
 
     if axis_tags is None:
-        axis_tags = {}  # type: ignore
+        dof_axis_tag = get_dof_axis_tag_type(output_group,
+                                             use_tensor_product_fast_eval)
+        axis_tags = {i: (dof_axis_tag(),) for i in range(output_group.dim)}
     if ary_tags is None:
         ary_tags = ()  # type: ignore
 
     basis = get_element_group_basis(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
-    output_nodes = get_element_group_nodes(
+    nodes = get_element_group_nodes(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
     quadrature = get_accurate_quadrature_rule(
         input_group,
-        required_exactness=2*(output_group.order + 1),
+        required_exactness=2*output_group.order,
         use_tensor_product_fast_eval=use_tensor_product_fast_eval
     )
 
@@ -241,10 +262,9 @@ def reference_mass_matrix(
                 actx.from_numpy(
                     mp.nodal_quad_bilinear_form(
                         quadrature=quadrature,
-                        test_functions=basis.functions,
-                        trial_functions=basis.functions,
-                        proj_functions=basis.functions,
-                        nodes=output_nodes
+                        test_basis=basis,
+                        trial_basis=basis,
+                        input_nodes=nodes
                     )
                 )
             )
@@ -258,9 +278,8 @@ def reference_mass_matrix(
             actx.from_numpy(
                 mp.nodal_quad_operator(
                     quadrature=quadrature,
-                    test_functions=basis.functions,
-                    proj_functions=basis.functions,
-                    nodes=output_nodes
+                    test_basis=basis,
+                    nodes=nodes
                 )
             )
         )
@@ -282,14 +301,16 @@ def reference_inverse_mass_matrix(
     ) -> ArrayOrContainer:
 
     if axis_tags is None:
-        axis_tags = {}  # type: ignore
+        dof_axis_tag = get_dof_axis_tag_type(group,
+                                             use_tensor_product_fast_eval)
+        axis_tags = {i: (dof_axis_tag(),) for i in range(group.dim)}
     if ary_tags is None:
         ary_tags = ()  # type: ignore
 
     basis = get_element_group_basis(
         group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
-    output_nodes = get_element_group_nodes(
+    nodes = get_element_group_nodes(
         group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
 
     quadrature = get_accurate_quadrature_rule(
@@ -307,10 +328,9 @@ def reference_inverse_mass_matrix(
                 la.inv(
                     mp.nodal_quad_bilinear_form(
                         quadrature=quadrature,
-                        test_functions=basis.functions,
-                        trial_functions=basis.functions,
-                        proj_functions=basis.functions,
-                        nodes=output_nodes
+                        test_basis=basis,
+                        trial_basis=basis,
+                        input_nodes=nodes
                     )
                 )
             )
@@ -319,10 +339,11 @@ def reference_inverse_mass_matrix(
 
 
 @keyed_memoize_on_first_arg(
-    lambda face_group, vol_group, dtype: (
+    lambda face_group, vol_group, dtype, use_tensor_product_fast_eval: (
         face_group.discretization_key(),
         vol_group.discretization_key(),
-        dtype
+        dtype,
+        use_tensor_product_fast_eval
     )
 )
 def reference_face_mass_matrix(
@@ -336,12 +357,13 @@ def reference_face_mass_matrix(
     ) -> ArrayOrContainer:
 
     if ary_tags is None:
-        ary_tags = ()  # type: ignore
+        axis_tags = {
+            0: (DiscretizationDOFAxisTag(),),
+            1: (DiscretizationFaceAxisTag(),),
+            2: (DiscretizationDOFAxisTag(),)
+        }  # type: ignore
     if axis_tags is None:
         axis_tags = {}  # type: ignore
-
-    # FIXME: turn on fast evaluation eventually
-    use_tensor_product_fast_eval = False
 
     face_mass = np.empty(
         (vol_group.nunit_dofs,
@@ -350,7 +372,10 @@ def reference_face_mass_matrix(
         dtype=dtype
     )
 
-    faces = mp.faces_for_shape(vol_group.shape)
+    faces = get_faces_for_volume_group(
+        vol_group,
+        use_tensor_product_fast_eval=use_tensor_product_fast_eval
+    )
 
     vol_nodes = get_element_group_nodes(
         vol_group,
@@ -381,21 +406,21 @@ def reference_face_mass_matrix(
         )
 
         if face_basis is not None:
-            face_mass[:, iface, :] = mp.nodal_mass_matrix_for_face(
-                face,
-                face_quadrature,
-                face_basis.functions,
-                vol_basis.functions,
-                vol_nodes,
-                face_nodes
+            face_mass[:, iface, :] = mp.nodal_quad_bilinear_form(
+                quadrature=face_quadrature,
+                trial_basis=face_basis,
+                test_basis=vol_basis,
+                input_nodes=face_nodes,
+                output_nodes=vol_nodes,
+                mapping_function=face.map_to_volume
             )
 
         else:
-            face_mass[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
-                face,
-                face_quadrature,
-                vol_basis.functions,
-                vol_nodes
+            face_mass[:, iface, :] = mp.nodal_quad_operator(
+                quadrature=face_quadrature,
+                test_basis=vol_basis,
+                nodes=vol_nodes,
+                mapping_function=face.map_to_volume
             )
 
     return actx.tag(

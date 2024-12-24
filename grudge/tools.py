@@ -43,14 +43,12 @@ from meshmode.discretization.poly_element import (
 from meshmode.discretization import (
     ElementGroupBase,
     ElementGroupWithBasis,
-    InterpolatoryElementGroupBase,
     NodalElementGroupBase,
 )
 from modepy import (
     Basis,
     Face,
     Quadrature,
-    TensorProductBasis,
     TensorProductQuadrature
 )
 from pytools import product
@@ -159,6 +157,20 @@ def get_accurate_quadrature_rule(
         return quadrature_rule.quadratures[0]
 
     return quadrature_rule
+
+
+def get_faces_for_volume_group(
+        volume_group: ElementGroupBase,
+        use_tensor_product_fast_eval: bool = True
+    ) -> tuple[Face, ...]:
+
+    import modepy as mp
+
+    if use_tensor_product_fast_eval and volume_group.dim > 2:
+        assert isinstance(volume_group, TensorProductElementGroupBase)
+        return mp.faces_for_shape(mp.Hypercube(volume_group.dim - 1))
+
+    return mp.faces_for_shape(volume_group.shape)
 
 
 def get_quadrature_for_face(

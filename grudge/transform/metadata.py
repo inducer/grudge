@@ -19,6 +19,9 @@ THE SOFTWARE.
 """
 
 
+from collections.abc import Mapping
+from meshmode.discretization import ElementGroupBase, NodalElementGroupBase
+from meshmode.discretization.poly_element import TensorProductElementGroupBase
 import pytato as pt
 from pytato.transform import ArrayOrNames
 from pytato.transform.metadata import (
@@ -85,6 +88,16 @@ class TensorProductStiffnessOperatorTag(Tag):
     associativity DAG transformation.
     """
     pass
+
+
+def get_dof_axis_tag_type(
+        element_group: ElementGroupBase,
+        use_tensor_product_fast_eval: bool = True
+    ) -> type[Tag]:
+    if isinstance(element_group, TensorProductElementGroupBase) and \
+            use_tensor_product_fast_eval:
+        return TensorProductOperatorAxisTag
+    return DiscretizationDOFAxisTag
 
 
 # {{{ solve for discretization metadata for arrays' axes
