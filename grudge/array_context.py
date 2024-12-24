@@ -186,6 +186,8 @@ def deduplicate_data_wrappers(dag):
     data_wrapper_cache = {}
     data_wrappers_encountered = 0
 
+    return dag
+
     def cached_data_wrapper_if_present(ary):
         nonlocal data_wrappers_encountered
 
@@ -328,6 +330,8 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     def transform_loopy_program(self, t_unit):
         knl = t_unit.default_entrypoint
+
+        return t_unit
 
         redn_inames = []
         for insn in knl.instructions:
