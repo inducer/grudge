@@ -330,8 +330,7 @@ def inverse_metric_derivative_mat(
     result = np.zeros((ambient_dim, dim), dtype=object)
     for i in range(dim):
         for j in range(ambient_dim):
-            # type-ignore because numpy typing doesn't like object arrays
-            result[i, j] = inverse_metric_derivative(  # type: ignore[call-overload]
+            result[i, j] = inverse_metric_derivative(
                 actx, dcoll, i, j, dd=dd,
                 _use_geoderiv_connection=_use_geoderiv_connection
             )
