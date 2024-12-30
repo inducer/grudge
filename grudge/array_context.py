@@ -186,8 +186,6 @@ def deduplicate_data_wrappers(dag):
     data_wrapper_cache = {}
     data_wrappers_encountered = 0
 
-    return dag
-
     def cached_data_wrapper_if_present(ary):
         nonlocal data_wrappers_encountered
 
@@ -243,9 +241,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
-
-    dot_codes_before: list[str] = []
-    dot_codes_after: list[str] = []
 
     def __init__(self, queue, allocator=None,
             *,
@@ -331,47 +326,18 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     def transform_loopy_program(self, t_unit):
         knl = t_unit.default_entrypoint
 
-        return t_unit
+        n_unknown_inames = 0
+        for _, iname in knl.inames.items():
+            if not iname.tags:
+                n_unknown_inames += 1
 
-        redn_inames = []
-        for insn in knl.instructions:
-            redn_inames = redn_inames + list(insn.reduction_inames())
-        redn_inames = frozenset(redn_inames)
+        if n_unknown_inames != 0:
+            print(knl)
+            for arg in knl.args:
+                print(arg)
+            print(f"found {n_unknown_inames} unknown inames")
 
-        discr_iname_to_inames = {}
-        for iname in knl.inames:
-            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
-                key = "iel"
-
-                if iname not in redn_inames:
-                    discr_iname_to_inames.setdefault(key, []).append(iname)
-
-            if knl.inames[iname].tags_of_type(TensorProductDOFAxisTag):
-                key = "idof"
-                tag, = knl.inames[iname].tags_of_type(TensorProductDOFAxisTag)
-                key += f"_{tag.iaxis}"
-
-                if iname not in redn_inames:
-                    discr_iname_to_inames.setdefault(key, []).append(iname)
-
-        for discr_iname, inames in discr_iname_to_inames.items():
-            if discr_iname == "iel":
-                knl = lp.rename_inames(knl, inames, discr_iname,
-                                      existing_ok=True)
-            if discr_iname == "idof":
-                knl = lp.rename_inames(knl, inames, discr_iname,
-                                      existing_ok=True)
-
-        for iname in knl.inames:
-            if iname == "iel":
-                knl = lp.tag_inames(knl, [(iname, "g.0")])
-            if "idof" in iname:
-                # knl = lp.tag_inames(knl, [(iname, f"l.{iname[-1]}")])
-                knl = lp.split_iname(knl, iname, 8, inner_tag=f"l.{iname[-1]}")
-
-        t_unit = t_unit.with_kernel(knl)
-        t_unit = lp.set_options(t_unit, "insert_gbarriers")
-        return t_unit
+        return t_unit.with_kernel(knl)
 
 # }}}
 

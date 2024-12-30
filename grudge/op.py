@@ -614,6 +614,16 @@ def _weak_tensor_product_single_axis_derivative(
     vec_with_metrics = vec * metrics[xyz_axis]
     weak_derivative = 0.0
 
+    stiff_t = reference_stiffness_transpose_matrices(
+        actx, input_group, output_group,
+        use_tensor_product_fast_eval=True
+    )
+
+    mass = reference_mass_matrix(
+        actx, input_group, output_group,
+        use_tensor_product_fast_eval=True
+    )
+
     for rst_axis in range(input_group.dim):
         apply_mass_axes = set(range(input_group.dim)) - {rst_axis}
         weak_ref_derivative = fold(input_group.space,
@@ -624,30 +634,28 @@ def _weak_tensor_product_single_axis_derivative(
                 actx,
                 input_group.dim,
                 ax,
-                reference_mass_matrix(
-                    actx,
-                    output_group=output_group,
-                    input_group=input_group,
-                    use_tensor_product_fast_eval=True),
+                mass,
                 weak_ref_derivative,
                 arg_names=("mass_1d", "vec")
             )
 
-        weak_derivative += unfold(
-            output_group.space,
-            _single_axis_contraction(
+        weak_derivative += _single_axis_contraction(
                 actx,
                 input_group.dim,
                 rst_axis,
-                reference_stiffness_transpose_matrices(
-                    actx, input_group, output_group,
-                    use_tensor_product_fast_eval=True)[0],
+                stiff_t,
                 weak_ref_derivative,
-                arg_names=("mass_1d", "vec")
+                arg_names=("stiff_t_1d", "vec")
             )
-        )
 
-    return weak_derivative
+    return tag_axes(
+        actx,
+        {
+            0: DiscretizationElementAxisTag(),
+            1: DiscretizationDOFAxisTag()
+        },
+        unfold(output_group.space, weak_derivative)
+    )
 
 
 def _weak_simplicial_single_axis_derivative(
@@ -983,12 +991,19 @@ def _apply_mass_operator(
         if isinstance(input_group, TensorProductElementGroupBase) and \
                 use_tensor_product_fast_eval:
             group_data.append(
-                unfold(output_group.space,
-                    _apply_mass_tensor_product(
-                        actx,
-                       input_group,
-                       output_group,
-                       fold(input_group.space, vec_i))))
+                tag_axes(
+                    actx,
+                    {
+                        0: DiscretizationElementAxisTag(),
+                        1: DiscretizationDOFAxisTag()
+                    },
+                    unfold(output_group.space,
+                        _apply_mass_tensor_product(
+                            actx,
+                           input_group,
+                           output_group,
+                           fold(input_group.space, vec_i))))
+            )
 
         else:
             group_data.append(_apply_mass_simplicial(

@@ -19,9 +19,6 @@ THE SOFTWARE.
 """
 
 
-from collections.abc import Mapping
-from meshmode.discretization import ElementGroupBase, NodalElementGroupBase
-from meshmode.discretization.poly_element import TensorProductElementGroupBase
 import pytato as pt
 from pytato.transform import ArrayOrNames
 from pytato.transform.metadata import (
@@ -31,6 +28,8 @@ from pytato.transform.metadata import (
 
 from arraycontext import ArrayContainer
 from arraycontext.container.traversal import rec_map_array_container
+from meshmode.discretization import ElementGroupBase
+from meshmode.discretization.poly_element import TensorProductElementGroupBase
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationEntityAxisTag,

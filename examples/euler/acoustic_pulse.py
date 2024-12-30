@@ -186,6 +186,7 @@ def run_acoustic_pulse(actx,
     vis = make_visualizer(dcoll)
 
     # {{{ time stepping
+
     import time
 
     step = 0

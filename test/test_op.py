@@ -32,11 +32,18 @@ from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
-from meshmode.mesh import BTAG_ALL, SimplexElementGroup, TensorProductElementGroup
+from meshmode.mesh import (
+    BTAG_ALL,
+    SimplexElementGroup,
+    TensorProductElementGroup,
+)
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
-from grudge.array_context import PytestNumpyArrayContextFactory
+from grudge.array_context import (
+    PytestNumpyArrayContextFactory,
+    PytestPytatoPyOpenCLArrayContextFactory,
+)
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import (
     DISCR_TAG_BASE,
@@ -52,13 +59,14 @@ from grudge.trace_pair import bv_trace_pair
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestNumpyArrayContextFactory])
+        [PytestPytatoPyOpenCLArrayContextFactory]
+)
 
 
 # {{{ gradient
 
 @pytest.mark.parametrize("form", ["strong", "weak", "weak-overint"])
-@pytest.mark.parametrize("dim", [3])
+@pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [2, 3])
 @pytest.mark.parametrize("warp_mesh", [True, False])
 @pytest.mark.parametrize(("vectorize", "nested"), [
@@ -153,42 +161,47 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
         bdry_x = actx.thaw(dcoll.nodes(bdry_dd_base))
         bdry_u = vectorize_if_requested(f(bdry_x))
 
-        if form == "strong":
-            grad_u = (
-                op.local_grad(dcoll, u, nested=nested)
-                # No flux terms because u doesn't have inter-el jumps
+        def compute_grad_u():
+            if form == "strong":
+                grad_u = (
+                    op.local_grad(dcoll, u, nested=nested)
+                    # No flux terms because u doesn't have inter-el jumps
+                    )
+            elif form.startswith("weak"):
+                assert form in ["weak", "weak-overint"]
+                if "overint" in form:
+                    quad_discr_tag = DISCR_TAG_QUAD
+                else:
+                    quad_discr_tag = DISCR_TAG_BASE
+
+                allfaces_dd_base = as_dofdesc(FACE_RESTR_ALL, quad_discr_tag)
+                vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
+                vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
+                bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
+                allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
+
+                grad_u = op.inverse_mass(dcoll, vol_dd_quad,
+                    -op.weak_local_grad(dcoll, vol_dd_quad,
+                            op.project(dcoll, vol_dd_base, vol_dd_quad, u),
+                            nested=nested)
+                    +
+                    op.face_mass(dcoll,
+                        allfaces_dd_quad,
+                        sum(get_flux(
+                            op.project_tracepair(dcoll, allfaces_dd_quad, utpair))
+                            for utpair in op.interior_trace_pairs(
+                                          dcoll, u, volume_dd=vol_dd_base))
+                        + get_flux(
+                            op.project_tracepair(dcoll, bdry_dd_quad,
+                                       bv_trace_pair(dcoll, bdry_dd_base, u, bdry_u)))
+                    )
                 )
-        elif form.startswith("weak"):
-            assert form in ["weak", "weak-overint"]
-            if "overint" in form:
-                quad_discr_tag = DISCR_TAG_QUAD
             else:
-                quad_discr_tag = DISCR_TAG_BASE
+                raise ValueError("Invalid form argument.")
 
-            allfaces_dd_base = as_dofdesc(FACE_RESTR_ALL, quad_discr_tag)
-            vol_dd_base = as_dofdesc(DTAG_VOLUME_ALL)
-            vol_dd_quad = vol_dd_base.with_discr_tag(quad_discr_tag)
-            bdry_dd_quad = bdry_dd_base.with_discr_tag(quad_discr_tag)
-            allfaces_dd_quad = allfaces_dd_base.with_discr_tag(quad_discr_tag)
+            return grad_u
 
-            grad_u = op.inverse_mass(dcoll, vol_dd_quad,
-                -op.weak_local_grad(dcoll, vol_dd_quad,
-                        op.project(dcoll, vol_dd_base, vol_dd_quad, u),
-                        nested=nested)
-                +
-                op.face_mass(dcoll,
-                    allfaces_dd_quad,
-                    sum(get_flux(
-                        op.project_tracepair(dcoll, allfaces_dd_quad, utpair))
-                        for utpair in op.interior_trace_pairs(
-                                      dcoll, u, volume_dd=vol_dd_base))
-                    + get_flux(
-                        op.project_tracepair(dcoll, bdry_dd_quad,
-                                   bv_trace_pair(dcoll, bdry_dd_base, u, bdry_u)))
-                )
-            )
-        else:
-            raise ValueError("Invalid form argument.")
+        grad_u = actx.thaw(actx.freeze(actx.compile(compute_grad_u)()))
 
         if vectorize:
             expected_grad_u = make_obj_array(
@@ -197,6 +210,8 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 expected_grad_u = np.stack(expected_grad_u, axis=0)
         else:
             expected_grad_u = grad_f(x)
+
+        expected_grad_u = actx.thaw(actx.freeze(expected_grad_u))
 
         if visualize:
             # the code below does not handle the vectorized case
@@ -213,8 +228,8 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
                 ("expected_grad_u", expected_grad_u), ], overwrite=True)
 
         rel_linf_err = actx.to_numpy(
-            op.norm(dcoll, grad_u - expected_grad_u, np.inf)
-            / op.norm(dcoll, expected_grad_u, np.inf))
+            op.norm(dcoll, grad_u - expected_grad_u, 2)
+            / op.norm(dcoll, expected_grad_u, 2))
         eoc_rec.add_data_point(1./n, rel_linf_err)
 
     print("L^inf error:")
