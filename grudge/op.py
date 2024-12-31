@@ -92,6 +92,7 @@ from meshmode.discretization.poly_element import (
 )
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
+    DiscretizationAmbientDimAxisTag,
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
     DiscretizationFaceAxisTag,
@@ -721,8 +722,18 @@ def _weak_scalar_grad(dcoll, dd_in, vec, *args,
         times_area_element=False,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
+    # guaranteed "scalar" -> ensure axes are properly tagged
+    # WARNING: reshapes from TP fast operator eval can break propagation upward.
+    # hence, it is unwise to remove this.
+    vec_scaled = tag_axes(
+        actx,
+        {
+            0: DiscretizationElementAxisTag(),
+            1: DiscretizationDOFAxisTag()
+        },
+        vec * area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    )
 
     # }}}
 
@@ -758,8 +769,19 @@ def _weak_scalar_div(dcoll, dd_in, vecs, *args,
         times_area_element=False,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    vec_scaled = vec * area_element(actx, dcoll, dd=dd_in,
+    # guaranteed "scalar" -> ensure axes are properly tagged
+    # WARNING: reshapes from TP fast operator eval can break propagation upward.
+    # hence, it is unwise to remove this.
+    vec_scaled = tag_axes(
+        actx,
+        {
+            0: DiscretizationAmbientDimAxisTag(),
+            1: DiscretizationElementAxisTag(),
+            2: DiscretizationDOFAxisTag()
+        },
+        vec * area_element(actx, dcoll, dd=dd_in,
         _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+    )
 
     # }}}
 
