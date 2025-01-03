@@ -194,9 +194,6 @@ __all__ = (
     "weak_local_grad",
     )
 
-# TODO:
-# 1. implement proper axis and array tags
-
 
 # {{{ tensor product operator application helper
 

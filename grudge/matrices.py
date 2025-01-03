@@ -55,6 +55,7 @@ import numpy.linalg as la
 
 import modepy as mp
 from arraycontext import ArrayContext, ArrayOrContainer, tag_axes
+from arraycontext.metadata import NameHint
 from meshmode.discretization import (
     DiscretizationDOFAxisTag,
     InterpolatoryElementGroupBase,
@@ -75,7 +76,12 @@ from grudge.tools import (
     get_faces_for_volume_group,
     get_quadrature_for_face,
 )
-from grudge.transform.metadata import TensorProductMassOperatorTag, get_dof_axis_tag_type
+from grudge.transform.metadata import (
+    TensorProductMassOperatorInverseTag,
+    TensorProductMassOperatorTag,
+    TensorProductStiffnessOperatorTag,
+    get_dof_axis_tag_type
+)
 
 
 @keyed_memoize_on_first_arg(
@@ -112,7 +118,7 @@ def reference_derivative_matrices(
                 i: (dof_axis_tag(),) for i in range(2)
             })  # type: ignore
     if ary_tags is None:
-        ary_tags = ()  # type: ignore
+        ary_tags = (NameHint("ref_deriv_mat"),)
 
     basis = get_element_group_basis(
         input_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
@@ -168,7 +174,9 @@ def reference_stiffness_transpose_matrices(
                 i: (dof_axis_tag(),) for i in range(2)
             }
     if ary_tags is None:
-        ary_tags = ()  # type: ignore
+        ary_tags = (NameHint("stiff_t"),)
+        if use_tensor_product_fast_eval:
+            ary_tags += (TensorProductStiffnessOperatorTag(),)  # type: ignore
 
     basis = get_element_group_basis(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
@@ -256,7 +264,9 @@ def reference_mass_matrix(
                                              use_tensor_product_fast_eval)
         axis_tags = {i: (dof_axis_tag(),) for i in range(2)}
     if ary_tags is None:
-        ary_tags = (TensorProductMassOperatorTag(),)  # type: ignore
+        ary_tags = (NameHint("ref_mass"),)
+        if use_tensor_product_fast_eval:
+            ary_tags += (TensorProductMassOperatorTag(),)  # type: ignore
 
     basis = get_element_group_basis(
         output_group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
@@ -322,7 +332,9 @@ def reference_inverse_mass_matrix(
                                              use_tensor_product_fast_eval)
         axis_tags = {i: (dof_axis_tag(),) for i in range(2)}
     if ary_tags is None:
-        ary_tags = ()  # type: ignore
+        ary_tags = (NameHint("ref_inv_mass"),)
+        if use_tensor_product_fast_eval:
+            ary_tags += (TensorProductMassOperatorInverseTag(),)  # type: ignore
 
     basis = get_element_group_basis(
         group, use_tensor_product_fast_eval=use_tensor_product_fast_eval)
@@ -375,14 +387,14 @@ def reference_face_mass_matrix(
 
     use_tensor_product_fast_eval = False
 
-    if ary_tags is None:
+    if axis_tags is None:
         axis_tags = {
             0: (DiscretizationDOFAxisTag(),),
             1: (DiscretizationFaceAxisTag(),),
             2: (DiscretizationDOFAxisTag(),)
         }  # type: ignore
-    if axis_tags is None:
-        axis_tags = {}  # type: ignore
+    if ary_tags is None:
+        ary_tags = (NameHint("face_mass"),)
 
     face_mass = np.empty(
         (vol_group.nunit_dofs,

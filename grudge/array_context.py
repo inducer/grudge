@@ -47,6 +47,7 @@ from meshmode.array_context import (
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
 from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
 )
 from pytools import to_identifier
@@ -325,17 +326,6 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     def transform_loopy_program(self, t_unit):
         knl = t_unit.default_entrypoint
-
-        n_unknown_inames = 0
-        for _, iname in knl.inames.items():
-            if not iname.tags:
-                n_unknown_inames += 1
-
-        if n_unknown_inames != 0:
-            print(knl)
-            for arg in knl.args:
-                print(arg)
-            print(f"found {n_unknown_inames} unknown inames")
 
         return t_unit.with_kernel(knl)
 
