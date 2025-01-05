@@ -49,14 +49,13 @@ from meshmode.array_context import (
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
+    DiscretizationEntityAxisTag,
 )
 from pytools import to_identifier
 from pytools.tag import Tag
 
 from grudge.transform.mappers import (
-    InverseMassDistributor,
-    MassInverseTimesStiffnessSimplifier,
-    RedundantMassTimesMassInverseRemover,
+    tensor_product_algebraic_transforms,
 )
 from grudge.transform.metadata import (
     OutputIsTensorProductDOFArrayOrdered,
@@ -243,6 +242,8 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     which there isn't any, for now.)
     """
 
+    dot_codes = []
+
     def __init__(self, queue, allocator=None,
             *,
             compile_trace_callback: Callable[[Any, str, Any], None] | None
@@ -265,35 +266,20 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 
     def transform_dag(self, dag):
 
-        # {{{ tensor-product algebraic DAG rewrites
+        if 1:
+            dag = tensor_product_algebraic_transforms(dag)
 
-        num_nodes_before = get_num_nodes(dag)
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_tensor_product_reshapes)
 
-        # step 1: distribute mass inverse through DAG, across index lambdas
-        dag = InverseMassDistributor()(dag)
-
-        # step 2: remove mass-times-mass-inverse einsums
-        dag = RedundantMassTimesMassInverseRemover()(dag)
-
-        # step 3: create new operator out of inverse mass times stiffness
-        dag = MassInverseTimesStiffnessSimplifier()(dag)
-
-        # step 4: clean up
-        dag = pt.transform.map_and_copy(
-            dag, remove_redundant_tensor_product_reshapes)
-        dag = pt.transform.map_and_copy(
-            dag, remove_redundant_index_lambda_expressions)
-
-        # }}}
+            dag = pt.transform.map_and_copy(
+                dag, remove_redundant_index_lambda_expressions)
 
         dag = deduplicate_data_wrappers(dag)
-        num_nodes_after = get_num_nodes(dag)
 
-        if num_nodes_before != num_nodes_after:
-            logger.info("tensor-product xforms: removed %d nodes via "
-                        "tensor-product algebraic transformations + "
-                        "deduplication",
-                        (num_nodes_before - num_nodes_after))
+        from grudge.transform.metadata import unify_discretization_entity_tags
+        logger.info("transform_dag.infer_axes_tags")
+        dag = unify_discretization_entity_tags(dag)
 
         def eliminate_reshapes_of_data_wrappers(ary):
             if (isinstance(ary, pt.Reshape)
@@ -322,10 +308,23 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
                 name: _untag_impl_stored(named_ary.expr)
                 for name, named_ary in dag.items()})
 
+        self.dot_codes.append(pt.get_dot_graph(dag))
+
         return dag
 
     def transform_loopy_program(self, t_unit):
         knl = t_unit.default_entrypoint
+
+        redn_inames = {
+            iname
+            for insn in knl.instructions
+            for iname in insn.reduction_inames()
+        }
+
+        for iname in knl.inames:
+            if knl.inames[iname].tags_of_type(DiscretizationElementAxisTag):
+                if iname not in redn_inames:
+                    knl = lp.tag_inames(knl, {iname: "g.0"})
 
         return t_unit.with_kernel(knl)
 

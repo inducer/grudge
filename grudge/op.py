@@ -95,8 +95,6 @@ from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
-    DiscretizationFaceAxisTag,
-    FirstAxisIsElementsTag,
 )
 from modepy.tools import (
     reshape_array_for_tensor_product_space as fold,
@@ -153,9 +151,6 @@ from grudge.trace_pair import (
 )
 from grudge.transform.metadata import (
     TensorProductDOFAxisTag,
-    TensorProductMassOperatorInverseTag,
-    TensorProductMassOperatorTag,
-    TensorProductOperatorAxisTag,
 )
 
 
@@ -689,6 +684,9 @@ def _weak_scalar_d_dx(
         use_tensor_product_fast_eval: bool = True
     ) -> ArrayOrContainer:
 
+    if input_group.dim == 1:
+        use_tensor_product_fast_eval = False
+
     if isinstance(input_group, TensorProductElementGroupBase) and \
             use_tensor_product_fast_eval:
         return _weak_tensor_product_single_axis_derivative(
@@ -1008,7 +1006,7 @@ def _apply_mass_operator(
     for input_group, output_group, vec_i in zip(
         input_discr.groups, output_discr.groups, vec, strict=False):
         if isinstance(input_group, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
+                use_tensor_product_fast_eval and input_group.dim != 1:
             group_data.append(
                 tag_axes(
                     actx,
@@ -1278,7 +1276,7 @@ def _apply_quad_inverse_mass(
     for input_group, output_group, vec_i, inv_ae_i in zip(
             discr.groups, discr.groups, vec, inv_area_elements, strict=False):
         if isinstance(input_group, TensorProductElementGroupBase) and \
-                use_tensor_product_fast_eval:
+                use_tensor_product_fast_eval and input_group.dim != 1:
             group_data.append(_apply_inverse_mass_tensor_product(
                 actx, output_group, vec_i) * inv_ae_i)
         else:

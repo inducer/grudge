@@ -27,18 +27,24 @@ THE SOFTWARE.
 """
 
 
+from meshmode.discretization import DiscretizationDOFAxisTag, DiscretizationElementAxisTag
 import pytato as pt
-from pytato.array import Einsum
-from pytato.transform import CombineMapper, CopyMapperWithExtraArgs
-
-from grudge.transform.metadata import (
-    TensorProductMassOperatorInverseTag,
-    TensorProductMassOperatorTag,
-    TensorProductStiffnessOperatorTag,
+from pytato import Array, Axis, ReductionDescriptor, Reshape
+from pytato.analysis import is_einsum_similar_to_subscript
+from pytato.array import Einsum, EinsumAxisDescriptor, EinsumElementwiseAxis, EinsumReductionAxis, immutabledict
+from pytato.transform import (
+    CombineMapper,
+    CopyMapper,
+    CopyMapperWithExtraArgs,
 )
 
-
-# {{{ utilities
+from grudge.transform.metadata import (
+    TensorProductDOFAxisTag,
+    TensorProductMassOperatorInverseTag,
+    TensorProductMassOperatorTag,
+    TensorProductOperatorAxisTag,
+    TensorProductStiffnessOperatorTag,
+)
 
 
 class MassCounter(CombineMapper):
@@ -68,184 +74,185 @@ class MassInverseCounter(CombineMapper):
 
         return acc
 
-# }}}
+
+class InverseMassAttacher(CopyMapperWithExtraArgs):
+    def map_einsum(
+            self,
+            expr: Einsum,
+            inv_mass: Array,
+            access_descr: tuple[EinsumAxisDescriptor]
+        ) -> Array:
+
+        new_args = []
+        for iarg, arg in enumerate(expr.args):
+            if arg.tags_of_type(TensorProductMassOperatorTag):
+                if expr.access_descriptors[iarg] == access_descr:
+                    a = inv_mass @ arg
+                    a = a.copy(axes=tuple(
+                        ax.tagged(TensorProductOperatorAxisTag())
+                        for ax in a.axes
+                    ))
+                    new_args.append(a)
+                    continue
+
+            elif arg.tags_of_type(TensorProductStiffnessOperatorTag):
+                if expr.access_descriptors[iarg] == access_descr:
+                    a = inv_mass @ arg
+                    a = a.copy(axes=tuple(
+                        ax.tagged(TensorProductOperatorAxisTag(),)
+                        for ax in a.axes
+                    ))
+                    new_args.append(a)
+                    continue
+
+            new_args.append(self.rec(arg, inv_mass, access_descr))
+
+        return expr.copy(args=tuple(new_args))
+
+    def map_reshape(
+            self,
+            expr: Reshape,
+            inv_mass: Array,
+            access_descr: tuple[EinsumAxisDescriptor]
+        ) -> Array:
+
+        if isinstance(expr.array, Einsum):
+            if is_einsum_similar_to_subscript(expr.array, "ifj,fej->ei"):
+                _, nfaces, _ = expr.array.args[0].shape
+
+                dim = int(nfaces / 2)
+
+                output_ax = tuple(
+                    descr for descr in access_descr
+                    if isinstance(descr, EinsumElementwiseAxis)
+                )
+                assert len(output_ax) == 1
+                output_ax, = output_ax
+
+                data_access_descrs = []
+                for i in range(dim+1):
+                    if i != output_ax.dim:
+                        data_access_descrs.append(EinsumElementwiseAxis(i))
+                    else:
+                        data_access_descrs.append(EinsumReductionAxis(0))
+                access_descriptors = (access_descr, tuple(data_access_descrs))
+
+                redn_axis_to_redn_descr = immutabledict({
+                    EinsumReductionAxis(0):
+                    ReductionDescriptor(tags=frozenset())
+                })
+
+                axes = tuple(
+                    Axis(tags=frozenset((DiscretizationElementAxisTag(),)))
+                    if i == 0
+                    else Axis(tags=frozenset((TensorProductDOFAxisTag(i-1),)))
+                    for i in range(dim+1)
+                )
+
+                return Einsum(
+                    access_descriptors=access_descriptors,
+                    args=(inv_mass, expr),
+                    axes=axes,
+                    redn_axis_to_redn_descr=redn_axis_to_redn_descr,
+                    tags=frozenset()
+                )
+
+        return expr.copy(array=self.rec(expr.array, inv_mass, access_descr))
 
 
-# {{{ algebraic dag rewrites
-
-class MassInverseTimesStiffnessSimplifier(CopyMapperWithExtraArgs):
-    """
-    This is part three of a three part transformation pipeline.
-
-    Creates a new operator that is the result of a mass inverse times weak
-    derivative operator and replaces all instances of these two operators in
-    each einsum with the new operator.
-
-    See `InverseMassDistributor` for background.
-    """
-    def map_einsum(self, expr, *args, **kwargs):
-        iarg_stiffness = None
-        iarg_mass_inverse = None
+class InverseMassDistributor(CopyMapper):
+    def map_einsum(self, expr: Einsum) -> Array:
+        for iarg, arg in enumerate(expr.args):
+            if not arg.tags_of_type(TensorProductMassOperatorInverseTag):
+                iarg_rec = iarg
+                break
 
         new_args = []
         for iarg, arg in enumerate(expr.args):
             if arg.tags_of_type(TensorProductMassOperatorInverseTag):
-                iarg_mass_inverse = iarg
-            elif arg.tags_of_type(TensorProductStiffnessOperatorTag):
-                iarg_stiffness = iarg
-            new_args.append(self.rec(arg))
+                return InverseMassAttacher()(
+                    self.rec(expr.args[iarg_rec]),
+                    arg,
+                    expr.access_descriptors[iarg]
+                )
 
-        # create a new operator using mass inverse times stiffness
-        if iarg_stiffness is not None and iarg_mass_inverse is not None:
-            iarg_data = list(set(
-                range(len(expr.args))) - {iarg_stiffness, iarg_mass_inverse})
-            assert len(iarg_data) == 1
-            iarg_data = iarg_data[0]
-
-            stiffness = expr.args[iarg_stiffness]
-            mass_inverse = expr.args[iarg_mass_inverse]
-            data = self.rec(expr.args[iarg_data])
-
-            d = mass_inverse @ stiffness
-
-            from grudge.transform.metadata import TensorProductOperatorAxisTag
-            d_axes = []
-            for ax in d.axes:
-                d_axes.append(ax.tagged(TensorProductOperatorAxisTag()))
-            d = d.copy(axes=tuple(d_axes))
-
-            new_args = [d, data]
-            new_access_descriptors = [
-                expr.access_descriptors[iarg_stiffness],
-                expr.access_descriptors[iarg_data]]
-
-            return Einsum(
-                tuple(new_access_descriptors),
-                tuple(new_args),
-                axes=expr.axes,
-                redn_axis_to_redn_descr=expr.redn_axis_to_redn_descr,
-                tags=expr.tags,
-                non_equality_tags=expr.non_equality_tags)
+            else:
+                new_args.append(self.rec(arg))
 
         return expr.copy(args=tuple(new_args))
 
 
-class RedundantMassTimesMassInverseRemover(CopyMapperWithExtraArgs):
-    """
-    This is part two of a three-part transformation pipeline. Removes einsum
-    nodes that contain both a mass inverse and mass operator.
+def check_redundant_mass(expr: Einsum) -> bool:
+    found_mass = False
+    found_inverse_mass = False
 
-    See `InverseMassDistributor` for more information.
-    """
-    def map_einsum(self, expr, *args, **kwargs):
-        found_mass = False
-        found_mass_inverse = False
+    for arg in expr.args:
+        if arg.tags_of_type(TensorProductMassOperatorInverseTag):
+            found_inverse_mass = True
+        elif arg.tags_of_type(TensorProductMassOperatorTag):
+            found_mass = True
+
+    return (found_inverse_mass and found_mass)
+
+
+class RedundantMassRemover(CopyMapper):
+    def map_einsum(self, expr: Einsum) -> Array:
         new_args = []
         for arg in expr.args:
-            if arg.tags_of_type(TensorProductMassOperatorInverseTag):
-                found_mass_inverse = True
-            elif arg.tags_of_type(TensorProductMassOperatorTag):
-                found_mass = True
+            if isinstance(arg, Einsum):
+                if check_redundant_mass(arg):
+                    continue
             new_args.append(self.rec(arg))
 
-        if found_mass and found_mass_inverse:
-            for arg in expr.args:
-                if not (arg.tags_of_type(TensorProductMassOperatorInverseTag) or
-                        arg.tags_of_type(TensorProductMassOperatorTag)):
-                    return self.rec(arg)
+        if len(new_args) == 1:
+            return self.rec(new_args[0])
 
         return expr.copy(args=tuple(new_args))
 
 
-class InverseMassDistributor(CopyMapperWithExtraArgs):
-    r"""
-    Implements one part of a three-part transformation pipeline to realize an
-    algebraic simplification arising in tensor-product discretizations.
+class FaceMassResultReshaper(CopyMapper):
+    def map_einsum(self, expr: Einsum) -> Array:
 
-    Specifically, one can represent a weak derivative operator associated with
-    a tensor-product discretization as a Kronecker product of a 1D weak
-    derivative operator with a variable number of 1D mass matrices, which
-    depends on the dimension of the problem.
+        new_args = [self.rec(arg) for arg in expr.args]
+        new_expr = expr.copy(args=tuple(new_args))
 
-    Let $S$ be the full weak operator, $\hat{S}$ as the 1D weak derivative
-    operator and $\hat{M}$ as the 1D mass operator. For example, consider a 2D
-    tensor-product discretization. The weak $x$-derivative operator can be
-    expressed as
+        if is_einsum_similar_to_subscript(new_expr, "ifj,fej->ei"):
+            nfaces, nelts, _ = new_expr.args[1].shape
+            ndofs = expr.shape[1]
 
-    ..math::
+            from math import ceil
+            dim = ceil(nfaces / 2)
+            ndofs_1d = ceil(ndofs**(1/dim))
 
-        S_x = \hat{S} \otimes \hat{M}
+            new_expr = new_expr.reshape(nelts, *(ndofs_1d,)*dim, order="F")
+            for i in range(dim+1):
+                new_expr = new_expr.with_tagged_axis(
+                    i, (
+                        DiscretizationElementAxisTag() if i == 0 else
+                        TensorProductDOFAxisTag(i-1)
+                    )
+                )
 
-    Since we are using a tensor-product discretization, the mass operator can be
-    decomposed as a tensor-product of a variable number of mass operators.
-    Hence, the mass inverse operator can also be expressed via a tensor-product.
+            new_expr = new_expr.reshape(nelts, ndofs_1d**dim, order="F")
+            new_expr = new_expr.with_tagged_axis(0,
+                                                 DiscretizationElementAxisTag())
+            new_expr = new_expr.with_tagged_axis(1, DiscretizationDOFAxisTag())
 
-    ..math::
+        return new_expr
 
-    M^{-1} S_x^k = (\hat{M}^{-1} \otimes \hat{M}^{-1})(\hat{S} \otimes \hat{M})
 
-    By associativity of the tensor-product,
+def tensor_product_algebraic_transforms(dag):
+    # 0. preprocess face mass result (reshape to tp -> reshape from tp)
+    dag = FaceMassResultReshaper()(dag)
 
-    .. math::
+    # 1. distribute the inverse mass to:
+    #   - einsums with stiffness
+    #   - einsums with mass
+    #   - face mass (insert applications between reshapes)
+    dag = InverseMassDistributor()(dag)
 
-        M^{-1} S_x^k = \hat{M}^{-1}\hat{S} \otimes \hat{M}^{-1}\hat{M}
+    # 2. remove einsums with mass and mass inverse
+    dag = RedundantMassRemover()(dag)
 
-    Thus, we can instead apply the operator as
-
-    ..math::
-
-        M^{-1} S_x^k = \hat{M}^{-1}\hat{S} \otimes \hat{I}
-
-    where $\hat{I}$ is a 1D identity operator. This results in both a reduction
-    in the total number of operations and the required storage for the
-    operators.
-
-    This transformation takes care of the distribution of the mass inverse
-    operator through the DAG to other tensor-product application routines
-    Moreover, the mass inverse is distribtued to the face mass terms (if
-    included in the original einsum), and properly reshapes to and from
-    tensor-product form to apply the 1D mass operator.
-    """
-    def map_einsum(self, expr, *args, **kwargs):
-        new_args = []
-        new_access_descrs = []
-        for iarg, arg in enumerate(expr.args):
-            # we assume that the 0th argument will be the one with this tag
-            if arg.tags_of_type(TensorProductMassOperatorInverseTag):
-                return self.rec(
-                    expr.args[1], arg, expr.access_descriptors[iarg])
-            else:
-                if len(args) > 0:
-                    new_args.append(self.rec(arg, args[0], args[1]))
-                else:
-                    new_args.append(self.rec(arg))
-            new_access_descrs.append(expr.access_descriptors[iarg])
-
-        if len(args) > 0:
-            from pytato.analysis import is_einsum_similar_to_subscript
-            if is_einsum_similar_to_subscript(expr, "ifj,fej,fej->ei"):
-                nfaces, nelts, _ = expr.args[1].shape
-                ndofs = expr.shape[1]
-
-                from math import ceil
-                dim = ceil(nfaces/2)
-                ndofs_1d = ceil(ndofs**(1/dim))
-                expr = expr.reshape(nelts, *(ndofs_1d,)*dim)
-
-                for axis in range(dim):
-                    operator_spec = "ij"
-                    data_spec = f"e{"abcd"[:axis]}j{"opqr"[:dim-axis-1]}"
-                    out_spec = f"e{"abcd"[:axis]}i{"opqr"[:dim-axis-1]}"
-                    spec = operator_spec + "," + data_spec + "->" + out_spec
-
-                    expr = pt.einsum(spec, args[0], expr)
-
-                return expr.reshape(nelts, ndofs)
-            else:
-                new_args.append(args[0])
-                new_access_descrs.append(args[1])
-
-        return expr.copy(args=tuple(new_args),
-                         access_descriptors=tuple(new_access_descrs))
-
-# }}}
+    # done
+    return dag
