@@ -75,8 +75,9 @@ from grudge.trace_pair import TracePair
 @dataclass_array_container
 @dataclass(frozen=True)
 class ConservedEulerField:
-    mass: DOFArray
-    energy: DOFArray
+    # mass and energy become arrays when computing fluxes.
+    mass: DOFArray | np.ndarray
+    energy: DOFArray | np.ndarray
     momentum: np.ndarray
 
     @property
@@ -181,7 +182,6 @@ class PrescribedBC(InviscidBCObject):
             dcoll: DiscretizationCollection,
             dd_bc: DOFDesc,
             state: ConservedEulerField, t=0):
-        actx = state.array_context
         dd_base = as_dofdesc("vol", DISCR_TAG_BASE)
 
         return TracePair(
@@ -359,7 +359,7 @@ class EulerOperator(HyperbolicOperator):
 
         return op.inverse_mass(
             dcoll,
-            volume_fluxes - op.face_mass(dcoll, df, interface_fluxes)
+            volume_fluxes - op.face_mass(dcoll, df, interface_fluxes)  # type: ignore[operator]
         )
 
 # }}}

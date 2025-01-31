@@ -43,11 +43,13 @@ THE SOFTWARE.
 """
 
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 
 from arraycontext import ArrayContext, Scalar, tag_axes
 from arraycontext.metadata import NameHint
+from meshmode.discretization import NodalElementGroupBase
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
@@ -64,6 +66,7 @@ from grudge.dof_desc import (
     FACE_RESTR_ALL,
     BoundaryDomainTag,
     DOFDesc,
+    ScalarDomainTag,
     as_dofdesc,
 )
 
@@ -120,7 +123,7 @@ def characteristic_lengthscales(
 @memoize_on_first_arg
 def dt_non_geometric_factors(
         dcoll: DiscretizationCollection, dd: DOFDesc | None = None
-        ) -> Sequence[float]:
+        ) -> Sequence[float | np.floating]:
     r"""Computes the non-geometric scale factors following [Hesthaven_2008]_,
     section 6.4, for each element group in the *dd* discretization:
 
@@ -140,8 +143,10 @@ def dt_non_geometric_factors(
         dd = DD_VOLUME_ALL
 
     discr = dcoll.discr_from_dd(dd)
-    min_delta_rs = []
+    min_delta_rs: list[np.floating | float] = []
     for grp in discr.groups:
+        assert isinstance(grp, NodalElementGroupBase)
+
         nodes = np.asarray(list(zip(*grp.unit_nodes, strict=True)))
         nnodes = grp.nunit_dofs
 
@@ -157,7 +162,7 @@ def dt_non_geometric_factors(
         else:
             min_delta_rs.append(
                 min(
-                    np.linalg.norm(nodes[i] - nodes[j])
+                    float(np.linalg.norm(nodes[i] - nodes[j]))
                     for i in range(nnodes) for j in range(nnodes) if i != j
                 )
             )
@@ -263,6 +268,9 @@ def dt_geometric_factors(
     actx = dcoll._setup_actx
     volm_discr = dcoll.discr_from_dd(dd)
 
+    if isinstance(dd.domain_tag, ScalarDomainTag):
+        raise TypeError("not sensible for scalar domains")
+
     if any(not isinstance(grp, SimplexElementGroupBase)
            for grp in volm_discr.groups):
         raise NotImplementedError(
@@ -275,10 +283,10 @@ def dt_geometric_factors(
                 "time step estimation is not necessarily valid for non-volume-"
                 "filling discretizations. Continuing anyway.", stacklevel=3)
 
-    cell_vols = abs(
-        op.elementwise_integral(
+    cell_vols: DOFArray = abs(
+        cast(DOFArray, op.elementwise_integral(
             dcoll, dd, volm_discr.zeros(actx) + 1.0
-        )
+        ))
     )
 
     if dcoll.dim == 1:
@@ -290,10 +298,10 @@ def dt_geometric_factors(
     face_discr = dcoll.discr_from_dd(dd_face)
 
     # Compute areas of each face
-    face_areas = abs(
-        op.elementwise_integral(
+    face_areas: DOFArray = abs(
+        cast(DOFArray, op.elementwise_integral(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
-        )
+        ))
     )
 
     if actx.supports_nonscalar_broadcasting:

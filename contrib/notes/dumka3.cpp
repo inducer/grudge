@@ -231,7 +231,7 @@ void dumka3(double& t, const double& tend, const double& h0,const double& atol,
       stepOK = false;
       f.isStepAccepted = false;
       //long _size=y.size();
-      /* code for paraller exceution via OpemMP - you may want to use it
+      /* code for paraller execution via OpenMP - you may want to use it
 #pragma parallel shared(y,z0,z2,z3) local(j)
 #pragma pfor
 */
@@ -257,7 +257,7 @@ void dumka3(double& t, const double& tend, const double& h0,const double& atol,
   //delete [] z;
 };
 
-/* norm1 - function isStepAccepted can use different norms, but we implemente "max=max|u_i|, i= 1..n" norm
+/* norm1 - function isStepAccepted can use different norms, but we implemented "max=max|u_i|, i= 1..n" norm
  *         one can optimized this function by replacing qrt(z[i]*z[i]) to abs(z[i]), but you must define
  *         function abs for Element of the Vector
  */

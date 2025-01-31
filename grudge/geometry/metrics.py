@@ -62,6 +62,7 @@ import numpy as np
 
 from arraycontext import ArrayContext, register_multivector_as_array_container, tag_axes
 from arraycontext.metadata import NameHint
+from meshmode.discretization.connection import DirectDiscretizationConnection
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
@@ -114,7 +115,7 @@ def forward_metric_nth_derivative(
         *, _use_geoderiv_connection=False) -> DOFArray:
     r"""Pointwise metric derivatives representing repeated derivatives of the
     physical coordinate enumerated by *xyz_axis*: :math:`x_{\mathrm{xyz\_axis}}`
-    with respect to the coordiantes on the reference element :math:`\xi_i`:
+    with respect to the coordinates on the reference element :math:`\xi_i`:
 
     .. math::
 
@@ -558,20 +559,22 @@ def _signed_face_ones(
     all_faces_conn = dcoll.connection_from_dds(
         dd_base.untrace(), dd_base
     )
+    assert isinstance(all_faces_conn, DirectDiscretizationConnection)
     signed_ones = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE)).zeros(
         actx, dtype=dcoll.real_dtype
     ) + 1
 
-    _signed_face_ones_numpy = actx.to_numpy(signed_ones)
+    signed_face_ones_numpy = actx.to_numpy(signed_ones)
 
     for igrp, grp in enumerate(all_faces_conn.groups):
         for batch in grp.batches:
+            assert batch.to_element_face is not None
             i = actx.to_numpy(actx.thaw(batch.to_element_indices))
-            grp_field = _signed_face_ones_numpy[igrp].reshape(-1)
+            grp_field = signed_face_ones_numpy[igrp].reshape(-1)
             grp_field[i] = \
                 (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
 
-    return actx.from_numpy(_signed_face_ones_numpy)
+    return actx.from_numpy(signed_face_ones_numpy)
 
 
 def parametrization_derivative(
@@ -721,10 +724,13 @@ def mv_normal(
     """
     dd = dof_desc.as_dofdesc(dd)
 
-    if _use_geoderiv_connection is None:
-        _use_geoderiv_connection = actx.supports_nonscalar_broadcasting
+    use_geoderiv_connection = _use_geoderiv_connection
+    del _use_geoderiv_connection
 
-    @memoize_in(dcoll, (mv_normal, dd, _use_geoderiv_connection))
+    if use_geoderiv_connection is None:
+        use_geoderiv_connection = actx.supports_nonscalar_broadcasting
+
+    @memoize_in(dcoll, (mv_normal, dd, use_geoderiv_connection))
     def _normal():
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
@@ -737,7 +743,7 @@ def mv_normal(
         if dim == ambient_dim - 1:
             result = rel_mv_normal(
                 actx, dcoll, dd=dd,
-                _use_geoderiv_connection=_use_geoderiv_connection)
+                _use_geoderiv_connection=use_geoderiv_connection)
         else:
             # NOTE: In the case of (d - 2)-dimensional curves, we don't really have
             # enough information on the face to decide what an "exterior face normal"
@@ -756,12 +762,12 @@ def mv_normal(
                         rel_mv_normal(
                             actx, dcoll,
                             dd=dd.untrace(),
-                            _use_geoderiv_connection=_use_geoderiv_connection
+                            _use_geoderiv_connection=use_geoderiv_connection
                         ).as_vector(dtype=object))
             )
             pder = pseudoscalar(
                 actx, dcoll, dd=dd,
-                _use_geoderiv_connection=_use_geoderiv_connection)
+                _use_geoderiv_connection=use_geoderiv_connection)
 
             mv = -(volm_normal ^ pder) << volm_normal.I.inv()
 
@@ -831,7 +837,7 @@ def second_fundamental_form(
     normal = rel_mv_normal(actx, dcoll, dd=dd).as_vector(dtype=object)
 
     if dim == 1:
-        second_ref_axes = [((0, 2),)]
+        second_ref_axes: list[tuple[tuple[int, int], ...]] = [((0, 2),)]
     elif dim == 2:
         second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
     else:
@@ -879,7 +885,7 @@ def shape_operator(actx: ArrayContext, dcoll: DiscretizationCollection,
 
 
 def summed_curvature(actx: ArrayContext, dcoll: DiscretizationCollection,
-        dd: DOFDesc | None = None) -> DOFArray:
+        dd: DOFDesc | None = None) -> DOFArray | float:
     r"""Computes the sum of the principal curvatures:
 
     .. math::

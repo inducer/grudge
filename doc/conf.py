@@ -30,3 +30,8 @@ intersphinx_mapping = {
 
 # index-page demo uses pyopencl via plot_directive
 os.environ["PYOPENCL_TEST"] = "port:cpu"
+
+nitpick_ignore_regex = [
+    ["py:class", r"np\.ndarray"],
+    ["py:data|py:class", r"arraycontext.*ContainerTc"],
+]

@@ -2,6 +2,20 @@
 .. autofunction:: build_jacobian
 .. autofunction:: map_subarrays
 .. autofunction:: rec_map_subarrays
+
+Links to canonical locations of external symbols
+------------------------------------------------
+
+(This section only exists because Sphinx does not appear able to resolve
+these symbols correctly.)
+
+.. class:: ArrayContext
+
+    See :class:`arraycontext.ArrayContext`.
+
+.. class:: ArrayOrArithContainerTc
+
+    See :data:`arraycontext.context.ArrayOrArithContainerTc`.
 """
 
 from __future__ import annotations
@@ -35,7 +49,13 @@ from typing import Any
 
 import numpy as np
 
-from arraycontext import ArrayContext, ArrayOrContainer, ArrayOrContainerT
+from arraycontext import (
+    ArrayContext,
+    ArrayOrContainer,
+)
+from arraycontext.context import (
+    ArrayOrArithContainerTc,
+)
 from pytools import product
 
 
@@ -43,8 +63,8 @@ from pytools import product
 
 def build_jacobian(
         actx: ArrayContext,
-        f: Callable[[ArrayOrContainerT], ArrayOrContainerT],
-        base_state: ArrayOrContainerT,
+        f: Callable[[ArrayOrArithContainerTc], ArrayOrArithContainerTc],
+        base_state: ArrayOrArithContainerTc,
         stepsize: float) -> np.ndarray:
     """Returns a Jacobian matrix of *f* determined by a one-sided finite
     difference approximation with *stepsize*.
@@ -72,7 +92,9 @@ def build_jacobian(
         f_unit_i = f(base_state + unflatten(
             base_state, actx.from_numpy(unit_i_flat), actx))
 
-        mat[:, i] = actx.to_numpy(flatten((f_unit_i - f_base) / stepsize, actx))
+        mat[:, i] = actx.to_numpy(flatten((
+                                          f_unit_i - f_base
+                                      ) / stepsize, actx))
 
     return mat
 

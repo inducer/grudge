@@ -24,6 +24,24 @@ Interior and cross-rank trace functions
 .. autofunction:: interior_trace_pairs
 .. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
+
+Links to canonical locations of external symbols
+------------------------------------------------
+
+(This section only exists because Sphinx does not appear able to resolve
+these symbols correctly.)
+
+.. class:: Array
+
+    See :class:`arraycontext.Array`.
+
+.. class:: ArrayContainer
+
+    See :class:`arraycontext.ArrayContainer`.
+
+.. class:: ArrayOrArithContainer
+
+    See :data:`arraycontext.ArrayOrArithContainer`.
 """
 
 __copyright__ = """
@@ -50,10 +68,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from numbers import Number
-from typing import Any
+from typing import cast
 from warnings import warn
 
 import numpy as np
@@ -69,18 +87,21 @@ from arraycontext import (
     unflatten,
     with_container_arithmetic,
 )
-from meshmode.mesh import BTAG_PARTITION
+from meshmode.mesh import BTAG_PARTITION, PartID
 from pytools import memoize_on_first_arg
-from pytools.persistent_dict import KeyBuilder
+from pytools.persistent_dict import Hash, KeyBuilder
 
 import grudge.dof_desc as dof_desc
+from grudge.array_context import MPIBasedArrayContext
 from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
     FACE_RESTR_INTERIOR,
+    BoundaryDomainTag,
     ConvertibleToDOFDesc,
     DOFDesc,
+    ScalarDomainTag,
     VolumeDomainTag,
 )
 from grudge.projection import project
@@ -290,6 +311,7 @@ def local_interior_trace_pair(
 
     interior = project(dcoll, volume_dd, trace_dd, vec)
 
+    assert isinstance(trace_dd.domain_tag, BoundaryDomainTag)
     opposite_face_conn = dcoll.opposite_face_connection(trace_dd.domain_tag)
 
     def get_opposite_trace(ary):
@@ -350,17 +372,19 @@ def interior_trace_pairs(
 # {{{ distributed: helper functions
 
 class _TagKeyBuilder(KeyBuilder):
-    def update_for_type(self, key_hash, key: type[Any]):
+    def update_for_type(self, key_hash: Hash, key: type) -> None:
         self.rec(key_hash, (key.__module__, key.__name__, key.__name__,))
 
 
 @memoize_on_first_arg
-def connected_ranks(
+def connected_parts(
         dcoll: DiscretizationCollection,
-        volume_dd: DOFDesc | None = None):
+        volume_dd: DOFDesc | None = None) -> Sequence[PartID]:
     if volume_dd is None:
         volume_dd = DD_VOLUME_ALL
 
+    if isinstance(volume_dd.domain_tag, ScalarDomainTag):
+        return []
     from meshmode.distributed import get_connected_parts
     return get_connected_parts(
         dcoll._volume_discrs[volume_dd.domain_tag.tag].mesh)
@@ -380,6 +404,7 @@ def _sym_tag_to_num_tag(comm_tag: Hashable | None) -> int | None:
 
     from mpi4py import MPI
     tag_ub = MPI.COMM_WORLD.Get_attr(MPI.TAG_UB)
+    assert tag_ub is not None
     key_builder = _TagKeyBuilder()
     digest = key_builder(comm_tag)
 
@@ -402,11 +427,11 @@ class _RankBoundaryCommunicationEager:
     base_comm_tag = 1273
 
     def __init__(self,
+                 actx: MPIBasedArrayContext,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainer,
-                 remote_rank, comm_tag: int | None = None,
+                 remote_rank, comm_tag: Hashable = None,
                  volume_dd=DD_VOLUME_ALL):
-        actx = get_container_context_recursively(array_container)
         bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
 
         local_bdry_data = project(dcoll, volume_dd, bdry_dd, array_container)
@@ -484,6 +509,7 @@ class _RankBoundaryCommunicationEager:
 
 class _RankBoundaryCommunicationLazy:
     def __init__(self,
+                 actx: MPIBasedArrayContext,
                  dcoll: DiscretizationCollection,
                  array_container: ArrayOrContainer,
                  remote_rank: int, comm_tag: Hashable,
@@ -531,7 +557,6 @@ class _RankBoundaryCommunicationLazy:
 
 def cross_rank_trace_pairs(
         dcoll: DiscretizationCollection, ary: ArrayOrContainer,
-        tag: Hashable = None,
         *, comm_tag: Hashable = None,
         volume_dd: DOFDesc | None = None) -> list[TracePair]:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
@@ -572,16 +597,6 @@ def cross_rank_trace_pairs(
     if volume_dd.discretization_tag != DISCR_TAG_BASE:
         raise TypeError(f"expected a base-discretized DOFDesc, got '{volume_dd}'")
 
-    if tag is not None:
-        warn("Specifying 'tag' is deprecated and will stop working in July of 2022. "
-                "Specify 'comm_tag' (keyword-only) instead.",
-                DeprecationWarning, stacklevel=2)
-        if comm_tag is not None:
-            raise TypeError("may only specify one of 'tag' and 'comm_tag'")
-        else:
-            comm_tag = tag
-    del tag
-
     # }}}
 
     if isinstance(ary, Number):
@@ -589,21 +604,33 @@ def cross_rank_trace_pairs(
         return [TracePair(
                 volume_dd.trace(BTAG_PARTITION(remote_rank)),
                 interior=ary, exterior=ary)
-            for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)]
+            for remote_rank in connected_parts(dcoll, volume_dd=volume_dd)]
 
     actx = get_container_context_recursively(ary)
 
-    from grudge.array_context import MPIPytatoArrayContextBase
+    from grudge.array_context import MPIBasePytatoPyOpenCLArrayContext
 
-    if isinstance(actx, MPIPytatoArrayContextBase):
-        rbc_class = _RankBoundaryCommunicationLazy
+    if isinstance(actx, MPIBasePytatoPyOpenCLArrayContext):
+        rbc_class: type[
+            _RankBoundaryCommunicationEager | _RankBoundaryCommunicationLazy
+        ] = _RankBoundaryCommunicationLazy
     else:
         rbc_class = _RankBoundaryCommunicationEager
 
+    cparts = connected_parts(dcoll, volume_dd=volume_dd)
+
+    if not cparts:
+        return []
+    assert isinstance(actx, MPIBasedArrayContext)
+
     # Initialize and post all sends/receives
     rank_bdry_communicators = [
-        rbc_class(dcoll, ary, remote_rank, comm_tag=comm_tag, volume_dd=volume_dd)
-        for remote_rank in connected_ranks(dcoll, volume_dd=volume_dd)
+        rbc_class(actx, dcoll, ary,
+                  # FIXME: This is a casualty of incomplete multi-volume support
+                  # for now.
+                  cast(int, remote_rank),
+                  comm_tag=comm_tag, volume_dd=volume_dd)
+        for remote_rank in cparts
     ]
 
     # Complete send/receives and return communicated data
