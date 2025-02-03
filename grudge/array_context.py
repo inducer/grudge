@@ -285,15 +285,15 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
             name_in_program_to_tags.update(part_prg_name_to_tags)
             name_in_program_to_axes.update(part_prg_name_to_axes)
 
-        from immutabledict import immutabledict
+        from constantdict import constantdict
         return _DistributedCompiledFunction(
                 actx=self.actx,
                 distributed_partition=distributed_partition,
                 part_id_to_prg=part_id_to_prg,
                 input_id_to_name_in_program=input_id_to_name_in_program,
                 output_id_to_name_in_program=output_id_to_name_in_program,
-                name_in_program_to_tags=immutabledict(name_in_program_to_tags),
-                name_in_program_to_axes=immutabledict(name_in_program_to_axes),
+                name_in_program_to_tags=constantdict(name_in_program_to_tags),
+                name_in_program_to_axes=constantdict(name_in_program_to_axes),
                 output_template=output_template)
 
 
