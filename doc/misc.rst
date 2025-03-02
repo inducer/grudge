@@ -50,8 +50,8 @@ Next time you want to use `grudge`, just run the following command::
 
 You may also like to add this to a startup file (like :file:`$HOME/.bashrc`) or create an alias for it.
 
-After this, you should be able to run the `tests <https://gitlab.tiker.net/inducer/grudge/tree/master/test>`_
-or `examples <https://gitlab.tiker.net/inducer/grudge/tree/master/examples>`_.
+After this, you should be able to run the `tests <https://gitlab.tiker.net/inducer/grudge/tree/main/test>`_
+or `examples <https://gitlab.tiker.net/inducer/grudge/tree/main/examples>`_.
 
 Troubleshooting the Installation
 --------------------------------
