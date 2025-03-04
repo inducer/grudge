@@ -105,7 +105,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     def __init__(self, queue: pyopencl.CommandQueue,
             allocator: pyopencl.tools.AllocatorBase | None = None,
             wait_event_queue_length: int | None = None,
-            force_device_scalars: bool = True) -> None:
+            force_device_scalars: bool | None = None) -> None:
 
         if allocator is None:
             warn("No memory allocator specified, please pass one. "
@@ -388,7 +388,7 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
             queue: pyopencl.CommandQueue,
             *, allocator: pyopencl.tools.AllocatorBase | None = None,
             wait_event_queue_length: int | None = None,
-            force_device_scalars: bool = True) -> None:
+            force_device_scalars: bool | None = None) -> None:
         """
         See :class:`arraycontext.impl.pyopencl.PyOpenCLArrayContext` for most
         arguments.
@@ -400,8 +400,6 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
         self.mpi_communicator = mpi_communicator
 
     def clone(self) -> Self:
-        # type-ignore-reason: 'DistributedLazyArrayContext' has no 'queue' member
-        # pylint: disable=no-member
         return type(self)(self.mpi_communicator, self.queue,
                 allocator=self.allocator,
                 wait_event_queue_length=self._wait_event_queue_length,
@@ -500,10 +498,7 @@ class PytestPyOpenCLArrayContextFactory(
         _ctx, queue = self.get_command_queue()
         alloc = MemoryPool(ImmediateAllocator(queue))
 
-        return self.actx_class(
-                queue,
-                allocator=alloc,
-                force_device_scalars=self.force_device_scalars)
+        return self.actx_class(queue, allocator=alloc)
 
 
 class PytestPytatoPyOpenCLArrayContextFactory(
