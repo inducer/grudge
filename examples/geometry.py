@@ -25,26 +25,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-import numpy as np  # noqa
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
+from grudge import geometry, shortcuts
 from grudge.array_context import PyOpenCLArrayContext
-
-from grudge import shortcuts
-from grudge import geometry
 from grudge.discretization import make_discretization_collection
 
 
-def main(write_output=True):
+def main(write_output: bool = True) -> None:
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+
+    allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    actx = PyOpenCLArrayContext(queue, allocator=allocator)
 
     from meshmode.mesh import BTAG_ALL
     from meshmode.mesh.generation import generate_warped_rect_mesh

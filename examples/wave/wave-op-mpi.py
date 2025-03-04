@@ -28,13 +28,12 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
-import numpy.linalg as la  # noqa
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 from arraycontext import dataclass_array_container, with_container_arithmetic
 from meshmode.dof_array import DOFArray
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.geometry as geo
@@ -186,16 +185,15 @@ def main(ctx_factory, dim=2, order=3,
 
     if numpy:
         actx = actx_class(comm)
-    elif lazy:
-        cl_ctx = ctx_factory()
-        queue = cl.CommandQueue(cl_ctx)
-        actx = actx_class(comm, queue, mpi_base_tag=15000)
     else:
         cl_ctx = ctx_factory()
         queue = cl.CommandQueue(cl_ctx)
-        actx = actx_class(comm, queue,
-                allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-                force_device_scalars=True)
+
+        allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+        if lazy:
+            actx = actx_class(comm, queue, allocator=allocator, mpi_base_tag=15000)
+        else:
+            actx = actx_class(comm, queue, allocator=allocator)
 
     from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
     from meshmode.mesh.processing import partition_mesh

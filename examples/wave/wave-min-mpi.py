@@ -52,12 +52,9 @@ def main(dim=2, order=4, visualize=True):
 
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
-    actx = MPIPyOpenCLArrayContext(
-            comm,
-            queue,
-            allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-            force_device_scalars=True,
-            )
+
+    allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    actx = MPIPyOpenCLArrayContext(comm, queue, allocator=allocator)
 
     from meshmode.distributed import get_partition_by_pymetis, membership_list_to_map
     from meshmode.mesh.processing import partition_mesh
