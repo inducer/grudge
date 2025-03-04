@@ -151,11 +151,9 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
 def main(ctx_factory, dim=2, order=3, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+
+    allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    actx = PyOpenCLArrayContext(queue, allocator=allocator)
 
     nel_1d = 16
     from meshmode.mesh.generation import generate_regular_rect_mesh

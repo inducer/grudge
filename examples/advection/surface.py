@@ -104,11 +104,9 @@ class Plotter:
 def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
     cl_ctx = ctx_factory()
     queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(
-        queue,
-        allocator=cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue)),
-        force_device_scalars=True,
-    )
+
+    allocator = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(queue))
+    actx = PyOpenCLArrayContext(queue, allocator=allocator)
 
     # {{{ parameters
 
