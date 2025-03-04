@@ -67,7 +67,7 @@ from grudge.trace_pair import TracePair
 
 # {{{ Array containers for the Euler model
 
-@with_container_arithmetic(bcast_obj_array=False,
+@with_container_arithmetic(bcasts_across_obj_array=False,
                            container_types_bcast_across=(DOFArray, np.ndarray),
                            matmul=True,
                            rel_comparison=True,

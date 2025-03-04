@@ -109,7 +109,7 @@ from grudge.projection import project
 
 # {{{ trace pair container class
 
-@with_container_arithmetic(bcast_obj_array=False,
+@with_container_arithmetic(bcasts_across_obj_array=False,
                            eq_comparison=False,
                            rel_comparison=False,
                            )
