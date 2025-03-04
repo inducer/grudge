@@ -68,7 +68,7 @@ from grudge.trace_pair import TracePair
 # {{{ Array containers for the Euler model
 
 @with_container_arithmetic(bcast_obj_array=False,
-                           bcast_container_types=(DOFArray, np.ndarray),
+                           container_types_bcast_across=(DOFArray, np.ndarray),
                            matmul=True,
                            rel_comparison=True,
                            )
@@ -79,6 +79,9 @@ class ConservedEulerField:
     mass: DOFArray | np.ndarray
     energy: DOFArray | np.ndarray
     momentum: np.ndarray
+
+    # NOTE: disable numpy doing any array math
+    __array_ufunc__ = None
 
     @property
     def dim(self):

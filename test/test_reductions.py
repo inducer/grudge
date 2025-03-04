@@ -165,8 +165,10 @@ def test_elementwise_reductions(actx_factory):
 # {{{ Array container tests
 
 @with_container_arithmetic(bcast_obj_array=False,
-        eq_comparison=False, rel_comparison=False,
-        _cls_has_array_context_attr=True)
+                           eq_comparison=False,
+                           rel_comparison=False,
+                           _cls_has_array_context_attr=True,
+                           )
 @dataclass_array_container
 @dataclass(frozen=True)
 class MyContainer:
@@ -174,6 +176,9 @@ class MyContainer:
     mass: DOFArray
     momentum: np.ndarray
     enthalpy: DOFArray
+
+    # NOTE: disable numpy doing any array math
+    __array_ufunc__ = None
 
     @property
     def array_context(self):

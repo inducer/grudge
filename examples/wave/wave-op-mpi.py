@@ -51,13 +51,18 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
-@with_container_arithmetic(bcast_obj_array=True, rel_comparison=True,
-        _cls_has_array_context_attr=True)
+@with_container_arithmetic(bcast_obj_array=True,
+                           rel_comparison=True,
+                           _cls_has_array_context_attr=True,
+                           )
 @dataclass_array_container
 @dataclass(frozen=True)
 class WaveState:
     u: DOFArray
     v: np.ndarray  # [object array]
+
+    # NOTE: disable numpy doing any array math
+    __array_ufunc__ = None
 
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
