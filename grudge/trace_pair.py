@@ -109,9 +109,10 @@ from grudge.projection import project
 
 # {{{ trace pair container class
 
-@with_container_arithmetic(
-    bcast_obj_array=False, eq_comparison=False, rel_comparison=False
-)
+@with_container_arithmetic(bcast_obj_array=False,
+                           eq_comparison=False,
+                           rel_comparison=False,
+                           )
 @dataclass_array_container
 @dataclass(init=False, frozen=True)
 class TracePair:
@@ -136,6 +137,9 @@ class TracePair:
     dd: DOFDesc
     interior: ArrayContainer
     exterior: ArrayContainer
+
+    # NOTE: disable numpy doing any array math
+    __array_ufunc__ = None
 
     def __init__(self, dd: DOFDesc, *,
             interior: ArrayOrContainer,
