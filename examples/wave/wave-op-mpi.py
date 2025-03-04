@@ -51,7 +51,7 @@ from mpi4py import MPI
 
 # {{{ wave equation bits
 
-@with_container_arithmetic(bcast_obj_array=True,
+@with_container_arithmetic(bcasts_across_obj_array=True,
                            rel_comparison=True,
                            _cls_has_array_context_attr=True,
                            )

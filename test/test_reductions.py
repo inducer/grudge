@@ -164,7 +164,7 @@ def test_elementwise_reductions(actx_factory):
 
 # {{{ Array container tests
 
-@with_container_arithmetic(bcast_obj_array=False,
+@with_container_arithmetic(bcasts_across_obj_array=False,
                            eq_comparison=False,
                            rel_comparison=False,
                            _cls_has_array_context_attr=True,
