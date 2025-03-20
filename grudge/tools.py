@@ -76,6 +76,7 @@ def build_jacobian(
         supported by *actx*.
     :returns: a two-dimensional :class:`numpy.ndarray`.
     """
+    base_state = actx.freeze_thaw(base_state)
     from arraycontext import flatten, unflatten
     flat_base_state = flatten(base_state, actx)
 
@@ -89,8 +90,8 @@ def build_jacobian(
         unit_i_flat = np.zeros(n, dtype=mat.dtype)
         unit_i_flat[i] = stepsize
 
-        f_unit_i = f(base_state + unflatten(
-            base_state, actx.from_numpy(unit_i_flat), actx))
+        f_unit_i = f(actx.freeze_thaw(base_state + unflatten(
+            base_state, actx.from_numpy(unit_i_flat), actx)))
 
         mat[:, i] = actx.to_numpy(flatten((
                                           f_unit_i - f_base
