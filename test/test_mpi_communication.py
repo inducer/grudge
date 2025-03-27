@@ -37,7 +37,7 @@ from pytools.obj_array import flat_obj_array
 from grudge import dof_desc, op
 from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext
 from grudge.discretization import make_discretization_collection
-from grudge.shortcuts import rk4_step
+from grudge.shortcuts import compiled_lsrk45_step
 
 
 logger = logging.getLogger(__name__)
@@ -246,8 +246,8 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
 
-    dt = actx.to_numpy(
-        wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields))
+    dt = float(actx.to_numpy(
+        wave_op.estimate_rk4_timestep(actx, dcoll, fields=fields)))
 
     wave_op.check_bc_coverage(local_mesh)
 
@@ -277,10 +277,12 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         from grudge.shortcuts import make_visualizer
         vis = make_visualizer(dcoll)
 
+    fields = actx.freeze_thaw(fields)
+
     logmgr.tick_before()
     for step in range(nsteps):
         t = step*dt
-        fields = rk4_step(fields, t=t, h=dt, f=compiled_rhs)
+        fields = compiled_lsrk45_step(actx, fields, t=t, h=dt, f=compiled_rhs)
         fields = actx.thaw(actx.freeze(fields))
 
         norm = actx.to_numpy(op.norm(dcoll, fields, 2))

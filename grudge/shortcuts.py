@@ -20,6 +20,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from functools import partial
+
+from arraycontext import BcastUntilActxArray
+from arraycontext.context import ArrayContext
 from pytools import memoize_in
 
 from grudge.dof_desc import DD_VOLUME_ALL
@@ -33,19 +37,24 @@ def rk4_step(y, t, h, f):
     return y + h/6*(k1 + 2*k2 + 2*k3 + k4)
 
 
-def _lsrk45_update(y, a, b, h, rhs_val, residual=0):
-    residual = a*residual + h*rhs_val
-    y = y + b * residual
+def _lsrk45_update(actx: ArrayContext, y, a, b, h, rhs_val, residual=None):
+    bcast = partial(BcastUntilActxArray, actx)
+    if residual is None:
+        residual = bcast(h) * rhs_val
+    else:
+        residual = bcast(a) * residual + bcast(h) * rhs_val
+
+    y = y + bcast(b) * residual
     from pytools.obj_array import make_obj_array
     return make_obj_array([y, residual])
 
 
-def compiled_lsrk45_step(actx, y, t, h, f):
+def compiled_lsrk45_step(actx: ArrayContext, y, t, h, f):
     from leap.rk import LSRK4MethodBuilder
 
     @memoize_in(actx, (compiled_lsrk45_step, "update"))
     def get_state_updater():
-        return actx.compile(_lsrk45_update)
+        return actx.compile(partial(_lsrk45_update, actx))
 
     update = get_state_updater()
 
