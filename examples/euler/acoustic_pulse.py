@@ -36,7 +36,7 @@ from pytools.obj_array import make_obj_array
 import grudge.op as op
 from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
-from grudge.shortcuts import rk4_step
+from grudge.shortcuts import compiled_lsrk45_step
 
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ def run_acoustic_pulse(actx,
             assert norm_q < 5
 
         fields = actx.thaw(actx.freeze(fields))
-        fields = rk4_step(fields, t, dt, compiled_rhs)
+        fields = compiled_lsrk45_step(actx, fields, t, dt, compiled_rhs)
         t += dt
         step += 1
 

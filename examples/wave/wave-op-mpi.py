@@ -277,6 +277,8 @@ def main(ctx_factory, dim=2, order=3,
     import time
     start = time.time()
 
+    fields = actx.freeze_thaw(fields)
+
     t = 0
     t_final = 3
     istep = 0
