@@ -398,7 +398,7 @@ def _sym_tag_to_num_tag(comm_tag: Hashable | None, base_tag: int) -> int:
 
     # FIXME: This isn't guaranteed to be correct.
     # See here for discussion:
-    # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716  # noqa
+    # - https://github.com/illinois-ceesd/mirgecom/issues/617#issuecomment-1057082716
     # - https://github.com/inducer/grudge/pull/222
     # Since only 1 communication can be pending for a given tag at a time,
     # this does not matter currently. See https://github.com/inducer/grudge/issues/223
