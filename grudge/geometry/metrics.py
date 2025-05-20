@@ -604,12 +604,15 @@ def parametrization_derivative(
 
     from pytools import product
 
-    return product(
+    res = product(
         forward_metric_derivative_mv(
             actx, dcoll, rst_axis, dd,
             _use_geoderiv_connection=_use_geoderiv_connection)
         for rst_axis in range(dim)
     )
+    if isinstance(res, int):
+        return MultiVector(res)
+    return res
 
 
 def pseudoscalar(
