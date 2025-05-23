@@ -27,6 +27,7 @@ import numpy as np
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
     PytestNumpyArrayContextFactory,
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
@@ -36,7 +37,8 @@ from grudge.array_context import (
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory,
-         PytestNumpyArrayContextFactory])
+         PytestNumpyArrayContextFactory,
+         PytestEagerJAXArrayContextFactory])
 
 import logging
 

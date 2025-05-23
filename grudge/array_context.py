@@ -76,10 +76,11 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext import ArrayContext, NumpyArrayContext
+from arraycontext import ArrayContext, EagerJAXArrayContext, NumpyArrayContext
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
+    _PytestEagerJaxArrayContextFactory,
     _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoPyOpenCLArrayContextFactory,
@@ -428,6 +429,26 @@ class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
 # }}}
 
 
+# {{{ distributed + eager jax
+
+class MPIEagerJaxArrayContext(EagerJAXArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`jax`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator) -> None:
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self) -> Self:
+        return type(self)(self.mpi_communicator)
+
+# }}}
+
+
 # {{{ distributed + pytato array context subclasses
 
 class MPIBasePytatoPyOpenCLArrayContext(
@@ -521,12 +542,23 @@ class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
         return self.actx_class()
 
 
+class PytestEagerJAXArrayContextFactory(_PytestEagerJaxArrayContextFactory):
+    actx_class = EagerJAXArrayContext
+
+    def __call__(self):
+        import jax
+        jax.config.update("jax_enable_x64", True)
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
         PytestPytatoPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.numpy",
         PytestNumpyArrayContextFactory)
+register_pytest_array_context_factory("grudge.eager-jax",
+        PytestEagerJAXArrayContextFactory)
 
 # }}}
 
