@@ -33,6 +33,7 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
     PytestNumpyArrayContextFactory,
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
@@ -44,7 +45,8 @@ logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory,
-         PytestNumpyArrayContextFactory])
+         PytestNumpyArrayContextFactory,
+         PytestEagerJAXArrayContextFactory])
 
 
 # {{{ inverse metric
