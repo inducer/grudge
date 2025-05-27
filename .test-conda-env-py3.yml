@@ -12,6 +12,7 @@ dependencies:
 - pyopencl
 - python=3
 - gmsh
+- jax
 
 # test scripts use ompi-specific arguments
 - openmpi
