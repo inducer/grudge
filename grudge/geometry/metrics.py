@@ -566,15 +566,21 @@ def _signed_face_ones(
 
     signed_face_ones_numpy = actx.to_numpy(signed_ones)
 
+    new_group_arrays = []
     for igrp, grp in enumerate(all_faces_conn.groups):
+        grp_field = signed_face_ones_numpy[igrp]
+        sign_mask = np.ones_like(grp_field)
+
         for batch in grp.batches:
             assert batch.to_element_face is not None
             i = actx.to_numpy(actx.thaw(batch.to_element_indices))
-            grp_field = signed_face_ones_numpy[igrp].reshape(-1)
-            grp_field[i] = \
-                (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
+            sign = (2.0 * (batch.to_element_face % 2) - 1.0)
+            sign_mask[i, :] = sign
 
-    return actx.from_numpy(signed_face_ones_numpy)
+        new_group_arrays.append(grp_field * sign_mask)
+
+    from meshmode.dof_array import DOFArray
+    return actx.from_numpy(DOFArray(actx, tuple(new_group_arrays)))
 
 
 def parametrization_derivative(
