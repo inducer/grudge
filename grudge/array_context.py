@@ -431,7 +431,7 @@ class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
 
 # {{{ distributed + eager jax
 
-class MPIEagerJaxArrayContext(EagerJAXArrayContext, MPIBasedArrayContext):
+class MPIEagerJAXArrayContext(EagerJAXArrayContext, MPIBasedArrayContext):
     """An array context for using distributed computation with :mod:`jax`
     eager evaluation.
 
