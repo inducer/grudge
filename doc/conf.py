@@ -19,6 +19,7 @@ version = ".".join(release.split(".")[:2])
 intersphinx_mapping = {
         "arraycontext": ("https://documen.tician.de/arraycontext/", None),
         "loopy": ("https://documen.tician.de/loopy/", None),
+        "jax": ("https://docs.jax.dev/en/latest/", None),
         "meshmode": ("https://documen.tician.de/meshmode/", None),
         "modepy": ("https://documen.tician.de/modepy/", None),
         "mpi4py": ("https://mpi4py.readthedocs.io/en/stable", None),
@@ -32,6 +33,7 @@ intersphinx_mapping = {
 os.environ["PYOPENCL_TEST"] = "port:cpu"
 
 nitpick_ignore_regex = [
+    ["py:mod", r"jax"],  # FIXME: not sure why this does not work
     ["py:class", r"np\.ndarray"],
     ["py:data|py:class", r"arraycontext.*ContainerTc"],
 ]
