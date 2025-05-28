@@ -39,7 +39,11 @@ from meshmode.dof_array import DOFArray
 from pytools.obj_array import make_obj_array
 
 from grudge import op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestNumpyArrayContextFactory, PytestEagerJAXArrayContextFactory
+from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
+    PytestNumpyArrayContextFactory,
+    PytestPyOpenCLArrayContextFactory,
+)
 from grudge.discretization import make_discretization_collection
 
 

@@ -29,7 +29,11 @@ import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import DOFArray
 
-from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestNumpyArrayContextFactory, PytestEagerJAXArrayContextFactory
+from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
+    PytestNumpyArrayContextFactory,
+    PytestPyOpenCLArrayContextFactory,
+)
 from grudge.discretization import make_discretization_collection
 from grudge.trace_pair import TracePair
 

@@ -36,7 +36,11 @@ from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestNumpyArrayContextFactory, PytestEagerJAXArrayContextFactory
+from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
+    PytestNumpyArrayContextFactory,
+    PytestPyOpenCLArrayContextFactory,
+)
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import (
     DISCR_TAG_BASE,

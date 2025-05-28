@@ -26,7 +26,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.linalg as la  # noqa
-
 import pytest
 
 from pytools.obj_array import make_obj_array

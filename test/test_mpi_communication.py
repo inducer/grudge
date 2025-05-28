@@ -35,7 +35,11 @@ from meshmode.dof_array import flat_norm
 from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, op
-from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext, MPIEagerJAXArrayContext
+from grudge.array_context import (
+    MPIEagerJAXArrayContext,
+    MPIPyOpenCLArrayContext,
+    MPIPytatoArrayContext,
+)
 from grudge.discretization import make_discretization_collection
 from grudge.shortcuts import compiled_lsrk45_step
 
@@ -49,7 +53,8 @@ class SimpleTag:
 
 # {{{ mpi test infrastructure
 
-DISTRIBUTED_ACTXS = [MPIPyOpenCLArrayContext, MPIPytatoArrayContext, MPIEagerJAXArrayContext]
+DISTRIBUTED_ACTXS = [MPIPyOpenCLArrayContext, MPIPytatoArrayContext,
+                     MPIEagerJAXArrayContext]
 
 
 def run_test_with_mpi(num_ranks, f, *args):
