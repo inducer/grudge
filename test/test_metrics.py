@@ -36,6 +36,7 @@ from grudge.array_context import (
     PytestEagerJAXArrayContextFactory,
     PytestNumpyArrayContextFactory,
     PytestPyOpenCLArrayContextFactory,
+    PytestPytatoJAXArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
 from grudge.discretization import make_discretization_collection
@@ -46,7 +47,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory,
          PytestNumpyArrayContextFactory,
-         PytestEagerJAXArrayContextFactory])
+         PytestEagerJAXArrayContextFactory,
+         PytestPytatoJAXArrayContextFactory])
 
 
 # {{{ inverse metric

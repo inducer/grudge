@@ -5,6 +5,8 @@
 .. autoclass:: MPIPyOpenCLArrayContext
 .. autoclass:: MPINumpyArrayContext
 .. class:: MPIPytatoArrayContext
+.. autoclass:: MPIEagerJAXArrayContext
+.. autoclass:: MPIPytatoJAXArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
 
@@ -76,13 +78,19 @@ except ImportError:
     _HAVE_FUSION_ACTX = False
 
 
-from arraycontext import ArrayContext, EagerJAXArrayContext, NumpyArrayContext
+from arraycontext import (
+    ArrayContext,
+    EagerJAXArrayContext,
+    NumpyArrayContext,
+    PytatoJAXArrayContext,
+)
 from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
     _PytestEagerJaxArrayContextFactory,
     _PytestNumpyArrayContextFactory,
     _PytestPyOpenCLArrayContextFactoryWithClass,
+    _PytestPytatoJaxArrayContextFactory,
     _PytestPytatoPyOpenCLArrayContextFactory,
     register_pytest_array_context_factory,
 )
@@ -449,6 +457,26 @@ class MPIEagerJAXArrayContext(EagerJAXArrayContext, MPIBasedArrayContext):
 # }}}
 
 
+# {{{ distributed + lazy jax
+
+class MPIPytatoJAXArrayContext(PytatoJAXArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`jax`
+    lazy evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator) -> None:
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self) -> Self:
+        return type(self)(self.mpi_communicator)
+
+# }}}
+
+
 # {{{ distributed + pytato array context subclasses
 
 class MPIBasePytatoPyOpenCLArrayContext(
@@ -551,6 +579,15 @@ class PytestEagerJAXArrayContextFactory(_PytestEagerJaxArrayContextFactory):
         return self.actx_class()
 
 
+class PytestPytatoJAXArrayContextFactory(_PytestPytatoJaxArrayContextFactory):
+    actx_class = PytatoJAXArrayContext
+
+    def __call__(self):
+        import jax
+        jax.config.update("jax_enable_x64", True)
+        return self.actx_class()
+
+
 register_pytest_array_context_factory("grudge.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("grudge.pytato-pyopencl",
@@ -559,6 +596,8 @@ register_pytest_array_context_factory("grudge.numpy",
         PytestNumpyArrayContextFactory)
 register_pytest_array_context_factory("grudge.eager-jax",
         PytestEagerJAXArrayContextFactory)
+register_pytest_array_context_factory("grudge.lazy-jax",
+        PytestPytatoJAXArrayContextFactory)
 
 # }}}
 
