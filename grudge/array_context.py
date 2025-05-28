@@ -5,6 +5,7 @@
 .. autoclass:: MPIPyOpenCLArrayContext
 .. autoclass:: MPINumpyArrayContext
 .. class:: MPIPytatoArrayContext
+.. autoclass:: MPIEagerJAXArrayContext
 .. autofunction:: get_reasonable_array_context_class
 """
 
