@@ -27,22 +27,9 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.linalg as la  # noqa
 
-from arraycontext import pytest_generate_tests_for_array_contexts
-
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
-
-
-pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
 import pytest
 
 from pytools.obj_array import make_obj_array
-
-
-logger = logging.getLogger(__name__)
 
 
 # {{{ map_subarrays and rec_map_subarrays

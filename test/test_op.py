@@ -36,7 +36,7 @@ from meshmode.mesh import BTAG_ALL
 from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import PytestPyOpenCLArrayContextFactory, PytestNumpyArrayContextFactory, PytestEagerJAXArrayContextFactory
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import (
     DISCR_TAG_BASE,
@@ -52,7 +52,9 @@ from grudge.trace_pair import bv_trace_pair
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+         PytestNumpyArrayContextFactory,
+         PytestEagerJAXArrayContextFactory])
 
 
 # {{{ gradient
