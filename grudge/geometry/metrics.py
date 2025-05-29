@@ -565,7 +565,7 @@ def _signed_face_ones(
 
     new_group_arrays = []
 
-    for dgrp, grp in zip(discr.groups, all_faces_conn.groups):
+    for dgrp, grp in zip(discr.groups, all_faces_conn.groups, strict=True):
         sign = np.ones((dgrp.nelements, dgrp.nunit_dofs),
                         dtype=discr.real_dtype)
 
