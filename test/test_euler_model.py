@@ -31,12 +31,18 @@ from arraycontext import (
 )
 
 from grudge import op
-from grudge.array_context import PytestPyOpenCLArrayContextFactory
+from grudge.array_context import (
+    PytestEagerJAXArrayContextFactory,
+    PytestNumpyArrayContextFactory,
+    PytestPyOpenCLArrayContextFactory,
+)
 
 
 logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
-        [PytestPyOpenCLArrayContextFactory])
+        [PytestPyOpenCLArrayContextFactory,
+         PytestNumpyArrayContextFactory,
+         PytestEagerJAXArrayContextFactory])
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
