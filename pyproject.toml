@@ -40,8 +40,6 @@ dependencies = [
 
 [project.optional-dependencies]
 all = [
-    "dagrt>=2021.1",
-    "leap>=2021.1",
     "meshpy>=2022.1",
     "mpi4py",
     "pymetis>=2023.1",
