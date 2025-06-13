@@ -219,7 +219,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     step = 0
 
-    event = dt_stepper.StateComputed(0.0, 0, 0, u0)
+    event = dt_stepper.StateComputed(0.0, "", "", u0)
     plot(event, f"fld-surface-{0:04d}")
 
     if visualize and dim == 3:
