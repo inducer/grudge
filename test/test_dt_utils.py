@@ -183,11 +183,10 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
     assert (eigvals.real <= 1e-12).all()
 
     import sympy as sp
-    from leap.rk import RK4MethodBuilder, stability_function
-    stab_func = sp.lambdify(*stability_function(
-        RK4MethodBuilder.a_explicit,
-        RK4MethodBuilder.output_coeffs))
 
+    from grudge.shortcuts import RK4_A, RK4_B, stability_function
+
+    stab_func = sp.lambdify(*stability_function(RK4_A, RK4_B))
     dt_est = actx.to_numpy(wave_op.estimate_rk4_timestep(actx, dcoll))
 
     if visualize:
