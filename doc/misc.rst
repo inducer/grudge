@@ -37,7 +37,7 @@ MacOS support is in the works.
 
 #.  Type the following command::
 
-        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy arraycontext meshmode dagrt leap grudge; do python -m pip install --editable "git+https://github.com/inducer/$i.git#egg=$i"; done
+        hash -r; for i in pymbolic cgen genpy modepy pyvisfile loopy arraycontext meshmode grudge; do python -m pip install --editable "git+https://github.com/inducer/$i.git#egg=$i"; done
 
 .. note::
 
