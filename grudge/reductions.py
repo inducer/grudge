@@ -164,7 +164,7 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Number:
     actx = vec.array_context
 
     return sum(
-        actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))
+        actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))  # type: ignore[misc]
         for grp_ary in vec)
 
 
