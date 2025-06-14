@@ -104,7 +104,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     any, for now.)
     """
     def __init__(self, queue: pyopencl.CommandQueue,
-            allocator: pyopencl.typing.Allocator | None = None,
+            allocator: pyopencl.array.Allocator | None = None,
             wait_event_queue_length: int | None = None,
             force_device_scalars: bool | None = None) -> None:
 
@@ -387,7 +387,7 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
     def __init__(self,
             mpi_communicator,
             queue: pyopencl.CommandQueue,
-            *, allocator: pyopencl.typing.Allocator | None = None,
+            *, allocator: pyopencl.array.Allocator | None = None,
             wait_event_queue_length: int | None = None,
             force_device_scalars: bool | None = None) -> None:
         """

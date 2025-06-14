@@ -15,3 +15,12 @@ Miscellaneous tools
 -------------------
 
 .. automodule:: grudge.tools
+
+References
+----------
+
+.. currentmodule:: cl_array
+
+.. class:: Allocator
+
+    See :class:`pyopencl.array.Allocator`.
