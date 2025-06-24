@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Hashable, Sequence
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
 import meshmode.mesh.generation as mgen
-from meshmode.mesh import Mesh
 from meshmode.mesh.io import read_gmsh
+
+
+if TYPE_CHECKING:
+    from collections.abc import Hashable, Sequence
+
+    from meshmode.mesh import Mesh
 
 
 class MeshBuilder(ABC):

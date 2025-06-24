@@ -39,9 +39,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-import numpy as np
-
-from arraycontext import ArrayContext
 from meshmode.discretization import Discretization, ElementGroupFactory
 from meshmode.discretization.connection import (
     FACE_RESTR_ALL,
@@ -54,7 +51,6 @@ from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     ModalGroupFactory,
 )
-from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_PARTITION, Mesh, ModepyElementGroup
 from pytools import memoize_method, single_valued
 
@@ -76,6 +72,10 @@ from grudge.dof_desc import (
 
 if TYPE_CHECKING:
     import mpi4py.MPI
+    import numpy as np
+
+    from arraycontext import ArrayContext
+    from meshmode.dof_array import DOFArray
 
 
 MeshOrDiscr = Mesh | Discretization
@@ -364,7 +364,7 @@ class DiscretizationCollection:
         discr = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
         return any(
                 megrp.is_affine
-                and issubclass(cast(ModepyElementGroup, megrp).shape_cls, Simplex)
+                and issubclass(cast("ModepyElementGroup", megrp).shape_cls, Simplex)
                 for megrp in discr.mesh.groups)
 
     @memoize_method

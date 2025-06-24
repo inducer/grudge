@@ -34,7 +34,11 @@ THE SOFTWARE.
 """
 
 
-from grudge.discretization import DiscretizationCollection
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from grudge.discretization import DiscretizationCollection
 
 
 # FIXME: Should revamp interp and make clear distinctions

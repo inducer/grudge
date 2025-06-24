@@ -60,6 +60,7 @@ THE SOFTWARE.
 """
 
 from functools import partial, reduce
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -76,12 +77,16 @@ from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
     DiscretizationElementAxisTag,
 )
-from pymbolic import Number, RealNumber
 from pytools import memoize_in
 
 import grudge.dof_desc as dof_desc
 from grudge.array_context import MPIBasedArrayContext
-from grudge.discretization import DiscretizationCollection
+
+
+if TYPE_CHECKING:
+    from pymbolic import Number, RealNumber
+
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ Nodal reductions

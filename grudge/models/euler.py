@@ -48,6 +48,7 @@ THE SOFTWARE.
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -61,10 +62,13 @@ from pytools.obj_array import make_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import DISCR_TAG_BASE, DOFDesc, as_dofdesc
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
+
+
+if TYPE_CHECKING:
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ Array containers for the Euler model

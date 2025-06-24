@@ -35,15 +35,20 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import ArrayOrContainerOrScalarT
+from typing import TYPE_CHECKING
 
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     BoundaryDomainTag,
     ConvertibleToDOFDesc,
     VolumeDomainTag,
     as_dofdesc,
 )
+
+
+if TYPE_CHECKING:
+    from arraycontext import ArrayOrContainerOrScalarT
+
+    from grudge.discretization import DiscretizationCollection
 
 
 def project(

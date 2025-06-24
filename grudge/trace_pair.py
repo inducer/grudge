@@ -70,10 +70,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from numbers import Number
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from warnings import warn
 
 import numpy as np
@@ -95,7 +94,6 @@ from pytools.persistent_dict import KeyBuilder
 
 import grudge.dof_desc as dof_desc
 from grudge.array_context import MPIBasedArrayContext
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
@@ -107,6 +105,12 @@ from grudge.dof_desc import (
     VolumeDomainTag,
 )
 from grudge.projection import project
+
+
+if TYPE_CHECKING:
+    from collections.abc import Hashable, Sequence
+
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ trace pair container class
@@ -627,7 +631,7 @@ def cross_rank_trace_pairs(
         rbc_class(actx, dcoll, ary,
                   # FIXME: This is a casualty of incomplete multi-volume support
                   # for now.
-                  cast(int, remote_rank),
+                  cast("int", remote_rank),
                   comm_tag=comm_tag, volume_dd=volume_dd)
         for remote_rank in cparts
     ]

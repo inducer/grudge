@@ -43,20 +43,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from arraycontext import (
-    ArrayContext,
-    ArrayOrContainer,
-)
-from arraycontext.context import (
-    ArrayOrArithContainerTc,
-)
 from pytools import product
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from arraycontext import (
+        ArrayContext,
+        ArrayOrContainer,
+    )
+    from arraycontext.context import (
+        ArrayOrArithContainerTc,
+    )
 
 
 # {{{ build_jacobian
