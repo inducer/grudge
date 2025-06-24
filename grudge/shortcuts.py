@@ -23,15 +23,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Callable, Iterator
 from functools import partial
-from typing import Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from arraycontext import BcastUntilActxArray
-from arraycontext.context import ArrayContext
 from pytools import memoize_in
 
 from grudge.dof_desc import DD_VOLUME_ALL
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from arraycontext.context import ArrayContext
 
 
 # {{{ legacy leap-like interface

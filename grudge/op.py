@@ -70,8 +70,8 @@ THE SOFTWARE.
 """
 
 
-from collections.abc import Hashable
 from functools import partial
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -82,10 +82,6 @@ from arraycontext import (
     ArrayOrContainer,
     map_array_container,
     tag_axes,
-)
-from meshmode.discretization import (
-    InterpolatoryElementGroupBase,
-    NodalElementGroupBase,
 )
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
@@ -98,7 +94,6 @@ from pytools import keyed_memoize_in
 from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
@@ -134,6 +129,17 @@ from grudge.trace_pair import (
     project_tracepair,
     tracepair_with_discr_tag,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Hashable
+
+    from meshmode.discretization import (
+        InterpolatoryElementGroupBase,
+        NodalElementGroupBase,
+    )
+
+    from grudge.discretization import DiscretizationCollection
 
 
 __all__ = (

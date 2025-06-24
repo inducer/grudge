@@ -44,8 +44,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Sequence
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -62,7 +61,6 @@ from meshmode.transform_metadata import (
 from pytools import memoize_in, memoize_on_first_arg
 
 import grudge.op as op
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     FACE_RESTR_ALL,
@@ -71,6 +69,12 @@ from grudge.dof_desc import (
     ScalarDomainTag,
     as_dofdesc,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from grudge.discretization import DiscretizationCollection
 
 
 def characteristic_lengthscales(
@@ -286,7 +290,7 @@ def dt_geometric_factors(
                 "filling discretizations. Continuing anyway.", stacklevel=3)
 
     cell_vols: DOFArray = abs(
-        cast(DOFArray, op.elementwise_integral(
+        cast("DOFArray", op.elementwise_integral(
             dcoll, dd, volm_discr.zeros(actx) + 1.0
         ))
     )
@@ -301,7 +305,7 @@ def dt_geometric_factors(
 
     # Compute areas of each face
     face_areas: DOFArray = abs(
-        cast(DOFArray, op.elementwise_integral(
+        cast("DOFArray", op.elementwise_integral(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
         ))
     )

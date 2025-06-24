@@ -36,7 +36,6 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from warnings import warn
@@ -48,7 +47,6 @@ from meshmode.array_context import (
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
 from pytools import to_identifier
-from pytools.tag import Tag
 
 
 logger = logging.getLogger(__name__)
@@ -77,7 +75,6 @@ except ImportError:
 
 
 from arraycontext import ArrayContext, NumpyArrayContext
-from arraycontext.container import ArrayContainer
 from arraycontext.impl.pytato.compile import LazilyPyOpenCLCompilingFunctionCaller
 from arraycontext.pytest import (
     _PytestNumpyArrayContextFactory,
@@ -88,6 +85,8 @@ from arraycontext.pytest import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     import pytato as pt
     from mpi4py import MPI
     from pytato import DistributedGraphPartition
@@ -96,6 +95,8 @@ if TYPE_CHECKING:
     import pyopencl
     import pyopencl.tools
     import pyopencl.typing
+    from arraycontext.container import ArrayContainer
+    from pytools.tag import Tag
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
