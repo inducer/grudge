@@ -113,6 +113,7 @@ known-local-folder = [
     "grudge",
 ]
 lines-after-imports = 2
+required-imports = ["from __future__ import annotations"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -121,6 +122,9 @@ warn_unused_ignores = true
 # TODO: enable this at some point
 # check_untyped_defs = true
 
+[tool.ruff.lint.per-file-ignores]
+"examples/*.py" = ["I002"]
+"doc/conf.py" = ["I002"]
 
 [tool.typos.default]
 extend-ignore-re = [

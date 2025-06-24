@@ -17,6 +17,8 @@ Mesh size utilities
 .. autofunction:: h_max_from_volume
 .. autofunction:: h_min_from_volume
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees

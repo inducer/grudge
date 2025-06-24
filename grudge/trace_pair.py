@@ -43,6 +43,8 @@ these symbols correctly.)
 
     See :data:`arraycontext.ArrayOrArithContainer`.
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -218,7 +220,7 @@ class TracePair:
 # {{{ boundary trace pairs
 
 def bdry_trace_pair(
-        dcoll: DiscretizationCollection, dd: "ConvertibleToDOFDesc",
+        dcoll: DiscretizationCollection, dd: ConvertibleToDOFDesc,
         interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
@@ -249,7 +251,7 @@ def bdry_trace_pair(
 
 
 def bv_trace_pair(
-        dcoll: DiscretizationCollection, dd: "ConvertibleToDOFDesc",
+        dcoll: DiscretizationCollection, dd: ConvertibleToDOFDesc,
         interior, exterior) -> TracePair:
     """Returns a trace pair defined on the exterior boundary. The interior
     argument is assumed to be defined on the volume discretization, and will

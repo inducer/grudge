@@ -7,6 +7,8 @@
 
 .. currentmodule:: grudge.discretization
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache
@@ -34,7 +36,7 @@ THE SOFTWARE.
 """
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
 import numpy as np
@@ -154,7 +156,7 @@ class DiscretizationCollection:
             volume_discrs: Mesh | Mapping[VolumeTag, Discretization],
             order: int | None = None,
             discr_tag_to_group_factory: TagToElementGroupFactory | None = None,
-            mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None,
+            mpi_communicator: mpi4py.MPI.Intracomm | None = None,
             ) -> None:
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -318,7 +320,7 @@ class DiscretizationCollection:
     # {{{ discr_from_dd
 
     @memoize_method
-    def discr_from_dd(self, dd: "ConvertibleToDOFDesc") -> Discretization:
+    def discr_from_dd(self, dd: ConvertibleToDOFDesc) -> Discretization:
         """Provides a :class:`meshmode.discretization.Discretization`
         object from *dd*.
         """
@@ -420,7 +422,7 @@ class DiscretizationCollection:
 
     @memoize_method
     def connection_from_dds(
-            self, from_dd: "ConvertibleToDOFDesc", to_dd: "ConvertibleToDOFDesc"
+            self, from_dd: ConvertibleToDOFDesc, to_dd: ConvertibleToDOFDesc
             ) -> DiscretizationConnection:
         """Provides a mapping (connection) from one discretization to
         another, e.g. from the volume to the boundary, or from the
@@ -703,13 +705,13 @@ class DiscretizationCollection:
                 discr.ambient_dim for discr in self._volume_discrs.values())
 
     @property
-    def real_dtype(self) -> "np.dtype[Any]":
+    def real_dtype(self) -> np.dtype[Any]:
         """Return the data type used for real-valued arithmetic."""
         return single_valued(
                 discr.real_dtype for discr in self._volume_discrs.values())
 
     @property
-    def complex_dtype(self) -> "np.dtype[Any]":
+    def complex_dtype(self) -> np.dtype[Any]:
         """Return the data type used for complex-valued arithmetic."""
         return single_valued(
                 discr.complex_dtype for discr in self._volume_discrs.values())

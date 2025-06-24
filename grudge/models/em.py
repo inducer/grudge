@@ -1,4 +1,6 @@
 """grudge operators modelling electromagnetic phenomena."""
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner

@@ -21,6 +21,8 @@ Helper routines and array containers
 .. autofunction:: euler_volume_flux
 .. autofunction:: euler_numerical_flux
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
