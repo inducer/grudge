@@ -22,6 +22,7 @@ intersphinx_mapping = {
     "modepy": ("https://documen.tician.de/modepy/", None),
     "mpi4py": ("https://mpi4py.readthedocs.io/en/stable", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "pytools": ("https://documen.tician.de/pytools/", None),
     "pymbolic": ("https://documen.tician.de/pymbolic/", None),
     "pyopencl": ("https://documen.tician.de/pyopencl/", None),
     "python": ("https://docs.python.org/3/", None),

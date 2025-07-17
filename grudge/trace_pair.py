@@ -25,23 +25,17 @@ Interior and cross-rank trace functions
 .. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
 
-Links to canonical locations of external symbols
-------------------------------------------------
+References
+----------
+.. class:: DiscretizationTag
 
-(This section only exists because Sphinx does not appear able to resolve
-these symbols correctly.)
+    See :class:`grudge.dof_desc.DiscretizationTag`.
 
-.. class:: Array
+.. currentmodule:: arraycontext.typing
 
-    See :class:`arraycontext.Array`.
+.. class:: ArithArrayContainerT
 
-.. class:: ArrayContainer
-
-    See :class:`arraycontext.ArrayContainer`.
-
-.. class:: ArrayOrArithContainer
-
-    See :data:`arraycontext.ArrayOrArithContainer`.
+    See :attr:`arraycontext.typing.ArithArrayContainerT`.
 """
 from __future__ import annotations
 
@@ -72,22 +66,23 @@ THE SOFTWARE.
 
 from dataclasses import dataclass
 from numbers import Number
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, Generic, cast
 from warnings import warn
 
 import numpy as np
 
 from arraycontext import (
-    ArrayContainer,
-    ArrayOrContainer,
+    ArithArrayContainer,
+    ArithArrayContainerT,
+    ArrayContext,
+    ArrayOrContainerOrScalar,
     dataclass_array_container,
     flatten,
-    from_numpy,
     get_container_context_recursively,
-    to_numpy,
     unflatten,
     with_container_arithmetic,
 )
+from arraycontext.typing import is_scalar_like
 from meshmode.mesh import BTAG_PARTITION, PartID
 from pytools import memoize_on_first_arg
 from pytools.persistent_dict import KeyBuilder
@@ -99,16 +94,22 @@ from grudge.dof_desc import (
     DISCR_TAG_BASE,
     FACE_RESTR_INTERIOR,
     BoundaryDomainTag,
-    ConvertibleToDOFDesc,
+    DiscretizationTag,
     DOFDesc,
     ScalarDomainTag,
+    ToDOFDescConvertible,
     VolumeDomainTag,
+    as_dofdesc,
 )
 from grudge.projection import project
 
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable, Sequence
+    from collections.abc import Hashable, Sequence, Sized
+
+    from _typeshed import SupportsGetItem
+
+    from meshmode.discretization import Discretization
 
     from grudge.discretization import DiscretizationCollection
 
@@ -121,7 +122,7 @@ if TYPE_CHECKING:
                            )
 @dataclass_array_container
 @dataclass(init=False, frozen=True)
-class TracePair:
+class TracePair(Generic[ArithArrayContainerT]):
     """A container class for data (both interior and exterior restrictions)
     on the boundaries of mesh elements.
 
@@ -141,15 +142,15 @@ class TracePair:
     """
 
     dd: DOFDesc
-    interior: ArrayContainer
-    exterior: ArrayContainer
+    interior: ArithArrayContainerT
+    exterior: ArithArrayContainerT
 
     # NOTE: disable numpy doing any array math
-    __array_ufunc__ = None
+    __array_ufunc__: ClassVar[None] = None
 
     def __init__(self, dd: DOFDesc, *,
-            interior: ArrayOrContainer,
-            exterior: ArrayOrContainer):
+            interior: ArithArrayContainerT,
+            exterior: ArithArrayContainerT):
         if not isinstance(dd, DOFDesc):
             warn("Constructing a TracePair with a first argument that is not "
                     "exactly a DOFDesc (but convertible to one) is deprecated. "
@@ -162,7 +163,7 @@ class TracePair:
         object.__setattr__(self, "interior", interior)
         object.__setattr__(self, "exterior", exterior)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> TracePair[ArithArrayContainer]:
         """Return a new :class:`TracePair` resulting from executing attribute
         lookup with *name* on :attr:`int` and :attr:`ext`.
         """
@@ -170,24 +171,31 @@ class TracePair:
                          interior=getattr(self.interior, name),
                          exterior=getattr(self.exterior, name))
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int | slice) -> TracePair[ArithArrayContainer]:
         """Return a new :class:`TracePair` resulting from executing
         subscripting with *index* on :attr:`int` and :attr:`ext`.
         """
         return TracePair(self.dd,
-                         interior=self.interior[index],
-                         exterior=self.exterior[index])
+                         interior=cast(
+                            "SupportsGetItem[int | slice, ArithArrayContainer]",
+                            self.interior)[index],
+                         exterior=cast(
+                            "SupportsGetItem[int | slice, ArithArrayContainer]",
+                            self.exterior)[index]
+                     )
 
     def __len__(self):
         """Return the total number of arrays associated with the
         :attr:`int` and :attr:`ext` restrictions of the :class:`TracePair`.
         Note that both must be the same.
         """
-        assert len(self.exterior) == len(self.interior)
-        return len(self.exterior)
+        len_ext = len(cast("Sized", self.exterior))
+        len_int = len(cast("Sized", self.interior))
+        assert len_int == len_ext
+        return len_ext
 
     @property
-    def int(self):
+    def int(self) -> ArithArrayContainerT:
         """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         interior value to be used for the flux.
@@ -195,7 +203,7 @@ class TracePair:
         return self.interior
 
     @property
-    def ext(self):
+    def ext(self) -> ArithArrayContainerT:
         """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         exterior value to be used for the flux.
@@ -203,7 +211,7 @@ class TracePair:
         return self.exterior
 
     @property
-    def avg(self):
+    def avg(self) -> ArithArrayContainerT:
         """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         average of the interior and exterior values.
@@ -211,7 +219,7 @@ class TracePair:
         return 0.5 * (self.int + self.ext)
 
     @property
-    def diff(self):
+    def diff(self) -> ArithArrayContainerT:
         """A :class:`~meshmode.dof_array.DOFArray` or
         :class:`~arraycontext.ArrayContainer` of them representing the
         difference (exterior - interior) of the pair values.
@@ -224,8 +232,11 @@ class TracePair:
 # {{{ boundary trace pairs
 
 def bdry_trace_pair(
-        dcoll: DiscretizationCollection, dd: ConvertibleToDOFDesc,
-        interior, exterior) -> TracePair:
+            dcoll: DiscretizationCollection,
+            dd: ToDOFDescConvertible,
+            interior: ArithArrayContainerT,
+            exterior: ArithArrayContainerT,
+        ) -> TracePair[ArithArrayContainerT]:
     """Returns a trace pair defined on the exterior boundary. Input arguments
     are assumed to already be defined on the boundary denoted by *dd*.
     If the input arguments *interior* and *exterior* are
@@ -255,8 +266,11 @@ def bdry_trace_pair(
 
 
 def bv_trace_pair(
-        dcoll: DiscretizationCollection, dd: ConvertibleToDOFDesc,
-        interior, exterior) -> TracePair:
+            dcoll: DiscretizationCollection,
+            dd: ToDOFDescConvertible,
+            interior: ArithArrayContainerT,
+            exterior: ArithArrayContainerT,
+        ) -> TracePair[ArithArrayContainerT]:
     """Returns a trace pair defined on the exterior boundary. The interior
     argument is assumed to be defined on the volume discretization, and will
     therefore be restricted to the boundary *dd* prior to creating a
@@ -285,6 +299,7 @@ def bv_trace_pair(
                 "Pass an actual DOFDesc instead.",
                 DeprecationWarning, stacklevel=2)
         dd = dof_desc.as_dofdesc(dd)
+    dd = as_dofdesc(dd)
     return bdry_trace_pair(
         dcoll, dd, project(dcoll, dd.domain_tag.volume_tag, dd, interior), exterior)
 
@@ -294,9 +309,10 @@ def bv_trace_pair(
 # {{{ interior trace pairs
 
 def local_interior_trace_pair(
-        dcoll: DiscretizationCollection, vec, *,
-        volume_dd: DOFDesc | None = None,
-        ) -> TracePair:
+            dcoll: DiscretizationCollection,
+            vec: ArithArrayContainerT,
+            *, volume_dd: DOFDesc | None = None
+        ) -> TracePair[ArithArrayContainerT]:
     r"""Return a :class:`TracePair` for the interior faces of
     *dcoll* with a discretization tag specified by *discr_tag*.
     This does not include interior faces on different MPI ranks.
@@ -324,8 +340,10 @@ def local_interior_trace_pair(
     assert isinstance(trace_dd.domain_tag, BoundaryDomainTag)
     opposite_face_conn = dcoll.opposite_face_connection(trace_dd.domain_tag)
 
-    def get_opposite_trace(ary):
-        if isinstance(ary, Number):
+    def get_opposite_trace(
+                ary: ArrayOrContainerOrScalar
+            ) -> ArrayOrContainerOrScalar:
+        if is_scalar_like(ary):
             return ary
         else:
             return opposite_face_conn(ary)
@@ -340,7 +358,10 @@ def local_interior_trace_pair(
     return TracePair(trace_dd, interior=interior, exterior=exterior)
 
 
-def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
+def interior_trace_pair(
+            dcoll: DiscretizationCollection,
+            vec: ArithArrayContainerT
+        ) -> TracePair[ArithArrayContainerT]:
     warn("`grudge.op.interior_trace_pair` is deprecated and will be dropped "
          "in version 2022.x. Use `local_interior_trace_pair` "
          "instead, or `interior_trace_pairs` which also includes contributions "
@@ -350,9 +371,12 @@ def interior_trace_pair(dcoll: DiscretizationCollection, vec) -> TracePair:
 
 
 def interior_trace_pairs(
-        dcoll: DiscretizationCollection, vec, *,
-        comm_tag: Hashable | None = None, volume_dd: DOFDesc | None = None
-        ) -> list[TracePair]:
+            dcoll: DiscretizationCollection,
+            vec: ArithArrayContainerT,
+            *,
+            comm_tag: Hashable | None = None,
+            volume_dd: DOFDesc | None = None
+        ) -> list[TracePair[ArithArrayContainerT]]:
     r"""Return a :class:`list` of :class:`TracePair` objects
     defined on the interior faces of *dcoll* and any faces connected to a
     parallel boundary.
@@ -431,12 +455,12 @@ def _sym_tag_to_num_tag(comm_tag: Hashable | None, base_tag: int) -> int:
 # {{{ eager rank-boundary communication
 
 class _RankBoundaryCommunicationEager:
-    base_comm_tag = 1273
+    base_comm_tag: ClassVar[int] = 1273
 
     def __init__(self,
                  actx: MPIBasedArrayContext,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainer,
+                 array_container: ArithArrayContainer,
                  remote_rank, comm_tag: Hashable = None,
                  volume_dd=DD_VOLUME_ALL):
         bdry_dd = volume_dd.trace(BTAG_PARTITION(remote_rank))
@@ -451,7 +475,7 @@ class _RankBoundaryCommunicationEager:
         self.bdry_discr = dcoll.discr_from_dd(bdry_dd)
         self.local_bdry_data = local_bdry_data
         self.local_bdry_data_np = \
-            to_numpy(flatten(self.local_bdry_data, actx), actx)
+            actx.to_numpy(flatten(self.local_bdry_data, actx))
 
         self.comm_tag = _sym_tag_to_num_tag(comm_tag, self.base_comm_tag)
 
@@ -490,7 +514,7 @@ class _RankBoundaryCommunicationEager:
         # Nonblocking receive is complete, we can now access the data and apply
         # the boundary-swap connection
         actx = self.array_context
-        remote_bdry_data_flat = from_numpy(self.remote_data_host_numpy, actx)
+        remote_bdry_data_flat = actx.from_numpy(self.remote_data_host_numpy)
         remote_bdry_data = unflatten(self.local_bdry_data,
                                      remote_bdry_data_flat, actx)
         bdry_conn = self.dcoll.distributed_boundary_swap_connection(
@@ -511,12 +535,17 @@ class _RankBoundaryCommunicationEager:
 # {{{ lazy rank-boundary communication
 
 class _RankBoundaryCommunicationLazy:
+    dcoll: DiscretizationCollection
+    array_context: ArrayContext
+    bdry_discr: Discretization
+    remote_bdry_dd: DOFDesc
+
     def __init__(self,
                  actx: MPIBasedArrayContext,
                  dcoll: DiscretizationCollection,
-                 array_container: ArrayOrContainer,
+                 array_container: ArithArrayContainer,
                  remote_rank: int, comm_tag: Hashable,
-                 volume_dd=DD_VOLUME_ALL):
+                 volume_dd: ToDOFDescConvertible = DD_VOLUME_ALL):
         if comm_tag is None:
             raise ValueError("lazy communication requires 'comm_tag' to be supplied")
 
@@ -559,9 +588,11 @@ class _RankBoundaryCommunicationLazy:
 # {{{ cross_rank_trace_pairs
 
 def cross_rank_trace_pairs(
-        dcoll: DiscretizationCollection, ary: ArrayOrContainer,
-        *, comm_tag: Hashable = None,
-        volume_dd: DOFDesc | None = None) -> list[TracePair]:
+            dcoll: DiscretizationCollection,
+            ary: ArithArrayContainerT,
+            *, comm_tag: Hashable = None,
+            volume_dd: ToDOFDescConvertible = None
+        ) -> list[TracePair[ArithArrayContainerT]]:
     r"""Get a :class:`list` of *ary* trace pairs for each partition boundary.
 
     For each partition boundary, the field data values in *ary* are
@@ -637,7 +668,8 @@ def cross_rank_trace_pairs(
     ]
 
     # Complete send/receives and return communicated data
-    return [rc.finish() for rc in rank_bdry_communicators]
+    return cast("list[TracePair[ArithArrayContainerT]]",
+                [rc.finish() for rc in rank_bdry_communicators])
 
 # }}}
 
@@ -645,8 +677,9 @@ def cross_rank_trace_pairs(
 # {{{ project_tracepair
 
 def project_tracepair(
-        dcoll: DiscretizationCollection, new_dd: dof_desc.DOFDesc,
-        tpair: TracePair) -> TracePair:
+            dcoll: DiscretizationCollection, new_dd: dof_desc.DOFDesc,
+            tpair: TracePair[ArithArrayContainerT]
+        ) -> TracePair[ArithArrayContainerT]:
     r"""Return a new :class:`TracePair` :func:`~grudge.op.project`\ 'ed
     onto *new_dd*.
     """
@@ -657,7 +690,11 @@ def project_tracepair(
     )
 
 
-def tracepair_with_discr_tag(dcoll, discr_tag, tpair: TracePair) -> TracePair:
+def tracepair_with_discr_tag(
+            dcoll: DiscretizationCollection,
+            discr_tag: DiscretizationTag,
+            tpair: TracePair[ArithArrayContainerT]
+        ) -> TracePair[ArithArrayContainerT]:
     r"""Return a new :class:`TracePair` :func:`~grudge.op.project`\ 'ed
     onto a :class:`~grudge.dof_desc.DOFDesc` with discretization tag *discr_tag*.
     """
