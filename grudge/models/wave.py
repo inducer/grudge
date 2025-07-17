@@ -27,20 +27,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 import pytools.obj_array as obj_array
+from arraycontext import ArrayContext, ScalarLike, get_container_context_recursively_opt
+from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 
 import grudge.geometry as geo
 import grudge.op as op
-from grudge.dof_desc import DISCR_TAG_BASE, as_dofdesc
+from grudge.dof_desc import DISCR_TAG_BASE, BoundaryDomainTag, as_dofdesc
 from grudge.models import HyperbolicOperator
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Hashable
+
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ constant-velocity
 
+@dataclass(frozen=True)
 class WeakWaveOperator(HyperbolicOperator):
     r"""This operator discretizes the wave equation
     :math:`\partial_t^2 u = c^2 \Delta u`.
@@ -59,35 +70,24 @@ class WeakWaveOperator(HyperbolicOperator):
     :math:`c` is assumed to be constant across all space.
     """
 
-    def __init__(self, dcoll, c, source_f=None,
-            flux_type="upwind",
-            dirichlet_tag=BTAG_ALL,
-            dirichlet_bc_f=0,
-            neumann_tag=BTAG_NONE,
-            radiation_tag=BTAG_NONE,
-            comm_tag=None):
+    dcoll: DiscretizationCollection
+    c: float
+    source_f: (
+        Callable[[ArrayContext, DiscretizationCollection, float], DOFArray | ScalarLike]
+        ) = lambda actx, dcoll, t: 0
+    flux_type: Literal["upwind", "central"] = "upwind"
+    dirichlet_tag: BoundaryDomainTag = BTAG_ALL
+    dirichlet_bc_f: DOFArray | Literal[0] = 0
+    neumann_tag: BoundaryDomainTag = BTAG_NONE
+    radiation_tag: BoundaryDomainTag = BTAG_NONE
+    comm_tag: Hashable = None
 
-        if source_f is None:
-            source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
-
-        self.dcoll = dcoll
-        self.c = c
-        self.source_f = source_f
-
+    @property
+    def sign(self):
         if self.c > 0:
-            self.sign = 1
+            return 1
         else:
-            self.sign = -1
-
-        self.dirichlet_tag = dirichlet_tag
-        self.neumann_tag = neumann_tag
-        self.radiation_tag = radiation_tag
-
-        self.dirichlet_bc_f = dirichlet_bc_f
-
-        self.flux_type = flux_type
-
-        self.comm_tag = comm_tag
+            return -1
 
     def flux(self, wtpair):
         u = wtpair[0]
@@ -222,8 +222,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         :arg c: a frozen :class:`~meshmode.dof_array.DOFArray`
             representing the propagation speed of the wave.
         """
-        from arraycontext import get_container_context_recursively
-        assert get_container_context_recursively(c) is None
+        assert get_container_context_recursively_opt(c) is None
 
         if source_f is None:
             source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731

@@ -159,7 +159,7 @@ def test_wave_dt_estimate(
             actx_factory: ArrayContextFactory,
             dim: int,
             degree: int,
-            visualize=False):
+            visualize: bool = False):
     actx = actx_factory()
 
     import meshmode.mesh.generation as mgen
