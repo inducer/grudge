@@ -34,8 +34,8 @@ import sys
 import numpy as np
 import pytest
 
-from meshmode.dof_array import flat_norm
 import pytools.obj_array as obj_array
+from meshmode.dof_array import flat_norm
 
 from grudge import dof_desc, op
 from grudge.array_context import MPIPyOpenCLArrayContext, MPIPytatoArrayContext

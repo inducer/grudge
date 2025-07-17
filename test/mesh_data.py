@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
+from typing_extensions import override
 
 import meshmode.mesh.generation as mgen
 from meshmode.mesh.io import read_gmsh
@@ -32,8 +33,9 @@ class _GmshMeshBuilder(MeshBuilder):
     resolutions: ClassVar[Sequence[Hashable]] = [None]
 
     def __init__(self, filename: str) -> None:
-        self._mesh_fn = filename
+        self._mesh_fn: str = filename
 
+    @override
     def get_mesh(self, resolution, mesh_order=None) -> Mesh:
         assert resolution is None
         assert mesh_order is None
@@ -41,17 +43,18 @@ class _GmshMeshBuilder(MeshBuilder):
 
 
 class GmshMeshBuilder2D(_GmshMeshBuilder):
-    ambient_dim = 2
+    ambient_dim: ClassVar[int] = 2
 
 
 class GmshMeshBuilder3D(_GmshMeshBuilder):
-    ambient_dim = 3
+    ambient_dim: ClassVar[int] = 3
 
 
 class Curve2DMeshBuilder(MeshBuilder):
-    ambient_dim = 2
+    ambient_dim: ClassVar[int] = 2
     resolutions: ClassVar[Sequence[Hashable]] = [16, 32, 64, 128]
 
+    @override
     def get_mesh(self, resolution, mesh_order=None):
         if mesh_order is None:
             mesh_order = 4
@@ -62,9 +65,9 @@ class Curve2DMeshBuilder(MeshBuilder):
 
 
 class EllipseMeshBuilder(Curve2DMeshBuilder):
-    def __init__(self, radius=3.1, aspect_ratio=2):
-        self.radius = radius
-        self.aspect_ratio = aspect_ratio
+    def __init__(self, radius=3.1, aspect_ratio: float = 2):
+        self.radius: float = radius
+        self.aspect_ratio: float = aspect_ratio
 
     @property
     def curve_fn(self):
@@ -72,8 +75,8 @@ class EllipseMeshBuilder(Curve2DMeshBuilder):
 
 
 class StarfishMeshBuilder(Curve2DMeshBuilder):
-    narms = 5
-    amplitude = 0.25
+    narms: ClassVar[int] = 5
+    amplitude: ClassVar[float] = 0.25
 
     @property
     def curve_fn(self):
@@ -81,15 +84,16 @@ class StarfishMeshBuilder(Curve2DMeshBuilder):
 
 
 class SphereMeshBuilder(MeshBuilder):
-    ambient_dim = 3
+    ambient_dim: ClassVar[int] = 3
 
     resolutions: ClassVar[Sequence[Hashable]] = [0, 1, 2, 3]
 
     radius: float
 
-    def __init__(self, radius=1):
+    def __init__(self, radius: float = 1):
         self.radius = radius
 
+    @override
     def get_mesh(self, resolution, mesh_order=4):
         from meshmode.mesh.generation import generate_sphere
         return generate_sphere(self.radius, order=mesh_order,
@@ -97,17 +101,18 @@ class SphereMeshBuilder(MeshBuilder):
 
 
 class SpheroidMeshBuilder(MeshBuilder):
-    ambient_dim = 3
+    ambient_dim: ClassVar[int] = 3
 
     resolutions: ClassVar[Sequence[Hashable]] = [0, 1, 2, 3]
 
     radius: float
     aspect_ratio: float
 
-    def __init__(self, radius=1, aspect_ratio=2):
+    def __init__(self, radius: float = 1, aspect_ratio: float = 2):
         self.radius = radius
         self.aspect_ratio = aspect_ratio
 
+    @override
     def get_mesh(self, resolution, mesh_order=4):
         from meshmode.mesh.generation import generate_sphere
         mesh = generate_sphere(self.radius, order=mesh_order,
@@ -119,11 +124,12 @@ class SpheroidMeshBuilder(MeshBuilder):
 
 class _BoxMeshBuilderBase(MeshBuilder):
     resolutions: ClassVar[Sequence[Hashable]] = [4, 8, 16]
-    mesh_order = 1
+    mesh_order: ClassVar[int] = 1
 
-    a = (-0.5, -0.5, -0.5)
-    b = (+0.5, +0.5, +0.5)
+    a: ClassVar[tuple[float, ...]] = (-0.5, -0.5, -0.5)
+    b: ClassVar[tuple[float, ...]] = (+0.5, +0.5, +0.5)
 
+    @override
     def get_mesh(self, resolution, mesh_order=4):
         if not isinstance(resolution, list | tuple):
             resolution = (resolution,) * self.ambient_dim
@@ -135,23 +141,24 @@ class _BoxMeshBuilderBase(MeshBuilder):
 
 
 class BoxMeshBuilder1D(_BoxMeshBuilderBase):
-    ambient_dim = 1
+    ambient_dim: ClassVar[int] = 1
 
 
 class BoxMeshBuilder2D(_BoxMeshBuilderBase):
-    ambient_dim = 2
+    ambient_dim: ClassVar[int] = 2
 
 
 class BoxMeshBuilder3D(_BoxMeshBuilderBase):
-    ambient_dim = 2
+    ambient_dim: ClassVar[int] = 2
 
 
 class WarpedRectMeshBuilder(MeshBuilder):
     resolutions: ClassVar[Sequence[Hashable]] = [4, 6, 8]
 
     def __init__(self, dim):
-        self.dim = dim
+        self.dim: int = dim
 
+    @override
     def get_mesh(self, resolution, mesh_order=4):
         return mgen.generate_warped_rect_mesh(
                 dim=self.dim, order=mesh_order, nelements_side=resolution)

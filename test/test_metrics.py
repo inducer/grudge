@@ -104,7 +104,8 @@ def test_inverse_metric(actx_factory: ArrayContextFactory, dim, nonaffine, use_q
 
     mat = forward_metric_derivative_mat(
         actx, dcoll, dd,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting).dot(
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting
+    ) @ (
         inverse_metric_derivative_mat(
             actx, dcoll, dd,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting))
