@@ -30,6 +30,8 @@ THE SOFTWARE.
 """
 
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 import pytools.obj_array as obj_array
@@ -40,6 +42,10 @@ from pytools import levi_civita, memoize_method
 import grudge.geometry as geo
 import grudge.op as op
 from grudge.models import HyperbolicOperator
+
+
+if TYPE_CHECKING:
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ helpers
@@ -192,8 +198,8 @@ class MaxwellOperator(HyperbolicOperator):
             boundary condition
         """
 
-        self.dcoll = dcoll
-        self.dimensions = dimensions or self._default_dimensions
+        self.dcoll: DiscretizationCollection = dcoll
+        self.dimensions: int = dimensions or self._default_dimensions
 
         space_subset = [True]*self.dimensions + [False]*(3-self.dimensions)
 
@@ -445,7 +451,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         return e, h
 
-    def get_eh_subset(self):
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
         """Return a 6-tuple of :class:`bool` objects indicating whether field
         components are to be computed. The fields are numbered in the order
         specified in the class documentation.
