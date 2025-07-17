@@ -107,14 +107,3 @@ Ruff:
   - docker-runner
   except:
   - tags
-
-Pylint:
-  script: |
-    EXTRA_INSTALL="pybind11 make numpy scipy matplotlib mpi4py"
-    curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
-    . ./prepare-and-run-pylint.sh "$CI_PROJECT_NAME" test/*.py \
-        $(find examples -name '*.py')
-  tags:
-  - python3
-  except:
-  - tags
