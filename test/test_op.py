@@ -31,12 +31,12 @@ import pytest
 
 import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
+import pytools.obj_array as obj_array
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
 from meshmode.mesh import BTAG_ALL
-from pytools.obj_array import make_obj_array
 
 from grudge import geometry, op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -102,7 +102,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             return result
 
         def grad_f(x):
-            result = make_obj_array([1 for _ in range(dim)])
+            result = obj_array.new_1d([1 for _ in range(dim)])
             for i in range(dim-1):
                 for j in range(i):
                     result[i] = result[i] * actx.np.sin(np.pi*x[j])
@@ -117,7 +117,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
 
         def vectorize_if_requested(vec):
             if vectorize:
-                return make_obj_array([(i+1)*vec for i in range(dim)])
+                return obj_array.new_1d([(i+1)*vec for i in range(dim)])
             else:
                 return vec
 
@@ -130,7 +130,7 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             u_avg = u_tpair.avg
             if vectorize:
                 if nested:
-                    flux = make_obj_array([u_avg_i * normal for u_avg_i in u_avg])
+                    flux = obj_array.new_1d([u_avg_i * normal for u_avg_i in u_avg])
                 else:
                     flux = np.outer(u_avg, normal)
             else:
@@ -182,10 +182,10 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
             raise ValueError("Invalid form argument.")
 
         if vectorize:
-            expected_grad_u = make_obj_array(
+            expected_grad_u = obj_array.new_1d(
                 [(i+1)*grad_f(x) for i in range(dim)])
             if not nested:
-                expected_grad_u = np.stack(expected_grad_u, axis=0)
+                expected_grad_u = obj_array.stack(expected_grad_u, axis=0)
         else:
             expected_grad_u = grad_f(x)
 
@@ -242,7 +242,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         dcoll = make_discretization_collection(actx, mesh, order=order)
 
         def f(x, dcoll=dcoll):
-            result = make_obj_array([dcoll.zeros(actx) + (i+1) for i in range(dim)])
+            result = obj_array.new_1d([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
             result = result * actx.np.cos(np.pi/2*x[dim-1])
@@ -269,9 +269,9 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
         x = actx.thaw(dcoll.nodes())
 
         if vectorize:
-            u = make_obj_array([(i+1)*f(x) for i in range(dim)])
+            u = obj_array.new_1d([(i+1)*f(x) for i in range(dim)])
             if not nested:
-                u = np.stack(u, axis=0)
+                u = obj_array.stack(u, axis=0)
         else:
             u = f(x)
 
@@ -306,7 +306,7 @@ def test_divergence(actx_factory, form, dim, order, vectorize, nested,
             raise ValueError("Invalid form argument.")
 
         if vectorize:
-            expected_div_u = make_obj_array([(i+1)*div_f(x) for i in range(dim)])
+            expected_div_u = obj_array.new_1d([(i+1)*div_f(x) for i in range(dim)])
         else:
             expected_div_u = div_f(x)
 

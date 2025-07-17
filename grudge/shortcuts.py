@@ -26,6 +26,7 @@ THE SOFTWARE.
 from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
+import pytools.obj_array as obj_array
 from arraycontext import BcastUntilActxArray
 from pytools import memoize_in
 
@@ -176,8 +177,7 @@ def _lsrk45_update(actx: ArrayContext, y, a, b, h, rhs_val, residual=None):
         residual = bcast(a) * residual + bcast(h) * rhs_val
 
     y = y + bcast(b) * residual
-    from pytools.obj_array import make_obj_array
-    return make_obj_array([y, residual])
+    return obj_array.new_1d([y, residual])
 
 
 def compiled_lsrk45_step(actx: ArrayContext, y, t, h, f):

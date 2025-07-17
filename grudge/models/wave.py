@@ -30,8 +30,8 @@ THE SOFTWARE.
 
 import numpy as np
 
+import pytools.obj_array as obj_array
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
-from pytools.obj_array import flat_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
@@ -95,14 +95,14 @@ class WeakWaveOperator(HyperbolicOperator):
         actx = u.int.array_context
         normal = geo.normal(actx, self.dcoll, wtpair.dd)
 
-        central_flux_weak = -self.c*flat_obj_array(
+        central_flux_weak = -self.c*obj_array.flat(
                 np.dot(v.avg, normal),
                 u.avg * normal)
 
         if self.flux_type == "central":
             return central_flux_weak
         elif self.flux_type == "upwind":
-            return central_flux_weak - self.c*self.sign*flat_obj_array(
+            return central_flux_weak - self.c*self.sign*obj_array.flat(
                     0.5*(u.ext-u.int),
                     0.5*(normal * np.dot(normal, v.ext-v.int)))
         else:
@@ -121,21 +121,21 @@ class WeakWaveOperator(HyperbolicOperator):
         # dirichlet BCs -------------------------------------------------------
         dir_u = op.project(dcoll, "vol", self.dirichlet_tag, u)
         dir_v = op.project(dcoll, "vol", self.dirichlet_tag, v)
-        if self.dirichlet_bc_f:
+        if isinstance(self.dirichlet_bc_f, DOFArray):
             # FIXME
             from warnings import warn
             warn("Inhomogeneous Dirichlet conditions on the wave equation "
                     "are still having issues.", stacklevel=1)
 
             dir_g = self.dirichlet_bc_f
-            dir_bc = flat_obj_array(2*dir_g - dir_u, dir_v)
+            dir_bc = obj_array.flat(2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = flat_obj_array(-dir_u, dir_v)
+            dir_bc = obj_array.flat(-dir_u, dir_v)
 
         # neumann BCs ---------------------------------------------------------
         neu_u = op.project(dcoll, "vol", self.neumann_tag, u)
         neu_v = op.project(dcoll, "vol", self.neumann_tag, v)
-        neu_bc = flat_obj_array(neu_u, -neu_v)
+        neu_bc = obj_array.flat(neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
         rad_normal = geo.normal(actx, dcoll, dd=self.radiation_tag)
@@ -143,7 +143,7 @@ class WeakWaveOperator(HyperbolicOperator):
         rad_u = op.project(dcoll, "vol", self.radiation_tag, u)
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
 
-        rad_bc = flat_obj_array(
+        rad_bc = obj_array.flat(
             0.5*(rad_u - self.sign*np.dot(rad_normal, rad_v)),
             0.5*rad_normal*(np.dot(rad_normal, rad_v) - self.sign*rad_u)
         )
@@ -155,7 +155,7 @@ class WeakWaveOperator(HyperbolicOperator):
         result = (
             op.inverse_mass(
                 dcoll,
-                flat_obj_array(
+                obj_array.flat(
                     -self.c*op.weak_local_div(dcoll, v),
                     -self.c*op.weak_local_grad(dcoll, u)
                 )
@@ -253,7 +253,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         actx = u.int.array_context
         normal = geo.normal(actx, self.dcoll, wtpair.dd)
 
-        flux_central_weak = -0.5 * flat_obj_array(
+        flux_central_weak = -0.5 * obj_array.flat(
             np.dot(v.int*c.int + v.ext*c.ext, normal),
             (u.int * c.int + u.ext*c.ext) * normal)
 
@@ -261,7 +261,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
             return flux_central_weak
 
         elif self.flux_type == "upwind":
-            return flux_central_weak - 0.5 * flat_obj_array(
+            return flux_central_weak - 0.5 * obj_array.flat(
                     c.ext*u.ext - c.int * u.int,
 
                     normal * (np.dot(normal, c.ext * v.ext - c.int * v.int)))
@@ -277,7 +277,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
 
         c = actx.thaw(self.c)
 
-        flux_w = flat_obj_array(c, w)
+        flux_w = obj_array.flat(c, w)
 
         # boundary conditions -------------------------------------------------
 
@@ -292,15 +292,15 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
                     "are still having issues.", stacklevel=1)
 
             dir_g = self.dirichlet_bc_f
-            dir_bc = flat_obj_array(dir_c, 2*dir_g - dir_u, dir_v)
+            dir_bc = obj_array.flat(dir_c, 2*dir_g - dir_u, dir_v)
         else:
-            dir_bc = flat_obj_array(dir_c, -dir_u, dir_v)
+            dir_bc = obj_array.flat(dir_c, -dir_u, dir_v)
 
         # neumann BCs ---------------------------------------------------------
         neu_c = op.project(dcoll, "vol", self.neumann_tag, c)
         neu_u = op.project(dcoll, "vol", self.neumann_tag, u)
         neu_v = op.project(dcoll, "vol", self.neumann_tag, v)
-        neu_bc = flat_obj_array(neu_c, neu_u, -neu_v)
+        neu_bc = obj_array.flat(neu_c, neu_u, -neu_v)
 
         # radiation BCs -------------------------------------------------------
         rad_normal = geo.normal(actx, dcoll, dd=self.radiation_tag)
@@ -310,7 +310,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         rad_v = op.project(dcoll, "vol", self.radiation_tag, v)
         rad_sign = op.project(dcoll, "vol", self.radiation_tag, actx.thaw(self.sign))
 
-        rad_bc = flat_obj_array(
+        rad_bc = obj_array.flat(
             rad_c,
             0.5*(rad_u - rad_sign * np.dot(rad_normal, rad_v)),
             0.5*rad_normal*(np.dot(rad_normal, rad_v) - rad_sign*rad_u)
@@ -323,7 +323,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         result = (
             op.inverse_mass(
                 dcoll,
-                flat_obj_array(
+                obj_array.flat(
                     -c*op.weak_local_div(dcoll, v),
                     -c*op.weak_local_grad(dcoll, u)
                 )

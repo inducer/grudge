@@ -32,6 +32,7 @@ import mesh_data
 import numpy as np
 import pytest
 
+import pytools.obj_array as obj_array
 from arraycontext import (
     dataclass_array_container,
     flatten,
@@ -39,7 +40,6 @@ from arraycontext import (
     with_container_arithmetic,
 )
 from meshmode.dof_array import DOFArray
-from pytools.obj_array import make_obj_array
 
 from grudge import op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -75,7 +75,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     def h(x):
         return -actx.np.tan(5*x[0])
 
-    fields = make_obj_array([f(x), g(x), h(x)])
+    fields = obj_array.new_1d([f(x), g(x), h(x)])
 
     f_ref = actx.to_numpy(flatten(fields[0], actx))
     g_ref = actx.to_numpy(flatten(fields[1], actx))
@@ -207,7 +207,7 @@ def test_nodal_reductions_with_container(actx_factory):
         return -actx.np.tan(5*x[0]) * actx.np.tan(0.5*x[1])
 
     mass = f(x) + g(x)
-    momentum = make_obj_array([f(x)/g(x), h(x)])
+    momentum = obj_array.new_1d([f(x)/g(x), h(x)])
     enthalpy = h(x) - g(x)
 
     ary_container = MyContainer(name="container",
@@ -255,7 +255,7 @@ def test_elementwise_reductions_with_container(actx_factory):
         return actx.np.cos(x[0]) * actx.np.sin(x[1])
 
     mass = 2*f(x) + 0.5*g(x)
-    momentum = make_obj_array([f(x)/g(x), h(x)])
+    momentum = obj_array.new_1d([f(x)/g(x), h(x)])
     enthalpy = 3*h(x) - g(x)
 
     ary_container = MyContainer(name="container",
@@ -288,9 +288,9 @@ def test_elementwise_reductions_with_container(actx_factory):
     min_enthalpy, max_enthalpy, sums_enthalpy = _get_ref_data(enthalpy)
     min_mom_x, max_mom_x, sums_mom_x = _get_ref_data(momentum[0])
     min_mom_y, max_mom_y, sums_mom_y = _get_ref_data(momentum[1])
-    min_momentum = make_obj_array([min_mom_x, min_mom_y])
-    max_momentum = make_obj_array([max_mom_x, max_mom_y])
-    sums_momentum = make_obj_array([sums_mom_x, sums_mom_y])
+    min_momentum = obj_array.new_1d([min_mom_x, min_mom_y])
+    max_momentum = obj_array.new_1d([max_mom_x, max_mom_y])
+    sums_momentum = obj_array.new_1d([sums_mom_x, sums_mom_y])
 
     reference_min = MyContainer(
         name="Reference min",
