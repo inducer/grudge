@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from grudge.dof_desc import (
     BoundaryDomainTag,
-    ConvertibleToDOFDesc,
+    ToDOFDescConvertible,
     VolumeDomainTag,
     as_dofdesc,
 )
@@ -53,8 +53,8 @@ if TYPE_CHECKING:
 
 def project(
             dcoll: DiscretizationCollection,
-            src: ConvertibleToDOFDesc,
-            tgt: ConvertibleToDOFDesc, vec: ArrayOrContainerOrScalarT
+            src: ToDOFDescConvertible,
+            tgt: ToDOFDescConvertible, vec: ArrayOrContainerOrScalarT
         ) -> ArrayOrContainerOrScalarT:
     """Project from one discretization to another, e.g. from the
     volume to the boundary, or from the base to the an overintegrated

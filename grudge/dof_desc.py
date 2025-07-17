@@ -288,10 +288,10 @@ class DOFDesc:
         raise ValueError(
             f"Invalid discretization tag: {self.discretization_tag}")
 
-    def with_domain_tag(self, dtag) -> DOFDesc:
+    def with_domain_tag(self, dtag: DomainTag) -> DOFDesc:
         return replace(self, domain_tag=dtag)
 
-    def with_discr_tag(self, discr_tag) -> DOFDesc:
+    def with_discr_tag(self, discr_tag: DiscretizationTag) -> DOFDesc:
         return replace(self, discretization_tag=discr_tag)
 
     def trace(self, btag: BoundaryTag) -> DOFDesc:
@@ -423,11 +423,11 @@ def _normalize_domain_and_discr_tag(
     return domain, discretization_tag
 
 
-ConvertibleToDOFDesc = Any
+ToDOFDescConvertible = Any
 
 
 def as_dofdesc(
-        domain: ConvertibleToDOFDesc,
+        domain: ToDOFDescConvertible,
         discretization_tag: DiscretizationTag | None = None,
         *, _contextual_volume_tag: VolumeTag | None = None) -> DOFDesc:
     """
