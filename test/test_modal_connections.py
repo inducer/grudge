@@ -24,7 +24,7 @@ THE SOFTWARE.
 """
 
 
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 from grudge.discretization import make_discretization_collection
@@ -59,7 +59,9 @@ import grudge.dof_desc as dof_desc
     LegendreGaussLobattoTensorProductGroupFactory,
     ]
 )
-def test_inverse_modal_connections(actx_factory, nodal_group_factory):
+def test_inverse_modal_connections(
+            actx_factory: ArrayContextFactory,
+            nodal_group_factory):
     actx = actx_factory()
     order = 4
 
@@ -100,7 +102,7 @@ def test_inverse_modal_connections(actx_factory, nodal_group_factory):
     assert err <= 1e-13
 
 
-def test_inverse_modal_connections_quadgrid(actx_factory):
+def test_inverse_modal_connections_quadgrid(actx_factory: ArrayContextFactory):
     actx = actx_factory()
     order = 5
 

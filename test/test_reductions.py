@@ -27,6 +27,7 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 import mesh_data
 import numpy as np
@@ -34,6 +35,7 @@ import pytest
 
 import pytools.obj_array as obj_array
 from arraycontext import (
+    ArrayContextFactory,
     dataclass_array_container,
     flatten,
     pytest_generate_tests_for_array_contexts,
@@ -57,7 +59,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (0, False),
     (0, True)
 ])
-def test_nodal_reductions(actx_factory, mesh_size, with_initial):
+def test_nodal_reductions(actx_factory: ArrayContextFactory, mesh_size, with_initial):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder1D()
@@ -122,7 +124,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
             rtol=1e-13)
 
 
-def test_elementwise_reductions(actx_factory):
+def test_elementwise_reductions(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder1D()
@@ -181,14 +183,14 @@ class MyContainer:
     enthalpy: DOFArray
 
     # NOTE: disable numpy doing any array math
-    __array_ufunc__ = None
+    __array_ufunc__: ClassVar[None] = None
 
     @property
     def array_context(self):
         return self.mass.array_context
 
 
-def test_nodal_reductions_with_container(actx_factory):
+def test_nodal_reductions_with_container(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder2D()
@@ -235,7 +237,7 @@ def test_nodal_reductions_with_container(actx_factory):
                       rtol=1e-13)
 
 
-def test_elementwise_reductions_with_container(actx_factory):
+def test_elementwise_reductions_with_container(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder2D()

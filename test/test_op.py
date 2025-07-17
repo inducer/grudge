@@ -30,8 +30,8 @@ import numpy as np
 import pytest
 
 import meshmode.mesh.generation as mgen
-from arraycontext import pytest_generate_tests_for_array_contexts
 import pytools.obj_array as obj_array
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
@@ -69,8 +69,15 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (True, False),
     (True, True)
     ])
-def test_gradient(actx_factory, form, dim, order, vectorize, nested,
-                  warp_mesh, visualize=False):
+def test_gradient(
+            actx_factory: ArrayContextFactory,
+            form,
+            dim,
+            order,
+            vectorize,
+            nested,
+            warp_mesh,
+            visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -227,8 +234,14 @@ def test_gradient(actx_factory, form, dim, order, vectorize, nested,
     (True, False),
     (True, True)
     ])
-def test_divergence(actx_factory, form, dim, order, vectorize, nested,
-        visualize=False):
+def test_divergence(
+            actx_factory: ArrayContextFactory,
+            form,
+            dim,
+            order,
+            vectorize,
+            nested,
+            visualize=False):
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
