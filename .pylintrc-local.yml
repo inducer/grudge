@@ -1,9 +1,0 @@
-- arg: py-version
-  val: '3.10'
-
-- arg: ignore
-  val:
-    - mappers
-- arg: ignored-modules
-  val:
-  - sympy
