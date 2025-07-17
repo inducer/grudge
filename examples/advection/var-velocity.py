@@ -30,9 +30,9 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+import pytools.obj_array as obj_array
 from arraycontext import flatten
 from meshmode.mesh import BTAG_ALL
-from pytools.obj_array import flat_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.op as op
@@ -170,7 +170,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False,
         c = x
     else:
         # solid body rotation
-        c = flat_obj_array(
+        c = obj_array.flat(
             np.pi * (d/2 - x[1]),
             np.pi * (x[0] - d/2),
             0

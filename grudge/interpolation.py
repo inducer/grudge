@@ -6,6 +6,8 @@ Interpolation
 
 .. autofunction:: interp
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -32,7 +34,11 @@ THE SOFTWARE.
 """
 
 
-from grudge.discretization import DiscretizationCollection
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from grudge.discretization import DiscretizationCollection
 
 
 # FIXME: Should revamp interp and make clear distinctions

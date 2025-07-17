@@ -1,4 +1,6 @@
 """Operators modeling advective phenomena."""
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2009-2017 Andreas Kloeckner, Bogdan Enache

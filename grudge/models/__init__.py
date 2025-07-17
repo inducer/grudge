@@ -1,4 +1,6 @@
 """Base classes for operators."""
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2007 Andreas Kloeckner

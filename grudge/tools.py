@@ -43,20 +43,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
-from arraycontext import (
-    ArrayContext,
-    ArrayOrContainer,
-)
-from arraycontext.context import (
-    ArrayOrArithContainerTc,
-)
 from pytools import product
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from arraycontext import (
+        ArrayContext,
+        ArrayOrArithContainerTc,
+        ArrayOrContainerOrScalarT,
+    )
 
 
 # {{{ build_jacobian
@@ -201,9 +203,9 @@ def rec_map_subarrays(
         f: Callable[[Any], Any],
         in_shape: tuple[int, ...],
         out_shape: tuple[int, ...],
-        ary: ArrayOrContainer, *,
+        ary: ArrayOrContainerOrScalarT, *,
         scalar_cls: type | tuple[type] | None = None,
-        return_nested: bool = False) -> ArrayOrContainer:
+        return_nested: bool = False) -> ArrayOrContainerOrScalarT:
     r"""
     Like :func:`map_subarrays`, but with support for
     :class:`arraycontext.ArrayContainer`\ s.
@@ -230,11 +232,12 @@ def rec_map_subarrays(
             f, in_shape, out_shape, ary, return_nested=return_nested)
     else:
         from arraycontext import map_array_container
-        return map_array_container(
-            partial(
-                rec_map_subarrays, f, in_shape, out_shape, scalar_cls=scalar_cls,
-                return_nested=return_nested),
-            ary)
+        return cast("ArrayOrContainerOrScalarT",
+            map_array_container(
+                partial(
+                    rec_map_subarrays, f, in_shape, out_shape, scalar_cls=scalar_cls,
+                    return_nested=return_nested),
+                ary))
 
 # }}}
 

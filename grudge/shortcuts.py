@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = "Copyright (C) 2009 Andreas Kloeckner"
 
 __license__ = """
@@ -20,15 +23,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Callable, Iterator
 from functools import partial
-from typing import Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
+import pytools.obj_array as obj_array
 from arraycontext import BcastUntilActxArray
-from arraycontext.context import ArrayContext
 from pytools import memoize_in
 
 from grudge.dof_desc import DD_VOLUME_ALL
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from arraycontext.context import ArrayContext
 
 
 # {{{ legacy leap-like interface
@@ -169,8 +177,7 @@ def _lsrk45_update(actx: ArrayContext, y, a, b, h, rhs_val, residual=None):
         residual = bcast(a) * residual + bcast(h) * rhs_val
 
     y = y + bcast(b) * residual
-    from pytools.obj_array import make_obj_array
-    return make_obj_array([y, residual])
+    return obj_array.new_1d([y, residual])
 
 
 def compiled_lsrk45_step(actx: ArrayContext, y, t, h, f):

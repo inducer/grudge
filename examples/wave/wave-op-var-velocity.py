@@ -31,8 +31,8 @@ import numpy.linalg as la  # noqa
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+import pytools.obj_array as obj_array
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
-from pytools.obj_array import flat_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
@@ -56,13 +56,13 @@ def wave_flux(actx, dcoll, c, w_tpair):
 
     normal = geo.normal(actx, dcoll, dd)
 
-    flux_weak = flat_obj_array(
+    flux_weak = obj_array.flat(
             np.dot(v.avg, normal),
             normal*u.avg,
             )
 
     # upwind
-    flux_weak += flat_obj_array(
+    flux_weak += obj_array.flat(
             0.5*(u.ext-u.int),
             0.5*normal*np.dot(normal, v.ext-v.int),
             )
@@ -81,8 +81,8 @@ def wave_operator(actx, dcoll, c, w):
 
     dir_u = op.project(dcoll, "vol", BTAG_ALL, u)
     dir_v = op.project(dcoll, "vol", BTAG_ALL, v)
-    dir_bval = flat_obj_array(dir_u, dir_v)
-    dir_bc = flat_obj_array(-dir_u, dir_v)
+    dir_bval = obj_array.flat(dir_u, dir_v)
+    dir_bc = obj_array.flat(-dir_u, dir_v)
 
     dd_quad = as_dofdesc("vol", DISCR_TAG_QUAD)
     c_quad = op.project(dcoll, "vol", dd_quad, c)
@@ -95,7 +95,7 @@ def wave_operator(actx, dcoll, c, w):
     return (
         op.inverse_mass(
             dcoll,
-            flat_obj_array(
+            obj_array.flat(
                 -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
                 -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
                 # pylint: disable=invalid-unary-operand-type
@@ -136,7 +136,7 @@ def bump(actx, dcoll, t=0, width=0.05, center=None):
     source_omega = 3
 
     nodes = actx.thaw(dcoll.nodes())
-    center_dist = flat_obj_array([
+    center_dist = obj_array.flat([
         nodes[i] - center[i]
         for i in range(dcoll.dim)
         ])
@@ -180,7 +180,7 @@ def main(ctx_factory, dim=2, order=3, visualize=False):
     c = 0.2 + 0.8*bump(actx, dcoll, center=np.zeros(3), width=0.5)
     dt = actx.to_numpy(0.5 * estimate_rk4_timestep(actx, dcoll, c=1))
 
-    fields = flat_obj_array(
+    fields = obj_array.flat(
             bump(actx, dcoll, ),
             [dcoll.zeros(actx) for i in range(dcoll.dim)]
             )
