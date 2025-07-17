@@ -52,13 +52,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+import pytools.obj_array as obj_array
 from arraycontext import (
     ArrayContext,
     dataclass_array_container,
     with_container_arithmetic,
 )
 from meshmode.dof_array import DOFArray
-from pytools.obj_array import make_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
@@ -116,7 +116,7 @@ def vortex_initial_condition(
     u = 1 - (epsilon*y/(2*np.pi)) * expterm
     v = ((epsilon*(x - center) - t)/(2*np.pi)) * expterm
 
-    velocity = make_obj_array([u, v])
+    velocity = obj_array.new_1d([u, v])
     rho = (1 - c * actx.np.exp(fxyt)) ** (1 / (gamma - 1))
     p = (rho ** gamma)/(gamma * mach_number**2)
 

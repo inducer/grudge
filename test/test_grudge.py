@@ -35,6 +35,7 @@ import pytest
 
 import meshmode.mesh.generation as mgen
 from arraycontext import pytest_generate_tests_for_array_contexts
+import pytools.obj_array as obj_array
 from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
@@ -42,7 +43,6 @@ from meshmode.discretization.poly_element import (
 )
 from meshmode.dof_array import flat_norm
 from meshmode.mesh import TensorProductElementGroup
-from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, geometry, op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -531,7 +531,7 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         else:
             raise ValueError("unsupported dimensionality")
 
-        return flat_obj_array(
+        return obj_array.flat(
             actx.np.sin(3*x0) + actx.np.cos(3*x1) + 2*actx.np.cos(2*x2),
             actx.np.sin(2*x0) + actx.np.cos(x1) + 4*actx.np.cos(0.5*x2),
             actx.np.sin(1*x0) + actx.np.cos(2*x1) + 3*actx.np.cos(0.8*x2),
@@ -618,7 +618,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     # {{{ convergence
 
     def f(x):
-        return flat_obj_array(
+        return obj_array.flat(
             actx.np.sin(3*x[1]) + actx.np.cos(3*x[0]) + 1.0,
             actx.np.sin(2*x[0]) + actx.np.cos(x[1]),
             3.0 * actx.np.cos(x[0] / 2) + actx.np.cos(x[1]),
@@ -1032,7 +1032,7 @@ def test_improvement_quadrature(actx_factory, order):
 
             adv_op = VariableCoefficientAdvectionOperator(
                 dcoll,
-                flat_obj_array(-1*nodes[1], nodes[0]),
+                obj_array.flat(-1*nodes[1], nodes[0]),
                 inflow_u=lambda t: zero_inflow(BTAG_ALL, t=t),
                 flux_type="upwind",
                 quad_tag=qtag

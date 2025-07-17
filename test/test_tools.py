@@ -42,7 +42,7 @@ import logging
 
 import pytest
 
-from pytools.obj_array import make_obj_array
+import pytools.obj_array as obj_array
 
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ def test_rec_map_subarrays():
 
     # Array container
     result = rec_map_subarrays(
-        np.sum, (2,), (), make_obj_array([np.array([1, 2]), np.array([2, 4])]))
+        np.sum, (2,), (), obj_array.new_1d([np.array([1, 2]), np.array([2, 4])]))
     assert result.dtype == object
     assert result[0] == 3
     assert result[1] == 6
@@ -185,7 +185,7 @@ def test_rec_map_subarrays():
     # Array container, non-numerical scalars
     result = rec_map_subarrays(
         lambda x: x[0].val + x[1], (2,), (),
-        make_obj_array([
+        obj_array.new_1d([
             np.array([_DummyScalar(1), 2]),
             np.array([_DummyScalar(2), 4])]),
         scalar_cls=_DummyScalar)
