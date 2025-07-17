@@ -59,19 +59,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import operator
 from functools import partial, reduce
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
+from warnings import warn
 
 import numpy as np
 
 from arraycontext import (
+    ArithArrayContainer,
+    Array,
+    ArrayContainer,
     ArrayOrContainer,
-    Scalar,
+    ScalarLike,
+    get_container_context_recursively,
     make_loopy_program,
     map_array_container,
     serialize_container,
     tag_axes,
 )
+from arraycontext.typing import is_scalar_like
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
@@ -84,14 +91,16 @@ from grudge.array_context import MPIBasedArrayContext
 
 
 if TYPE_CHECKING:
-    from pymbolic import Number, RealNumber
-
     from grudge.discretization import DiscretizationCollection
 
 
 # {{{ Nodal reductions
 
-def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> RealNumber:
+def norm(
+            dcoll: DiscretizationCollection,
+            vec: ArithArrayContainer,
+            p: float,
+            dd: dof_desc.ToDOFDescConvertible | None = None) -> Array:
     r"""Return the vector p-norm of a function represented
     by its vector of degrees of freedom *vec*.
 
@@ -127,7 +136,11 @@ def norm(dcoll: DiscretizationCollection, vec, p, dd=None) -> RealNumber:
         raise ValueError("unsupported norm order")
 
 
-def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Number:
+def nodal_sum(
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.DOFDesc,
+            vec: ArrayContainer
+        ) -> Array:
     r"""Return the nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -151,7 +164,10 @@ def nodal_sum(dcoll: DiscretizationCollection, dd, vec) -> Number:
         comm.allreduce(actx.to_numpy(nodal_sum_loc(dcoll, dd, vec)), op=MPI.SUM))
 
 
-def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Number:
+def nodal_sum_loc(
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.DOFDesc,
+            vec: ArrayContainer) -> Array:
     r"""Return the rank-local nodal sum of a vector of degrees of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
@@ -161,25 +177,31 @@ def nodal_sum_loc(dcoll: DiscretizationCollection, dd, vec) -> Number:
     :returns: a scalar denoting the rank-local nodal sum.
     """
     if not isinstance(vec, DOFArray):
-        return sum(
-            nodal_sum_loc(dcoll, dd, comp)
-            for _, comp in serialize_container(vec)
-        )
+        actx = get_container_context_recursively(vec)
+        return reduce(
+                operator.add,
+                (nodal_sum_loc(dcoll, dd, cast("ArrayContainer", comp))
+                    for _, comp in serialize_container(vec)))
 
     actx = vec.array_context
+    assert actx is not None
 
-    return sum(
-        actx.np.sum(grp_ary) if grp_ary.size else actx.from_numpy(np.array(0.))  # type: ignore[misc]
-        for grp_ary in vec)
+    initial = actx.from_numpy(0)
+
+    return reduce(
+            lambda acc, grp_ary:
+                acc + (actx.np.sum(grp_ary) if grp_ary.size else initial),
+            vec, initial)
 
 
-def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
+def nodal_min(
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.ToDOFDescConvertible,
+            vec: ArrayContainer,
+            *, initial: Array | ScalarLike | None = None
+        ) -> Array:
     r"""Return the nodal minimum of a vector of degrees of freedom *vec*.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
-        convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.ArrayContainer` of them.
     :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal minimum.
     """
@@ -201,7 +223,11 @@ def nodal_min(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Real
 
 
 def nodal_min_loc(
-        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.ToDOFDescConvertible,
+            vec: ArrayContainer,
+            *, initial: Array | ScalarLike | None = None
+        ) -> Array:
     r"""Return the rank-local nodal minimum of a vector of degrees
     of freedom *vec*.
 
@@ -212,18 +238,26 @@ def nodal_min_loc(
     :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a scalar denoting the rank-local nodal minimum.
     """
+    if is_scalar_like(vec):
+        warn("Scalar passed to nodal_min_loc. "
+             "This is deprecated and will stop working in 2026.",
+             DeprecationWarning, stacklevel=2)
+        return vec  # pyright: ignore[reportReturnType]
+
     if not isinstance(vec, DOFArray):
-        return np.min([
-            nodal_min_loc(dcoll, dd, comp, initial=initial)
-            for _, comp in serialize_container(vec)
-        ])
+        actx = get_container_context_recursively(vec)
+        return reduce(
+                actx.np.minimum,
+                (nodal_min_loc(dcoll, dd, cast("ArrayContainer", comp),
+                               initial=initial)
+                    for _, comp in serialize_container(vec)))
 
     actx = vec.array_context
+    assert actx is not None
 
     if initial is None:
-        initial = np.inf
-
-    if np.isscalar(initial):
+        initial = actx.from_numpy(np.inf)
+    if is_scalar_like(initial):
         initial = actx.from_numpy(np.array(initial))
 
     return reduce(
@@ -233,14 +267,15 @@ def nodal_min_loc(
             vec, initial)
 
 
-def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
+def nodal_max(
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.ToDOFDescConvertible,
+            vec: ArrayContainer,
+            *, initial: Array | ScalarLike | None = None
+        ) -> Array:
     r"""Return the nodal maximum of a vector of degrees of freedom *vec*.
 
-    :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
-        convertible to one.
-    :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.ArrayContainer` of them.
-    :arg initial: an optional initial value. Defaults to `-numpy.inf`.
+    :arg initial: an optional initial value. Defaults to `numpy.inf`.
     :returns: a device scalar denoting the nodal maximum.
     """
     from arraycontext import get_container_context_recursively
@@ -261,39 +296,55 @@ def nodal_max(dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> Real
 
 
 def nodal_max_loc(
-        dcoll: DiscretizationCollection, dd, vec, *, initial=None) -> RealNumber:
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.ToDOFDescConvertible,
+            vec: ArrayContainer,
+            *, initial: Array | ScalarLike | None = None
+        ) -> Array:
     r"""Return the rank-local nodal maximum of a vector of degrees
     of freedom *vec*.
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value
         convertible to one.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
-        :class:`~arraycontext.ArrayContainer`.
+        :class:`~arraycontext.ArrayContainer` of them.
     :arg initial: an optional initial value. Defaults to `-numpy.inf`.
     :returns: a scalar denoting the rank-local nodal maximum.
     """
+    if is_scalar_like(vec):
+        warn("Scalar passed to nodal_max_loc. "
+             "This is deprecated and will stop working in 2026.",
+             DeprecationWarning, stacklevel=2)
+        return vec  # pyright: ignore[reportReturnType]
+
     if not isinstance(vec, DOFArray):
-        return np.max([
-            nodal_max_loc(dcoll, dd, comp, initial=initial)
-            for _, comp in serialize_container(vec)
-        ])
+        actx = get_container_context_recursively(vec)
+        return reduce(
+                actx.np.maximum,
+                (nodal_max_loc(dcoll, dd, cast("ArrayContainer", comp),
+                               initial=initial)
+                    for _, comp in serialize_container(vec)))
 
     actx = vec.array_context
+    assert actx is not None
 
     if initial is None:
-        initial = -np.inf
-
-    if np.isscalar(initial):
+        initial = actx.from_numpy(-np.inf)
+    if is_scalar_like(initial):
         initial = actx.from_numpy(np.array(initial))
 
     return reduce(
             lambda acc, grp_ary: actx.np.maximum(
                 acc,
-                actx.np.max(grp_ary) if grp_ary.size > 0 else initial),
+                actx.np.max(grp_ary) if grp_ary.size else initial),
             vec, initial)
 
 
-def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
+def integral(
+            dcoll: DiscretizationCollection,
+            dd: dof_desc.DOFDesc,
+            vec: ArithArrayContainer
+        ) -> Array:
     """Numerically integrates a function represented by a
     :class:`~meshmode.dof_array.DOFArray` of degrees of freedom.
 
@@ -302,11 +353,13 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
         :class:`~arraycontext.ArrayContainer` of them.
     :returns: a device scalar denoting the evaluated integral.
     """
+    actx = get_container_context_recursively(vec)
+
     from grudge.op import _apply_mass_operator
 
     dd = dof_desc.as_dofdesc(dd)
 
-    ones = dcoll.discr_from_dd(dd).zeros(vec.array_context) + 1.0
+    ones = dcoll.discr_from_dd(dd).zeros(actx) + 1.0
     return nodal_sum(
         dcoll, dd, vec * _apply_mass_operator(dcoll, dd, dd, ones)
     )
@@ -317,7 +370,8 @@ def integral(dcoll: DiscretizationCollection, dd, vec) -> Scalar:
 # {{{  Elementwise reductions
 
 def _apply_elementwise_reduction(
-        op_name: str, dcoll: DiscretizationCollection,
+        op_name: Literal["min", "max", "sum"],
+        dcoll: DiscretizationCollection,
         *args) -> ArrayOrContainer:
     r"""Returns an array container whose entries contain
     the elementwise reductions in each cell.
@@ -337,6 +391,7 @@ def _apply_elementwise_reduction(
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer`.
     """
+    vec: ArrayContainer
     if len(args) == 1:
         vec, = args
         dd = dof_desc.DD_VOLUME_ALL
@@ -353,6 +408,7 @@ def _apply_elementwise_reduction(
         )
 
     actx = vec.array_context
+    assert actx is not None
 
     if actx.supports_nonscalar_broadcasting:
         return DOFArray(

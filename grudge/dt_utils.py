@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from arraycontext import ArrayContext, Scalar, tag_axes
+from arraycontext import ArrayContext, ScalarLike, tag_axes
 from arraycontext.metadata import NameHint
 from meshmode.discretization import NodalElementGroupBase
 from meshmode.dof_array import DOFArray
@@ -182,7 +182,7 @@ def dt_non_geometric_factors(
 def h_max_from_volume(
         dcoll: DiscretizationCollection,
         dim: int  | None = None,
-        dd: DOFDesc | None = None) -> Scalar:
+        dd: DOFDesc | None = None) -> ScalarLike:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -215,7 +215,7 @@ def h_max_from_volume(
 def h_min_from_volume(
         dcoll: DiscretizationCollection,
         dim: int | None = None,
-        dd: DOFDesc | None = None) -> Scalar:
+        dd: DOFDesc | None = None) -> ScalarLike:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
