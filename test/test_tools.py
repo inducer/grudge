@@ -28,7 +28,6 @@ THE SOFTWARE.
 from dataclasses import dataclass
 
 import numpy as np
-import numpy.linalg as la  # noqa
 
 from arraycontext import pytest_generate_tests_for_array_contexts
 
