@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -62,7 +63,7 @@ class WaveState:
     v: np.ndarray  # [object array]
 
     # NOTE: disable numpy doing any array math
-    __array_ufunc__ = None
+    __array_ufunc__: ClassVar[None] = None
 
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
