@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 import meshmode.mesh.generation as mgen
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
@@ -55,7 +55,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 @pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("nonaffine", [False, True])
 @pytest.mark.parametrize("use_quad", [False, True])
-def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
+def test_inverse_metric(actx_factory: ArrayContextFactory, dim, nonaffine, use_quad):
     actx = actx_factory()
 
     order = 3

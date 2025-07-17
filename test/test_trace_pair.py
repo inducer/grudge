@@ -29,7 +29,7 @@ import logging
 import numpy as np
 
 import meshmode.mesh.generation as mgen
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import DOFArray
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -42,7 +42,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
 
-def test_trace_pair(actx_factory):
+def test_trace_pair(actx_factory: ArrayContextFactory):
     """Simple smoke test for :class:`grudge.trace_pair.TracePair`."""
     actx = actx_factory()
     dim = 3

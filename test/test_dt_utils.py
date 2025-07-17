@@ -28,7 +28,7 @@ THE SOFTWARE.
 import numpy as np
 
 import pytools.obj_array as obj_array
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import (
     PytestNumpyArrayContextFactory,
@@ -56,7 +56,7 @@ from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_geometric_factors_regular_refinement(actx_factory, name):
+def test_geometric_factors_regular_refinement(actx_factory: ArrayContextFactory, name):
     from grudge.dt_utils import dt_geometric_factors
 
     actx = actx_factory()
@@ -98,7 +98,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_non_geometric_factors(actx_factory, name):
+def test_non_geometric_factors(actx_factory: ArrayContextFactory, name):
     from grudge.dt_utils import dt_non_geometric_factors
 
     actx = actx_factory()
@@ -132,7 +132,7 @@ def test_non_geometric_factors(actx_factory, name):
     assert all(factors <= upper_bounds)
 
 
-def test_build_jacobian(actx_factory):
+def test_build_jacobian(actx_factory: ArrayContextFactory):
     actx = actx_factory()
     import meshmode.mesh.generation as mgen
 
@@ -155,7 +155,11 @@ def test_build_jacobian(actx_factory):
 
 @pytest.mark.parametrize("dim", [1, 2])
 @pytest.mark.parametrize("degree", [2, 4])
-def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
+def test_wave_dt_estimate(
+            actx_factory: ArrayContextFactory,
+            dim: int,
+            degree: int,
+            visualize=False):
     actx = actx_factory()
 
     import meshmode.mesh.generation as mgen
