@@ -24,18 +24,6 @@ Interior and cross-rank trace functions
 .. autofunction:: interior_trace_pairs
 .. autofunction:: local_interior_trace_pair
 .. autofunction:: cross_rank_trace_pairs
-
-References
-----------
-.. class:: DiscretizationTag
-
-    See :class:`grudge.dof_desc.DiscretizationTag`.
-
-.. currentmodule:: arraycontext.typing
-
-.. class:: ArithArrayContainerT
-
-    See :attr:`arraycontext.typing.ArithArrayContainerT`.
 """
 from __future__ import annotations
 

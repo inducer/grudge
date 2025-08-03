@@ -22,61 +22,6 @@ Mass, inverse mass, and face mass operators
 .. autofunction:: mass
 .. autofunction:: inverse_mass
 .. autofunction:: face_mass
-
-Working around documentation tool awkwardness
----------------------------------------------
-
-.. class:: TracePair
-
-    See :class:`grudge.trace_pair.TracePair`.
-
-Links to canonical locations of external symbols
-------------------------------------------------
-
-(This section only exists because Sphinx does not appear able to resolve
-these symbols correctly.)
-
-.. class:: ObjectArray2D
-
-    See :attr:`pytools.obj_array.ObjectArray2D`.
-
-.. class:: ScalarLike
-
-    See :attr:`arraycontext.ScalarLike`.
-
-.. class:: Array
-
-    See :class:`arraycontext.Array`.
-
-.. class:: ArrayContainer
-
-    See :class:`arraycontext.ArrayContainer`.
-
-.. class:: ArrayOrContainer
-
-    See :attr:`arraycontext.ArrayOrContainer`.
-
-.. class:: ArrayOrArithContainer
-
-    See :attr:`arraycontext.ArrayOrArithContainer`.
-
-.. class:: ArrayOrContainerOrScalarT
-
-    See :class:`arraycontext.ArrayOrContainerOrScalarT`.
-
-.. class:: ArithArrayContainer
-
-    See :attr:`arraycontext.ArithArrayContainer`.
-
-.. class:: ArithArrayContainerT
-
-    See :class:`arraycontext.ArithArrayContainerT`.
-
-.. currentmodule:: MPI
-
-.. class:: Intracomm
-
-    See :class:`mpi4py.MPI.Intracomm`.
 """
 
 from __future__ import annotations
