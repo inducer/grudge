@@ -12,26 +12,6 @@
 .. class:: TagToElementGroupFactory
 
     See above.
-
-References
-----------
-
-.. class:: Mesh
-
-    See :class:`meshmode.mesh.Mesh`.
-
-.. class:: Discretization
-
-    See :class:`meshmode.discretization.Discretization`.
-
-.. class:: DOFArray
-
-    See :class:`meshmode.dof_array.DOFArray`.
-
-.. class:: VolumeTag
-
-    See :class:`grudge.dof_desc.VolumeTag`.
-
 """
 from __future__ import annotations
 

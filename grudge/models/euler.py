@@ -20,13 +20,6 @@ Helper routines and array containers
 
 .. autofunction:: euler_volume_flux
 .. autofunction:: euler_numerical_flux
-
-References
-----------
-
-.. class:: TracePair
-
-    See :class:`grudge.trace_pair.TracePair`.
 """
 from __future__ import annotations
 
