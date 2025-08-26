@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -31,7 +34,8 @@ import numpy.linalg as la
 import pytest
 
 import meshmode.mesh.generation as mgen
-from arraycontext import pytest_generate_tests_for_array_contexts
+import pytools.obj_array as obj_array
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
@@ -39,7 +43,6 @@ from meshmode.discretization.poly_element import (
 )
 from meshmode.dof_array import flat_norm
 from meshmode.mesh import TensorProductElementGroup
-from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, geometry, op
 from grudge.array_context import (
@@ -62,7 +65,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 @pytest.mark.parametrize("ambient_dim", [1, 2, 3])
 @pytest.mark.parametrize("discr_tag", [dof_desc.DISCR_TAG_BASE,
                                        dof_desc.DISCR_TAG_QUAD])
-def test_mass_mat_trig(actx_factory, ambient_dim, discr_tag):
+def test_mass_mat_trig(actx_factory: ArrayContextFactory, ambient_dim, discr_tag):
     """Check the integral of some trig functions on an interval using the mass
     matrix.
     """
@@ -163,7 +166,7 @@ def _spheroid_surface_area(radius, aspect_ratio):
 @pytest.mark.parametrize("name", [
     "2-1-ellipse", "spheroid", "box2d", "box3d"
     ])
-def test_mass_surface_area(actx_factory, name):
+def test_mass_surface_area(actx_factory: ArrayContextFactory, name):
     actx = actx_factory()
 
     # {{{ cases
@@ -239,7 +242,7 @@ def test_mass_surface_area(actx_factory, name):
     "gh-339-1",
     "gh-339-4",
     ])
-def test_mass_operator_inverse(actx_factory, name):
+def test_mass_operator_inverse(actx_factory: ArrayContextFactory, name):
     actx = actx_factory()
 
     # {{{ cases
@@ -340,7 +343,7 @@ def test_mass_operator_inverse(actx_factory, name):
 # {{{ surface face normal orthogonality
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "spheroid"])
-def test_face_normal_surface(actx_factory, mesh_name):
+def test_face_normal_surface(actx_factory: ArrayContextFactory, mesh_name):
     """Check that face normals are orthogonal to the surface normal"""
     actx = actx_factory()
 
@@ -423,7 +426,7 @@ def test_face_normal_surface(actx_factory, mesh_name):
 # {{{ diff operator
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-def test_tri_diff_mat(actx_factory, dim, order=4):
+def test_tri_diff_mat(actx_factory: ArrayContextFactory, dim, order=4):
     """Check differentiation matrix along the coordinate axes on a disk
 
     Uses sines as the function to differentiate.
@@ -466,7 +469,7 @@ def test_tri_diff_mat(actx_factory, dim, order=4):
 
 @pytest.mark.parametrize(
              "case", ["circle", "tp_box2", "tp_box3", "gh-403", "gh-339"])
-def test_gauss_theorem(actx_factory, case, visualize=False):
+def test_gauss_theorem(actx_factory: ArrayContextFactory, case, visualize=False):
     """Verify Gauss's theorem explicitly on a mesh"""
 
     pytest.importorskip("meshpy")
@@ -534,7 +537,7 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
         else:
             raise ValueError("unsupported dimensionality")
 
-        return flat_obj_array(
+        return obj_array.flat(
             actx.np.sin(3*x0) + actx.np.cos(3*x1) + 2*actx.np.cos(2*x2),
             actx.np.sin(2*x0) + actx.np.cos(x1) + 4*actx.np.cos(0.5*x2),
             actx.np.sin(1*x0) + actx.np.cos(2*x1) + 3*actx.np.cos(0.8*x2),
@@ -585,7 +588,10 @@ def test_gauss_theorem(actx_factory, case, visualize=False):
 
 
 @pytest.mark.parametrize("mesh_name", ["2-1-ellipse", "2-1-spheroid"])
-def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
+def test_surface_divergence_theorem(
+            actx_factory: ArrayContextFactory,
+            mesh_name,
+            visualize=False):
     r"""Check the surface divergence theorem.
 
         .. math::
@@ -621,7 +627,7 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
     # {{{ convergence
 
     def f(x):
-        return flat_obj_array(
+        return obj_array.flat(
             actx.np.sin(3*x[1]) + actx.np.cos(3*x[0]) + 1.0,
             actx.np.sin(2*x[0]) + actx.np.cos(x[1]),
             3.0 * actx.np.cos(x[0] / 2) + actx.np.cos(x[1]),
@@ -746,8 +752,14 @@ def test_surface_divergence_theorem(actx_factory, mesh_name, visualize=False):
 @pytest.mark.parametrize("flux_type", ["central"])
 @pytest.mark.parametrize("order", [3, 4, 5])
 # test: 'test_convergence_advec(cl._csc, "disk", [0.1, 0.05], "strong", "upwind", 3)'
-def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_type,
-        order, visualize=False):
+def test_convergence_advec(
+            actx_factory: ArrayContextFactory,
+            mesh_name,
+            mesh_pars,
+            op_type,
+            flux_type,
+            order,
+            visualize=False):
     """Test whether 2D advection actually converges"""
 
     actx = actx_factory()
@@ -900,7 +912,7 @@ def test_convergence_advec(actx_factory, mesh_name, mesh_pars, op_type, flux_typ
 # {{{ models: maxwell
 
 @pytest.mark.parametrize("order", [3, 4, 5])
-def test_convergence_maxwell(actx_factory,  order):
+def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order):
     """Test whether 3D Maxwell's actually converges"""
 
     actx = actx_factory()
@@ -980,7 +992,7 @@ def test_convergence_maxwell(actx_factory,  order):
 # {{{ models: variable coefficient advection oversampling
 
 @pytest.mark.parametrize("order", [2, 3, 4])
-def test_improvement_quadrature(actx_factory, order):
+def test_improvement_quadrature(actx_factory: ArrayContextFactory, order):
     """Test whether quadrature improves things and converges"""
     from meshmode.discretization.poly_element import QuadratureSimplexGroupFactory
     from meshmode.mesh import BTAG_ALL
@@ -1035,7 +1047,7 @@ def test_improvement_quadrature(actx_factory, order):
 
             adv_op = VariableCoefficientAdvectionOperator(
                 dcoll,
-                flat_obj_array(-1*nodes[1], nodes[0]),
+                obj_array.flat(-1*nodes[1], nodes[0]),
                 inflow_u=lambda t: zero_inflow(BTAG_ALL, t=t),
                 flux_type="upwind",
                 quad_tag=qtag
@@ -1065,7 +1077,7 @@ def test_improvement_quadrature(actx_factory, order):
 # {{{ bessel
 
 @pytest.mark.xfail
-def test_bessel(actx_factory):
+def test_bessel(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     dims = 2
@@ -1102,7 +1114,7 @@ def test_bessel(actx_factory):
 # {{{ test norms
 
 @pytest.mark.parametrize("p", [2, np.inf])
-def test_norm_real(actx_factory, p):
+def test_norm_real(actx_factory: ArrayContextFactory, p):
     actx = actx_factory()
 
     dim = 2
@@ -1125,7 +1137,7 @@ def test_norm_real(actx_factory, p):
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
-def test_norm_complex(actx_factory, p):
+def test_norm_complex(actx_factory: ArrayContextFactory, p):
     actx = actx_factory()
 
     dim = 2
@@ -1148,7 +1160,7 @@ def test_norm_complex(actx_factory, p):
 
 
 @pytest.mark.parametrize("p", [2, np.inf])
-def test_norm_obj_array(actx_factory, p):
+def test_norm_obj_array(actx_factory: ArrayContextFactory, p):
     actx = actx_factory()
 
     dim = 2
@@ -1175,7 +1187,7 @@ def test_norm_obj_array(actx_factory, p):
 
 # {{{ empty boundaries
 
-def test_empty_boundary(actx_factory):
+def test_empty_boundary(actx_factory: ArrayContextFactory):
     # https://github.com/inducer/grudge/issues/54
 
     from meshmode.mesh import BTAG_NONE
@@ -1198,7 +1210,7 @@ def test_empty_boundary(actx_factory):
 
 # {{{ multi-volume
 
-def test_multiple_independent_volumes(actx_factory):
+def test_multiple_independent_volumes(actx_factory: ArrayContextFactory):
     dim = 2
     actx = actx_factory()
 

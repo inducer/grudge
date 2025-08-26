@@ -1,4 +1,6 @@
 """grudge operators modelling electromagnetic phenomena."""
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2007-2017 Andreas Kloeckner
@@ -28,16 +30,22 @@ THE SOFTWARE.
 """
 
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
+import pytools.obj_array as obj_array
 from arraycontext import get_container_context_recursively
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
 from pytools import levi_civita, memoize_method
-from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
 from grudge.models import HyperbolicOperator
+
+
+if TYPE_CHECKING:
+    from grudge.discretization import DiscretizationCollection
 
 
 # {{{ helpers
@@ -143,11 +151,10 @@ class SubsettableCrossProduct:
           used in place of the product *sign*xj*yk*. Defaults to just this
           product if not given.
         """
-        from pytools.obj_array import flat_obj_array
         if three_mult is None:
-            return flat_obj_array(*[f(x, y) for f in self.functions])
+            return obj_array.flat(*[f(x, y) for f in self.functions])
         else:
-            return flat_obj_array(
+            return obj_array.flat(
                     *[sum(three_mult(lc, x[j], y[k]) for lc, j, k in lcjk)
                     for lcjk in self.component_lcjk])
 
@@ -191,8 +198,8 @@ class MaxwellOperator(HyperbolicOperator):
             boundary condition
         """
 
-        self.dcoll = dcoll
-        self.dimensions = dimensions or self._default_dimensions
+        self.dcoll: DiscretizationCollection = dcoll
+        self.dimensions: int = dimensions or self._default_dimensions
 
         space_subset = [True]*self.dimensions + [False]*(3-self.dimensions)
 
@@ -256,7 +263,7 @@ class MaxwellOperator(HyperbolicOperator):
             # if self.fixed_material:
             #     max_c = (self.epsilon*self.mu)**(-0.5)
 
-            return flat_obj_array(
+            return obj_array.flat(
                     # flux e,
                     1/2*(
                         -self.space_cross_h(normal, h.ext-h.int)
@@ -271,7 +278,7 @@ class MaxwellOperator(HyperbolicOperator):
                     ))
         elif isinstance(self.flux_type, int | float):
             # see doc/maxima/maxwell.mac
-            return flat_obj_array(
+            return obj_array.flat(
                     # flux e,
                     (
                         -1/(Z_int+Z_ext)*self.space_cross_h(normal,
@@ -296,7 +303,7 @@ class MaxwellOperator(HyperbolicOperator):
         e, h = self.split_eh(w)
 
         # Object array of derivative operators
-        nabla = flat_obj_array(
+        nabla = obj_array.flat(
             [_Dx(self.dcoll, i) for i in range(self.dimensions)]
         )
 
@@ -309,7 +316,7 @@ class MaxwellOperator(HyperbolicOperator):
                                       three_mult=lambda lc, x, y: lc * (x * y))
 
         # in conservation form: u_t + A u_x = 0
-        return flat_obj_array(
+        return obj_array.flat(
                 (self.current - h_curl(h)),
                 e_curl(e)
                 )
@@ -322,7 +329,7 @@ class MaxwellOperator(HyperbolicOperator):
         pec_e = op.project(self.dcoll, "vol", self.pec_tag, e)
         pec_h = op.project(self.dcoll, "vol", self.pec_tag, h)
 
-        return flat_obj_array(-pec_e, pec_h)
+        return obj_array.flat(-pec_e, pec_h)
 
     def pmc_bc(self, w):
         """Construct part of the flux operator template for PMC boundary conditions
@@ -332,7 +339,7 @@ class MaxwellOperator(HyperbolicOperator):
         pmc_e = op.project(self.dcoll, "vol", self.pmc_tag, e)
         pmc_h = op.project(self.dcoll, "vol", self.pmc_tag, h)
 
-        return flat_obj_array(pmc_e, -pmc_h)
+        return obj_array.flat(pmc_e, -pmc_h)
 
     def absorbing_bc(self, w):
         """Construct part of the flux operator template for 1st order
@@ -356,7 +363,7 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_e = op.project(self.dcoll, "vol", self.absorb_tag, e)
         absorb_h = op.project(self.dcoll, "vol", self.absorb_tag, h)
 
-        bc = flat_obj_array(
+        bc = obj_array.flat(
                 absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
                     absorb_normal, absorb_e))
                     - absorb_Z*self.space_cross_h(absorb_normal, absorb_h)),
@@ -377,7 +384,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         incident_bc_data = self.incident_bc_data(self, e, h)
         if is_zero(incident_bc_data):
-            return make_obj_array([0]*fld_cnt)
+            return obj_array.new_1d([0]*fld_cnt)
         else:
             return -incident_bc_data
 
@@ -444,7 +451,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         return e, h
 
-    def get_eh_subset(self):
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
         """Return a 6-tuple of :class:`bool` objects indicating whether field
         components are to be computed. The fields are numbered in the order
         specified in the class documentation.
@@ -573,7 +580,7 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
     if dims == 2:
         tfac = t * omega
 
-        result = flat_obj_array(
+        result = obj_array.flat(
             zeros,
             zeros,
             actx.np.sin(kx * x) * actx.np.sin(ky * y) * np.cos(tfac),  # ez
@@ -590,7 +597,7 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         tdep = np.exp(-1j * omega * t)
 
         gamma_squared = ky**2 + kx**2
-        result = flat_obj_array(
+        result = obj_array.flat(
             -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
             -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
             E_0 * sx*sy*cz*tdep,  # ez

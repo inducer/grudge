@@ -6,7 +6,15 @@
 .. autofunction:: make_discretization_collection
 
 .. currentmodule:: grudge.discretization
+
+.. autodata:: TagToElementGroupFactory
+    :noindex:
+.. class:: TagToElementGroupFactory
+
+    See above.
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2015-2017 Andreas Kloeckner, Bogdan Enache
@@ -34,12 +42,9 @@ THE SOFTWARE.
 """
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-import numpy as np
-
-from arraycontext import ArrayContext
 from meshmode.discretization import Discretization, ElementGroupFactory
 from meshmode.discretization.connection import (
     FACE_RESTR_ALL,
@@ -52,8 +57,13 @@ from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     ModalGroupFactory,
 )
-from meshmode.dof_array import DOFArray
-from meshmode.mesh import BTAG_PARTITION, Mesh, ModepyElementGroup
+from meshmode.mesh import (
+    BTAG_PARTITION,
+    Mesh,
+    MeshElementGroup,
+    ModepyElementGroup,
+    PartID,
+)
 from pytools import memoize_method, single_valued
 
 from grudge.dof_desc import (
@@ -62,10 +72,10 @@ from grudge.dof_desc import (
     DISCR_TAG_MODAL,
     VTAG_ALL,
     BoundaryDomainTag,
-    ConvertibleToDOFDesc,
     DiscretizationTag,
     DOFDesc,
     DomainTag,
+    ToDOFDescConvertible,
     VolumeDomainTag,
     VolumeTag,
     as_dofdesc,
@@ -73,7 +83,12 @@ from grudge.dof_desc import (
 
 
 if TYPE_CHECKING:
-    import mpi4py.MPI
+    import numpy as np
+    from mpi4py.MPI import Intracomm
+    from numpy.typing import DTypeLike
+
+    from arraycontext import ArrayContext
+    from meshmode.dof_array import DOFArray
 
 
 MeshOrDiscr = Mesh | Discretization
@@ -86,16 +101,17 @@ def _normalize_discr_tag_to_group_factory(
         discr_tag_to_group_factory: TagToElementGroupFactory | None,
         order: int | None
         ) -> TagToElementGroupFactory:
+    result: dict[DiscretizationTag, ElementGroupFactory]
     if discr_tag_to_group_factory is None:
         if order is None:
             raise TypeError(
                 "one of 'order' and 'discr_tag_to_group_factory' must be given"
             )
 
-        discr_tag_to_group_factory = {
+        result = {
                 DISCR_TAG_BASE: InterpolatoryEdgeClusteredGroupFactory(order=order)}
     else:
-        discr_tag_to_group_factory = dict(discr_tag_to_group_factory)
+        result = dict(discr_tag_to_group_factory)
 
         if order is not None:
             if DISCR_TAG_BASE in discr_tag_to_group_factory:
@@ -104,16 +120,16 @@ def _normalize_discr_tag_to_group_factory(
                     "not have a key of DISCR_TAG_BASE"
                 )
 
-            discr_tag_to_group_factory[DISCR_TAG_BASE] = \
+            result[DISCR_TAG_BASE] = \
                     InterpolatoryEdgeClusteredGroupFactory(order)
 
-    assert discr_tag_to_group_factory is not None
+    assert result is not None
 
     # Modal discr should always come from the base discretization
-    if DISCR_TAG_MODAL not in discr_tag_to_group_factory and order is not None:
-        discr_tag_to_group_factory[DISCR_TAG_MODAL] = ModalGroupFactory(order)
+    if DISCR_TAG_MODAL not in result and order is not None:
+        result[DISCR_TAG_MODAL] = ModalGroupFactory(order)
 
-    return discr_tag_to_group_factory
+    return result
 
 # }}}
 
@@ -141,12 +157,18 @@ class DiscretizationCollection:
     .. automethod:: zeros
 
     .. automethod:: nodes
-    .. automethod:: normal
 
     .. rubric:: Internal functionality
 
     .. automethod:: _base_to_geoderiv_connection
     """
+
+    _setup_actx: ArrayContext
+    _volume_discrs: Mapping[VolumeTag, Discretization]
+    _discr_tag_to_group_factory: TagToElementGroupFactory
+    _dist_boundary_connections: Mapping[
+            VolumeTag,
+            Mapping[PartID, DiscretizationConnection]]
 
     # {{{ constructor
 
@@ -154,7 +176,7 @@ class DiscretizationCollection:
             volume_discrs: Mesh | Mapping[VolumeTag, Discretization],
             order: int | None = None,
             discr_tag_to_group_factory: TagToElementGroupFactory | None = None,
-            mpi_communicator: Optional["mpi4py.MPI.Intracomm"] = None,
+            mpi_communicator: Intracomm | None = None,
             ) -> None:
         """
         :arg discr_tag_to_group_factory: A mapping from discretization tags
@@ -252,11 +274,14 @@ class DiscretizationCollection:
 
     # {{{ distributed
 
-    def _set_up_distributed_communication(
-            self, vtag, mpi_communicator, array_context):
+    def _set_up_distributed_communication(self,
+            vtag: VolumeTag,
+            mpi_communicator: Intracomm | None,
+            array_context: ArrayContext,
+        ):
         from_dd = DOFDesc(VolumeDomainTag(vtag), DISCR_TAG_BASE)
 
-        boundary_connections = {}
+        boundary_connections: dict[PartID, DiscretizationConnection] = {}
 
         from meshmode.distributed import get_connected_parts
         connected_parts = get_connected_parts(self._volume_discrs[vtag].mesh)
@@ -286,7 +311,9 @@ class DiscretizationCollection:
 
         return boundary_connections
 
-    def distributed_boundary_swap_connection(self, dd):
+    def distributed_boundary_swap_connection(self,
+                dd: DOFDesc
+            ) -> DiscretizationConnection:
         """Provides a mapping from the base volume discretization
         to the exterior boundary restriction on a parallel boundary
         partition described by *dd*. This connection is used to
@@ -318,7 +345,7 @@ class DiscretizationCollection:
     # {{{ discr_from_dd
 
     @memoize_method
-    def discr_from_dd(self, dd: "ConvertibleToDOFDesc") -> Discretization:
+    def discr_from_dd(self, dd: ToDOFDescConvertible) -> Discretization:
         """Provides a :class:`meshmode.discretization.Discretization`
         object from *dd*.
         """
@@ -362,7 +389,7 @@ class DiscretizationCollection:
         discr = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
         return any(
                 megrp.is_affine
-                and issubclass(cast(ModepyElementGroup, megrp).shape_cls, Simplex)
+                and issubclass(cast("ModepyElementGroup", megrp).shape_cls, Simplex)
                 for megrp in discr.mesh.groups)
 
     @memoize_method
@@ -390,12 +417,15 @@ class DiscretizationCollection:
         base_group_factory = self.group_factory_for_discretization_tag(
                 dd.discretization_tag)
 
-        def geo_group_factory(megrp):
+        def geo_group_factory(megrp: MeshElementGroup):
             from meshmode.discretization.poly_element import (
                 PolynomialEquidistantSimplexElementGroup,
             )
             from modepy.shapes import Simplex
-            if megrp.is_affine and issubclass(megrp._modepy_shape_cls, Simplex):
+            if (megrp.is_affine
+                        and issubclass(
+                                cast("ModepyElementGroup", megrp)._modepy_shape_cls,
+                                Simplex)):
                 return PolynomialEquidistantSimplexElementGroup(
                         megrp, order=0)
             else:
@@ -419,8 +449,9 @@ class DiscretizationCollection:
     # {{{ connection_from_dds
 
     @memoize_method
-    def connection_from_dds(
-            self, from_dd: "ConvertibleToDOFDesc", to_dd: "ConvertibleToDOFDesc"
+    def connection_from_dds(self,
+                from_dd: ToDOFDescConvertible,
+                to_dd: ToDOFDescConvertible
             ) -> DiscretizationConnection:
         """Provides a mapping (connection) from one discretization to
         another, e.g. from the volume to the boundary, or from the
@@ -535,6 +566,8 @@ class DiscretizationCollection:
                 elif isinstance(to_dd.domain_tag, BoundaryDomainTag):
                     assert from_discr_tag is DISCR_TAG_BASE
                     return self._boundary_connection(to_dd.domain_tag)
+                else:
+                    raise ValueError("unexpected domain tag in to_dd")
             elif to_dd.is_volume():
                 if to_dd.domain_tag != from_dd.domain_tag:
                     raise ValueError("cannot get a connection between "
@@ -558,7 +591,9 @@ class DiscretizationCollection:
 
     # {{{ group_factory_for_discretization_tag
 
-    def group_factory_for_discretization_tag(self, discretization_tag):
+    def group_factory_for_discretization_tag(self,
+                discretization_tag: DiscretizationTag | None,
+            ):
         if discretization_tag is None:
             discretization_tag = DISCR_TAG_BASE
 
@@ -589,7 +624,7 @@ class DiscretizationCollection:
         )
 
     @memoize_method
-    def _modal_discr(self, domain_tag) -> Discretization:
+    def _modal_discr(self, domain_tag: DomainTag) -> Discretization:
         from meshmode.discretization import Discretization
 
         discr_base = self.discr_from_dd(DOFDesc(domain_tag, DISCR_TAG_BASE))
@@ -703,13 +738,13 @@ class DiscretizationCollection:
                 discr.ambient_dim for discr in self._volume_discrs.values())
 
     @property
-    def real_dtype(self) -> "np.dtype[Any]":
+    def real_dtype(self) -> np.dtype[Any]:
         """Return the data type used for real-valued arithmetic."""
         return single_valued(
                 discr.real_dtype for discr in self._volume_discrs.values())
 
     @property
-    def complex_dtype(self) -> "np.dtype[Any]":
+    def complex_dtype(self) -> np.dtype[Any]:
         """Return the data type used for complex-valued arithmetic."""
         return single_valued(
                 discr.complex_dtype for discr in self._volume_discrs.values())
@@ -718,8 +753,11 @@ class DiscretizationCollection:
 
     # {{{ array creators
 
-    def empty(self, array_context: ArrayContext, dtype=None,
-            *, dd: DOFDesc | None = None) -> DOFArray:
+    def empty(self,
+                array_context: ArrayContext,
+                dtype: DTypeLike = None,
+                *, dd: ToDOFDescConvertible = None
+            ) -> DOFArray:
         """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
         the volume nodes: :class:`grudge.dof_desc.DD_VOLUME_ALL`.
 
@@ -732,8 +770,12 @@ class DiscretizationCollection:
             dd = DD_VOLUME_ALL
         return self.discr_from_dd(dd).empty(array_context, dtype)
 
-    def zeros(self, array_context: ArrayContext, dtype=None,
-            *, dd: DOFDesc | None = None) -> DOFArray:
+    def zeros(self,
+                array_context: ArrayContext,
+                dtype: DTypeLike = None,
+                *,
+                dd: ToDOFDescConvertible = None
+            ) -> DOFArray:
         """Return a zero-initialized :class:`~meshmode.dof_array.DOFArray`
         defined at the volume nodes, :class:`grudge.dof_desc.DD_VOLUME_ALL`.
 
@@ -747,14 +789,14 @@ class DiscretizationCollection:
 
         return self.discr_from_dd(dd).zeros(array_context, dtype)
 
-    def is_volume_where(self, where):
+    def is_volume_where(self, where: ToDOFDescConvertible):
         return where is None or as_dofdesc(where).is_volume()
 
     # }}}
 
     # {{{ discretization-specific geometric fields
 
-    def nodes(self, dd=None):
+    def nodes(self, dd: ToDOFDescConvertible = None):
         r"""Return the nodes of a discretization specified by *dd*.
 
         :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -764,23 +806,6 @@ class DiscretizationCollection:
         if dd is None:
             dd = DD_VOLUME_ALL
         return self.discr_from_dd(dd).nodes()
-
-    def normal(self, dd):
-        r"""Get the unit normal to the specified surface discretization, *dd*.
-
-        :arg dd: a :class:`~grudge.dof_desc.DOFDesc` as the surface discretization.
-        :returns: an object array of frozen :class:`~meshmode.dof_array.DOFArray`\ s.
-        """
-        warn("DiscretizationCollection.normal is deprecated and "
-             "will stop working in 2024. "
-             "Use grudge.geometry.normal instead. "
-             "DiscretizationCollection.normal may provide non-P^0 normals "
-             "even when this would otherwise be possible, see "
-             "https://github.com/inducer/grudge/issues/314 for details.",
-             DeprecationWarning, stacklevel=2)
-
-        from grudge.geometry import normal
-        return self._setup_actx.freeze(normal(self._setup_actx, self, dd))
 
     # }}}
 

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2017 Ellis Hoag
 Copyright (C) 2017 Andreas Kloeckner
@@ -31,8 +34,8 @@ import sys
 import numpy as np
 import pytest
 
+import pytools.obj_array as obj_array
 from meshmode.dof_array import flat_norm
-from pytools.obj_array import flat_obj_array
 
 from grudge import dof_desc, op
 from grudge.array_context import (
@@ -225,7 +228,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         source_width = 0.05
         source_omega = 3
         nodes = actx.thaw(dcoll.nodes())
-        source_center_dist = flat_obj_array(
+        source_center_dist = obj_array.flat(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
@@ -251,7 +254,7 @@ def _test_mpi_wave_op_entrypoint(actx, visualize=False):
         comm_tag=SimpleTag,
     )
 
-    fields = flat_obj_array(
+    fields = obj_array.flat(
         dcoll.zeros(actx),
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )

@@ -26,15 +26,16 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+import pytools.obj_array as obj_array
 from arraycontext import dataclass_array_container, with_container_arithmetic
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL
-from pytools.obj_array import flat_obj_array, make_obj_array
 
 import grudge.geometry as geo
 import grudge.op as op
@@ -62,7 +63,7 @@ class WaveState:
     v: np.ndarray  # [object array]
 
     # NOTE: disable numpy doing any array math
-    __array_ufunc__ = None
+    __array_ufunc__: ClassVar[None] = None
 
     def __post_init__(self):
         assert isinstance(self.v, np.ndarray) and self.v.dtype.char == "O"
@@ -166,7 +167,7 @@ def bump(actx, dcoll, t=0):
     source_omega = 3
 
     nodes = actx.thaw(dcoll.nodes())
-    center_dist = flat_obj_array([
+    center_dist = obj_array.flat([
         nodes[i] - source_center[i]
         for i in range(dcoll.dim)
         ])
@@ -255,7 +256,7 @@ def main(ctx_factory, dim=2, order=3,
 
     fields = WaveState(
         u=bump(actx, dcoll),
-        v=make_obj_array([dcoll.zeros(actx) for i in range(dcoll.dim)])
+        v=obj_array.new_1d([dcoll.zeros(actx) for i in range(dcoll.dim)])
     )
 
     c = 1

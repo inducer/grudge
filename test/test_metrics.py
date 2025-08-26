@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2015 Andreas Kloeckner
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -29,7 +32,7 @@ import numpy as np
 import pytest
 
 import meshmode.mesh.generation as mgen
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode.dof_array import flat_norm
 
 from grudge.array_context import (
@@ -54,7 +57,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 @pytest.mark.parametrize("dim", [2, 3])
 @pytest.mark.parametrize("nonaffine", [False, True])
 @pytest.mark.parametrize("use_quad", [False, True])
-def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
+def test_inverse_metric(actx_factory: ArrayContextFactory, dim, nonaffine, use_quad):
     actx = actx_factory()
 
     order = 3
@@ -103,7 +106,8 @@ def test_inverse_metric(actx_factory, dim, nonaffine, use_quad):
 
     mat = forward_metric_derivative_mat(
         actx, dcoll, dd,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting).dot(
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting
+    ) @ (
         inverse_metric_derivative_mat(
             actx, dcoll, dd,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting))

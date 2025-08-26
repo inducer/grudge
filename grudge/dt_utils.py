@@ -17,6 +17,8 @@ Mesh size utilities
 .. autofunction:: h_max_from_volume
 .. autofunction:: h_min_from_volume
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
@@ -42,12 +44,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from collections.abc import Sequence
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from arraycontext import ArrayContext, Scalar, tag_axes
+from arraycontext import ArrayContext, ScalarLike, tag_axes
 from arraycontext.metadata import NameHint
 from meshmode.discretization import NodalElementGroupBase
 from meshmode.dof_array import DOFArray
@@ -60,7 +61,6 @@ from meshmode.transform_metadata import (
 from pytools import memoize_in, memoize_on_first_arg
 
 import grudge.op as op
-from grudge.discretization import DiscretizationCollection
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     FACE_RESTR_ALL,
@@ -69,6 +69,12 @@ from grudge.dof_desc import (
     ScalarDomainTag,
     as_dofdesc,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from grudge.discretization import DiscretizationCollection
 
 
 def characteristic_lengthscales(
@@ -176,7 +182,7 @@ def dt_non_geometric_factors(
 def h_max_from_volume(
         dcoll: DiscretizationCollection,
         dim: int  | None = None,
-        dd: DOFDesc | None = None) -> Scalar:
+        dd: DOFDesc | None = None) -> ScalarLike:
     """Returns a (maximum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -209,7 +215,7 @@ def h_max_from_volume(
 def h_min_from_volume(
         dcoll: DiscretizationCollection,
         dim: int | None = None,
-        dd: DOFDesc | None = None) -> Scalar:
+        dd: DOFDesc | None = None) -> ScalarLike:
     """Returns a (minimum) characteristic length based on the volume of the
     elements. This length may not be representative if the elements have very
     high aspect ratios.
@@ -284,7 +290,7 @@ def dt_geometric_factors(
                 "filling discretizations. Continuing anyway.", stacklevel=3)
 
     cell_vols: DOFArray = abs(
-        cast(DOFArray, op.elementwise_integral(
+        cast("DOFArray", op.elementwise_integral(
             dcoll, dd, volm_discr.zeros(actx) + 1.0
         ))
     )
@@ -299,7 +305,7 @@ def dt_geometric_factors(
 
     # Compute areas of each face
     face_areas: DOFArray = abs(
-        cast(DOFArray, op.elementwise_integral(
+        cast("DOFArray", op.elementwise_integral(
             dcoll, dd_face, face_discr.zeros(actx) + 1.0
         ))
     )

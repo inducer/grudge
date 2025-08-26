@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -27,6 +30,7 @@ import logging
 import pytest
 
 from arraycontext import (
+    ArrayContextFactory,
     pytest_generate_tests_for_array_contexts,
 )
 
@@ -46,7 +50,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
 
 
 @pytest.mark.parametrize("order", [1, 2, 3])
-def test_euler_vortex_convergence(actx_factory, order):
+def test_euler_vortex_convergence(actx_factory: ArrayContextFactory, order):
 
     from meshmode.discretization.poly_element import (
         QuadratureSimplexGroupFactory,
