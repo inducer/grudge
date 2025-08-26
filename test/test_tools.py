@@ -37,7 +37,6 @@ from grudge.array_context import PytestPyOpenCLArrayContextFactory
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
 
-import logging
 
 import pytest
 
