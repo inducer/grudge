@@ -454,11 +454,12 @@ class MPIPytatoJAXArrayContext(PytatoJAXArrayContext, MPIBasedArrayContext):
     .. autofunction:: __init__
     """
 
-    def __init__(self, mpi_communicator) -> None:
+    def __init__(self, mpi_communicator: MPI.Intracomm) -> None:
         super().__init__()
 
         self.mpi_communicator = mpi_communicator
 
+    @override
     def clone(self) -> Self:
         return type(self)(self.mpi_communicator)
 
