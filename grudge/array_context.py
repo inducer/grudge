@@ -457,7 +457,7 @@ class MPIPytatoJAXArrayContext(PytatoJAXArrayContext, MPIBasedArrayContext):  # 
     def __init__(self, mpi_communicator: MPI.Intracomm) -> None:
         super().__init__()
 
-        self.mpi_communicator = mpi_communicator
+        self.mpi_communicator: MPI.Intracomm = mpi_communicator
 
     @override
     def clone(self) -> Self:
