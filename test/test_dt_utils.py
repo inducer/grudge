@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -24,7 +27,8 @@ THE SOFTWARE.
 
 import numpy as np
 
-from arraycontext import pytest_generate_tests_for_array_contexts
+import pytools.obj_array as obj_array
+from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 
 from grudge.array_context import (
     PytestEagerJAXArrayContextFactory,
@@ -56,7 +60,7 @@ from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_geometric_factors_regular_refinement(actx_factory, name):
+def test_geometric_factors_regular_refinement(actx_factory: ArrayContextFactory, name):
     from grudge.dt_utils import dt_geometric_factors
 
     actx = actx_factory()
@@ -98,7 +102,7 @@ def test_geometric_factors_regular_refinement(actx_factory, name):
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])
-def test_non_geometric_factors(actx_factory, name):
+def test_non_geometric_factors(actx_factory: ArrayContextFactory, name):
     from grudge.dt_utils import dt_non_geometric_factors
 
     actx = actx_factory()
@@ -132,7 +136,7 @@ def test_non_geometric_factors(actx_factory, name):
     assert all(factors <= upper_bounds)
 
 
-def test_build_jacobian(actx_factory):
+def test_build_jacobian(actx_factory: ArrayContextFactory):
     actx = actx_factory()
     import meshmode.mesh.generation as mgen
 
@@ -144,8 +148,7 @@ def test_build_jacobian(actx_factory):
     def rhs(x):
         return 3*x**2 + 2*x + 5
 
-    from pytools.obj_array import make_obj_array
-    base_state = make_obj_array([dcoll.zeros(actx)+2])
+    base_state = obj_array.new_1d([dcoll.zeros(actx)+2])
 
     from grudge.tools import build_jacobian
     mat = build_jacobian(actx, rhs, base_state, 1e-5)
@@ -156,7 +159,11 @@ def test_build_jacobian(actx_factory):
 
 @pytest.mark.parametrize("dim", [1, 2])
 @pytest.mark.parametrize("degree", [2, 4])
-def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
+def test_wave_dt_estimate(
+            actx_factory: ArrayContextFactory,
+            dim: int,
+            degree: int,
+            visualize: bool = False):
     actx = actx_factory()
 
     import meshmode.mesh.generation as mgen
@@ -175,8 +182,7 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
     rhs = actx.compile(
             lambda w: wave_op.operator(t=0, w=w))
 
-    from pytools.obj_array import make_obj_array
-    fields = make_obj_array([dcoll.zeros(actx) for i in range(dim+1)])
+    fields = obj_array.new_1d([dcoll.zeros(actx) for i in range(dim+1)])
 
     from grudge.tools import build_jacobian
     mat = build_jacobian(actx, rhs, fields, 1)
@@ -187,11 +193,10 @@ def test_wave_dt_estimate(actx_factory, dim, degree, visualize=False):
     assert (eigvals.real <= 1e-12).all()
 
     import sympy as sp
-    from leap.rk import RK4MethodBuilder, stability_function
-    stab_func = sp.lambdify(*stability_function(
-        RK4MethodBuilder.a_explicit,
-        RK4MethodBuilder.output_coeffs))
 
+    from grudge.shortcuts import RK4_A, RK4_B, stability_function
+
+    stab_func = sp.lambdify(*stability_function(RK4_A, RK4_B))
     dt_est = actx.to_numpy(wave_op.estimate_rk4_timestep(actx, dcoll))
 
     if visualize:

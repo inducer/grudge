@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 __copyright__ = """
 Copyright (C) 2021 University of Illinois Board of Trustees
 """
@@ -24,19 +27,21 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 import mesh_data
 import numpy as np
 import pytest
 
+import pytools.obj_array as obj_array
 from arraycontext import (
+    ArrayContextFactory,
     dataclass_array_container,
     flatten,
     pytest_generate_tests_for_array_contexts,
     with_container_arithmetic,
 )
 from meshmode.dof_array import DOFArray
-from pytools.obj_array import make_obj_array
 
 from grudge import op
 from grudge.array_context import (
@@ -60,7 +65,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts(
     (0, False),
     (0, True)
 ])
-def test_nodal_reductions(actx_factory, mesh_size, with_initial):
+def test_nodal_reductions(actx_factory: ArrayContextFactory, mesh_size, with_initial):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder1D()
@@ -78,7 +83,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
     def h(x):
         return -actx.np.tan(5*x[0])
 
-    fields = make_obj_array([f(x), g(x), h(x)])
+    fields = obj_array.new_1d([f(x), g(x), h(x)])
 
     f_ref = actx.to_numpy(flatten(fields[0], actx))
     g_ref = actx.to_numpy(flatten(fields[1], actx))
@@ -125,7 +130,7 @@ def test_nodal_reductions(actx_factory, mesh_size, with_initial):
             rtol=1e-13)
 
 
-def test_elementwise_reductions(actx_factory):
+def test_elementwise_reductions(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder1D()
@@ -184,14 +189,14 @@ class MyContainer:
     enthalpy: DOFArray
 
     # NOTE: disable numpy doing any array math
-    __array_ufunc__ = None
+    __array_ufunc__: ClassVar[None] = None
 
     @property
     def array_context(self):
         return self.mass.array_context
 
 
-def test_nodal_reductions_with_container(actx_factory):
+def test_nodal_reductions_with_container(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder2D()
@@ -210,7 +215,7 @@ def test_nodal_reductions_with_container(actx_factory):
         return -actx.np.tan(5*x[0]) * actx.np.tan(0.5*x[1])
 
     mass = f(x) + g(x)
-    momentum = make_obj_array([f(x)/g(x), h(x)])
+    momentum = obj_array.new_1d([f(x)/g(x), h(x)])
     enthalpy = h(x) - g(x)
 
     ary_container = MyContainer(name="container",
@@ -238,7 +243,7 @@ def test_nodal_reductions_with_container(actx_factory):
                       rtol=1e-13)
 
 
-def test_elementwise_reductions_with_container(actx_factory):
+def test_elementwise_reductions_with_container(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     builder = mesh_data.BoxMeshBuilder2D()
@@ -258,7 +263,7 @@ def test_elementwise_reductions_with_container(actx_factory):
         return actx.np.cos(x[0]) * actx.np.sin(x[1])
 
     mass = 2*f(x) + 0.5*g(x)
-    momentum = make_obj_array([f(x)/g(x), h(x)])
+    momentum = obj_array.new_1d([f(x)/g(x), h(x)])
     enthalpy = 3*h(x) - g(x)
 
     ary_container = MyContainer(name="container",
@@ -291,9 +296,9 @@ def test_elementwise_reductions_with_container(actx_factory):
     min_enthalpy, max_enthalpy, sums_enthalpy = _get_ref_data(enthalpy)
     min_mom_x, max_mom_x, sums_mom_x = _get_ref_data(momentum[0])
     min_mom_y, max_mom_y, sums_mom_y = _get_ref_data(momentum[1])
-    min_momentum = make_obj_array([min_mom_x, min_mom_y])
-    max_momentum = make_obj_array([max_mom_x, max_mom_y])
-    sums_momentum = make_obj_array([sums_mom_x, sums_mom_y])
+    min_momentum = obj_array.new_1d([min_mom_x, min_mom_y])
+    max_momentum = obj_array.new_1d([max_mom_x, max_mom_y])
+    sums_momentum = obj_array.new_1d([sums_mom_x, sums_mom_y])
 
     reference_min = MyContainer(
         name="Reference min",

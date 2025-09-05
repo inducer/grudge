@@ -38,19 +38,18 @@ THE SOFTWARE.
 # {{{ imports
 
 import logging
-from collections.abc import Callable, Mapping
+from abc import ABC
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 from warnings import warn
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from meshmode.array_context import (
     PyOpenCLArrayContext as _PyOpenCLArrayContextBase,
     PytatoPyOpenCLArrayContext as _PytatoPyOpenCLArrayContextBase,
 )
 from pytools import to_identifier
-from pytools.tag import Tag
 
 
 logger = logging.getLogger(__name__)
@@ -97,13 +96,25 @@ from arraycontext.pytest import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     import pytato as pt
     from mpi4py import MPI
-    from pytato import DistributedGraphPartition
-    from pytato.partition import PartId
+    from pytato import DictOfNamedArrays, DistributedGraphPartition
+    from pytato.distributed.partition import PartId
+    from pytato.target import BoundProgram
 
     import pyopencl
-    import pyopencl.tools
+    import pyopencl.array as cl_array
+    from arraycontext.container import 
+    
+    
+    
+    
+    
+    
+    
+    from pytools.tag import Tag
 
 
 class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
@@ -112,7 +123,7 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
     any, for now.)
     """
     def __init__(self, queue: pyopencl.CommandQueue,
-            allocator: pyopencl.tools.AllocatorBase | None = None,
+            allocator: cl_array.Allocator | None = None,
             wait_event_queue_length: int | None = None,
             force_device_scalars: bool | None = None) -> None:
 
@@ -134,7 +145,9 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
     Extends it to understand :mod:`grudge`-specific transform metadata. (Of
     which there isn't any, for now.)
     """
-    def __init__(self, queue, allocator=None,
+    def __init__(self,
+            queue: pyopencl.CommandQueue,
+            allocator: cl_array.Allocator | None = None,
             *,
             compile_trace_callback: Callable[[Any, str, Any], None] | None
              = None) -> None:
@@ -157,7 +170,7 @@ class PytatoPyOpenCLArrayContext(_PytatoPyOpenCLArrayContextBase):
 # }}}
 
 
-class MPIBasedArrayContext(ArrayContext):
+class MPIBasedArrayContext(ArrayContext, ABC):
     mpi_communicator: MPI.Intracomm
 
 
@@ -182,13 +195,22 @@ class _DistributedPartProgramID:
 
 class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         LazilyPyOpenCLCompilingFunctionCaller):
-    def _dag_to_compiled_func(self, dict_of_named_arrays,
+    def _dag_to_compiled_func(self, dict_of_named_arrays: DictOfNamedArrays,
             input_id_to_name_in_program, output_id_to_name_in_program,
             output_template):
 
         import pytato as pt
 
         from pytools import ProcessLogger
+
+        self.actx._compile_trace_callback(self.f, "pre_deduplicate",
+                dict_of_named_arrays)
+
+        with ProcessLogger(logger, "deduplicate"):
+            dict_of_named_arrays = pt.transform.deduplicate(dict_of_named_arrays)
+
+        self.actx._compile_trace_callback(self.f, "post_deduplicate",
+                dict_of_named_arrays)
 
         self.actx._compile_trace_callback(self.f, "pre_deduplicate_data_wrappers",
                 dict_of_named_arrays)
@@ -339,7 +361,7 @@ class _DistributedCompiledFunction:
 
     actx: MPIBasedArrayContext
     distributed_partition: DistributedGraphPartition
-    part_id_to_prg: Mapping[PartId, pt.target.BoundProgram]
+    part_id_to_prg: Mapping[PartId, BoundProgram]
     input_id_to_name_in_program: Mapping[tuple[Any, ...], str]
     output_id_to_name_in_program: Mapping[tuple[Any, ...], str]
     name_in_program_to_tags: Mapping[str, frozenset[Tag]]
@@ -393,9 +415,9 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
     """
 
     def __init__(self,
-            mpi_communicator,
+            mpi_communicator: MPI.Intracomm,
             queue: pyopencl.CommandQueue,
-            *, allocator: pyopencl.tools.AllocatorBase | None = None,
+            *, allocator: cl_array.Allocator | None = None,
             wait_event_queue_length: int | None = None,
             force_device_scalars: bool | None = None) -> None:
         """
@@ -405,9 +427,9 @@ class MPIPyOpenCLArrayContext(PyOpenCLArrayContext, MPIBasedArrayContext):
         super().__init__(queue, allocator=allocator,
                 wait_event_queue_length=wait_event_queue_length,
                 force_device_scalars=force_device_scalars)
-
         self.mpi_communicator = mpi_communicator
 
+    @override
     def clone(self) -> Self:
         return type(self)(self.mpi_communicator, self.queue,
                 allocator=self.allocator,
@@ -426,11 +448,12 @@ class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
     .. autofunction:: __init__
     """
 
-    def __init__(self, mpi_communicator) -> None:
+    def __init__(self, mpi_communicator: MPI.Intracomm) -> None:
         super().__init__()
 
         self.mpi_communicator = mpi_communicator
 
+    @override
     def clone(self) -> Self:
         return type(self)(self.mpi_communicator)
 
@@ -484,8 +507,14 @@ class MPIBasePytatoPyOpenCLArrayContext(
     """
     .. autofunction:: __init__
     """
+    mpi_base_tag: int
+
     def __init__(
-            self, mpi_communicator, queue, *, mpi_base_tag, allocator=None,
+            self,
+            mpi_communicator: MPI.Intracomm,
+            queue: pyopencl.CommandQueue, *,
+            mpi_base_tag: int,
+            allocator: cl_array.Allocator | None = None,
             compile_trace_callback: Callable[[Any, str, Any], None] | None = None,
             ) -> None:
         """
@@ -564,7 +593,7 @@ class PytestPytatoPyOpenCLArrayContextFactory(
 
 
 class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
-    actx_class = NumpyArrayContext
+    actx_class: ClassVar[type[NumpyArrayContext]] = NumpyArrayContext
 
     def __call__(self):
         return self.actx_class()
@@ -614,6 +643,18 @@ def _get_single_grid_pytato_actx_class(distributed: bool) -> type[ArrayContext]:
     else:
         # distributed+lazy:
         return MPIBasePytatoPyOpenCLArrayContext
+
+
+@overload
+def get_reasonable_array_context_class(
+        lazy: bool = True, distributed: Literal[True] = True,
+        fusion: bool | None = None, numpy: bool = False,
+        ) -> type[MPIBasedArrayContext]: ...
+@overload
+def get_reasonable_array_context_class(
+        lazy: bool = True, distributed: bool = True,
+        fusion: bool | None = None, numpy: bool = False,
+        ) -> type[ArrayContext]: ...
 
 
 def get_reasonable_array_context_class(

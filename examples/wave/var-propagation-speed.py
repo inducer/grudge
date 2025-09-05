@@ -30,7 +30,7 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-from pytools.obj_array import flat_obj_array
+import pytools.obj_array as obj_array
 
 from grudge import op
 from grudge.array_context import PyOpenCLArrayContext
@@ -61,7 +61,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         source_width = 0.05
         source_omega = 3
         nodes = actx.thaw(dcoll.nodes())
-        source_center_dist = flat_obj_array(
+        source_center_dist = obj_array.flat(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
@@ -90,7 +90,7 @@ def main(ctx_factory, dim=2, order=4, visualize=False):
         flux_type="upwind"
     )
 
-    fields = flat_obj_array(
+    fields = obj_array.flat(
         dcoll.zeros(actx),
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )

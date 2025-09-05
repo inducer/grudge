@@ -32,9 +32,9 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+import pytools.obj_array as obj_array
 from arraycontext import flatten
 from meshmode.discretization.connection import FACE_RESTR_INTERIOR
-from pytools.obj_array import make_obj_array
 
 import grudge.dof_desc as dof_desc
 import grudge.geometry as geo
@@ -173,7 +173,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     # velocity field
     x = actx.thaw(dcoll.nodes())
-    c = make_obj_array([-x[1], x[0], 0.0])[:dim]
+    c = obj_array.new_1d([-x[1], x[0], 0.0])[:dim]
 
     def f_initial_condition(x):
         return x[0]
@@ -219,7 +219,7 @@ def main(ctx_factory, dim=2, order=4, use_quad=False, visualize=False):
 
     step = 0
 
-    event = dt_stepper.StateComputed(0.0, 0, 0, u0)
+    event = dt_stepper.StateComputed(0.0, "", "", u0)
     plot(event, f"fld-surface-{0:04d}")
 
     if visualize and dim == 3:

@@ -29,9 +29,9 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
+import pytools.obj_array as obj_array
 from arraycontext import ArrayContext
 from meshmode.mesh import BTAG_ALL
-from pytools.obj_array import make_obj_array
 
 import grudge.op as op
 from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
@@ -56,7 +56,7 @@ def gaussian_profile(
     lump_loc = center + t * velocity
 
     # coordinates relative to lump center
-    rel_center = make_obj_array(
+    rel_center = obj_array.new_1d(
         [x_vec[i] - lump_loc[i] for i in range(dim)]
     )
     r = actx.np.sqrt(np.dot(rel_center, rel_center))
@@ -73,7 +73,7 @@ def make_pulse(amplitude, r0, w, r):
     dim = len(r)
     r_0 = np.zeros(dim)
     r_0 = r_0 + r0
-    rel_center = make_obj_array(
+    rel_center = obj_array.new_1d(
         [r[i] - r_0[i] for i in range(dim)]
     )
     actx = r[0].array_context

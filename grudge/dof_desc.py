@@ -18,6 +18,7 @@ by a :class:`grudge.DiscretizationCollection`. This can be a volume or a boundar
 .. autoclass:: DTAG_VOLUME_ALL
 .. autoclass:: VolumeDomainTag
 .. autoclass:: BoundaryDomainTag
+.. autoclass:: ScalarDomainTag
 
 Discretization tags
 -------------------
@@ -28,6 +29,8 @@ meaning is assigned to degrees of freedom.
 .. autoclass:: DISCR_TAG_BASE
 .. autoclass:: DISCR_TAG_QUAD
 .. autoclass:: DISCR_TAG_MODAL
+
+.. autoclass:: DiscretizationTag
 
 DOF Descriptor
 --------------
@@ -46,10 +49,12 @@ Internal things that are visible due to type annotations
 --------------------------------------------------------
 
 .. class:: _DiscretizationTag
-.. class:: ConvertibleToDOFDesc
+.. class:: ToDOFDescConvertible
 
     Anything that is convertible to a :class:`DOFDesc` via :func:`as_dofdesc`.
 """
+from __future__ import annotations
+
 
 __copyright__ = """
 Copyright (C) 2008 Andreas Kloeckner
@@ -286,13 +291,13 @@ class DOFDesc:
         raise ValueError(
             f"Invalid discretization tag: {self.discretization_tag}")
 
-    def with_domain_tag(self, dtag) -> "DOFDesc":
+    def with_domain_tag(self, dtag: DomainTag) -> DOFDesc:
         return replace(self, domain_tag=dtag)
 
-    def with_discr_tag(self, discr_tag) -> "DOFDesc":
+    def with_discr_tag(self, discr_tag: DiscretizationTag) -> DOFDesc:
         return replace(self, discretization_tag=discr_tag)
 
-    def trace(self, btag: BoundaryTag) -> "DOFDesc":
+    def trace(self, btag: BoundaryTag) -> DOFDesc:
         """Return a :class:`DOFDesc` for the restriction of the volume
         descriptor *self* to the boundary named by *btag*.
 
@@ -304,7 +309,7 @@ class DOFDesc:
         return replace(self,
                 domain_tag=BoundaryDomainTag(btag, volume_tag=self.domain_tag.tag))
 
-    def untrace(self) -> "DOFDesc":
+    def untrace(self) -> DOFDesc:
         """Return a :class:`DOFDesc` for the volume associated with the boundary
         descriptor *self*.
 
@@ -316,7 +321,7 @@ class DOFDesc:
         return replace(self,
                 domain_tag=VolumeDomainTag(self.domain_tag.volume_tag))
 
-    def with_boundary_tag(self, btag: BoundaryTag) -> "DOFDesc":
+    def with_boundary_tag(self, btag: BoundaryTag) -> DOFDesc:
         """Return a :class:`DOFDesc` representing a boundary named by *btag*
         on the same volume as *self*.
 
@@ -421,11 +426,11 @@ def _normalize_domain_and_discr_tag(
     return domain, discretization_tag
 
 
-ConvertibleToDOFDesc = Any
+ToDOFDescConvertible = Any
 
 
 def as_dofdesc(
-        domain: "ConvertibleToDOFDesc",
+        domain: ToDOFDescConvertible,
         discretization_tag: DiscretizationTag | None = None,
         *, _contextual_volume_tag: VolumeTag | None = None) -> DOFDesc:
     """

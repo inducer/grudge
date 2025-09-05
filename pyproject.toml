@@ -40,8 +40,6 @@ dependencies = [
 
 [project.optional-dependencies]
 all = [
-    "dagrt>=2021.1",
-    "leap>=2021.1",
     "meshpy>=2022.1",
     "mpi4py",
     "pymetis>=2023.1",
@@ -85,6 +83,7 @@ extend-select = [
     "RUF", # ruff
     "UP",  # pyupgrade
     "W",   # pycodestyle
+    "TC",
 ]
 extend-ignore = [
     "C90",  # McCabe complexity
@@ -115,14 +114,11 @@ known-local-folder = [
     "grudge",
 ]
 lines-after-imports = 2
+required-imports = ["from __future__ import annotations"]
 
-[tool.mypy]
-python_version = "3.10"
-ignore_missing_imports = true
-warn_unused_ignores = true
-# TODO: enable this at some point
-# check_untyped_defs = true
-
+[tool.ruff.lint.per-file-ignores]
+"examples/*.py" = ["I002"]
+"doc/conf.py" = ["I002"]
 
 [tool.typos.default]
 extend-ignore-re = [
@@ -139,3 +135,70 @@ thm = "thm"
 [tool.typos.files]
 extend-exclude = [
 ]
+
+[tool.basedpyright]
+reportImplicitStringConcatenation = "none"
+reportUnnecessaryIsInstance = "none"
+reportUnusedCallResult = "none"
+reportExplicitAny = "none"
+reportUnusedParameter = "hint"
+
+reportPrivateUsage = "none"
+reportAny = "none"
+reportUnreachable = "hint"
+
+# This reports even cycles that are qualified by 'if TYPE_CHECKING'. Not what
+# we care about at this moment.
+# https://github.com/microsoft/pyright/issues/746
+reportImportCycles = "none"
+
+exclude = [
+    "doc",
+    ".conda-root",
+]
+
+pythonVersion = "3.10"
+pythonPlatform = "All"
+
+
+[[tool.basedpyright.executionEnvironments]]
+root = "test"
+reportArgumentType = "hint"
+reportAttributeAccessIssue = "hint"
+reportMissingImports = "none"
+reportMissingParameterType = "none"
+reportMissingTypeStubs = "none"
+reportUnknownArgumentType = "none"
+reportUnknownMemberType = "hint"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUnknownLambdaType = "hint"
+reportOperatorIssue = "hint"
+reportPossiblyUnboundVariable = "hint"
+reportPrivateUsage = "none"
+reportUnusedImport = "hint"
+reportIndexIssue = "hint"
+reportOptionalOperand = "hint"
+reportUnusedVariable = "hint"
+reportCallIssue = "hint"
+reportPrivateLocalImportUsage = "none"
+reportReturnType = "hint"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "examples"
+reportArgumentType = "hint"
+reportAttributeAccessIssue = "hint"
+reportMissingImports = "none"
+reportMissingParameterType = "none"
+reportMissingTypeStubs = "none"
+reportUnknownArgumentType = "none"
+reportUnknownMemberType = "hint"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUnknownLambdaType = "hint"
+reportOperatorIssue = "hint"
+reportPossiblyUnboundVariable = "hint"
+reportPrivateUsage = "none"
+reportUnusedImport = "hint"
+reportIndexIssue = "hint"
+

@@ -31,7 +31,7 @@ from mpi4py import MPI
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-from pytools.obj_array import flat_obj_array
+import pytools.obj_array as obj_array
 
 import grudge.op as op
 from grudge import make_discretization_collection
@@ -86,7 +86,7 @@ def main(dim=2, order=4, visualize=True):
         source_width = 0.05
         source_omega = 3
         nodes = actx.thaw(dcoll.nodes())
-        source_center_dist = flat_obj_array(
+        source_center_dist = obj_array.flat(
             [nodes[i] - source_center[i] for i in range(dcoll.dim)]
         )
         return (
@@ -111,7 +111,7 @@ def main(dim=2, order=4, visualize=True):
         flux_type="upwind"
     )
 
-    fields = flat_obj_array(
+    fields = obj_array.flat(
         dcoll.zeros(actx),
         [dcoll.zeros(actx) for i in range(dcoll.dim)]
     )
