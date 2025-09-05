@@ -106,14 +106,8 @@ if TYPE_CHECKING:
 
     import pyopencl
     import pyopencl.array as cl_array
-    from arraycontext.container import 
-    
-    
-    
-    
-    
-    
-    
+    from arraycontext.container import ArrayContainer
+
     from pytools.tag import Tag
 
 
