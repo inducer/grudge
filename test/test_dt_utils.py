@@ -33,6 +33,7 @@ from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_co
 from grudge.array_context import (
     PytestNumpyArrayContextFactory,
     PytestPyOpenCLArrayContextFactory,
+    PytestPytatoJAXArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
 
@@ -40,7 +41,8 @@ from grudge.array_context import (
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory,
-         PytestNumpyArrayContextFactory])
+         PytestNumpyArrayContextFactory,
+         PytestPytatoJAXArrayContextFactory])
 
 import logging
 
