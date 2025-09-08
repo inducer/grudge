@@ -448,7 +448,7 @@ class MPINumpyArrayContext(NumpyArrayContext, MPIBasedArrayContext):
 # {{{ distributed + lazy jax
 
 class MPIPytatoJAXArrayContext(PytatoJAXArrayContext, MPIBasedArrayContext):  # pyright: ignore[reportUnsafeMultipleInheritance]
-    """An array context for using distributed computation with :mod:`jax`
+    """An array context for using distributed computation with :mod:`jax.numpy`
     lazy evaluation.
 
     .. autofunction:: __init__

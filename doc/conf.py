@@ -34,8 +34,6 @@ intersphinx_mapping = {
 os.environ["PYOPENCL_TEST"] = "port:cpu"
 
 nitpick_ignore_regex = [
-    ["py:mod", r"jax"],  # FIXME: not sure why this does not work
-    ["py:class", r"np\.ndarray"],
     ["py:data|py:class", r"arraycontext.*ContainerTc"],
 ]
 
