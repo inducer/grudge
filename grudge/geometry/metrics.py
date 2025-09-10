@@ -597,22 +597,24 @@ def _signed_face_ones(
         dd_base.untrace(), dd_base
     )
     assert isinstance(all_faces_conn, DirectDiscretizationConnection)
-    signed_ones = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE)).zeros(
-        actx, dtype=dcoll.real_dtype
-    ) + 1
 
-    signed_face_ones_numpy = actx.to_numpy(signed_ones)
+    discr = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE))
 
-    for igrp, grp in enumerate(all_faces_conn.groups):
+    new_group_arrays = []
+
+    for dgrp, grp in zip(discr.groups, all_faces_conn.groups, strict=True):
+        sign = np.ones((dgrp.nelements, dgrp.nunit_dofs),
+                        dtype=discr.real_dtype)
+
         for batch in grp.batches:
             assert batch.to_element_face is not None
             i = actx.to_numpy(actx.thaw(batch.to_element_indices))
-            grp_field = signed_face_ones_numpy[igrp].reshape(-1)
-            grp_field[i] = (  # pyright: ignore[reportIndexIssue]
-                (2.0 * (batch.to_element_face % 2) - 1.0) * grp_field[i]
-                )
+            sign[i, :] = 2.0 * (batch.to_element_face % 2) - 1.0
 
-    return actx.from_numpy(signed_face_ones_numpy)
+        new_group_arrays.append(sign)
+
+    from meshmode.dof_array import DOFArray
+    return actx.from_numpy(DOFArray(actx, tuple(new_group_arrays)))
 
 
 def parametrization_derivative(
