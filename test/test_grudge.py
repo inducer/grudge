@@ -219,7 +219,7 @@ def test_mass_surface_area(actx_factory: ArrayContextFactory, name):
 
     # }}}
 
-    logger.info("surface area error\n%s", str(eoc))
+    logger.info("surface area error\n%s", eoc)
 
     assert eoc.max_error() < 3e-13 or eoc.order_estimate() > order
 
@@ -323,7 +323,7 @@ def test_mass_operator_inverse(actx_factory: ArrayContextFactory, name):
 
         eoc.add_data_point(actx.to_numpy(h_max), inv_error)
 
-    logger.info("inverse mass error\n%s", str(eoc))
+    logger.info("inverse mass error\n%s", eoc)
 
     # NOTE: both cases give 1.0e-16-ish at the moment, but just to be on the
     # safe side, choose a slightly larger tolerance
@@ -721,8 +721,8 @@ def test_surface_divergence_theorem(
     # }}}
 
     exp_order = order - 0.5
-    logger.info("eoc_global:\n%s", str(eoc_global))
-    logger.info("eoc_local:\n%s", str(eoc_local))
+    logger.info("eoc_global:\n%s", eoc_global)
+    logger.info("eoc_local:\n%s", eoc_local)
 
     assert eoc_global.max_error() < 1.0e-12 \
             or eoc_global.order_estimate() > exp_order - 0.5
