@@ -205,7 +205,7 @@ class DiscretizationCollection:
                 raise ValueError("mpi_communicator passed to "
                         "DiscretizationCollection and the MPI communicator "
                         "used to created the MPIBasedArrayContext must be "
-                        "idetical, which they aren't.")
+                        "identical, which they aren't.")
         else:
             from grudge.array_context import MPIBasedArrayContext
             if isinstance(self._setup_actx, MPIBasedArrayContext):
