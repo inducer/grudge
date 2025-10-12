@@ -30,7 +30,7 @@ THE SOFTWARE.
 """
 
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, final
 
 import numpy as np
 
@@ -45,6 +45,8 @@ from grudge.models import HyperbolicOperator
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from grudge.discretization import DiscretizationCollection
 
 
@@ -72,7 +74,7 @@ def is_zero(x):
         return False
 
 
-def count_subset(subset):
+def count_subset(subset: Sequence[bool]):
     from pytools import len_iterable
     return len_iterable(uc for uc in subset if uc)
 
@@ -100,6 +102,7 @@ def partial_to_all_subset_indices(subsets, base=0):
 
 # {{{ SubsettableCrossProduct
 
+@final
 class SubsettableCrossProduct:
     """A cross product that can operate on an arbitrary subsets of its
     two operands and return an arbitrary subset of its result.
@@ -107,8 +110,10 @@ class SubsettableCrossProduct:
 
     full_subset = (True, True, True)
 
-    def __init__(self, op1_subset=full_subset, op2_subset=full_subset,
-            result_subset=full_subset):
+    def __init__(self,
+                 op1_subset: tuple[bool, bool, bool] = full_subset,
+                 op2_subset: tuple[bool, bool, bool] = full_subset,
+                 result_subset: tuple[bool, bool, bool] = full_subset):
         """Construct a subset-able cross product.
         :param op1_subset: The subset of indices of operand 1 to be taken into
             account.  Given as a 3-sequence of bools.
@@ -175,14 +180,19 @@ class MaxwellOperator(HyperbolicOperator):
 
     _default_dimensions = 3
 
-    def __init__(self, dcoll, epsilon, mu,
-            flux_type,
-            bdry_flux_type=None,
-            pec_tag=BTAG_ALL,
-            pmc_tag=BTAG_NONE,
-            absorb_tag=BTAG_NONE,
-            incident_tag=BTAG_NONE,
-            incident_bc=lambda maxwell_op, e, h: 0, current=0, dimensions=None):
+    def __init__(self,
+                 dcoll: DiscretizationCollection,
+                 epsilon: float,
+                 mu: float,
+                 flux_type: Literal["lf"] | float,
+                 bdry_flux_type: Literal["lf"] | float | None = None,
+                 pec_tag=BTAG_ALL,
+                 pmc_tag=BTAG_NONE,
+                 absorb_tag=BTAG_NONE,
+                 incident_tag=BTAG_NONE,
+                 incident_bc=lambda maxwell_op, e, h: 0,
+                 current=0,
+                 dimensions: int | None = None):
         """
         :arg flux_type: can be in [0,1] for anything between central and upwind,
           or "lf" for Lax-Friedrichs
@@ -201,7 +211,8 @@ class MaxwellOperator(HyperbolicOperator):
         self.dcoll: DiscretizationCollection = dcoll
         self.dimensions: int = dimensions or self._default_dimensions
 
-        space_subset = [True]*self.dimensions + [False]*(3-self.dimensions)
+        space_subset = (True,)*self.dimensions + (False,)*(3-self.dimensions)
+        assert len(space_subset) == 3
 
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
