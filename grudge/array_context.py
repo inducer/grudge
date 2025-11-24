@@ -534,8 +534,12 @@ else:
 
 class PytestPyOpenCLArrayContextFactory(
         _PytestPyOpenCLArrayContextFactoryWithClass):
-    actx_class = PyOpenCLArrayContext
+    @property
+    @override
+    def actx_class(self) ->  type[PyOpenCLArrayContext]:
+        return PyOpenCLArrayContext
 
+    @override
     def __call__(self):
         from pyopencl.tools import ImmediateAllocator, MemoryPool
 
@@ -547,8 +551,12 @@ class PytestPyOpenCLArrayContextFactory(
 
 class PytestPytatoPyOpenCLArrayContextFactory(
         _PytestPytatoPyOpenCLArrayContextFactory):
-    actx_class = PytatoPyOpenCLArrayContext
+    @property
+    @override
+    def actx_class(self) ->  type[PytatoPyOpenCLArrayContext]:
+        return PytatoPyOpenCLArrayContext
 
+    @override
     def __call__(self):
         _ctx, queue = self.get_command_queue()
 
@@ -561,13 +569,15 @@ class PytestPytatoPyOpenCLArrayContextFactory(
 class PytestNumpyArrayContextFactory(_PytestNumpyArrayContextFactory):
     actx_class: ClassVar[type[NumpyArrayContext]] = NumpyArrayContext
 
+    @override
     def __call__(self):
         return self.actx_class()
 
 
 class PytestPytatoJAXArrayContextFactory(_PytestPytatoJaxArrayContextFactory):
-    actx_class = PytatoJAXArrayContext
+    actx_class: ClassVar[type[PytatoJAXArrayContext]] = PytatoJAXArrayContext
 
+    @override
     def __call__(self):
         import jax
         jax.config.update("jax_enable_x64", True)
