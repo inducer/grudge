@@ -4,6 +4,7 @@
 .. autoclass:: MPIBasedArrayContext
 .. autoclass:: MPIPyOpenCLArrayContext
 .. autoclass:: MPINumpyArrayContext
+.. autoclass:: MPICupyArrayContext
 .. class:: MPIPytatoArrayContext
 .. autoclass:: MPIPytatoJAXArrayContext
 .. autofunction:: get_reasonable_array_context_class
@@ -86,6 +87,8 @@ from arraycontext.pytest import (
     register_pytest_array_context_factory,
 )
 
+
+from arraycontext import CupyArrayContext
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -386,6 +389,26 @@ class _DistributedCompiledFunction:
         return rec_keyed_map_array_container(to_output_template,
                                              self.output_template)
 
+
+# }}}
+
+
+# {{{
+
+class MPICupyArrayContext(CupyArrayContext, MPIBasedArrayContext):
+    """An array context for using distributed computation with :mod:`cupy`
+    eager evaluation.
+
+    .. autofunction:: __init__
+    """
+
+    def __init__(self, mpi_communicator):
+        super().__init__()
+
+        self.mpi_communicator = mpi_communicator
+
+    def clone(self):
+        return type(self)(self.mpi_communicator)
 
 # }}}
 
