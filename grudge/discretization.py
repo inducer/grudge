@@ -1,6 +1,4 @@
 """
-.. autoclass:: DiscretizationTag
-
 .. currentmodule:: grudge
 .. autoclass:: DiscretizationCollection
 .. autofunction:: make_discretization_collection
