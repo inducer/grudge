@@ -7,7 +7,8 @@ dependencies:
 - numpy
 - libhwloc=2
 # pocl 3.1 needed for SVM functionality
-- pocl>=3.1
+# pocl<7 because of https://github.com/inducer/grudge/issues/396
+- pocl>=3.1,<7
 - islpy
 - pyopencl
 - python=3
