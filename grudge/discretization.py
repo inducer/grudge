@@ -753,7 +753,7 @@ class DiscretizationCollection:
 
     def empty(self,
                 array_context: ArrayContext,
-                dtype: DTypeLike = None,
+                dtype: DTypeLike | None = None,
                 *, dd: ToDOFDescConvertible = None
             ) -> DOFArray:
         """Return an empty :class:`~meshmode.dof_array.DOFArray` defined at
@@ -770,7 +770,7 @@ class DiscretizationCollection:
 
     def zeros(self,
                 array_context: ArrayContext,
-                dtype: DTypeLike = None,
+                dtype: DTypeLike | None = None,
                 *,
                 dd: ToDOFDescConvertible = None
             ) -> DOFArray:
