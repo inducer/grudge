@@ -54,7 +54,7 @@ THE SOFTWARE.
 
 from dataclasses import dataclass
 from numbers import Number
-from typing import TYPE_CHECKING, ClassVar, Generic, cast
+from typing import TYPE_CHECKING, ClassVar, Generic, TypeAlias, cast, overload
 from warnings import warn
 
 import numpy as np
@@ -80,7 +80,7 @@ from grudge.array_context import MPIBasedArrayContext
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
-    FACE_RESTR_INTERIOR,
+    FACE_RESTR_INTERIOR,  # pyright: ignore[reportPrivateLocalImportUsage]
     BoundaryDomainTag,
     DiscretizationTag,
     DOFDesc,
@@ -103,6 +103,9 @@ if TYPE_CHECKING:
 
 
 # {{{ trace pair container class
+
+Index: TypeAlias = np.ndarray[tuple[int, ...], np.dtype[np.integer]]
+
 
 @with_container_arithmetic(bcasts_across_obj_array=False,
                            eq_comparison=False,
@@ -145,6 +148,7 @@ class TracePair(Generic[ArithArrayContainerT]):
                     "This will stop working in December 2022. "
                     "Pass an actual DOFDesc instead.",
                     DeprecationWarning, stacklevel=2)
+
             dd = dof_desc.as_dofdesc(dd)
 
         object.__setattr__(self, "dd", dd)
@@ -159,18 +163,24 @@ class TracePair(Generic[ArithArrayContainerT]):
                          interior=getattr(self.interior, name),
                          exterior=getattr(self.exterior, name))
 
-    def __getitem__(self, index: int | slice) -> TracePair[ArithArrayContainer]:
+    @overload
+    def __getitem__(self, index: int) -> TracePair[ArithArrayContainer]: ...
+
+    @overload
+    def __getitem__(self, index: slice | Index) -> TracePair[ArithArrayContainerT]: ...
+
+    def __getitem__(
+            self, index: int | slice | Index
+        ) -> TracePair[ArithArrayContainer]:
         """Return a new :class:`TracePair` resulting from executing
         subscripting with *index* on :attr:`int` and :attr:`ext`.
         """
         return TracePair(self.dd,
-                         interior=cast(
-                            "SupportsGetItem[int | slice, ArithArrayContainer]",
-                            self.interior)[index],
-                         exterior=cast(
-                            "SupportsGetItem[int | slice, ArithArrayContainer]",
-                            self.exterior)[index]
-                     )
+            interior=cast("SupportsGetItem[int | slice | Index, ArithArrayContainer]",
+                          self.interior)[index],
+            exterior=cast("SupportsGetItem[int | slice | Index, ArithArrayContainer]",
+                          self.exterior)[index]
+        )
 
     def __len__(self):
         """Return the total number of arrays associated with the
