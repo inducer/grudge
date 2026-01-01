@@ -53,7 +53,7 @@ THE SOFTWARE.
 """
 
 from functools import partial
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import numpy as np
 
@@ -73,6 +73,7 @@ from arraycontext import (
 from arraycontext.typing import is_scalar_like
 from meshmode.discretization import (
     InterpolatoryElementGroupBase,
+    NodalElementGroupBase,
 )
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
@@ -83,11 +84,10 @@ from meshmode.transform_metadata import (
 )
 from pytools import keyed_memoize_in
 
-import grudge.dof_desc as dof_desc
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     DISCR_TAG_BASE,
-    FACE_RESTR_ALL,
+    FACE_RESTR_ALL,  # pyright: ignore[reportPrivateLocalImportUsage]
     BoundaryDomainTag,
     DOFDesc,
     ToDOFDescConvertible,
@@ -129,7 +129,6 @@ if TYPE_CHECKING:
     from meshmode.discretization import (
         Discretization,
         ElementGroupBase,
-        NodalElementGroupBase,
     )
 
     from grudge.discretization import DiscretizationCollection
@@ -177,12 +176,13 @@ def _single_axis_derivative_kernel(
             actx: ArrayContext,
             out_discr: Discretization,
             in_discr: Discretization,
-            get_diff_mat,
-            inv_jac_mat,
+            get_diff_mat: Callable[[ArrayContext, ElementGroupBase, ElementGroupBase],
+                                   Array],
+            inv_jac_mat: DOFArray,
             xyz_axis: int,
             vec: DOFArray,
             *,
-            metric_in_matvec: bool):
+            metric_in_matvec: bool) -> DOFArray:
     # This gets used from both the strong and the weak derivative. These differ
     # in three ways:
     # - which differentiation matrix gets used,
@@ -197,10 +197,7 @@ def _single_axis_derivative_kernel(
             # r for rst axis
             actx.einsum("rej,rij,ej->ei" if metric_in_matvec else "rei,rij,ej->ei",
                         ijm_i[xyz_axis],
-                        get_diff_mat(
-                            actx,
-                            out_element_group=out_grp,
-                            in_element_group=in_grp),
+                        get_diff_mat(actx, out_grp, in_grp),
                         vec_i,
                         arg_names=("inv_jac_t", "ref_stiffT_mat", "vec", ),
                         tagged=(FirstAxisIsElementsTag(),))
@@ -216,11 +213,12 @@ def _gradient_kernel(
             actx: ArrayContext,
             out_discr: Discretization,
             in_discr: Discretization,
-            get_diff_mat,
-            inv_jac_mat,
+            get_diff_mat: Callable[[ArrayContext, ElementGroupBase, ElementGroupBase],
+                                   Array],
+            inv_jac_mat: DOFArray,
             vec: DOFArray,
             *,
-            metric_in_matvec: bool):
+            metric_in_matvec: bool) -> obj_array.ObjectArray1D[DOFArray]:
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
     per_group_grads = [
@@ -228,11 +226,7 @@ def _gradient_kernel(
         # x for xyz axis
         actx.einsum("xrej,rij,ej->xei" if metric_in_matvec else "xrei,rij,ej->xei",
                     ijm_i,
-                    get_diff_mat(
-                        actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
-                    ),
+                    get_diff_mat(actx, out_grp, in_grp),
                     vec_i,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
@@ -251,11 +245,12 @@ def _divergence_kernel(
             actx: ArrayContext,
             out_discr: Discretization,
             in_discr: Discretization,
-            get_diff_mat,
-            inv_jac_mat,
+            get_diff_mat: Callable[[ArrayContext, ElementGroupBase, ElementGroupBase],
+                                   Array],
+            inv_jac_mat: DOFArray,
             vec: DOFArray,
             *,
-            metric_in_matvec: bool):
+            metric_in_matvec: bool) -> DOFArray:
     # See _single_axis_derivative_kernel for comments on the usage scenarios
     # (both strong and weak derivative) and their differences.
     per_group_divs = [
@@ -263,11 +258,7 @@ def _divergence_kernel(
         # x for xyz axis
         actx.einsum("xrej,rij,xej->ei" if metric_in_matvec else "xrei,rij,xej->ei",
                     ijm_i,
-                    get_diff_mat(
-                        actx,
-                        out_element_group=out_grp,
-                        in_element_group=in_grp
-                    ),
+                    get_diff_mat(actx, out_grp, in_grp),
                     vec_i,
                     arg_names=("inv_jac_t", "ref_stiffT_mat", "vec"),
                     tagged=(FirstAxisIsElementsTag(),))
@@ -284,16 +275,21 @@ def _divergence_kernel(
 
 # {{{ Derivative operators
 
-def _reference_derivative_matrices(actx: ArrayContext,
-        out_element_group: NodalElementGroupBase,
-        in_element_group: InterpolatoryElementGroupBase) -> Array:
+def _reference_derivative_matrices(
+        actx: ArrayContext,
+        out_element_group: ElementGroupBase,
+        in_element_group: ElementGroupBase, /) -> Array:
+    if not isinstance(out_element_group, NodalElementGroupBase):
+        raise TypeError(f"'out_element_group' must be nodal: {type(out_element_group)}")
+
+    if not isinstance(in_element_group, InterpolatoryElementGroupBase):
+        raise TypeError(
+            f"'in_element_group' must be interpolatory: {type(in_element_group)}")
 
     def memoize_key(
                 out_grp: NodalElementGroupBase, in_grp: InterpolatoryElementGroupBase
             ) -> Hashable:
-        return (
-            out_grp.discretization_key(),
-            in_grp.discretization_key())
+        return out_grp.discretization_key(), in_grp.discretization_key()
 
     @keyed_memoize_in(
         actx, _reference_derivative_matrices,
@@ -311,28 +307,38 @@ def _reference_derivative_matrices(actx: ArrayContext,
                                 out_grp.unit_nodes,
                                 from_nodes=in_grp.unit_nodes,
                             )))))
+
     return get_ref_derivative_mats(out_element_group, in_element_group)
 
 
-def _strong_scalar_grad(dcoll, dd_in, vec):
+def _strong_scalar_grad(
+            dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer
+    ) -> obj_array.ObjectArray1D[DOFArray]:
     assert isinstance(dd_in.domain_tag, VolumeDomainTag)
+    assert isinstance(vec, DOFArray)
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     discr = dcoll.discr_from_dd(dd_in)
     actx = vec.array_context
+    assert actx is not None
 
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(
+            actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-    return _gradient_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
+
+    return _gradient_kernel(
+            actx, discr, discr,
+            _reference_derivative_matrices,
+            inverse_jac_mat,
+            vec,
             metric_in_matvec=False)
 
 
 def _strong_scalar_div(
             dcoll: DiscretizationCollection,
             dd: DOFDesc,
-            vecs: obj_array.ObjectArray1D[DOFArray]):
+            vecs: obj_array.ObjectArray1D[DOFArray]) -> DOFArray:
     from arraycontext import get_container_context_recursively
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -353,9 +359,23 @@ def _strong_scalar_div(
             metric_in_matvec=False)
 
 
+@overload
+def local_grad(
+        dcoll: DiscretizationCollection, vec: ArrayOrContainer, /, *,
+        nested: bool = False,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def local_grad(
+        dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer, /, *,
+        nested: bool = False,
+) -> ArrayOrContainer: ...
+
+
 def local_grad(
         dcoll: DiscretizationCollection,
-        *args,
+        *args: Any,
         nested: bool = False) -> ArrayOrContainer:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
@@ -392,8 +412,23 @@ def local_grad(
         vec, scalar_cls=DOFArray, return_nested=nested,)
 
 
+@overload
 def local_d_dx(
-        dcoll: DiscretizationCollection, xyz_axis: int, *args) -> ArrayOrContainer:
+        dcoll: DiscretizationCollection, xyz_axis: int,
+        vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def local_d_dx(
+        dcoll: DiscretizationCollection, xyz_axis: int,
+        dd: DOFDesc, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def local_d_dx(
+        dcoll: DiscretizationCollection, xyz_axis: int,
+        *args: Any) -> ArrayOrContainer:
     r"""Return the element-local derivative along axis *xyz_axis* of a
     function :math:`f` represented by *vec*:
 
@@ -418,7 +453,7 @@ def local_d_dx(
     elif len(args) == 2:
         dd, vec = args
     else:
-        raise TypeError("invalid number of arguments")
+        raise TypeError(f"invalid number of arguments to 'local_d_dx': {len(args)}")
 
     if not isinstance(vec, DOFArray):
         return map_array_container(partial(local_d_dx, dcoll, xyz_axis, dd), vec)
@@ -437,7 +472,19 @@ def local_d_dx(
         metric_in_matvec=False)
 
 
-def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def local_div(
+        dcoll: DiscretizationCollection, vecs: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def local_div(
+        dcoll: DiscretizationCollection, dd: DOFDesc, vecs: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the element-local divergence of the vector function
     :math:`\mathbf{f}` represented by *vecs*:
 
@@ -478,15 +525,26 @@ def local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 def _reference_stiffness_transpose_matrices(
             actx: ArrayContext,
-            out_element_group: InterpolatoryElementGroupBase,
-            in_element_group: InterpolatoryElementGroupBase):
+            out_element_group: ElementGroupBase,
+            in_element_group: ElementGroupBase) -> Array:
+    if not isinstance(out_element_group, InterpolatoryElementGroupBase):
+        raise TypeError(
+            f"'out_element_group' must be interpolatory: {type(out_element_group)}")
+
+    if not isinstance(in_element_group, NodalElementGroupBase):
+        raise TypeError(
+            f"'in_element_group' must be nodal: {type(in_element_group)}")
+
+    def memoize_key(out_grp: InterpolatoryElementGroupBase,
+                    in_grp: NodalElementGroupBase) -> Hashable:
+        return out_grp.discretization_key(), in_grp.discretization_key()
+
     @keyed_memoize_in(
         actx, _reference_stiffness_transpose_matrices,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
+        memoize_key)
     def get_ref_stiffness_transpose_mat(
                 out_grp: InterpolatoryElementGroupBase,
-                in_grp: InterpolatoryElementGroupBase):
+                in_grp: NodalElementGroupBase) -> Array:
         if in_grp == out_grp:
             mmat = mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
             diff_matrices = mp.diff_matrices(out_grp.basis_obj(), out_grp.unit_nodes)
@@ -522,7 +580,11 @@ def _reference_stiffness_transpose_matrices(
                                            in_element_group)
 
 
-def _weak_scalar_grad(dcoll, dd_in, vec):
+def _weak_scalar_grad(
+        dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer
+    ) -> obj_array.ObjectArray1D[ArrayOrContainer]:
+    assert isinstance(vec, DOFArray)
+
     from grudge.geometry import inverse_surface_metric_derivative_mat
 
     dd_in = as_dofdesc(dd_in)
@@ -530,6 +592,8 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
     out_discr = dcoll.discr_from_dd(dd_in.with_discr_tag(DISCR_TAG_BASE))
 
     actx = vec.array_context
+    assert actx is not None
+
     inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd_in,
             times_area_element=True,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
@@ -542,7 +606,7 @@ def _weak_scalar_grad(dcoll, dd_in, vec):
 def _weak_scalar_div(
             dcoll: DiscretizationCollection,
             dd_in: DOFDesc,
-            vecs: obj_array.ObjectArray1D[DOFArray]):
+            vecs: obj_array.ObjectArray1D[DOFArray]) -> DOFArray:
     from arraycontext import get_container_context_recursively
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -565,8 +629,23 @@ def _weak_scalar_div(
             metric_in_matvec=True)
 
 
+@overload
 def weak_local_grad(
-        dcoll: DiscretizationCollection, *args, nested=False) -> ArrayOrContainer:
+        dcoll: DiscretizationCollection, vec: ArrayOrContainer, /, *,
+        nested: bool = False,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def weak_local_grad(
+        dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer, /, *,
+        nested: bool = False,
+) -> ArrayOrContainer: ...
+
+
+def weak_local_grad(
+        dcoll: DiscretizationCollection,
+        *args: Any, nested: bool = False) -> ArrayOrContainer:
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -603,7 +682,21 @@ def weak_local_grad(
         vecs, scalar_cls=DOFArray, return_nested=nested)
 
 
-def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def weak_local_d_dx(
+        dcoll: DiscretizationCollection,
+        xyz_axis: int, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def weak_local_d_dx(
+        dcoll: DiscretizationCollection,
+        dd_in: DOFDesc, xyz_axis: int, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def weak_local_d_dx(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
@@ -635,7 +728,7 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
     """
     if len(args) == 2:
         xyz_axis, vec = args
-        dd_in = dof_desc.DD_VOLUME_ALL
+        dd_in = DD_VOLUME_ALL
     elif len(args) == 3:
         dd_in, xyz_axis, vec = args
     else:
@@ -665,7 +758,21 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
             metric_in_matvec=True)
 
 
-def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def weak_local_div(
+        dcoll: DiscretizationCollection,
+        vecs: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def weak_local_div(
+        dcoll: DiscretizationCollection,
+        dd: DOFDesc, vecs: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def weak_local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
@@ -713,12 +820,26 @@ def weak_local_div(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 # {{{ Mass operator
 
-def reference_mass_matrix(actx: ArrayContext, out_element_group, in_element_group):
+def reference_mass_matrix(
+        actx: ArrayContext,
+        out_element_group: ElementGroupBase,
+        in_element_group: ElementGroupBase) -> Array:
+    if not isinstance(out_element_group, InterpolatoryElementGroupBase):
+        raise TypeError(
+            f"'out_element_group' must be interpolatory: {type(out_element_group)}")
+
+    if not isinstance(in_element_group, NodalElementGroupBase):
+        raise TypeError(f"'in_element_group' must be nodal: {type(in_element_group)}")
+
+    def memoize_key(out_grp: InterpolatoryElementGroupBase,
+                    in_grp: NodalElementGroupBase) -> Hashable:
+        return out_grp.discretization_key(), in_grp.discretization_key()
+
     @keyed_memoize_in(
         actx, reference_mass_matrix,
-        lambda out_grp, in_grp: (out_grp.discretization_key(),
-                                 in_grp.discretization_key()))
-    def get_ref_mass_mat(out_grp, in_grp):
+        memoize_key)
+    def get_ref_mass_mat(out_grp: InterpolatoryElementGroupBase,
+                         in_grp: NodalElementGroupBase):
         if out_grp == in_grp:
             return actx.freeze(
                 actx.from_numpy(
@@ -750,7 +871,7 @@ def _apply_mass_operator(
             vec: ArrayContainerT
         ) -> ArrayContainerT:
     if is_scalar_like(vec):
-        raise TypeError("scalars not allowed")
+        raise TypeError(f"scalars not allowed: {vec}")
 
     if not isinstance(vec, DOFArray):
         result = map_array_container(
@@ -793,7 +914,21 @@ def _apply_mass_operator(
     )
 
 
-def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def mass(
+        dcoll: DiscretizationCollection,
+    vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def mass(
+        dcoll: DiscretizationCollection,
+        dd_in: DOFDesc, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an :class:`~arraycontext.ArrayContainer`,
@@ -821,7 +956,7 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
     if len(args) == 1:
         vec, = args
-        dd_in = dof_desc.DD_VOLUME_ALL
+        dd_in = DD_VOLUME_ALL
     elif len(args) == 2:
         dd_in, vec = args
     else:
@@ -836,11 +971,19 @@ def mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 # {{{ Mass inverse operator
 
-def reference_inverse_mass_matrix(actx: ArrayContext, element_group):
+def reference_inverse_mass_matrix(
+        actx: ArrayContext, element_group: ElementGroupBase
+    ) -> Array:
+    if not isinstance(element_group, InterpolatoryElementGroupBase):
+        raise TypeError(f"'element_group' must be interpolatory: {type(element_group)}")
+
+    def memoize_key(grp: InterpolatoryElementGroupBase) -> Hashable:
+        return grp.discretization_key()
+
     @keyed_memoize_in(
         actx, reference_inverse_mass_matrix,
-        lambda grp: grp.discretization_key())
-    def get_ref_inv_mass_mat(grp):
+        memoize_key)
+    def get_ref_inv_mass_mat(grp: InterpolatoryElementGroupBase) -> Array:
         from modepy import inverse_mass_matrix
         basis = grp.basis_obj()
 
@@ -894,7 +1037,21 @@ def _apply_inverse_mass_operator(
     return DOFArray(actx, data=tuple(group_data))
 
 
-def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def inverse_mass(
+        dcoll: DiscretizationCollection,
+    vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def inverse_mass(
+        dcoll: DiscretizationCollection,
+        dd: DOFDesc, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def inverse_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.ArrayContainer`,
@@ -950,13 +1107,20 @@ def inverse_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
 
 def reference_face_mass_matrix(
             actx: ArrayContext,
-            face_element_group: InterpolatoryElementGroupBase,
-            vol_element_group: InterpolatoryElementGroupBase,
-            dtype: np.dtype[Any]):
+            face_element_group: ElementGroupBase,
+            vol_element_group: ElementGroupBase,
+            dtype: np.dtype[Any]) -> Array:
+    if not isinstance(vol_element_group, InterpolatoryElementGroupBase):
+        raise TypeError(
+            f"'vol_element_group' must be interpolatory: {type(vol_element_group)}")
+
+    def memoize_key(face_grp: ElementGroupBase,
+                    vol_grp: InterpolatoryElementGroupBase) -> Hashable:
+        return face_grp.discretization_key(), vol_grp.discretization_key()
+
     @keyed_memoize_in(
         actx, reference_mass_matrix,
-        lambda face_grp, vol_grp: (face_grp.discretization_key(),
-                                   vol_grp.discretization_key()))
+        memoize_key)
     def get_ref_face_mass_mat(
                 face_grp: ElementGroupBase,
                 vol_grp: InterpolatoryElementGroupBase):
@@ -1045,7 +1209,7 @@ def reference_face_mass_matrix(
 def _apply_face_mass_operator(
             dcoll: DiscretizationCollection,
             dd_in: DOFDesc,
-            vec: DOFArray):
+            vec: ArrayOrContainer) -> ArrayOrContainer:
     if not isinstance(vec, DOFArray):
         return map_array_container(
             partial(_apply_face_mass_operator, dcoll, dd_in), vec
@@ -1100,7 +1264,21 @@ def _apply_face_mass_operator(
                                                      strict=True)))
 
 
-def face_mass(dcoll: DiscretizationCollection, *args) -> ArrayOrContainer:
+@overload
+def face_mass(
+        dcoll: DiscretizationCollection,
+        vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+@overload
+def face_mass(
+        dcoll: DiscretizationCollection,
+        dd: DOFDesc, vec: ArrayOrContainer, /,
+) -> ArrayOrContainer: ...
+
+
+def face_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     r"""Return the action of the DG face mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an arbitrary :class:`~arraycontext.ArrayContainer`,
