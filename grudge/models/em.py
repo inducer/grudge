@@ -34,13 +34,22 @@ THE SOFTWARE.
 """
 
 
-from typing import TYPE_CHECKING, Literal, final
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, final
 
 import numpy as np
+from typing_extensions import override
 
+import pymbolic.primitives as prim
 import pytools.obj_array as obj_array
-from arraycontext import get_container_context_recursively
-from meshmode.mesh import BTAG_ALL, BTAG_NONE
+from arraycontext import (
+    ArithArrayContainer,
+    ArrayContext,
+    ArrayOrContainer,
+    ArrayOrContainerOrScalar,
+    get_container_context_recursively,
+)
+from meshmode.mesh import BTAG_ALL, BTAG_NONE, BoundaryTag, Mesh
 from pytools import levi_civita, memoize_method
 
 import grudge.geometry as geo
@@ -49,25 +58,30 @@ from grudge.models import HyperbolicOperator
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from grudge.discretization import DiscretizationCollection
+    from grudge.trace_pair import TracePair
+
+Vector: TypeAlias = obj_array.ObjectArray1D[ArithArrayContainer]
+SubsetMask: TypeAlias = tuple[bool, bool, bool]
+VectorIndex: TypeAlias = np.ndarray[tuple[int], np.dtype[np.integer]]
 
 
 # {{{ helpers
 
 # NOTE: Hack for getting the derivative operators to play nice
 # with grudge.tools.SubsettableCrossProduct
+@dataclass(frozen=True)
 class _Dx:
-    def __init__(self, dcoll, i):
-        self.dcoll = dcoll
-        self.i = i
+    dcoll: DiscretizationCollection
+    i: int
 
-    def __mul__(self, other):
+    def __mul__(self, other: ArrayOrContainer) -> ArrayOrContainer:
         return op.local_d_dx(self.dcoll, self.i, other)
 
 
-def is_zero(x):
+def is_zero(x: object) -> bool:
     # DO NOT try to replace this with an attempted "== 0" comparison.
     # This will become an elementwise numpy operation and not do what
     # you want.
@@ -78,12 +92,14 @@ def is_zero(x):
         return False
 
 
-def count_subset(subset: Sequence[bool]):
+def count_subset(subset: Sequence[bool]) -> int:
     from pytools import len_iterable
     return len_iterable(uc for uc in subset if uc)
 
 
-def partial_to_all_subset_indices(subsets, base=0):
+def partial_to_all_subset_indices(
+        subsets: Sequence[SubsetMask], base: int = 0
+    ) -> Iterator[VectorIndex]:
     """Takes a sequence of bools and generates it into an array of indices
     to be used to insert the subset into the full set.
     Example:
@@ -93,7 +109,7 @@ def partial_to_all_subset_indices(subsets, base=0):
 
     idx = base
     for subset in subsets:
-        result = []
+        result: list[int] = []
         for is_in in subset:
             if is_in:
                 result.append(idx)
@@ -112,21 +128,25 @@ class SubsettableCrossProduct:
     two operands and return an arbitrary subset of its result.
     """
 
-    full_subset = (True, True, True)
+    full_subset: ClassVar[SubsetMask] = (True, True, True)
+
+    op1_subset: SubsetMask
+    op2_subset: SubsetMask
+    result_subset: SubsetMask
+
+    functions: list[Callable[[ArrayOrContainer, ArrayOrContainer], ArrayOrContainer]]
 
     def __init__(self,
-                 op1_subset: tuple[bool, bool, bool] = full_subset,
-                 op2_subset: tuple[bool, bool, bool] = full_subset,
-                 result_subset: tuple[bool, bool, bool] = full_subset):
+                 op1_subset: SubsetMask = full_subset,
+                 op2_subset: SubsetMask = full_subset,
+                 result_subset: SubsetMask = full_subset) -> None:
         """Construct a subset-able cross product.
-        :param op1_subset: The subset of indices of operand 1 to be taken into
-            account.  Given as a 3-sequence of bools.
-        :param op2_subset: The subset of indices of operand 2 to be taken into
-            account.  Given as a 3-sequence of bools.
-        :param result_subset: The subset of indices of the result that are
-            calculated.  Given as a 3-sequence of bools.
+
+        :arg op1_subset: the subset of indices of operand 1 to be taken into account.
+        :arg op2_subset: The subset of indices of operand 2 to be taken into account.
+        :arg result_subset: The subset of indices of the result that are calculated.
         """
-        def subset_indices(subset):
+        def subset_indices(subset: SubsetMask) -> list[int]:
             return [i for i, use_component in enumerate(subset)
                     if use_component]
 
@@ -134,27 +154,34 @@ class SubsettableCrossProduct:
         self.op2_subset = op2_subset
         self.result_subset = result_subset
 
-        import pymbolic
-        op1 = pymbolic.var("x")
-        op2 = pymbolic.var("y")
+        from pymbolic import compile
+
+        op1 = prim.Variable("x")
+        op2 = prim.Variable("y")
 
         self.functions = []
-        self.component_lcjk = []
+        self.component_lcjk: list[list[tuple[int, int, int]]] = []
+
         for i, use_component in enumerate(result_subset):
             if use_component:
                 this_expr = 0
-                this_component = []
+                this_component: list[tuple[int, int, int]] = []
                 for j, j_real in enumerate(subset_indices(op1_subset)):
                     for k, k_real in enumerate(subset_indices(op2_subset)):
                         lc = levi_civita((i, j_real, k_real))
                         if lc != 0:
                             this_expr += lc*op1[j]*op2[k]
                             this_component.append((lc, j, k))
-                self.functions.append(pymbolic.compile(this_expr,
-                    variables=[op1, op2]))
+
+                self.functions.append(compile(this_expr, variables=[op1, op2]))
                 self.component_lcjk.append(this_component)
 
-    def __call__(self, x, y, three_mult=None):
+    def __call__(self,
+                 x: Vector,
+                 y: Vector,
+                 three_mult: Callable[
+                    [int, ArrayOrContainer, ArrayOrContainer],
+                    ArrayOrContainer] | None = None) -> Vector:
         """Compute the subsetted cross product on the indexables *x* and *y*.
         :param three_mult: a function of three arguments *sign, xj, yk*
           used in place of the product *sign*xj*yk*. Defaults to just this
@@ -176,44 +203,73 @@ cross = SubsettableCrossProduct()
 # {{{ MaxwellOperator
 
 class MaxwellOperator(HyperbolicOperator):
-    """A strong-form 3D Maxwell operator which supports fixed or variable
-    isotropic, non-dispersive, positive epsilon and mu.
+    r"""A strong-form 3D Maxwell operator which supports fixed or variable
+    isotropic, non-dispersive, positive :math:`\epsilon` and :math:`\mu`.
 
-    Field order is [Ex Ey Ez Hx Hy Hz].
+    Field order is :math:`[E_x, E_y, E_z, H_x, H_y, H_z]`.
     """
 
-    _default_dimensions = 3
+    _default_dimensions: ClassVar[int] = 3
+
+    dcoll: DiscretizationCollection
+    dimensions: int
+
+    current: ArrayOrContainerOrScalar
+    epsilon: ArrayOrContainerOrScalar
+    mu: ArrayOrContainerOrScalar
+    fixed_material: bool
+
+    flux_type: int | float | Literal["lf"]
+    bdry_flux_type: int | float | Literal["lf"]
+    incident_bc_data: Callable[[MaxwellOperator, Vector, Vector], Vector]
+
+    space_cross_e: SubsettableCrossProduct
+    space_cross_h: SubsettableCrossProduct
+
+    pec_tag: BoundaryTag
+    pmc_tag: BoundaryTag
+    absorb_tag: BoundaryTag
+    incident_tag: BoundaryTag
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 epsilon: float,
-                 mu: float,
-                 flux_type: Literal["lf"] | float,
-                 bdry_flux_type: Literal["lf"] | float | None = None,
-                 pec_tag=BTAG_ALL,
-                 pmc_tag=BTAG_NONE,
-                 absorb_tag=BTAG_NONE,
-                 incident_tag=BTAG_NONE,
-                 incident_bc=lambda maxwell_op, e, h: 0,
-                 current=0,
-                 dimensions: int | None = None):
+                 epsilon: ArrayOrContainerOrScalar,
+                 mu: ArrayOrContainerOrScalar,
+                 flux_type: int | float | Literal["lf"],
+                 bdry_flux_type: int | float | Literal["lf"] | None = None,
+                 pec_tag: BoundaryTag = BTAG_ALL,
+                 pmc_tag: BoundaryTag = BTAG_NONE,
+                 absorb_tag: BoundaryTag = BTAG_NONE,
+                 incident_tag: BoundaryTag = BTAG_NONE,
+                 incident_bc: Callable[[MaxwellOperator, Vector, Vector],
+                                       Vector] | None = None,
+                 current: ArrayOrContainerOrScalar = 0,
+                 dimensions: int | None = None) -> None:
         """
-        :arg flux_type: can be in [0,1] for anything between central and upwind,
-          or "lf" for Lax-Friedrichs
-        :arg epsilon: can be a number, for fixed material throughout the
-            computation domain, or a TimeConstantGivenFunction for spatially
-            variable material coefficients
-        :arg mu: can be a number, for fixed material throughout the computation
-            domain, or a TimeConstantGivenFunction for spatially variable material
-            coefficients
-        :arg incident_bc_getter: a function of signature *(maxwell_op, e, h)* that
-            accepts *e* and *h* as a symbolic object arrays
-            returns a symbolic expression for the incident
-            boundary condition
+        :arg epsilon: can be a number, for a fixed material throughout the
+            computation domain or a :class:`~meshmode.dof_array.DOFArray` for
+            spatially variable material coefficients.
+        :arg mu: can be a number, for a fixed material throughout the
+            computation domain or a :class:`~meshmode.dof_array.DOFArray` for
+            spatially variable material coefficients.
+
+        :arg flux_type: can be value in :math:`[0, 1]`, that determines a convex
+            combination between the central and the upwind fluxes, or ``"lf"``
+            for the Lax-Friedrichs flux.
+        :arg bdry_flux_type: defaults to *flux_type* if not provided.
+
+        :arg incident_bc_getter: a function that accepts *e* and *h* as object
+            arrays and returns the value for the incident boundary condition.
         """
 
-        self.dcoll: DiscretizationCollection = dcoll
-        self.dimensions: int = dimensions or self._default_dimensions
+        def default_incident_bc(op: MaxwellOperator, e: Vector, h: Vector) -> Vector:
+            return 0
+
+        if incident_bc is None:
+            incident_bc = default_incident_bc
+
+        self.dcoll = dcoll
+        self.dimensions = dimensions or self._default_dimensions
 
         space_subset = (True,)*self.dimensions + (False,)*(3-self.dimensions)
         assert len(space_subset) == 3
@@ -232,9 +288,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         self.epsilon = epsilon
         self.mu = mu
-
-        from pymbolic.primitives import is_constant
-        self.fixed_material = is_constant(epsilon) and is_constant(mu)
+        self.fixed_material = prim.is_constant(epsilon) and prim.is_constant(mu)
 
         self.flux_type = flux_type
         if bdry_flux_type is None:
@@ -250,7 +304,7 @@ class MaxwellOperator(HyperbolicOperator):
         self.current = current
         self.incident_bc_data = incident_bc
 
-    def flux(self, wtpair):
+    def flux(self, wtpair: TracePair[Vector]) -> Vector:
         """The numerical flux for variable coefficients.
 
         :param flux_type: can be in [0,1] for anything between central and upwind,
@@ -448,7 +502,7 @@ class MaxwellOperator(HyperbolicOperator):
         ) / material_divisor
 
     @memoize_method
-    def partial_to_eh_subsets(self):
+    def partial_to_eh_subsets(self) -> tuple[VectorIndex, VectorIndex]:
         """Helps find the indices of the E and H components, which can vary
         depending on number of dimensions and whether we have a full/TE/TM
         operator.
@@ -457,9 +511,12 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset = self.get_eh_subset()[0:3]
         h_subset = self.get_eh_subset()[3:6]
 
-        return tuple(partial_to_all_subset_indices([e_subset, h_subset]))
+        e_subset, h_subset = partial_to_all_subset_indices([e_subset, h_subset])
+        return e_subset, h_subset
 
-    def split_eh(self, w):
+    def split_eh(
+            self, w: TracePair[Vector]
+        ) -> tuple[TracePair[Vector], TracePair[Vector]]:
         """Splits an array into E and H components"""
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
@@ -471,16 +528,16 @@ class MaxwellOperator(HyperbolicOperator):
         components are to be computed. The fields are numbered in the order
         specified in the class documentation.
         """
-        return 6*(True,)
+        return (True, True, True, True, True, True)
 
-    def max_characteristic_velocity(self, actx, **kwargs):
+    def max_characteristic_velocity(self, actx: ArrayContext, **kwargs):
         if self.fixed_material:
             return 1/np.sqrt(self.epsilon*self.mu)  # a number
         else:
             return op.nodal_max(self.dcoll, "vol",
                                 1 / actx.np.sqrt(self.epsilon * self.mu))
 
-    def check_bc_coverage(self, mesh):
+    def check_bc_coverage(self, mesh: Mesh) -> None:
         from meshmode.mesh import check_bc_coverage
         check_bc_coverage(mesh, [
             self.pec_tag,
@@ -497,15 +554,15 @@ class MaxwellOperator(HyperbolicOperator):
 class TMMaxwellOperator(MaxwellOperator):
     """A 2D TM Maxwell operator with PEC boundaries.
 
-    Field order is [Ez Hx Hy].
+    Field order is :math:`[E_z, H_x, H_y]`.
     """
 
-    _default_dimensions = 2
+    _default_dimensions: ClassVar[int] = 2
 
-    def get_eh_subset(self):
-        return (
-                (False, False, True, True, True, False)  # ez, hx and hy
-                )
+    @override
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
+        #                     ez    hx    hy
+        return (False, False, True, True, True, False)
 
 # }}}
 
@@ -515,15 +572,15 @@ class TMMaxwellOperator(MaxwellOperator):
 class TEMaxwellOperator(MaxwellOperator):
     """A 2D TE Maxwell operator.
 
-    Field order is [Ex Ey Hz].
+    Field order is :math:`[E_x, E_y, H_z]`.
     """
 
-    _default_dimensions = 2
+    _default_dimensions: ClassVar[int] = 2
 
-    def get_eh_subset(self):
-        return (
-                (True, True, False, False, False, True)  # ex and ey, only hz
-                )
+    @override
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
+        #       ex    ey                         hz
+        return (True, True, False, False, False, True)
 
 # }}}
 
@@ -533,15 +590,15 @@ class TEMaxwellOperator(MaxwellOperator):
 class TE1DMaxwellOperator(MaxwellOperator):
     """A 1D TE Maxwell operator.
 
-    Field order is [Ex Ey Hz].
+    Field order is :math:`[E_x, E_y, H_z]`.
     """
 
-    _default_dimensions = 1
+    _default_dimensions: ClassVar[int] = 1
 
-    def get_eh_subset(self):
-        return (
-                (True, True, False, False, False, True)
-                )
+    @override
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
+        #       ex    ey                         hz
+        return (True, True, False, False, False, True)
 
 # }}}
 
@@ -551,42 +608,42 @@ class TE1DMaxwellOperator(MaxwellOperator):
 class SourceFree1DMaxwellOperator(MaxwellOperator):
     """A 1D TE Maxwell operator.
 
-    Field order is [Ey Hz].
+    Field order is :math:`[E_y, H_z]`.
     """
 
-    _default_dimensions = 1
+    _default_dimensions: ClassVar[int] = 1
 
-    def get_eh_subset(self):
-        return (
-                (False, True, False, False, False, True)
-                )
+    @override
+    def get_eh_subset(self) -> tuple[bool, bool, bool, bool, bool, bool]:
+        #              ey                         hz
+        return (False, True, False, False, False, True)
 
 # }}}
 
 
 # {{{ get_rectangular_cavity_mode
 
-def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N803
+def get_rectangular_cavity_mode(
+        actx: ArrayContext,
+        nodes: Vector,
+        t: int | float,
+        E_0: ArithArrayContainer,  # noqa: N803
+        mode_indices: list[int]):
     """A rectangular TM cavity mode for a rectangle / cube
-    with one corner at the origin and the other at (1,1[,1])."""
+    with one corner at the origin and the other at :math:`(1, 1[, 1])`.
+    """
     dims = len(mode_indices)
     if dims != 2 and dims != 3:
-        raise ValueError("Improper mode_indices dimensions")
+        raise ValueError(f"unsupported 'mode_indices' dimensions: {dims}")
 
     factors = [n*np.pi for n in mode_indices]
-
-    kx, ky = factors[0:2]
-    if dims == 3:
-        kz = factors[2]
-
     omega = np.sqrt(sum(f**2 for f in factors))
 
     x = nodes[0]
     y = nodes[1]
-    if dims == 3:
-        z = nodes[2]
+    kx, ky = factors[0:2]
 
-    zeros = 0*x
+    zeros = actx.np.zeros_like(x)
     sx = actx.np.sin(kx*x)
     cx = actx.np.cos(kx*x)
     sy = actx.np.sin(ky*y)
@@ -596,16 +653,19 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
         tfac = t * omega
 
         result = obj_array.flat(
-            zeros,
-            zeros,
-            actx.np.sin(kx * x) * actx.np.sin(ky * y) * np.cos(tfac),  # ez
+            zeros,                                                      # ex
+            zeros,                                                      # ey
+            actx.np.sin(kx * x) * actx.np.sin(ky * y) * np.cos(tfac),   # ez
             (-ky * actx.np.sin(kx * x) * actx.np.cos(ky * y)
-             * np.sin(tfac) / omega),  # hx
+             * np.sin(tfac) / omega),                                   # hx
             (kx * actx.np.cos(kx * x) * actx.np.sin(ky * y)
-             * np.sin(tfac) / omega),  # hy
-            zeros,
+             * np.sin(tfac) / omega),                                   # hy
+            zeros,                                                      # hz
         )
     elif dims == 3:
+        kz = factors[2]
+        z = nodes[2]
+
         sz = actx.np.sin(kz*z)
         cz = actx.np.cos(kz*z)
 
@@ -613,15 +673,15 @@ def get_rectangular_cavity_mode(actx, nodes, t, E_0, mode_indices):  # noqa: N80
 
         gamma_squared = ky**2 + kx**2
         result = obj_array.flat(
-            -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,  # ex
-            -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,  # ey
-            E_0 * sx*sy*cz*tdep,  # ez
-            -1j * omega * ky*E_0*sx*cy*cz*tdep / gamma_squared,  # hx
-            1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,
-            zeros,
+            -kx * kz * E_0*cx*sy*sz*tdep / gamma_squared,               # ex
+            -ky * kz * E_0*sx*cy*sz*tdep / gamma_squared,               # ey
+            E_0 * sx*sy*cz*tdep,                                        # ez
+            -1j * omega * ky*E_0*sx*cy*cz*tdep / gamma_squared,         # hx
+            1j * omega * kx*E_0*cx*sy*cz*tdep / gamma_squared,          # hy
+            zeros,                                                      # hz
         )
     else:
-        raise NotImplementedError("only 2D and 3D supported")
+        raise NotImplementedError(f"only 2D and 3D supported: dim = {dims}")
 
     return result
 
