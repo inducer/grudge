@@ -1,3 +1,7 @@
+# pyright: reportUnknownArgumentType=false
+# ^ This silences basedpyright warnings that occurred in CI but
+# were somehow not reproducible locally
+
 """Wave equation operators."""
 from __future__ import annotations
 

@@ -1,3 +1,7 @@
+# pyright: reportUnknownArgumentType=false
+# ^ This silences basedpyright warnings that occurred in CI but
+# were somehow not reproducible locally
+
 """Grudge operators modeling compressible, inviscid flows (Euler)
 
 Model definitions
