@@ -64,7 +64,6 @@ from arraycontext import (
     ArrayContainer,
     ArrayContainerT,
     ArrayContext,
-    ArrayOrContainer,
     ArrayOrContainerOrScalar,
     is_array_container,
     map_array_container,
@@ -126,6 +125,10 @@ from grudge.trace_pair import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Hashable
 
+    # NOTE: do not be tempted to move this import out of TYPE_CHECKING: doing so
+    # makes sphinx *sometimes* expand the type alias and fail due to some types
+    # that are not actually documented (e.g. _UserDefinedArrayContainer)
+    from arraycontext import ArrayOrContainer
     from meshmode.discretization import (
         Discretization,
         ElementGroupBase,
