@@ -117,15 +117,11 @@ class TracePair(Generic[ArithArrayContainerT]):
     """A container class for data (both interior and exterior restrictions)
     on the boundaries of mesh elements.
 
-    .. attribute:: dd
-
-        an instance of :class:`grudge.dof_desc.DOFDesc` describing the
-        discretization on which :attr:`int` and :attr:`ext` live.
-
-    .. autoattribute:: int
-    .. autoattribute:: ext
-    .. autoattribute:: avg
-    .. autoattribute:: diff
+    .. autoattribute:: dd
+    .. autoproperty:: int
+    .. autoproperty:: ext
+    .. autoproperty:: avg
+    .. autoproperty:: diff
 
     .. automethod:: __getattr__
     .. automethod:: __getitem__
@@ -133,6 +129,10 @@ class TracePair(Generic[ArithArrayContainerT]):
     """
 
     dd: DOFDesc
+    """An instance of :class:`~grudge.dof_desc.DOFDesc` describing the
+    discretization on which :attr:`int` and :attr:`ext` live.
+    """
+
     interior: ArithArrayContainerT
     exterior: ArithArrayContainerT
 
