@@ -35,7 +35,7 @@ THE SOFTWARE.
 
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias, final, overload
 
 import numpy as np
 from typing_extensions import override
@@ -43,10 +43,10 @@ from typing_extensions import override
 import pymbolic.primitives as prim
 import pytools.obj_array as obj_array
 from arraycontext import (
-    ArithArrayContainer,
+    Array,
     ArrayContext,
+    ArrayOrArithContainerOrScalar,
     ArrayOrContainer,
-    ArrayOrContainerOrScalar,
     get_container_context_recursively,
 )
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BoundaryTag, Mesh
@@ -54,6 +54,7 @@ from pytools import levi_civita, memoize_method
 
 import grudge.geometry as geo
 import grudge.op as op
+from grudge.dof_desc import as_dofdesc
 from grudge.models import HyperbolicOperator
 
 
@@ -63,7 +64,7 @@ if TYPE_CHECKING:
     from grudge.discretization import DiscretizationCollection
     from grudge.trace_pair import TracePair
 
-Vector: TypeAlias = obj_array.ObjectArray1D[ArithArrayContainer]
+Vector: TypeAlias = obj_array.ObjectArray1D[ArrayOrArithContainerOrScalar]
 SubsetMask: TypeAlias = tuple[bool, bool, bool]
 VectorIndex: TypeAlias = np.ndarray[tuple[int], np.dtype[np.integer]]
 
@@ -134,7 +135,7 @@ class SubsettableCrossProduct:
     op2_subset: SubsetMask
     result_subset: SubsetMask
 
-    functions: list[Callable[[ArrayOrContainer, ArrayOrContainer], ArrayOrContainer]]
+    functions: list[Callable[[Vector, Vector], Vector]]
 
     def __init__(self,
                  op1_subset: SubsetMask = full_subset,
@@ -180,9 +181,10 @@ class SubsettableCrossProduct:
                  x: Vector,
                  y: Vector,
                  three_mult: Callable[
-                    [int, ArrayOrContainer, ArrayOrContainer],
-                    ArrayOrContainer] | None = None) -> Vector:
+                    [int, ArrayOrArithContainerOrScalar, ArrayOrArithContainerOrScalar],
+                    ArrayOrArithContainerOrScalar] | None = None) -> Vector:
         """Compute the subsetted cross product on the indexables *x* and *y*.
+
         :param three_mult: a function of three arguments *sign, xj, yk*
           used in place of the product *sign*xj*yk*. Defaults to just this
           product if not given.
@@ -214,9 +216,9 @@ class MaxwellOperator(HyperbolicOperator):
     dcoll: DiscretizationCollection
     dimensions: int
 
-    current: ArrayOrContainerOrScalar
-    epsilon: ArrayOrContainerOrScalar
-    mu: ArrayOrContainerOrScalar
+    current: ArrayOrArithContainerOrScalar
+    epsilon: ArrayOrArithContainerOrScalar
+    mu: ArrayOrArithContainerOrScalar
     fixed_material: bool
 
     flux_type: int | float | Literal["lf"]
@@ -233,8 +235,8 @@ class MaxwellOperator(HyperbolicOperator):
 
     def __init__(self,
                  dcoll: DiscretizationCollection,
-                 epsilon: ArrayOrContainerOrScalar,
-                 mu: ArrayOrContainerOrScalar,
+                 epsilon: ArrayOrArithContainerOrScalar,
+                 mu: ArrayOrArithContainerOrScalar,
                  flux_type: int | float | Literal["lf"],
                  bdry_flux_type: int | float | Literal["lf"] | None = None,
                  pec_tag: BoundaryTag = BTAG_ALL,
@@ -243,7 +245,7 @@ class MaxwellOperator(HyperbolicOperator):
                  incident_tag: BoundaryTag = BTAG_NONE,
                  incident_bc: Callable[[MaxwellOperator, Vector, Vector],
                                        Vector] | None = None,
-                 current: ArrayOrContainerOrScalar = 0,
+                 current: ArrayOrArithContainerOrScalar = 0,
                  dimensions: int | None = None) -> None:
         """
         :arg epsilon: can be a number, for a fixed material throughout the
@@ -258,7 +260,7 @@ class MaxwellOperator(HyperbolicOperator):
             for the Lax-Friedrichs flux.
         :arg bdry_flux_type: defaults to *flux_type* if not provided.
 
-        :arg incident_bc_getter: a function that accepts *e* and *h* as object
+        :arg incident_bc: a function that accepts *e* and *h* as object
             arrays and returns the value for the incident boundary condition.
         """
 
@@ -328,6 +330,8 @@ class MaxwellOperator(HyperbolicOperator):
         Z_ext = (mu/epsilon)**0.5  # noqa: N806
         Y_ext = 1/Z_ext  # noqa: N806
 
+        from typing import cast
+
         if self.flux_type == "lf":
             # if self.fixed_material:
             #     max_c = (self.epsilon*self.mu)**(-0.5)
@@ -345,26 +349,28 @@ class MaxwellOperator(HyperbolicOperator):
                         # multiplication by mu undoes material divisor below
                         # -max_c*(mu*h.int - mu*h.ext)
                     ))
-        elif isinstance(self.flux_type, int | float):
+        elif isinstance(self.flux_type, (int, float)):
             # see doc/maxima/maxwell.mac
             return obj_array.flat(
                     # flux e,
                     (
-                        -1/(Z_int+Z_ext)*self.space_cross_h(normal,
-                            Z_ext*(h.ext-h.int)
+                        -1/(Z_int+Z_ext)*self.space_cross_h(
+                            normal,
+                            cast("Vector", Z_ext*(h.ext-h.int))
                             - self.flux_type*self.space_cross_e(normal, e.ext-e.int))
                         ),
                     # flux h
                     (
-                        1/(Y_int + Y_ext)*self.space_cross_e(normal,
-                            Y_ext*(e.ext-e.int)
+                        1/(Y_int + Y_ext)*self.space_cross_e(
+                            normal,
+                            cast("Vector", Y_ext*(e.ext-e.int))
                             + self.flux_type*self.space_cross_h(normal, h.ext-h.int))
                         ),
                     )
         else:
             raise ValueError(f"maxwell: invalid flux_type ({self.flux_type})")
 
-    def local_derivatives(self, w):
+    def local_derivatives(self, w: Vector) -> Vector:
         """Template for the spatial derivatives of the relevant components of
         :math:`E` and :math:`H`
         """
@@ -376,13 +382,17 @@ class MaxwellOperator(HyperbolicOperator):
             [_Dx(self.dcoll, i) for i in range(self.dimensions)]
         )
 
-        def e_curl(field):
-            return self.space_cross_e(nabla, field,
-                                      three_mult=lambda lc, x, y: lc * (x * y))
+        def three_mult(
+                lc: int,
+                x: ArrayOrArithContainerOrScalar,
+                y: ArrayOrArithContainerOrScalar) -> ArrayOrArithContainerOrScalar:
+            return float(lc) * (x * y)
 
-        def h_curl(field):
-            return self.space_cross_h(nabla, field,
-                                      three_mult=lambda lc, x, y: lc * (x * y))
+        def e_curl(field: Vector) -> Vector:
+            return self.space_cross_e(nabla, field, three_mult=three_mult)  # pyright: ignore[reportArgumentType]
+
+        def h_curl(field: Vector) -> Vector:
+            return self.space_cross_h(nabla, field, three_mult=three_mult)  # pyright: ignore[reportArgumentType]
 
         # in conservation form: u_t + A u_x = 0
         return obj_array.flat(
@@ -390,8 +400,8 @@ class MaxwellOperator(HyperbolicOperator):
                 e_curl(e)
                 )
 
-    def pec_bc(self, w):
-        """Construct part of the flux operator template for PEC boundary conditions
+    def pec_bc(self, w: Vector) -> Vector:
+        """Construct part of the flux operator template for PEC boundary conditions.
         """
         e, h = self.split_eh(w)
 
@@ -400,8 +410,8 @@ class MaxwellOperator(HyperbolicOperator):
 
         return obj_array.flat(-pec_e, pec_h)
 
-    def pmc_bc(self, w):
-        """Construct part of the flux operator template for PMC boundary conditions
+    def pmc_bc(self, w: Vector) -> Vector:
+        """Construct part of the flux operator template for PMC boundary conditions.
         """
         e, h = self.split_eh(w)
 
@@ -410,13 +420,13 @@ class MaxwellOperator(HyperbolicOperator):
 
         return obj_array.flat(pmc_e, -pmc_h)
 
-    def absorbing_bc(self, w):
+    def absorbing_bc(self, w: Vector) -> Vector:
         """Construct part of the flux operator template for 1st order
         absorbing boundary conditions.
         """
 
         actx = get_container_context_recursively(w)
-        absorb_normal = geo.normal(actx, self.dcoll, dd=self.absorb_tag)
+        absorb_normal = geo.normal(actx, self.dcoll, as_dofdesc(self.absorb_tag))
 
         e, h = self.split_eh(w)
 
@@ -433,17 +443,19 @@ class MaxwellOperator(HyperbolicOperator):
         absorb_h = op.project(self.dcoll, "vol", self.absorb_tag, h)
 
         bc = obj_array.flat(
-                absorb_e + 1/2*(self.space_cross_h(absorb_normal, self.space_cross_e(
-                    absorb_normal, absorb_e))
+                absorb_e + 1/2*(self.space_cross_h(
+                    absorb_normal,
+                    self.space_cross_e(absorb_normal, absorb_e))
                     - absorb_Z*self.space_cross_h(absorb_normal, absorb_h)),
                 absorb_h + 1/2*(
-                    self.space_cross_e(absorb_normal, self.space_cross_h(
-                        absorb_normal, absorb_h))
+                    self.space_cross_e(
+                        absorb_normal,
+                        self.space_cross_h(absorb_normal, absorb_h))
                     + absorb_Y*self.space_cross_e(absorb_normal, absorb_e)))
 
         return bc
 
-    def incident_bc(self, w):
+    def incident_bc(self, w: Vector) -> Vector:
         """Flux terms for incident boundary conditions"""
         # NOTE: Untested for inhomogeneous materials, but would usually be
         # physically meaningless anyway (are there exceptions to this?)
@@ -457,7 +469,7 @@ class MaxwellOperator(HyperbolicOperator):
         else:
             return -incident_bc_data
 
-    def operator(self, t, w):
+    def operator(self, t: float, w: Vector) -> Vector:
         """The full operator template - the high level description of
         the Maxwell operator.
 
@@ -469,8 +481,7 @@ class MaxwellOperator(HyperbolicOperator):
 
         if self.fixed_material:
             # need to check this
-            material_divisor = (
-                    [self.epsilon]*elec_components+[self.mu]*mag_components)
+            material_divisor = [self.epsilon]*elec_components+[self.mu]*mag_components
         else:
             raise NotImplementedError("only fixed material supported for now")
 
@@ -483,10 +494,8 @@ class MaxwellOperator(HyperbolicOperator):
 
         dcoll = self.dcoll
 
-        def flux(pair):
+        def flux(pair: TracePair[Vector]) -> Vector:
             return op.project(dcoll, pair.dd, "all_faces", self.flux(pair))
-
-        from grudge.dof_desc import as_dofdesc
 
         return (
             - self.local_derivatives(w)
@@ -514,9 +523,15 @@ class MaxwellOperator(HyperbolicOperator):
         e_subset, h_subset = partial_to_all_subset_indices([e_subset, h_subset])
         return e_subset, h_subset
 
+    @overload
+    def split_eh(self, w: Vector) -> tuple[Vector, Vector]: ...
+
+    @overload
+    def split_eh(self, w: TracePair[Vector]) -> tuple[TracePair[Vector], TracePair[Vector]]: ...  # noqa: E501
+
     def split_eh(
-            self, w: TracePair[Vector]
-        ) -> tuple[TracePair[Vector], TracePair[Vector]]:
+            self, w: Vector | TracePair[Vector]
+        ) -> tuple[Vector, Vector] | tuple[TracePair[Vector], TracePair[Vector]]:
         """Splits an array into E and H components"""
         e_idx, h_idx = self.partial_to_eh_subsets()
         e, h = w[e_idx], w[h_idx]
@@ -530,7 +545,10 @@ class MaxwellOperator(HyperbolicOperator):
         """
         return (True, True, True, True, True, True)
 
-    def max_characteristic_velocity(self, actx: ArrayContext, **kwargs):
+    @override
+    def max_characteristic_velocity(
+            self, actx: ArrayContext, **kwargs: Any
+        ) -> Array:
         if self.fixed_material:
             return 1/np.sqrt(self.epsilon*self.mu)  # a number
         else:
@@ -627,8 +645,8 @@ def get_rectangular_cavity_mode(
         actx: ArrayContext,
         nodes: Vector,
         t: int | float,
-        E_0: ArithArrayContainer,  # noqa: N803
-        mode_indices: list[int]):
+        E_0: ArrayOrArithContainerOrScalar,  # noqa: N803
+        mode_indices: Sequence[int]) -> Vector:
     """A rectangular TM cavity mode for a rectangle / cube
     with one corner at the origin and the other at :math:`(1, 1[, 1])`.
     """

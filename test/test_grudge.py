@@ -906,7 +906,7 @@ def test_convergence_advec(
 # {{{ models: maxwell
 
 @pytest.mark.parametrize("order", [3, 4, 5])
-def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order):
+def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order: int) -> None:
     """Test whether 3D Maxwell's actually converges"""
 
     actx = actx_factory()
@@ -927,9 +927,9 @@ def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order):
         epsilon = 1
         mu = 1
 
-        from grudge.models.em import get_rectangular_cavity_mode
+        from grudge.models.em import Vector, get_rectangular_cavity_mode
 
-        def analytic_sol(x, t=0):
+        def analytic_sol(x: Vector, t: float = 0) -> Vector:
             return get_rectangular_cavity_mode(actx, x, t, 1, (1, 2, 2))
 
         nodes = actx.thaw(dcoll.nodes())
@@ -946,10 +946,12 @@ def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order):
         )
         maxwell_operator.check_bc_coverage(mesh)
 
-        def rhs(t, w, maxwell_operator=maxwell_operator):
+        def rhs(t: float,
+                w: Vector,
+                maxwell_operator: MaxwellOperator = maxwell_operator) -> Vector:
             return maxwell_operator.operator(t, w)
 
-        dt = actx.to_numpy(maxwell_operator.estimate_rk4_timestep(actx, dcoll))
+        dt = actx.to_numpy(maxwell_operator.estimate_rk4_timestep(actx, dcoll)).item()
         final_t = dt * 5
         nsteps = int(final_t/dt)
 
@@ -970,9 +972,11 @@ def test_convergence_maxwell(actx_factory: ArrayContextFactory,  order):
                 step += 1
                 logger.debug("[%04d] t = %.5e", step, event.t)
 
+        assert esc is not None
+
         sol = analytic_sol(nodes, t=step * dt)
         total_error = op.norm(dcoll, esc - sol, 2)
-        eoc_rec.add_data_point(1.0/n, actx.to_numpy(total_error))
+        eoc_rec.add_data_point(1.0/n, actx.to_numpy(total_error).item())
 
     logger.info("\n%s", eoc_rec.pretty_print(
         abscissa_label="h",
