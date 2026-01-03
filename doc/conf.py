@@ -40,8 +40,8 @@ nitpick_ignore_regex = [
 
 sphinxconfig_missing_reference_aliases = {
     # numpy
-    "np.floating": "class:numpy.floating",
     "DTypeLike": "obj:numpy.typing.DTypeLike",
+    "np.floating": "class:numpy.floating",
 
     # mpi4py
     "Intracomm": "mpi4py.MPI.Intracomm",
@@ -54,26 +54,26 @@ sphinxconfig_missing_reference_aliases = {
     "cl_array.Allocator": "class:pyopencl.array.Allocator",
 
     # actx
-    "arraycontext.typing.ArithArrayContainerT":
-        "obj:arraycontext.ArithArrayContainerT",
-    "ScalarLike": "obj:arraycontext.ScalarLike",
-    "Array": "obj:arraycontext.Array",
-    "ArrayContainer": "obj:arraycontext.ArrayContainer",
     "ArithArrayContainer": "obj:arraycontext.ArithArrayContainer",
     "ArithArrayContainerT": "obj:arraycontext.ArithArrayContainerT",
-    "ArrayOrContainer": "obj:arraycontext.ArrayOrContainer",
+    "Array": "obj:arraycontext.Array",
+    "ArrayContainer": "obj:arraycontext.ArrayContainer",
     "ArrayOrArithContainer": "obj:arraycontext.ArrayOrArithContainer",
+    "ArrayOrContainer": "obj:arraycontext.ArrayOrContainer",
+    "ArrayOrContainerOrScalar": "obj:arraycontext.ArrayOrContainerOrScalar",
     "ArrayOrContainerOrScalarT": "obj:arraycontext.ArrayOrContainerOrScalarT",
+    "ScalarLike": "obj:arraycontext.ScalarLike",
+    "arraycontext.typing.ArithArrayContainerT": "obj:arraycontext.ArithArrayContainerT",
 
     # meshmode
     "DOFArray": "meshmode.dof_array.DOFArray",
-    "Mesh": "meshmode.mesh.Mesh",
     "Discretization": "class:meshmode.discretization.Discretization",
+    "Mesh": "meshmode.mesh.Mesh",
 
     # grudge
     "DiscretizationTag": "obj:grudge.dof_desc.DiscretizationTag",
-    "VolumeTag": "obj:grudge.dof_desc.VolumeTag",
     "TracePair": "class:grudge.trace_pair.TracePair",
+    "VolumeTag": "obj:grudge.dof_desc.VolumeTag",
 }
 
 

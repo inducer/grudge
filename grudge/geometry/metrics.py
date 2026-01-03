@@ -60,8 +60,8 @@ THE SOFTWARE.
 """
 
 
-from functools import reduce
-from operator import add
+from functools import partial, reduce
+from operator import add, xor
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -75,8 +75,8 @@ from meshmode.transform_metadata import (
     DiscretizationAmbientDimAxisTag,
     DiscretizationTopologicalDimAxisTag,
 )
-from pymbolic.geometric_algebra import MultiVector
-from pytools import memoize_in
+from pymbolic.geometric_algebra import MultiVector, get_euclidean_space
+from pytools import flatten, memoize_in, product
 
 import grudge.dof_desc as dof_desc
 from grudge import DiscretizationCollection
@@ -96,9 +96,9 @@ def _geometry_to_quad_if_requested(
             dd: DOFDesc,
             vec: DOFArray,
             _use_geoderiv_connection: bool
-        ):
+        ) -> DOFArray:
 
-    def to_quad(vec: DOFArray):
+    def to_quad(vec: DOFArray) -> DOFArray:
         if not dd.uses_quadrature():
             return vec
         return dcoll.connection_from_dds(inner_dd, dd)(vec)
@@ -172,15 +172,15 @@ def forward_metric_nth_derivative(
         ref_axes = ((ref_axes, 1),)
 
     if not isinstance(ref_axes, tuple):
-        raise ValueError("ref_axes must be a tuple")
+        raise ValueError(f"'ref_axes' must be a tuple: {type(ref_axes)}")
 
     if tuple(sorted(ref_axes)) != ref_axes:
-        raise ValueError("ref_axes must be sorted")
+        raise ValueError(f"'ref_axes' must be sorted: {ref_axes}")
 
     if len(set(ref_axes)) != len(ref_axes):
-        raise ValueError("ref_axes must not contain an axis more than once")
+        raise ValueError(
+            f"'ref_axes' must not contain an axis more than once: {ref_axes}")
 
-    from pytools import flatten
     flat_ref_axes = flatten([rst_axis] * n for rst_axis, n in ref_axes)
 
     from meshmode.discretization import num_reference_derivative
@@ -453,11 +453,9 @@ def inverse_metric_derivative(
             for rst in range(dim)]
 
     # Yay Cramer's rule!
-    from functools import partial, reduce
-    from operator import xor as outerprod_op
-    outerprod = partial(reduce, outerprod_op)
+    outerprod = partial(reduce, xor)
 
-    def outprod_with_unit(i: int, at: int):
+    def outprod_with_unit(i: int, at: int) -> MultiVector[DOFArray]:
         unit_vec = np.zeros(dim)
         unit_vec[i] = 1
 
@@ -532,7 +530,7 @@ def inverse_surface_metric_derivative_mat(
             dd: ToDOFDescConvertible = None,
             *, times_area_element: bool = False,
             _use_geoderiv_connection: bool = False
-        ):
+        ) -> DOFArray:
     r"""Computes the matrix of inverse surface metric derivatives, indexed by
     ``(xyz_axis, rst_axis)``. It returns all values of
     :func:`inverse_surface_metric_derivative_mat` in cached matrix form.
@@ -557,7 +555,7 @@ def inverse_surface_metric_derivative_mat(
 
     @memoize_in(dcoll, (inverse_surface_metric_derivative_mat, dd,
         times_area_element, _use_geoderiv_connection))
-    def _inv_surf_metric_deriv():
+    def _inv_surf_metric_deriv() -> DOFArray:
         if times_area_element:
             multiplier = area_element(actx, dcoll, dd=dd,
                     _use_geoderiv_connection=_use_geoderiv_connection)
@@ -600,7 +598,7 @@ def _signed_face_ones(
 
     discr = dcoll.discr_from_dd(dd.with_discr_tag(DISCR_TAG_BASE))
 
-    new_group_arrays = []
+    new_group_arrays: list[np.ndarray[tuple[int, int], np.dtype[np.floating]]] = []
 
     for dgrp, grp in zip(discr.groups, all_faces_conn.groups, strict=True):
         sign = np.ones((dgrp.nelements, dgrp.nunit_dofs),
@@ -613,7 +611,6 @@ def _signed_face_ones(
 
         new_group_arrays.append(sign)
 
-    from meshmode.dof_array import DOFArray
     return actx.from_numpy(DOFArray(actx, tuple(new_group_arrays)))
 
 
@@ -638,14 +635,10 @@ def parametrization_derivative(
 
     dim = dcoll.discr_from_dd(dd).dim
     if dim == 0:
-        from pymbolic.geometric_algebra import get_euclidean_space
-
         return MultiVector(
             _signed_face_ones(actx, dcoll, dd),
             space=get_euclidean_space(dcoll.ambient_dim)
         )
-
-    from pytools import product
 
     res = product(
         forward_metric_derivative_mv(
@@ -655,6 +648,7 @@ def parametrization_derivative(
     )
     if isinstance(res, int):
         return MultiVector(res)
+
     return res
 
 
@@ -703,11 +697,12 @@ def area_element(
         dd = DD_VOLUME_ALL
 
     @memoize_in(dcoll, (area_element, dd, _use_geoderiv_connection))
-    def _area_elements():
+    def _area_elements() -> DOFArray:
         result = actx.np.sqrt(
             pseudoscalar(
                 actx, dcoll, dd=dd,
                 _use_geoderiv_connection=_use_geoderiv_connection).norm_squared())
+        assert isinstance(result, DOFArray)
 
         return actx.freeze(
                 actx.tag(NameHint(f"area_el_{dd.as_identifier()}"), result))
@@ -783,7 +778,7 @@ def mv_normal(
         use_geoderiv_connection = actx.supports_nonscalar_broadcasting
 
     @memoize_in(dcoll, (mv_normal, dd, use_geoderiv_connection))
-    def _normal():
+    def _normal() -> MultiVector[DOFArray]:
         dim = dcoll.discr_from_dd(dd).dim
         ambient_dim = dcoll.ambient_dim
 
@@ -834,8 +829,11 @@ def mv_normal(
     return actx.thaw(_normal())
 
 
-def normal(actx: ArrayContext, dcoll: DiscretizationCollection, dd: DOFDesc,
-        *, _use_geoderiv_connection: bool | None = None):
+def normal(actx: ArrayContext,
+           dcoll: DiscretizationCollection,
+           dd: DOFDesc,
+           *, _use_geoderiv_connection: bool | None = None,
+           ) -> obj_array.ObjectArray1D[DOFArray]:
     """Get the unit normal to the specified surface discretization, *dd*.
     This supports both volume discretizations
     (where ambient == topological dimension) and surface discretizations
@@ -896,8 +894,6 @@ def second_fundamental_form(
         second_ref_axes = [((0, 2),), ((0, 1), (1, 1)), ((1, 2),)]
     else:
         raise ValueError(f"{dim}D surfaces not supported")
-
-    from pytools import flatten
 
     form2 = np.empty((dim, dim), dtype=object)
 

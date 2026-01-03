@@ -28,6 +28,13 @@ THE SOFTWARE.
 """
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from arraycontext import Array, ArrayContext
+
+    from grudge.discretization import DiscretizationCollection
 
 
 class Operator(ABC):  # noqa: B024
@@ -40,11 +47,11 @@ class Operator(ABC):  # noqa: B024
     """
 
 
-class HyperbolicOperator(Operator):
+class HyperbolicOperator(Operator, ABC):
     """A base class for hyperbolic Discontinuous Galerkin operators."""
 
     @abstractmethod
-    def max_characteristic_velocity(self, actx, **kwargs):
+    def max_characteristic_velocity(self, actx: ArrayContext, **kwargs: Any) -> Array:
         r"""Return a maximum characteristic wavespeed for the operator.
 
         :arg actx: a :class:`arraycontext.ArrayContext`.
@@ -56,7 +63,10 @@ class HyperbolicOperator(Operator):
         the operator.
         """
 
-    def estimate_rk4_timestep(self, actx, dcoll, **kwargs):
+    def estimate_rk4_timestep(
+            self,
+            actx: ArrayContext,
+            dcoll: DiscretizationCollection, **kwargs: Any) -> Array:
         r"""Estimate the largest stable timestep for an RK4 method.
 
         :arg actx: a :class:`arraycontext.ArrayContext`.
