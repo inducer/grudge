@@ -81,9 +81,9 @@ extend-select = [
     "NPY", # numpy
     "Q",   # flake8-quotes
     "RUF", # ruff
+    "TC",  # flake8-type-checking
     "UP",  # pyupgrade
     "W",   # pycodestyle
-    "TC",
 ]
 extend-ignore = [
     "C90",  # McCabe complexity
@@ -92,6 +92,7 @@ extend-ignore = [
     "E241", # multiple spaces after comma
     "E242", # tab after comma
     "E402", # module level import not at the top of file
+    "RUF067",   # non-empty-init-module
 ]
 
 [tool.ruff.lint.flake8-quotes]
