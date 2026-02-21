@@ -60,7 +60,7 @@ from meshmode.transform_metadata import (
 )
 from pytools import memoize_in, memoize_on_first_arg
 
-import grudge.op as op
+from grudge import op
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
     FACE_RESTR_ALL,

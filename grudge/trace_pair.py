@@ -75,7 +75,7 @@ from meshmode.mesh import BTAG_PARTITION, PartID
 from pytools import memoize_on_first_arg
 from pytools.persistent_dict import KeyBuilder
 
-import grudge.dof_desc as dof_desc
+from grudge import dof_desc
 from grudge.array_context import MPIBasedArrayContext
 from grudge.dof_desc import (
     DD_VOLUME_ALL,

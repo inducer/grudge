@@ -86,7 +86,7 @@ from meshmode.transform_metadata import (
 )
 from pytools import memoize_in
 
-import grudge.dof_desc as dof_desc
+from grudge import dof_desc
 from grudge.array_context import MPIBasedArrayContext
 
 

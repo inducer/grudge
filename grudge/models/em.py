@@ -41,7 +41,6 @@ import numpy as np
 from typing_extensions import override
 
 import pymbolic.primitives as prim
-import pytools.obj_array as obj_array
 from arraycontext import (
     Array,
     ArrayContext,
@@ -50,10 +49,10 @@ from arraycontext import (
     get_container_context_recursively,
 )
 from meshmode.mesh import BTAG_ALL, BTAG_NONE, BoundaryTag, Mesh
-from pytools import levi_civita, memoize_method
+from pytools import levi_civita, memoize_method, obj_array
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.dof_desc import as_dofdesc
 from grudge.models import HyperbolicOperator
 
@@ -237,8 +236,8 @@ class MaxwellOperator(HyperbolicOperator):
                  dcoll: DiscretizationCollection,
                  epsilon: ArrayOrArithContainerOrScalar,
                  mu: ArrayOrArithContainerOrScalar,
-                 flux_type: int | float | Literal["lf"],
-                 bdry_flux_type: int | float | Literal["lf"] | None = None,
+                 flux_type: float | Literal["lf"],
+                 bdry_flux_type: float | Literal["lf"] | None = None,
                  pec_tag: BoundaryTag = BTAG_ALL,
                  pmc_tag: BoundaryTag = BTAG_NONE,
                  absorb_tag: BoundaryTag = BTAG_NONE,
@@ -453,7 +452,7 @@ class MaxwellOperator(HyperbolicOperator):
                         self.space_cross_h(absorb_normal, absorb_h))
                     + absorb_Y*self.space_cross_e(absorb_normal, absorb_e)))
 
-        return bc
+        return bc  # noqa: RET504
 
     def incident_bc(self, w: Vector) -> Vector:
         """Flux terms for incident boundary conditions"""
@@ -644,14 +643,14 @@ class SourceFree1DMaxwellOperator(MaxwellOperator):
 def get_rectangular_cavity_mode(
         actx: ArrayContext,
         nodes: Vector,
-        t: int | float,
+        t: float,
         E_0: ArrayOrArithContainerOrScalar,  # noqa: N803
         mode_indices: Sequence[int]) -> Vector:
     """A rectangular TM cavity mode for a rectangle / cube
     with one corner at the origin and the other at :math:`(1, 1[, 1])`.
     """
     dims = len(mode_indices)
-    if dims != 2 and dims != 3:
+    if dims not in {2, 3}:
         raise ValueError(f"unsupported 'mode_indices' dimensions: {dims}")
 
     factors = [n*np.pi for n in mode_indices]

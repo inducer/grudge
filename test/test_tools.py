@@ -25,26 +25,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
+import pytest
 
 from arraycontext import pytest_generate_tests_for_array_contexts
+from pytools import obj_array
 
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
 
 
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory])
-
-import logging
-
-import pytest
-
-import pytools.obj_array as obj_array
-
-
-logger = logging.getLogger(__name__)
 
 
 # {{{ map_subarrays and rec_map_subarrays

@@ -30,7 +30,7 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-import pytools.obj_array as obj_array
+from pytools import obj_array
 
 from grudge import op
 from grudge.array_context import PyOpenCLArrayContext

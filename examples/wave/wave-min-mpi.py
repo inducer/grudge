@@ -31,10 +31,9 @@ from mpi4py import MPI
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-import pytools.obj_array as obj_array
+from pytools import obj_array
 
-import grudge.op as op
-from grudge import make_discretization_collection
+from grudge import make_discretization_collection, op
 from grudge.array_context import MPIPyOpenCLArrayContext
 from grudge.shortcuts import set_up_rk4
 

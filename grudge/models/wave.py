@@ -36,13 +36,13 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContext, ScalarLike, get_container_context_recursively_opt
 from meshmode.dof_array import DOFArray
 from meshmode.mesh import BTAG_ALL, BTAG_NONE
+from pytools import obj_array
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.dof_desc import DISCR_TAG_BASE, BoundaryDomainTag, as_dofdesc
 from grudge.models import HyperbolicOperator
 

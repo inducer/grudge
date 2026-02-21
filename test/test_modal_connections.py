@@ -49,7 +49,7 @@ from meshmode.discretization.poly_element import (
 )
 from meshmode.dof_array import flat_norm
 
-import grudge.dof_desc as dof_desc
+from grudge import dof_desc
 
 
 @pytest.mark.parametrize("nodal_group_factory", [

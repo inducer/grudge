@@ -28,7 +28,7 @@ import logging
 import pyopencl as cl
 import pyopencl.tools as cl_tools
 
-import grudge.op as op
+from grudge import op
 from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.models.euler import EulerOperator, vortex_initial_condition
 from grudge.shortcuts import compiled_lsrk45_step

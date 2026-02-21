@@ -30,13 +30,13 @@ import numpy as np
 import pytest
 
 import meshmode.mesh.generation as mgen
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
 )
 from meshmode.mesh import BTAG_ALL
+from pytools import obj_array
 
 from grudge import geometry, op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
@@ -105,8 +105,8 @@ def test_gradient(
             result = 1
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
-            result = result * actx.np.cos(np.pi/2*x[dim-1])
-            return result
+
+            return result * actx.np.cos(np.pi/2*x[dim-1])
 
         def grad_f(x):
             result = obj_array.new_1d([1 for _ in range(dim)])
@@ -258,8 +258,8 @@ def test_divergence(
             result = obj_array.new_1d([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
-            result = result * actx.np.cos(np.pi/2*x[dim-1])
-            return result
+
+            return result * actx.np.cos(np.pi/2*x[dim-1])
 
         def div_f(x, dcoll=dcoll):
             result = dcoll.zeros(actx)
@@ -272,12 +272,13 @@ def test_divergence(
                     deriv = deriv * actx.np.sin(np.pi*x[j])
                 deriv = deriv * actx.np.cos(np.pi/2*x[dim-1])
                 result = result + deriv
+
             deriv = dcoll.zeros(actx) + dim
             for j in range(dim-1):
                 deriv = deriv * actx.np.sin(np.pi*x[j])
             deriv = deriv * (-np.pi/2*actx.np.sin(np.pi/2*x[dim-1]))
-            result = result + deriv
-            return result
+
+            return result + deriv
 
         x = actx.thaw(dcoll.nodes())
 

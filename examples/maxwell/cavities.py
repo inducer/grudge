@@ -136,15 +136,14 @@ def main(ctx_factory, dim=3, order=4, visualize=False):
                 norm_e0, norm_e1, norm_h0, norm_h1
             )
 
-            if step % 10 == 0:
-                if visualize:
-                    vis.write_vtk_file(
-                        f"fld-cavities-{step:04d}.vtu",
-                        [
-                            ("e", e),
-                            ("h", h),
-                        ]
-                    )
+            if visualize and step % 10 == 0:
+                vis.write_vtk_file(
+                    f"fld-cavities-{step:04d}.vtu",
+                    [
+                        ("e", e),
+                        ("h", h),
+                    ]
+                )
 
             # NOTE: These are here to ensure the solution is bounded for the
             # time interval specified

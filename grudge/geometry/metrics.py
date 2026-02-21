@@ -66,7 +66,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContext, register_multivector_as_array_container, tag_axes
 from arraycontext.metadata import NameHint
 from meshmode.discretization.connection import DirectDiscretizationConnection
@@ -76,10 +75,9 @@ from meshmode.transform_metadata import (
     DiscretizationTopologicalDimAxisTag,
 )
 from pymbolic.geometric_algebra import MultiVector, get_euclidean_space
-from pytools import flatten, memoize_in, product
+from pytools import flatten, memoize_in, obj_array, product
 
-import grudge.dof_desc as dof_desc
-from grudge import DiscretizationCollection
+from grudge import DiscretizationCollection, dof_desc
 from grudge.dof_desc import DD_VOLUME_ALL, DISCR_TAG_BASE, DOFDesc, ToDOFDescConvertible
 
 
@@ -172,7 +170,7 @@ def forward_metric_nth_derivative(
         ref_axes = ((ref_axes, 1),)
 
     if not isinstance(ref_axes, tuple):
-        raise ValueError(f"'ref_axes' must be a tuple: {type(ref_axes)}")
+        raise ValueError(f"'ref_axes' must be a tuple: {type(ref_axes)}")  # noqa: TRY004
 
     if tuple(sorted(ref_axes)) != ref_axes:
         raise ValueError(f"'ref_axes' must be sorted: {ref_axes}")
@@ -471,10 +469,7 @@ def inverse_metric_derivative(
         for rst_axis in range(dim)
     ).inv()
 
-    result = (outprod_with_unit(xyz_axis, rst_axis)
-              * volume_pseudoscalar_inv).as_scalar()
-
-    return result
+    return (outprod_with_unit(xyz_axis, rst_axis) * volume_pseudoscalar_inv).as_scalar()
 
 
 def inverse_surface_metric_derivative(

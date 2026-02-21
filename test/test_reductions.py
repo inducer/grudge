@@ -33,7 +33,6 @@ import mesh_data
 import numpy as np
 import pytest
 
-import pytools.obj_array as obj_array
 from arraycontext import (
     ArrayContextFactory,
     dataclass_array_container,
@@ -42,6 +41,7 @@ from arraycontext import (
     with_container_arithmetic,
 )
 from meshmode.dof_array import DOFArray
+from pytools import obj_array
 
 from grudge import op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory

@@ -34,8 +34,7 @@ import pyopencl.tools as cl_tools
 from arraycontext import flatten
 from meshmode.mesh import BTAG_ALL
 
-import grudge.dof_desc as dof_desc
-import grudge.op as op
+from grudge import dof_desc, op
 from grudge.array_context import PyOpenCLArrayContext
 
 

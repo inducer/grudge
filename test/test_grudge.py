@@ -34,7 +34,6 @@ import numpy.linalg as la
 import pytest
 
 import meshmode.mesh.generation as mgen
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
 from meshmode import _acf  # noqa: F401
 from meshmode.discretization.poly_element import (
@@ -43,6 +42,7 @@ from meshmode.discretization.poly_element import (
 )
 from meshmode.dof_array import flat_norm
 from meshmode.mesh import TensorProductElementGroup
+from pytools import obj_array
 
 from grudge import dof_desc, geometry, op
 from grudge.array_context import PytestPyOpenCLArrayContextFactory
