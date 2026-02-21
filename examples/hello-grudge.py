@@ -15,7 +15,7 @@ from meshmode.array_context import PyOpenCLArrayContext
 from meshmode.mesh.generation import generate_box_mesh
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import FACE_RESTR_INTERIOR, BoundaryDomainTag, as_dofdesc
 

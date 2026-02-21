@@ -118,8 +118,9 @@ lines-after-imports = 2
 required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
+"doc/conf.py" = ["I002", "S102", "DTZ002"]
 "examples/*.py" = ["I002"]
-"doc/conf.py" = ["I002"]
+"test/test_*.py" = ["S102"]
 
 [tool.typos.default]
 extend-ignore-re = [

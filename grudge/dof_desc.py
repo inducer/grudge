@@ -305,7 +305,8 @@ class DOFDesc:
         :class:`DOFDesc`.
         """
         if not isinstance(self.domain_tag, VolumeDomainTag):
-            raise ValueError(f"must originate on volume, got '{self.domain_tag}'")
+            raise TypeError(f"must originate on volume, got '{self.domain_tag}'")
+
         return replace(self,
                 domain_tag=BoundaryDomainTag(btag, volume_tag=self.domain_tag.tag))
 
@@ -317,7 +318,8 @@ class DOFDesc:
         :class:`DOFDesc`.
         """
         if not isinstance(self.domain_tag, BoundaryDomainTag):
-            raise ValueError(f"must originate on boundary, got '{self.domain_tag}'")
+            raise TypeError(f"must originate on boundary, got '{self.domain_tag}'")
+
         return replace(self,
                 domain_tag=VolumeDomainTag(self.domain_tag.volume_tag))
 
@@ -329,7 +331,8 @@ class DOFDesc:
         :class:`DOFDesc`.
         """
         if not isinstance(self.domain_tag, BoundaryDomainTag):
-            raise ValueError(f"must originate on boundary, got '{self.domain_tag}'")
+            raise TypeError(f"must originate on boundary, got '{self.domain_tag}'")
+
         return replace(self,
                 domain_tag=replace(self.domain_tag, tag=btag))
 
@@ -410,7 +413,7 @@ def _normalize_domain_and_discr_tag(
         domain = BoundaryDomainTag(FACE_RESTR_ALL, contextual_volume_tag)
     elif domain in [FACE_RESTR_INTERIOR, "int_faces"]:
         domain = BoundaryDomainTag(FACE_RESTR_INTERIOR, contextual_volume_tag)
-    elif isinstance(domain, BTAG_PARTITION):
+    elif isinstance(domain, BTAG_PARTITION):  # noqa: SIM114
         domain = BoundaryDomainTag(domain, contextual_volume_tag)
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
         domain = BoundaryDomainTag(domain, contextual_volume_tag)

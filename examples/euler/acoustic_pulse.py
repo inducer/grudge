@@ -29,11 +29,11 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContext
 from meshmode.mesh import BTAG_ALL
+from pytools import obj_array
 
-import grudge.op as op
+from grudge import op
 from grudge.array_context import PyOpenCLArrayContext, PytatoPyOpenCLArrayContext
 from grudge.models.euler import ConservedEulerField, EulerOperator, InviscidWallBC
 from grudge.shortcuts import compiled_lsrk45_step

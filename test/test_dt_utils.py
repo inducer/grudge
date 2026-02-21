@@ -25,36 +25,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
+import mesh_data
 import numpy as np
+import pytest
 
-import pytools.obj_array as obj_array
 from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
+from meshmode import _acf  # noqa: F401
+from pytools import obj_array
 
+from grudge import op
 from grudge.array_context import (
     PytestNumpyArrayContextFactory,
     PytestPyOpenCLArrayContextFactory,
     PytestPytatoJAXArrayContextFactory,
     PytestPytatoPyOpenCLArrayContextFactory,
 )
+from grudge.discretization import make_discretization_collection
 
 
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts(
         [PytestPyOpenCLArrayContextFactory,
          PytestPytatoPyOpenCLArrayContextFactory,
          PytestNumpyArrayContextFactory,
          PytestPytatoJAXArrayContextFactory])
-
-import logging
-
-import mesh_data
-import pytest
-
-import grudge.op as op
-from grudge.discretization import make_discretization_collection
-
-
-logger = logging.getLogger(__name__)
-from meshmode import _acf  # noqa: F401
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])

@@ -26,9 +26,8 @@ THE SOFTWARE.
 from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
-import pytools.obj_array as obj_array
 from arraycontext import BcastUntilActxArray
-from pytools import memoize_in
+from pytools import memoize_in, obj_array
 
 from grudge.dof_desc import DD_VOLUME_ALL
 

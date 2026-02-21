@@ -31,11 +31,11 @@ import numpy.linalg as la  # noqa
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-import pytools.obj_array as obj_array
 from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa
+from pytools import obj_array
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.array_context import PyOpenCLArrayContext
 from grudge.discretization import make_discretization_collection
 from grudge.dof_desc import DISCR_TAG_BASE, DISCR_TAG_QUAD, as_dofdesc

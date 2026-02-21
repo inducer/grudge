@@ -58,7 +58,6 @@ from typing import TYPE_CHECKING, Any, cast, overload
 import numpy as np
 
 import modepy as mp
-import pytools.obj_array as obj_array
 from arraycontext import (
     Array,
     ArrayContainer,
@@ -81,7 +80,7 @@ from meshmode.transform_metadata import (
     DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
-from pytools import keyed_memoize_in
+from pytools import keyed_memoize_in, obj_array
 
 from grudge.dof_desc import (
     DD_VOLUME_ALL,

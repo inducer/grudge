@@ -33,7 +33,7 @@ import types
 import numpy as np
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.models import HyperbolicOperator
 
 
@@ -72,7 +72,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
         if flux_type not in self.flux_types:
             raise ValueError(f"unknown flux type: '{flux_type}'")
 
-        if inflow_u is not None:
+        if inflow_u is not None:  # noqa: SIM102
             if not isinstance(inflow_u, types.LambdaType):
                 raise ValueError(
                     "A specified inflow_u must be a lambda function of time `t`"

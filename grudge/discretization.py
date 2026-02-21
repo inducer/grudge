@@ -247,7 +247,8 @@ class DiscretizationCollection:
         self._dist_boundary_connections = {
             vtag: self._set_up_distributed_communication(
                         vtag, mpi_communicator, array_context)
-            for vtag in self._volume_discrs.keys()}
+            for vtag in self._volume_discrs
+        }
 
     # }}}
 
@@ -304,8 +305,8 @@ class DiscretizationCollection:
                     conns = bdry_setup_helper.complete_some()
                     if not conns:
                         break
-                    for i_remote_part, conn in conns.items():
-                        boundary_connections[i_remote_part] = conn
+
+                    boundary_connections.update(conns)
 
         return boundary_connections
 
@@ -375,7 +376,7 @@ class DiscretizationCollection:
             else:
                 return self._boundary_connection(dd.domain_tag).to_discr
         else:
-            raise ValueError(f"DOF desc not understood: {dd}")
+            raise ValueError(f"DOF desc not understood: {dd}")  # noqa: TRY004
 
     # }}}
 
@@ -583,7 +584,7 @@ class DiscretizationCollection:
                         f"cannot get a connection from volume to: '{to_dd}'")
 
         else:
-            raise ValueError(f"cannot get a connection from: '{from_dd}'")
+            raise ValueError(f"cannot get a connection from: '{from_dd}'")  # noqa: TRY004
 
     # }}}
 

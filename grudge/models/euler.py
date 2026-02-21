@@ -56,16 +56,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import pytools.obj_array as obj_array
 from arraycontext import (
     ArrayContext,
     dataclass_array_container,
     with_container_arithmetic,
 )
 from meshmode.dof_array import DOFArray
+from pytools import obj_array
 
 import grudge.geometry as geo
-import grudge.op as op
+from grudge import op
 from grudge.dof_desc import DISCR_TAG_BASE, DOFDesc, as_dofdesc
 from grudge.models import HyperbolicOperator
 from grudge.trace_pair import TracePair
