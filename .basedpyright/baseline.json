@@ -900,18 +900,10 @@
                 }
             },
             {
-                "code": "reportUnknownVariableType",
+                "code": "reportUnknownArgumentType",
                 "range": {
-                    "startColumn": 24,
-                    "endColumn": 37,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnknownVariableType",
-                "range": {
-                    "startColumn": 39,
-                    "endColumn": 43,
+                    "startColumn": 48,
+                    "endColumn": 53,
                     "lineCount": 1
                 }
             },
@@ -6695,6 +6687,14 @@
             }
         ],
         "./grudge/reductions.py": [
+            {
+                "code": "reportUnknownVariableType",
+                "range": {
+                    "startColumn": 4,
+                    "endColumn": 22,
+                    "lineCount": 1
+                }
+            },
             {
                 "code": "reportUnknownParameterType",
                 "range": {
