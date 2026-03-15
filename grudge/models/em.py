@@ -452,7 +452,7 @@ class MaxwellOperator(HyperbolicOperator):
                         self.space_cross_h(absorb_normal, absorb_h))
                     + absorb_Y*self.space_cross_e(absorb_normal, absorb_e)))
 
-        return bc  # noqa: RET504
+        return bc
 
     def incident_bc(self, w: Vector) -> Vector:
         """Flux terms for incident boundary conditions"""
