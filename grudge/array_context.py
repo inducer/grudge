@@ -62,7 +62,9 @@ try:
     try:
         # Crude check if we have the correct loopy branch
         # (https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms)
-        from loopy.transform.loop_fusion import get_kennedy_unweighted_fusion_candidates  # noqa
+        from loopy.transform.loop_fusion import (
+            get_kennedy_unweighted_fusion_candidates,  # noqa: F401
+        )
     except ImportError:
         warn("Your loopy and meshmode branches are mismatched. "
              "Please make sure that you have the "
@@ -645,7 +647,7 @@ def get_reasonable_array_context_class(
             if not _HAVE_FUSION_ACTX:
                 warn("No device-parallel actx available, execution will be slow. "
                      "Please make sure you have the right branches for loopy "
-                     "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa
+                     "(https://github.com/kaushikcfd/loopy/tree/pytato-array-context-transforms) "  # noqa: E501
                      "and meshmode "
                      "(https://github.com/kaushikcfd/meshmode/tree/pytato-array-context-transforms).",
                      stacklevel=1)
