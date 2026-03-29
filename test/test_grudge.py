@@ -873,7 +873,7 @@ def test_convergence_advec(
 
             if visualize:
                 vis.write_vtk_file(
-                    f"fld-{mesh_par}-{step:04d}vtu" % (mesh_par, step),
+                    f"fld-{mesh_par}-{step:04d}vtu",
                     [("u", u)]
                 )
 

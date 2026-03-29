@@ -410,7 +410,7 @@ def inverse_first_fundamental_form(
                  obj_array.new_1d([-F, E])]
             )
         else:
-            raise ValueError(f"{dim}D surfaces not supported" % dim)
+            raise ValueError(f"{dim}D surfaces not supported")
 
     return inv_form1
 
