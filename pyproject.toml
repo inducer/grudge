@@ -158,6 +158,7 @@ reportImportCycles = "none"
 exclude = [
     "doc",
     ".conda-root",
+    ".venv",
 ]
 
 pythonVersion = "3.10"
@@ -204,4 +205,3 @@ reportPossiblyUnboundVariable = "hint"
 reportPrivateUsage = "none"
 reportUnusedImport = "hint"
 reportIndexIssue = "hint"
-
