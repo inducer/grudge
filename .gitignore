@@ -33,6 +33,7 @@ run-debug-*
 
 .cache
 .pytest_cache
+.venv
 
 # pylint stuff
 .pylintrc.yml
