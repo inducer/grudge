@@ -262,7 +262,6 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         from pytato import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
 
-        # type-ignore-reason: 'PytatoPyOpenCLArrayContext' has no 'mpi_communicator'
         # pylint: disable=no-member
         distributed_partition, new_mpi_base_tag = number_distributed_tags(
                 self.actx.mpi_communicator,

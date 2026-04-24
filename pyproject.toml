@@ -52,7 +52,7 @@ doc = [
     "sphinx>=4",
 ]
 test = [
-    "mypy",
+    "basedpyright",
     "pytest",
     "ruff"
 ]
