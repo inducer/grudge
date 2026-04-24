@@ -238,17 +238,11 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
                 dict_of_named_arrays)
 
         distributed_partition = pt.find_distributed_partition(
-            # pylint-ignore-reason:
-            # '_BasePytatoArrayContext' has no
-            # 'mpi_communicator' member
-            # pylint: disable=no-member
             self.actx.mpi_communicator, dict_of_named_arrays)
 
         if __debug__:
-            # pylint-ignore-reason:
-            # '_BasePytatoArrayContext' has no 'mpi_communicator' member
             pt.verify_distributed_partition(
-                self.actx.mpi_communicator,  # pylint: disable=no-member
+                self.actx.mpi_communicator,
                 distributed_partition)
 
         self.actx._compile_trace_callback(self.f, "post_find_distributed_partition",
@@ -262,7 +256,6 @@ class _DistributedLazilyPyOpenCLCompilingFunctionCaller(
         from pytato import number_distributed_tags
         prev_mpi_base_tag = self.actx.mpi_base_tag
 
-        # pylint: disable=no-member
         distributed_partition, new_mpi_base_tag = number_distributed_tags(
                 self.actx.mpi_communicator,
                 distributed_partition,
@@ -371,8 +364,8 @@ class _DistributedCompiledFunction:
         assert isinstance(self.actx, PytatoPyOpenCLArrayContext | PyOpenCLArrayContext)
         out_dict = execute_distributed_partition(
                 self.distributed_partition, self.part_id_to_prg,
-                self.actx.queue, self.actx.mpi_communicator,  # pylint: disable=no-member
-                allocator=self.actx.allocator,  # pylint: disable=no-member
+                self.actx.queue, self.actx.mpi_communicator,
+                allocator=self.actx.allocator,
                 input_args=input_args_for_prg)
 
         def to_output_template(keys, _):
