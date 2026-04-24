@@ -59,7 +59,7 @@ class Curve2DMeshBuilder(MeshBuilder):
         if mesh_order is None:
             mesh_order = 4
         return mgen.make_curve_mesh(
-                self.curve_fn,      # pylint: disable=no-member
+                self.curve_fn,
                 np.linspace(0.0, 1.0, resolution + 1),
                 mesh_order)
 

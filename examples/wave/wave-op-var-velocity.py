@@ -98,7 +98,6 @@ def wave_operator(actx, dcoll, c, w):
             obj_array.flat(
                 -op.weak_local_div(dcoll, dd_quad, c_quad*v_quad),
                 -op.weak_local_grad(dcoll, dd_quad, c_quad*u_quad)
-                # pylint: disable=invalid-unary-operand-type
             ) + op.face_mass(
                 dcoll,
                 dd_allfaces_quad,

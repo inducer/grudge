@@ -137,7 +137,7 @@ def _ellipse_surface_area(radius, aspect_ratio):
         # NOTE: hardcoded value so we don't need scipy for the test
         ellip_e = 1.2110560275684594
     else:
-        from scipy.special import ellipe  # pylint: disable=no-name-in-module
+        from scipy.special import ellipe
 
         ellip_e = ellipe(eccentricity)
 
@@ -1093,7 +1093,7 @@ def test_bessel(actx_factory: ArrayContextFactory):
     # FIXME: Bessel functions need to brought out of the symbolic
     # layer. Related issue: https://github.com/inducer/grudge/issues/93
     def bessel_j(actx, n, r):
-        from grudge import bind, sym  # pylint: disable=no-name-in-module
+        from grudge import bind, sym
         return bind(dcoll, sym.bessel_j(n, sym.var("r")))(actx, r=r)
 
     # https://dlmf.nist.gov/10.6.1
