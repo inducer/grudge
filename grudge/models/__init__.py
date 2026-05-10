@@ -84,3 +84,8 @@ class HyperbolicOperator(Operator, ABC):
         )
 
         return nodal_min(dcoll, "vol", local_timesteps)
+
+
+from grudge.models.elliptic import (
+    InteriorPenaltyEllipticOperator as InteriorPenaltyEllipticOperator,
+)
