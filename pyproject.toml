@@ -54,7 +54,9 @@ doc = [
 test = [
     "basedpyright",
     "pytest",
-    "ruff"
+    "ruff",
+    # NOTE: 0.18 requires Python 3.12
+    "optype<0.18",
 ]
 
 [project.urls]
