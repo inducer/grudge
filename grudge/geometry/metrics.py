@@ -170,7 +170,7 @@ def forward_metric_nth_derivative(
         ref_axes = ((ref_axes, 1),)
 
     if not isinstance(ref_axes, tuple):
-        raise ValueError(f"'ref_axes' must be a tuple: {type(ref_axes)}")  # noqa: TRY004
+        raise ValueError(f"'ref_axes' must be a tuple: {type(ref_axes)}")  # ruff:ignore[type-check-without-type-error]
 
     if tuple(sorted(ref_axes)) != ref_axes:
         raise ValueError(f"'ref_axes' must be sorted: {ref_axes}")
@@ -404,7 +404,7 @@ def inverse_first_fundamental_form(
         if dim == 1:
             inv_form1 = 1.0 / form1
         elif dim == 2:
-            (E, F), (_, G) = form1      # noqa: N806
+            (E, F), (_, G) = form1      # ruff:ignore[non-lowercase-variable-in-function]
             inv_form1 = 1.0 / (E * G - F * F) * obj_array.stack(
                 [obj_array.new_1d([G, -F]),
                  obj_array.new_1d([-F, E])]

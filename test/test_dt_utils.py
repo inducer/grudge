@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
-from meshmode import _acf  # noqa: F401
+from meshmode import _acf  # ruff:ignore[unused-import]
 from pytools import obj_array
 
 from grudge import op
@@ -92,7 +92,7 @@ def test_geometric_factors_regular_refinement(actx_factory: ArrayContextFactory,
     # Make sure it works with empty meshes
     mesh = builder.get_mesh(0)
     dcoll = make_discretization_collection(actx, mesh, order=order)
-    factors = actx.thaw(dt_geometric_factors(dcoll))  # noqa: F841
+    factors = actx.thaw(dt_geometric_factors(dcoll))  # ruff:ignore[unused-variable]
 
 
 @pytest.mark.parametrize("name", ["interval", "box2d", "box3d"])

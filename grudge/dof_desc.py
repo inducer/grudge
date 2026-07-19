@@ -99,7 +99,7 @@ from pytools import to_identifier
 
 # {{{ volume tags
 
-class VTAG_ALL:  # noqa: N801
+class VTAG_ALL:  # ruff:ignore[invalid-class-name]
     pass
 
 
@@ -160,7 +160,7 @@ class _DiscretizationTag:
 DiscretizationTag = type[_DiscretizationTag]
 
 
-class DISCR_TAG_BASE(_DiscretizationTag):  # noqa: N801
+class DISCR_TAG_BASE(_DiscretizationTag):  # ruff:ignore[invalid-class-name]
     """A discretization tag indicating the use of a
     nodal and unisolvent discretization. This tag is used
     to distinguish the base discretization from quadrature
@@ -169,7 +169,7 @@ class DISCR_TAG_BASE(_DiscretizationTag):  # noqa: N801
     """
 
 
-class DISCR_TAG_QUAD(_DiscretizationTag):  # noqa: N801
+class DISCR_TAG_QUAD(_DiscretizationTag):  # ruff:ignore[invalid-class-name]
     """A discretization tag indicating the use of a quadrature discretization
     grid, which typically affords higher quadrature accuracy (e.g. for
     nonlinear terms) at the expense of unisolvency. This tag is used to
@@ -192,7 +192,7 @@ class DISCR_TAG_QUAD(_DiscretizationTag):  # noqa: N801
     """
 
 
-class DISCR_TAG_MODAL(_DiscretizationTag):  # noqa: N801
+class DISCR_TAG_MODAL(_DiscretizationTag):  # ruff:ignore[invalid-class-name]
     """A discretization tag indicating the use of unisolvent modal degrees of
     freedom. This tag is used to distinguish the modal discretization from the
     base (nodal) discretization (e.g.  :class:`DISCR_TAG_BASE`) or
@@ -413,7 +413,7 @@ def _normalize_domain_and_discr_tag(
         domain = BoundaryDomainTag(FACE_RESTR_ALL, contextual_volume_tag)
     elif domain in [FACE_RESTR_INTERIOR, "int_faces"]:
         domain = BoundaryDomainTag(FACE_RESTR_INTERIOR, contextual_volume_tag)
-    elif isinstance(domain, BTAG_PARTITION):  # noqa: SIM114
+    elif isinstance(domain, BTAG_PARTITION):  # ruff:ignore[if-with-same-arms]
         domain = BoundaryDomainTag(domain, contextual_volume_tag)
     elif domain in [BTAG_ALL, BTAG_REALLY_ALL, BTAG_NONE]:
         domain = BoundaryDomainTag(domain, contextual_volume_tag)

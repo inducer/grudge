@@ -72,7 +72,7 @@ class AdvectionOperatorBase(HyperbolicOperator):
         if flux_type not in self.flux_types:
             raise ValueError(f"unknown flux type: '{flux_type}'")
 
-        if inflow_u is not None:  # noqa: SIM102
+        if inflow_u is not None:  # ruff:ignore[collapsible-if]
             if not isinstance(inflow_u, types.LambdaType):
                 raise ValueError(
                     "A specified inflow_u must be a lambda function of time `t`"

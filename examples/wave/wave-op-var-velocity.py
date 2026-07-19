@@ -27,11 +27,11 @@ THE SOFTWARE.
 import logging
 
 import numpy as np
-import numpy.linalg as la  # noqa: F401
+import numpy.linalg as la  # ruff:ignore[unused-import]
 
 import pyopencl as cl
 import pyopencl.tools as cl_tools
-from meshmode.mesh import BTAG_ALL, BTAG_NONE  # noqa: F401
+from meshmode.mesh import BTAG_ALL, BTAG_NONE  # ruff:ignore[unused-import]
 from pytools import obj_array
 
 import grudge.geometry as geo
