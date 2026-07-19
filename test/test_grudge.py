@@ -35,7 +35,7 @@ import pytest
 
 import meshmode.mesh.generation as mgen
 from arraycontext import ArrayContextFactory, pytest_generate_tests_for_array_contexts
-from meshmode import _acf  # noqa: F401
+from meshmode import _acf  # ruff:ignore[unused-import]
 from meshmode.discretization.poly_element import (
     InterpolatoryEdgeClusteredGroupFactory,
     QuadratureGroupFactory,
@@ -205,7 +205,7 @@ def test_mass_surface_area(actx_factory: ArrayContextFactory, name):
         approx_surface_area = actx.to_numpy(op.integral(dcoll, dd, ones_volm))
 
         logger.info(
-            f"surface: got {approx_surface_area:.5e} / expected {surface_area:.5e}")  # noqa: G004
+            f"surface: got {approx_surface_area:.5e} / expected {surface_area:.5e}")  # ruff:ignore[logging-f-string]
         area_error = abs(approx_surface_area - surface_area) / abs(surface_area)
 
         # }}}

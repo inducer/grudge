@@ -376,7 +376,7 @@ class DiscretizationCollection:
             else:
                 return self._boundary_connection(dd.domain_tag).to_discr
         else:
-            raise ValueError(f"DOF desc not understood: {dd}")  # noqa: TRY004
+            raise ValueError(f"DOF desc not understood: {dd}")  # ruff:ignore[type-check-without-type-error]
 
     # }}}
 
@@ -584,7 +584,7 @@ class DiscretizationCollection:
                         f"cannot get a connection from volume to: '{to_dd}'")
 
         else:
-            raise ValueError(f"cannot get a connection from: '{from_dd}'")  # noqa: TRY004
+            raise ValueError(f"cannot get a connection from: '{from_dd}'")  # ruff:ignore[type-check-without-type-error]
 
     # }}}
 

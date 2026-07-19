@@ -324,10 +324,10 @@ class MaxwellOperator(HyperbolicOperator):
         else:
             raise NotImplementedError("only fixed material supported for now")
 
-        Z_int = (mu/epsilon)**0.5  # noqa: N806
-        Y_int = 1/Z_int  # noqa: N806
-        Z_ext = (mu/epsilon)**0.5  # noqa: N806
-        Y_ext = 1/Z_ext  # noqa: N806
+        Z_int = (mu/epsilon)**0.5  # ruff:ignore[non-lowercase-variable-in-function]
+        Y_int = 1/Z_int  # ruff:ignore[non-lowercase-variable-in-function]
+        Z_ext = (mu/epsilon)**0.5  # ruff:ignore[non-lowercase-variable-in-function]
+        Y_ext = 1/Z_ext  # ruff:ignore[non-lowercase-variable-in-function]
 
         from typing import cast
 
@@ -435,8 +435,8 @@ class MaxwellOperator(HyperbolicOperator):
         else:
             raise NotImplementedError("only fixed material supported for now")
 
-        absorb_Z = (mu/epsilon)**0.5  # noqa: N806
-        absorb_Y = 1/absorb_Z  # noqa: N806
+        absorb_Z = (mu/epsilon)**0.5  # ruff:ignore[non-lowercase-variable-in-function]
+        absorb_Y = 1/absorb_Z  # ruff:ignore[non-lowercase-variable-in-function]
 
         absorb_e = op.project(self.dcoll, "vol", self.absorb_tag, e)
         absorb_h = op.project(self.dcoll, "vol", self.absorb_tag, h)
@@ -526,7 +526,7 @@ class MaxwellOperator(HyperbolicOperator):
     def split_eh(self, w: Vector) -> tuple[Vector, Vector]: ...
 
     @overload
-    def split_eh(self, w: TracePair[Vector]) -> tuple[TracePair[Vector], TracePair[Vector]]: ...  # noqa: E501
+    def split_eh(self, w: TracePair[Vector]) -> tuple[TracePair[Vector], TracePair[Vector]]: ...  # ruff:ignore[line-too-long]
 
     def split_eh(
             self, w: Vector | TracePair[Vector]
@@ -644,7 +644,7 @@ def get_rectangular_cavity_mode(
         actx: ArrayContext,
         nodes: Vector,
         t: float,
-        E_0: ArrayOrArithContainerOrScalar,  # noqa: N803
+        E_0: ArrayOrArithContainerOrScalar,  # ruff:ignore[invalid-argument-name]
         mode_indices: Sequence[int]) -> Vector:
     """A rectangular TM cavity mode for a rectangle / cube
     with one corner at the origin and the other at :math:`(1, 1[, 1])`.

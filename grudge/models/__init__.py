@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from grudge.discretization import DiscretizationCollection
 
 
-class Operator(ABC):  # noqa: B024
+class Operator(ABC):  # ruff:ignore[abstract-base-class-without-abstract-method]
     """A base class for Discontinuous Galerkin operators.
 
     You may derive your own operators from this class, but, at present

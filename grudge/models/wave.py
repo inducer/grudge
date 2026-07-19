@@ -229,7 +229,7 @@ class VariableCoefficientWeakWaveOperator(HyperbolicOperator):
         assert get_container_context_recursively_opt(c) is None
 
         if source_f is None:
-            source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # noqa: E731
+            source_f = lambda actx, dcoll, t: dcoll.zeros(actx)  # ruff:ignore[lambda-assignment]
 
         actx = dcoll._setup_actx
         self.dcoll = dcoll
