@@ -50,7 +50,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -172,7 +172,7 @@ def compute_wavespeed(actx: ArrayContext, cv_state: ConservedEulerField, gamma=1
 
 # {{{ Boundary condition types
 
-class InviscidBCObject(metaclass=ABCMeta):
+class InviscidBCObject(ABC):
 
     def __init__(self, *, prescribed_state=None) -> None:
         self.prescribed_state = prescribed_state
