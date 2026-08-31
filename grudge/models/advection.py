@@ -183,6 +183,55 @@ class WeakAdvectionOperator(AdvectionOperatorBase):
             )
         )
 
+
+class WeakAdvectionSBPOperator(AdvectionOperatorBase):
+    def flux(self, u_tpair):
+        return self.weak_flux(u_tpair)
+
+    from meshmode.mesh import BTAG_NONE
+
+    def operator(self, t, u, state_from_sbp,
+                 sbp_tag=BTAG_NONE, std_tag=BTAG_NONE):
+
+        dcoll = self.dcoll
+
+        def flux(tpair):
+            return op.project(dcoll, tpair.dd, "all_faces", self.flux(tpair))
+
+        if self.inflow_u is not None:
+            inflow_flux = flux(op.bv_trace_pair(dcoll,
+                                                std_tag,
+                                                interior=u,
+                                                exterior=self.inflow_u(t)))
+        else:
+            inflow_flux = 0
+
+        sbp_flux = flux(op.bv_trace_pair(dcoll,
+                                         sbp_tag,
+                                         interior=u,
+                                         exterior=state_from_sbp))
+        return (
+            op.inverse_mass(
+                dcoll,
+                np.dot(self.v, op.weak_local_grad(dcoll, u))
+                - op.face_mass(
+                    dcoll,
+                    sum(flux(tpair) for tpair in op.interior_trace_pairs(dcoll, u))
+                    + inflow_flux + sbp_flux
+
+                    # FIXME: Add support for inflow/outflow tags
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.inflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_in))
+                    # + flux(op.bv_trace_pair(dcoll,
+                    #                         self.outflow_tag,
+                    #                         interior=u,
+                    #                         exterior=bc_out))
+                )
+            )
+        )
+
 # }}}
 
 
