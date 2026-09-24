@@ -478,6 +478,80 @@ def test_sum_factorization_escape_hatch(
                     actx, group, quad_group, enable_sum_factorization=True)
 
 
+@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("face_first", [False, True])
+@pytest.mark.parametrize("nodes", ["lobatto", "gauss"])
+@pytest.mark.parametrize("quadrature_order", [1, 3, 5])
+def test_face_mass_factor_reuse(
+        actx_factory: ArrayContextFactory, dim: int, face_first: bool,
+        nodes: str, quadrature_order: int) -> None:
+    import modepy as mp
+    from meshmode.discretization.poly_element import InterpolatoryQuadratureGroupFactory
+    from meshmode.dof_array import DOFArray
+    from meshmode.mesh import TensorProductElementGroup
+
+    from grudge.bilinear_forms import (
+        make_face_mass_operator,
+        make_mass_operator,
+        make_stiffness_t_operator,
+    )
+    from grudge.dof_desc import DD_VOLUME_ALL
+
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,)*dim, b=(1,)*dim, nelements_per_axis=(2,)*dim,
+        group_cls=TensorProductElementGroup)
+    base_factory = (InterpolatoryEdgeClusteredGroupFactory(3) if nodes == "lobatto"
+                    else InterpolatoryQuadratureGroupFactory(3))
+    dcoll = make_discretization_collection(actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: base_factory,
+            DISCR_TAG_QUAD: QuadratureGroupFactory(quadrature_order),
+        })
+    vol_group, = dcoll.discr_from_dd(DD_VOLUME_ALL).groups
+    rng = np.random.default_rng(31)
+
+    for discr_tag in (DISCR_TAG_BASE, DISCR_TAG_QUAD):
+        dd = DD_VOLUME_ALL.trace(FACE_RESTR_ALL).with_discr_tag(discr_tag)
+        face_group, = dcoll.discr_from_dd(dd).groups
+        if not face_first:
+            make_mass_operator(actx, vol_group, vol_group)
+        faces = make_face_mass_operator(actx, face_group, vol_group)
+        mass = make_mass_operator(actx, vol_group, vol_group)
+        stiffness = make_stiffness_t_operator(actx, vol_group, vol_group)
+        assert isinstance(mass, tuple)
+        assert isinstance(stiffness, tuple)
+        assert stiffness[0][1] is mass[0]
+        assert faces is make_face_mass_operator(actx, face_group, vol_group)
+
+        matching = (face_group.order == vol_group.order
+                    and np.array_equal(face_group.unit_nodes_1d,
+                                       vol_group.unit_nodes_1d))
+        for face, factors in zip(mp.faces_for_shape(vol_group.shape), faces,
+                                 strict=True):
+            assert isinstance(factors, tuple)
+            mapped = face.map_to_volume(np.column_stack((
+                np.zeros(dim-1), np.eye(dim-1))))
+            directions = mapped[:, 1:] - mapped[:, :1]
+            for axis, factor in enumerate(factors):
+                tangential_axes = np.flatnonzero(directions[axis])
+                if not len(tangential_axes):
+                    assert factor.shape == (vol_group.order+1, 1)
+                    assert factor is not mass[0]
+                elif matching and directions[axis, tangential_axes[0]] == 1:
+                    assert factor is mass[0]
+                else:
+                    assert factor is not mass[0]
+
+        values = rng.standard_normal((face_group.nelements, face_group.nunit_dofs))
+        values = values + 1j*rng.standard_normal(values.shape)
+        vec = DOFArray(actx, (actx.from_numpy(values),))
+        dense = op.face_mass(dcoll, dd, vec, enable_sum_factorization=False)
+        factorized = op.face_mass(dcoll, dd, vec)
+        np.testing.assert_allclose(actx.to_numpy(factorized[0]),
+                                   actx.to_numpy(dense[0]), rtol=1e-11, atol=1e-12)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
