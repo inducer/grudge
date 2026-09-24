@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -51,6 +52,12 @@ from grudge.dof_desc import (
     as_dofdesc,
 )
 from grudge.trace_pair import bv_trace_pair
+
+
+if TYPE_CHECKING:
+    from meshmode.dof_array import DOFArray
+
+    from grudge.discretization import DiscretizationCollection
 
 
 logger = logging.getLogger(__name__)
@@ -236,12 +243,12 @@ def test_gradient(
     ])
 def test_divergence(
             actx_factory: ArrayContextFactory,
-            form,
-            dim,
-            order,
-            vectorize,
-            nested,
-            visualize=False):
+            form: str,
+            dim: int,
+            order: int,
+            vectorize: bool,
+            nested: bool,
+            visualize: bool = False) -> None:
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -254,14 +261,20 @@ def test_divergence(
 
         dcoll = make_discretization_collection(actx, mesh, order=order)
 
-        def f(x, dcoll=dcoll):
+        def f(
+                x: obj_array.ObjectArray1D[DOFArray],
+                dcoll: DiscretizationCollection = dcoll,
+        ) -> obj_array.ObjectArray1D[DOFArray]:
             result = obj_array.new_1d([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
 
             return result * actx.np.cos(np.pi/2*x[dim-1])
 
-        def div_f(x, dcoll=dcoll):
+        def div_f(
+                x: obj_array.ObjectArray1D[DOFArray],
+                dcoll: DiscretizationCollection = dcoll,
+        ) -> DOFArray:
             result = dcoll.zeros(actx)
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
@@ -347,6 +360,25 @@ def test_divergence(
                 or eoc_rec.max_error() < 1e-11)
 
 # }}}
+
+
+@pytest.mark.parametrize("operator_name", [
+    "local_d_dx", "weak_local_d_dx", "face_mass",
+])
+def test_operator_rejects_scalar_leaves(
+        actx_factory: ArrayContextFactory, operator_name: str) -> None:
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,), b=(1,), nelements_per_axis=(1,))
+    dcoll = make_discretization_collection(actx, mesh, order=2)
+    operator = getattr(op, operator_name)
+    args = () if operator_name == "face_mass" else (0,)
+
+    for scalar in (1, 1.0, 1j, np.float64(1)):
+        for value in (scalar, obj_array.new_1d([
+                obj_array.new_1d([scalar])])):
+            with pytest.raises(TypeError, match="scalars not allowed"):
+                operator(dcoll, *args, value)
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])

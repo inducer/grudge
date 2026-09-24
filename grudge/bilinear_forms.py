@@ -1,3 +1,12 @@
+"""Internal reference-operator construction for :mod:`grudge.op`.
+
+Constructors return arrays frozen in *actx*, cached by discretization and
+representation choice. Matrices contain no element axis or physical geometry.
+Tensor-product factors follow Modepy's reference-axis and Fortran-order DOF
+conventions; the current factorized paths support isotropic groups only.
+Operator application and physical metric placement belong to :mod:`grudge.op`.
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -232,6 +241,27 @@ def make_mass_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> Array | tuple[Array, ...]:
+    r"""Construct the reference mass map into the output test space's dual.
+
+    *in_element_group* must be nodal and *out_element_group* interpolatory.
+    For equal groups, the input represents nodal trial coefficients and the
+    matrix is the reference mass matrix, integrated exactly for the supported
+    polynomial spaces. Otherwise, the input represents samples at the input
+    group's quadrature nodes: the matrix has entries
+    :math:`R_{iq} = w_q\psi_i(\widehat{x}_q)`, where :math:`\psi_i` is an
+    output nodal test function. No input trial basis is needed in that case.
+
+    :arg actx: Array context used to store and cache the frozen operator.
+    :arg enable_sum_factorization: If *True* and both groups are tensor-product
+        groups, return one 1D mass factor per reference axis. Otherwise return
+        a dense matrix, including when explicitly set to *False*.
+    :returns: A matrix of shape ``(output_dofs, input_dofs)``, or a tuple of
+        factors with shape ``(output_dofs_1d, input_dofs_1d)``. Isotropic axes
+        share the cached factor.
+
+    Physical mass application multiplies the input by the volume measure
+    before applying this reference operator; that measure is not included here.
+    """
 
     if not isinstance(in_element_group, NodalElementGroupBase):
         raise TypeError(
@@ -282,6 +312,25 @@ def make_inverse_mass_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> Array | tuple[Array, ...]:
+    r"""Construct the reference inverse mass for an interpolatory group.
+
+    This maps a dual/load vector to primal nodal coefficients in the same
+    space. It inverts the square reference mass from
+    :func:`make_mass_operator`, not a rectangular quadrature-to-test map.
+
+    :arg actx: Array context used to store and cache the frozen operator.
+    :arg element_group: Interpolatory group defining both input and output.
+    :arg enable_sum_factorization: If *True* and the group is tensor-product,
+        return one 1D inverse-mass factor per reference axis. Otherwise return
+        the dense inverse.
+    :returns: A matrix of shape ``(nunit_dofs, nunit_dofs)``, or a tuple of
+        square 1D factors. Isotropic axes share the cached factor.
+
+    No physical measure is included. The physical application in
+    :func:`grudge.op.inverse_mass` applies this operator and then divides by
+    the volume measure. For varying geometry, that is an approximation to
+    physical inverse mass, not an exact physical matrix inverse.
+    """
 
     if not isinstance(element_group, InterpolatoryElementGroupBase):
         raise TypeError(
@@ -470,12 +519,33 @@ def make_face_mass_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> tuple[Array, ...] | tuple[tuple[Array, ...], ...]:
-    """Return one dense matrix or tuple of 1D factors for each face.
+    r"""Construct reference face-to-volume dual maps for every volume face.
 
-    Dense matrices have shape ``(volume_dofs, face_dofs)``. Tensor-product
-    factors are in volume-axis order, including a normal endpoint column.
-    Surface metrics, input-axis alignment, and face accumulation belong to
-    the caller.
+    *in_element_group* must be nodal, *out_element_group* interpolatory, and
+    the input dimension must be one less than the output dimension. Volume
+    test functions are evaluated through each face's map to the reference
+    volume. Interpolatory face inputs are nodal trial coefficients; the dense
+    path also accepts non-interpolatory quadrature samples, using the input
+    group's quadrature rule without a trial basis.
+
+    :arg actx: Array context used to store and cache the frozen operators.
+    :arg enable_sum_factorization: If *True* and both groups are tensor-product
+        with positive face dimension, return 1D factors. Otherwise return
+        dense matrices. Point faces always use dense matrices.
+    :returns: A tuple indexed in :func:`modepy.faces_for_shape` order. Each
+        entry is either a dense matrix of shape ``(volume_dofs, face_dofs)``
+        or a tuple of factors in volume-axis order. Tangential factors have
+        shape ``(volume_dofs_1d, face_dofs_1d)``; the normal factor has shape
+        ``(volume_dofs_1d, 1)`` and contains endpoint basis values.
+
+    Tangential reversals are included in the factors. The caller must align
+    face-local tensor axes with volume axes and insert a singleton normal
+    axis before factorized application. Factors with the same orientation
+    and role are shared across isotropic axes and faces.
+
+    The caller multiplies by the surface measure before application and sums
+    face contributions into the volume dual vector. These operators include
+    no physical measure, normals, numerical flux, or integration-by-parts sign.
     """
     if not isinstance(in_element_group, NodalElementGroupBase):
         raise TypeError(
@@ -523,6 +593,29 @@ def make_strong_differentiation_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> tuple[Array | tuple[Array | None, ...], ...]:
+    r"""Construct reference derivatives of an input nodal interpolant.
+
+    *in_element_group* must be interpolatory and *out_element_group* nodal.
+    Each operator evaluates a reference derivative of the input interpolant
+    at the output nodes. The output is derivative point values, not a dual
+    vector or a quadrature projection.
+
+    :arg actx: Array context used to store and cache the frozen operators.
+    :arg enable_sum_factorization: If *True* and both groups are tensor-product,
+        use 1D factors. Otherwise use dense differentiation matrices.
+    :returns: A tuple indexed by reference derivative direction. Each entry
+        is either a dense matrix of shape ``(output_dofs, input_dofs)`` or a
+        tuple with one factor per reference axis. In a factor tuple, only the
+        derivative axis contains a matrix; ``None`` denotes identity on each
+        other axis. Isotropic directions share the derivative matrix.
+    :raises NotImplementedError: If factorization is requested for distinct
+        tensor-product groups. Set *enable_sum_factorization* to *False* to
+        construct the dense operators for differing input and output grids.
+
+    Physical differentiation applies inverse mapping metrics at the output
+    nodes after these reference contractions. Those metrics are not included
+    here. This is distinct from inverse mass composed with weak stiffness.
+    """
 
     if not isinstance(in_element_group, InterpolatoryElementGroupBase):
         raise TypeError(
@@ -704,6 +797,31 @@ def make_stiffness_t_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> Array | tuple[tuple[Array, ...], ...]:
+    r"""Construct positive reference weak-derivative maps into the test dual.
+
+    *in_element_group* must be nodal and *out_element_group* interpolatory.
+    For equal groups, inputs are nodal trial coefficients and direction
+    :math:`r` has entries
+    :math:`S^T_{r,ij} = \int \partial_r\psi_i\,\phi_j\,d\widehat{x}`.
+    Otherwise, inputs are samples at the input group's quadrature nodes and
+    the entries are :math:`R_{r,iq} = w_q\partial_r\psi_i(\widehat{x}_q)`.
+    The latter construction does not require an input trial basis.
+
+    :arg actx: Array context used to store and cache the frozen operators.
+    :arg enable_sum_factorization: If *True* and both groups are tensor-product,
+        use 1D factors. Otherwise construct a dense stack.
+    :returns: A dense array of shape ``(dim, output_dofs, input_dofs)``, or a
+        tuple indexed by reference derivative direction. Each tuple entry
+        contains one factor per reference axis, with a 1D weak-stiffness
+        factor on the derivative axis and mass factors on the other axes.
+        Each factor has shape ``(output_dofs_1d, input_dofs_1d)``. Isotropic
+        directions share factors, and mass factors reuse the mass cache.
+
+    Physical weak differentiation multiplies the input by the volume measure
+    and inverse mapping metrics before contraction. This constructor includes
+    none of those metrics, no integration-by-parts minus sign, no face flux,
+    and no inverse mass.
+    """
 
     if not isinstance(in_element_group, NodalElementGroupBase):
         raise TypeError(
