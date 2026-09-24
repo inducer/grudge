@@ -76,6 +76,7 @@ from meshmode.discretization import (
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
+    DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
 from meshmode.discretization.poly_element import TensorProductElementGroupBase
@@ -926,11 +927,11 @@ def reference_mass_matrix(
     def get_ref_mass_mat(out_grp: InterpolatoryElementGroupBase,
                          in_grp: NodalElementGroupBase) -> Array:
         if out_grp == in_grp:
-            return actx.freeze(
-                actx.from_numpy(
-                    mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes)
-                    )
-                )
+            return tag_axes(actx, {
+                    0: DiscretizationDOFAxisTag(),
+                    1: DiscretizationDOFAxisTag(),
+                    }, actx.freeze(actx.from_numpy(
+                        mp.mass_matrix(out_grp.basis_obj(), out_grp.unit_nodes))))
 
         from modepy import vandermonde
         basis = out_grp.basis_obj()
@@ -939,9 +940,11 @@ def reference_mass_matrix(
         vand_inv_t = np.linalg.inv(vand).T
 
         weights = in_grp.quadrature_rule().weights
-        return actx.freeze(
-                actx.tag_axis(0, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
+        return tag_axes(actx, {
+                    0: DiscretizationDOFAxisTag(),
+                    1: DiscretizationDOFAxisTag(),
+                    },
+                    actx.freeze(actx.from_numpy(
                         np.asarray(
                             np.einsum("j,ik,jk->ij", weights, vand_inv_t, o_vand),
                             order="C"))))
@@ -1110,9 +1113,11 @@ def reference_inverse_mass_matrix(
         from modepy import inverse_mass_matrix
         basis = grp.basis_obj()
 
-        return actx.freeze(
-            actx.tag_axis(0, DiscretizationDOFAxisTag(),
-                actx.from_numpy(
+        return tag_axes(actx, {
+                0: DiscretizationDOFAxisTag(),
+                1: DiscretizationDOFAxisTag(),
+                },
+                actx.freeze(actx.from_numpy(
                     np.asarray(
                         inverse_mass_matrix(basis, grp.unit_nodes),
                         order="C"))))
@@ -1360,12 +1365,12 @@ def reference_face_mass_matrix(
                     vol_grp.unit_nodes,
                 )
 
-        return actx.freeze(
-                tag_axes(actx, {
+        return tag_axes(actx, {
                     0: DiscretizationDOFAxisTag(),
+                    1: DiscretizationFaceAxisTag(),
                     2: DiscretizationDOFAxisTag()
                     },
-                    actx.from_numpy(matrix)))
+                    actx.freeze(actx.from_numpy(matrix)))
 
     return get_ref_face_mass_mat(face_element_group, vol_element_group)
 

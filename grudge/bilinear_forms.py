@@ -13,7 +13,11 @@ from meshmode.discretization import (
     NodalElementGroupBase,
 )
 from meshmode.discretization.poly_element import TensorProductElementGroupBase
-from meshmode.transform_metadata import DiscretizationDOFAxisTag
+from meshmode.transform_metadata import (
+    DiscretizationDOFAxisTag,
+    DiscretizationFaceAxisTag,
+    DiscretizationTopologicalDimAxisTag,
+)
 from modepy.quadrature import TensorProductQuadrature
 from pytools import keyed_memoize_on_first_arg
 
@@ -96,11 +100,12 @@ def _tag_and_freeze_operator(
     axis_tags: Mapping[int, Sequence[Tag]],
 ) -> Array:
 
-    matrix_actx = actx.tag(array_tags, actx.from_numpy(matrix))
+    # Tag after freezing: eager queue detachment can discard array metadata.
+    matrix_actx = actx.tag(array_tags, actx.freeze(actx.from_numpy(matrix)))
     for axis, tag in axis_tags.items():
         matrix_actx = actx.tag_axis(axis, tag, matrix_actx)
 
-    return actx.freeze(matrix_actx)
+    return matrix_actx
 
 # {{{ mass / inverse mass
 
@@ -240,9 +245,12 @@ def make_mass_operator(
             f"'out_element_group' must be interpolatory: {type(out_element_group)}"
         )
 
-    # FIXME: incorrect for TP
     array_tags = ()
-    axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+    # Reference matrices have output/input DOF axes, but no element axis.
+    axis_tags = {
+        0: (DiscretizationDOFAxisTag(),),
+        1: (DiscretizationDOFAxisTag(),),
+    }
 
     if (
         enable_sum_factorization
@@ -283,9 +291,11 @@ def make_inverse_mass_operator(
             f"'element_group' must be interpolatory: {type(element_group)}"
         )
 
-    # FIXME: incorrect for TP
     array_tags = ()
-    axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+    axis_tags = {
+        0: (DiscretizationDOFAxisTag(),),
+        1: (DiscretizationDOFAxisTag(),),
+    }
 
     if enable_sum_factorization and isinstance(
         element_group, TensorProductElementGroupBase
@@ -505,13 +515,15 @@ def make_face_mass_operator(
         return _make_tensor_product_face_mass_operator(
             actx, in_element_group, out_element_group, dtype,
             array_tags=array_tags,
-            axis_tags={0: (DiscretizationDOFAxisTag(),)},
+            axis_tags={0: (DiscretizationDOFAxisTag(),),
+                       1: (DiscretizationDOFAxisTag(),)},
         )
 
     return _make_dense_face_mass_operator(
         actx, in_element_group, out_element_group, dtype,
         array_tags=array_tags,
         axis_tags={0: (DiscretizationDOFAxisTag(),),
+                   1: (DiscretizationFaceAxisTag(),),
                    2: (DiscretizationDOFAxisTag(),)},
     )
 
@@ -558,7 +570,10 @@ def make_strong_differentiation_operator(
         basis = basis.bases[0]
 
         array_tags = ()
-        axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+        axis_tags = {
+            0: (DiscretizationDOFAxisTag(),),
+            1: (DiscretizationDOFAxisTag(),),
+        }
 
         D = mp.diff_matrices(
             basis,
@@ -579,7 +594,10 @@ def make_strong_differentiation_operator(
 
     else:
         array_tags = ()
-        axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+        axis_tags = {
+            0: (DiscretizationDOFAxisTag(),),
+            1: (DiscretizationDOFAxisTag(),),
+        }
 
         matrices = mp.diff_matrices(
             in_element_group.basis_obj(),
@@ -719,7 +737,10 @@ def make_stiffness_t_operator(
         and isinstance(out_element_group, TensorProductElementGroupBase)
     ):
         array_tags_st = ()
-        axis_tags_st = {0: (DiscretizationDOFAxisTag(),)}
+        axis_tags_st = {
+            0: (DiscretizationDOFAxisTag(),),
+            1: (DiscretizationDOFAxisTag(),),
+        }
 
         stiffness_t = _make_tensor_product_stiffness_t_operator(
             actx, in_element_group, out_element_group,
@@ -727,7 +748,10 @@ def make_stiffness_t_operator(
         )
 
         array_tags_mass = ()
-        axis_tags_mass = {0: (DiscretizationDOFAxisTag(),)}
+        axis_tags_mass = {
+            0: (DiscretizationDOFAxisTag(),),
+            1: (DiscretizationDOFAxisTag(),),
+        }
 
         mass = _make_tensor_product_mass_operator(
             actx, in_element_group, out_element_group,
@@ -741,7 +765,12 @@ def make_stiffness_t_operator(
         )
 
     array_tags = ()
-    axis_tags = {1: (DiscretizationDOFAxisTag(),)}
+    # The leading axis selects a reference derivative, not an element or DOF.
+    axis_tags = {
+        0: (DiscretizationTopologicalDimAxisTag(),),
+        1: (DiscretizationDOFAxisTag(),),
+        2: (DiscretizationDOFAxisTag(),),
+    }
 
     return _make_dense_stiffness_t_operator(
         actx, in_element_group, out_element_group,
