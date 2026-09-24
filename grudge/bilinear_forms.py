@@ -455,22 +455,32 @@ def _make_tensor_product_face_mass_operator(
     quadrature = mp.LegendreGaussQuadrature(
         max(in_element_group.order, out_element_group.order), force_dim_axis=True
     )
-    tangential = {}
+    tangential: dict[int, Array] = {}
+    if (in_element_group.order == out_element_group.order
+            and np.array_equal(in_element_group.unit_nodes_1d,
+                               out_element_group.unit_nodes_1d)):
+        # Face and volume groups differ in dimension, but their 1D mass is
+        # identical. Reuse the volume constructor, not its quadrature-input path.
+        mass = make_mass_operator(actx, out_element_group, out_element_group)
+        assert isinstance(mass, tuple)
+        tangential[1] = mass[0]
+
     boundary = {}
     for sign in (-1, 1):
-        matrix = mp.nodal_quadrature_bilinear_form_matrix(
-            quadrature=quadrature,
-            test_functions=test_basis.functions,
-            trial_functions=trial_basis.functions,
-            nodal_interp_functions_test=test_basis.functions,
-            nodal_interp_functions_trial=trial_basis.functions,
-            input_nodes=in_element_group.unit_nodes_1d,
-            output_nodes=out_element_group.unit_nodes_1d,
-            test_function_node_map=lambda nodes, sign=sign: sign * nodes,
-        )
-        tangential[sign] = _tag_and_freeze_operator(
-            actx, np.ascontiguousarray(matrix), array_tags, axis_tags
-        )
+        if sign not in tangential:
+            matrix = mp.nodal_quadrature_bilinear_form_matrix(
+                quadrature=quadrature,
+                test_functions=test_basis.functions,
+                trial_functions=trial_basis.functions,
+                nodal_interp_functions_test=test_basis.functions,
+                nodal_interp_functions_trial=trial_basis.functions,
+                input_nodes=in_element_group.unit_nodes_1d,
+                output_nodes=out_element_group.unit_nodes_1d,
+                test_function_node_map=lambda nodes, sign=sign: sign * nodes,
+            )
+            tangential[sign] = _tag_and_freeze_operator(
+                actx, np.ascontiguousarray(matrix), array_tags, axis_tags
+            )
         matrix = mp.resampling_matrix(
             test_basis.functions, np.array([[float(sign)]]),
             out_element_group.unit_nodes_1d,
@@ -541,7 +551,10 @@ def make_face_mass_operator(
     Tangential reversals are included in the factors. The caller must align
     face-local tensor axes with volume axes and insert a singleton normal
     axis before factorized application. Factors with the same orientation
-    and role are shared across isotropic axes and faces.
+    and role are shared across isotropic axes and faces. For matching 1D nodes
+    and order, unreversed tangential factors reuse the cached volume mass
+    factor from :func:`make_mass_operator`. Reversed or nonmatching-grid
+    tangential factors are constructed separately.
 
     The caller multiplies by the surface measure before application and sums
     face contributions into the volume dual vector. These operators include
