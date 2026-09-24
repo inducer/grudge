@@ -8743,24 +8743,6 @@
                     "lineCount": 1
                 }
             }
-        ],
-        "./test/test_op.py": [
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 40,
-                    "endColumn": 41,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportGeneralTypeIssues",
-                "range": {
-                    "startColumn": 53,
-                    "endColumn": 58,
-                    "lineCount": 1
-                }
-            }
         ]
     }
 }
