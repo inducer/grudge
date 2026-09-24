@@ -446,6 +446,110 @@ def test_sum_factorization_escape_hatch(
                     actx, group, quad_group, enable_sum_factorization=True)
 
 
+@pytest.mark.parametrize("tensor_product", [False, True])
+@pytest.mark.parametrize("quadrature_input", [False, True])
+@pytest.mark.parametrize("stiffness_first", [False, True])
+def test_reference_operator_builder_cache(
+        actx_factory: ArrayContextFactory, monkeypatch,
+        tensor_product, quadrature_input, stiffness_first):
+    import modepy as mp
+    from arraycontext.metadata import NameHint
+    from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+    from meshmode.transform_metadata import DiscretizationDOFAxisTag
+
+    from grudge import bilinear_forms as bf
+    from grudge.dof_desc import DD_VOLUME_ALL
+
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1, -1), b=(1, 1), nelements_per_axis=(2, 2),
+        group_cls=(TensorProductElementGroup if tensor_product
+                   else SimplexElementGroup))
+    dcoll = make_discretization_collection(
+        actx, mesh, order=3,
+        discr_tag_to_group_factory={DISCR_TAG_QUAD: QuadratureGroupFactory(5)})
+    out_group = dcoll.discr_from_dd(DD_VOLUME_ALL).groups[0]
+    in_group = (dcoll.discr_from_dd(
+        DD_VOLUME_ALL.with_discr_tag(DISCR_TAG_QUAD)).groups[0]
+        if quadrature_input else out_group)
+
+    builder_name = ("nodal_quadrature_test_matrix" if quadrature_input
+                    else "nodal_quadrature_bilinear_form_matrix")
+    original = getattr(mp, builder_name)
+    calls = 0
+
+    def count_construction(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(mp, builder_name, count_construction)
+    if stiffness_first:
+        stiffness = bf.make_stiffness_t_operator(actx, in_group, out_group)
+        mass = bf.make_mass_operator(actx, in_group, out_group)
+    else:
+        mass = bf.make_mass_operator(actx, in_group, out_group)
+        stiffness = bf.make_stiffness_t_operator(actx, in_group, out_group)
+
+    mass_builder = (bf._make_tensor_product_mass_operator if tensor_product
+                    else bf._make_dense_mass_operator)
+    stiffness_builder = (bf._make_tensor_product_stiffness_t_operator
+                         if tensor_product else bf._make_dense_stiffness_t_operator)
+    factor = mass[0] if tensor_product else mass
+    derivative = stiffness[0][0] if tensor_product else stiffness
+    construction_count = calls
+    for _ in range(2):
+        assert mass_builder(actx, in_group, out_group,
+            array_tags=[], axis_tags={0: [DiscretizationDOFAxisTag()]}) is factor
+        assert stiffness_builder(actx, in_group, out_group,
+            array_tags=[], axis_tags={0 if tensor_product else 1:
+                                      [DiscretizationDOFAxisTag()]}) is derivative
+    assert calls == construction_count
+
+    if tensor_product:
+        assert calls == 2  # One stiffness factor and one shared mass factor.
+        assert stiffness[0][1] is factor
+        assert stiffness[1][0] is factor
+        assert stiffness[1][1] is derivative
+
+    # Different tags must not return an operator carrying another request's tags.
+    tagged = mass_builder(actx, in_group, out_group,
+        array_tags=[NameHint("other_mass")],
+        axis_tags={0: [DiscretizationDOFAxisTag()]})
+    assert tagged is not factor
+    assert calls == construction_count + 1
+    axis_tagged = mass_builder(actx, in_group, out_group,
+        array_tags=[], axis_tags={1: [DiscretizationDOFAxisTag()]})
+    assert axis_tagged is not factor
+    assert calls == construction_count + 2
+
+    if not quadrature_input:
+        inverse = bf.make_inverse_mass_operator(actx, out_group)
+        inverse_factor = inverse[0] if tensor_product else inverse
+        construction_count = calls
+        assert mass_builder(actx, out_group, out_group,
+            array_tags=(), axis_tags={0: (DiscretizationDOFAxisTag(),)},
+            inverse=True) is inverse_factor
+        assert calls == construction_count
+        assert inverse_factor is not factor
+        m = actx.to_numpy(actx.thaw(factor))
+        mi = actx.to_numpy(actx.thaw(inverse_factor))
+        np.testing.assert_allclose(mi @ m, np.eye(m.shape[0]),
+                                   rtol=1e-11, atol=1e-12)
+
+    # Compare stiffness action to the existing dense reference construction.
+    reference = actx.to_numpy(actx.thaw(
+        op._reference_stiffness_transpose_matrices(actx, out_group, in_group)))
+    values_np = np.random.default_rng(17).normal(
+        size=(in_group.nelements, in_group.nunit_dofs))
+    values = actx.from_numpy(values_np)
+    for axis in range(out_group.dim):
+        result = op._apply_operator_to_group(
+            actx, in_group, out_group, stiffness[axis], values, "stiffness_test")
+        np.testing.assert_allclose(actx.to_numpy(result),
+            values_np @ reference[axis].T, rtol=1e-11, atol=1e-12)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 
