@@ -467,14 +467,20 @@ def local_d_dx(
             f"invalid number of arguments to 'local_d_dx': {len(args)}"
         )
 
+    if is_scalar_like(vec):
+        raise TypeError(f"scalars not allowed: {vec}")
+
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(
-                local_d_dx,
-                dcoll,
-                xyz_axis,
-                dd,
-                enable_sum_factorization=enable_sum_factorization,
+            cast(
+                "Callable[[ArrayOrContainerOrScalar], ArrayOrContainer]",
+                partial(
+                    local_d_dx,
+                    dcoll,
+                    xyz_axis,
+                    dd,
+                    enable_sum_factorization=enable_sum_factorization,
+                ),
             ),
             vec,
         )
@@ -745,14 +751,20 @@ def weak_local_d_dx(
     else:
         raise TypeError("invalid number of arguments")
 
+    if is_scalar_like(vec):
+        raise TypeError(f"scalars not allowed: {vec}")
+
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(
-                weak_local_d_dx,
-                dcoll,
-                dd_in,
-                xyz_axis,
-                enable_sum_factorization=enable_sum_factorization,
+            cast(
+                "Callable[[ArrayOrContainerOrScalar], ArrayOrContainer]",
+                partial(
+                    weak_local_d_dx,
+                    dcoll,
+                    dd_in,
+                    xyz_axis,
+                    enable_sum_factorization=enable_sum_factorization,
+                ),
             ),
             vec,
         )
@@ -1361,16 +1373,23 @@ def _apply_face_mass_operator(
     *,
     enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer:
+    if is_scalar_like(vec):
+        raise TypeError(f"scalars not allowed: {vec}")
+
     if not isinstance(vec, DOFArray):
-        return map_array_container(
-            partial(
-                _apply_face_mass_operator,
-                dcoll,
-                dd_in,
-                enable_sum_factorization=enable_sum_factorization,
+        result = map_array_container(
+            cast(
+                "Callable[[ArrayOrContainerOrScalar], ArrayOrContainer]",
+                partial(
+                    _apply_face_mass_operator,
+                    dcoll,
+                    dd_in,
+                    enable_sum_factorization=enable_sum_factorization,
+                ),
             ),
             vec,
         )
+        return cast("ArrayOrContainer", result)
 
     from grudge.geometry import area_element
 
