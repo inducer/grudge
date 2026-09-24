@@ -349,6 +349,103 @@ def test_divergence(
 # }}}
 
 
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("tensor_product", [False, True])
+@pytest.mark.parametrize("first_enabled", [False, True])
+def test_sum_factorization_escape_hatch(
+        actx_factory: ArrayContextFactory, dim, tensor_product, first_enabled):
+    from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+
+    from grudge.bilinear_forms import (
+        make_inverse_mass_operator,
+        make_mass_operator,
+        make_strong_differentiation_operator,
+    )
+    from grudge.dof_desc import DD_VOLUME_ALL
+
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,)*dim, b=(1,)*dim, nelements_per_axis=(2,)*dim,
+        group_cls=(TensorProductElementGroup if tensor_product
+                   else SimplexElementGroup))
+    dcoll = make_discretization_collection(
+        actx, mesh, order=3,
+        discr_tag_to_group_factory={DISCR_TAG_QUAD: QuadratureGroupFactory(5)})
+    discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
+    x = actx.thaw(discr.nodes())
+    u = 1 + sum((axis+1)*x[axis]**2 for axis in range(dim))
+
+    # Exercise both cache insertion orders within the same array context.
+    for enabled in (first_enabled, not first_enabled):
+        for group in discr.groups:
+            mass = make_mass_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            inverse = make_inverse_mass_operator(
+                actx, group, enable_sum_factorization=enabled)
+            derivatives = make_strong_differentiation_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            assert isinstance(mass, tuple) == (tensor_product and enabled)
+            assert isinstance(inverse, tuple) == (tensor_product and enabled)
+            assert len(derivatives) == dim
+            assert all(isinstance(d, tuple) == (tensor_product and enabled)
+                       for d in derivatives)
+            if isinstance(mass, tuple):
+                assert len(mass) == dim
+                assert all(factor is mass[0] for factor in mass)
+            else:
+                assert mass.shape == (group.nunit_dofs, group.nunit_dofs)
+            assert mass is make_mass_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            assert inverse is make_inverse_mass_operator(
+                actx, group, enable_sum_factorization=enabled)
+            assert derivatives is make_strong_differentiation_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            if enabled:
+                assert mass is make_mass_operator(actx, group, group)
+
+    def check_close(actual, expected):
+        assert actx.to_numpy(op.norm(dcoll, actual - expected, np.inf)) < 1e-11
+
+    # Containers must propagate the flag to every component.
+    fields = obj_array.new_1d([u, 2*u])
+    results = {}
+    for enabled in (first_enabled, not first_enabled):
+        mass = op.mass(dcoll, fields, enable_sum_factorization=enabled)
+        inverse = op.inverse_mass(dcoll, mass, enable_sum_factorization=enabled)
+        grad = op.local_grad(
+            dcoll, DD_VOLUME_ALL, u, enable_sum_factorization=enabled)
+        nested = op.local_grad(
+            dcoll, fields, nested=True, enable_sum_factorization=enabled)
+        for component in range(2):
+            check_close(inverse[component], fields[component])
+            for axis in range(dim):
+                check_close(nested[component][axis], (component+1)*grad[axis])
+        for axis in range(dim):
+            check_close(grad[axis], 2*(axis+1)*x[axis])
+        results[enabled] = mass
+    for component in range(2):
+        check_close(results[False][component], results[True][component])
+
+    # Rectangular quadrature-to-base operators also support the dense fallback.
+    dd_quad = DD_VOLUME_ALL.with_discr_tag(DISCR_TAG_QUAD)
+    u_quad = op.project(dcoll, DD_VOLUME_ALL, dd_quad, u)
+    check_close(
+        op.mass(dcoll, dd_quad, u_quad, enable_sum_factorization=False),
+        op.mass(dcoll, dd_quad, u_quad, enable_sum_factorization=True))
+
+    if tensor_product:
+        quad_discr = dcoll.discr_from_dd(dd_quad)
+        for group, quad_group in zip(discr.groups, quad_discr.groups, strict=True):
+            # Dense construction bypasses the unfinished non-matching TP path.
+            derivatives = make_strong_differentiation_operator(
+                actx, group, quad_group, enable_sum_factorization=False)
+            assert all(d.shape == (quad_group.nunit_dofs, group.nunit_dofs)
+                       for d in derivatives)
+            with pytest.raises(NotImplementedError, match="between different"):
+                make_strong_differentiation_operator(
+                    actx, group, quad_group, enable_sum_factorization=True)
+
+
 # You can test individual routines by typing
 # $ python test_grudge.py 'test_routine()'
 

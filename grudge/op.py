@@ -26,7 +26,7 @@ Mass, inverse mass, and face mass operators
 
 from __future__ import annotations
 
-from meshmode.discretization.poly_element import TensorProductElementGroupBase
+from grudge.bilinear_forms import make_strong_differentiation_operator
 
 
 __copyright__ = """
@@ -82,6 +82,7 @@ from meshmode.transform_metadata import (
     DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
+from meshmode.discretization.poly_element import TensorProductElementGroupBase
 from pytools import keyed_memoize_in, obj_array
 
 from grudge.dof_desc import (
@@ -181,14 +182,16 @@ def _apply_operator_to_group(
     actx: ArrayContext,
     in_group: ElementGroupBase,
     out_group: ElementGroupBase,
-    operator: Array | tuple[Array, ...],
+    operator: Array | tuple[Array | None, ...],
     vec: Array,
     operator_name: str,
+    *,
+    enable_sum_factorization: bool = True,
 ) -> Array:
 
-    if isinstance(in_group, TensorProductElementGroupBase) and isinstance(
-        out_group, TensorProductElementGroupBase
-    ):
+    if (enable_sum_factorization
+            and isinstance(in_group, TensorProductElementGroupBase)
+            and isinstance(out_group, TensorProductElementGroupBase)):
         if not isinstance(operator, tuple):
             raise TypeError(
                 "tensor-product application requires a tuple of factors"
@@ -217,6 +220,11 @@ def _apply_operator_to_group(
         indices = ascii_lowercase[:ndim]
         output_index = ascii_lowercase[ndim]
         for reference_axis, factor in enumerate(operator):
+            # strong differentiation applies identity, so skip rather than carry
+            # it out
+            if factor is None:
+                continue
+
             # skip element axis
             axis = reference_axis + 1
 
@@ -239,6 +247,7 @@ def _apply_operator_to_group(
                 raise ValueError(
                     "only a single dense operator can be supplied."
                 )
+            assert operator[0] is not None
             operator = operator[0]
 
         return actx.einsum(
@@ -358,45 +367,13 @@ def _divergence_kernel(
 
 # {{{ Derivative operators
 
-def _reference_derivative_matrices(
-        actx: ArrayContext,
-        out_element_group: ElementGroupBase,
-        in_element_group: ElementGroupBase, /) -> Array:
-    if not isinstance(out_element_group, NodalElementGroupBase):
-        raise TypeError(f"'out_element_group' must be nodal: {type(out_element_group)}")
-
-    if not isinstance(in_element_group, InterpolatoryElementGroupBase):
-        raise TypeError(
-            f"'in_element_group' must be interpolatory: {type(in_element_group)}")
-
-    def memoize_key(
-                out_grp: NodalElementGroupBase, in_grp: InterpolatoryElementGroupBase
-            ) -> Hashable:
-        return out_grp.discretization_key(), in_grp.discretization_key()
-
-    @keyed_memoize_in(
-        actx, _reference_derivative_matrices,
-        memoize_key)
-    def get_ref_derivative_mats(
-                out_grp: NodalElementGroupBase,
-                in_grp: InterpolatoryElementGroupBase) -> Array:
-        return actx.freeze(
-                actx.tag_axis(
-                    1, DiscretizationDOFAxisTag(),
-                    actx.from_numpy(
-                        np.asarray(
-                            mp.diff_matrices(
-                                in_grp.basis_obj(),
-                                out_grp.unit_nodes,
-                                from_nodes=in_grp.unit_nodes,
-                            )))))
-
-    return get_ref_derivative_mats(out_element_group, in_element_group)
-
-
 def _strong_scalar_grad(
-            dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer
-    ) -> obj_array.ObjectArray1D[DOFArray]:
+    dcoll: DiscretizationCollection,
+    dd_in: DOFDesc,
+    vec: ArrayOrContainer,
+    *,
+    enable_sum_factorization: bool = True,
+) -> obj_array.ObjectArray1D[DOFArray]:
     assert isinstance(dd_in.domain_tag, VolumeDomainTag)
     assert isinstance(vec, DOFArray)
 
@@ -407,45 +384,83 @@ def _strong_scalar_grad(
     assert actx is not None
 
     inverse_jac_mat = inverse_surface_metric_derivative_mat(
-            actx, dcoll, dd=dd_in,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+        actx,
+        dcoll,
+        dd=dd_in,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+    )
 
-    return _gradient_kernel(
-            actx, discr, discr,
-            _reference_derivative_matrices,
-            inverse_jac_mat,
-            vec,
-            metric_in_matvec=False)
+    # NOTE: we explicitly write this without using the single axis derivative
+    # kernel to avoid recomputation of reference derivatives
+    per_group_gradient = []
+    for in_group, out_group, vec_i, ijm_i in zip(
+        discr.groups, discr.groups, vec, inverse_jac_mat, strict=True
+    ):
+        operators = make_strong_differentiation_operator(
+            actx,
+            in_group,
+            out_group,
+            enable_sum_factorization=enable_sum_factorization,
+        )
+        ref_axes = "rst"
+
+        reference_derivatives = actx.np.stack([
+            _apply_operator_to_group(
+                actx,
+                in_group,
+                out_group,
+                operators[rst_axis],
+                vec_i,
+                operator_name=f"strong_ref_deriv_{ref_axes[rst_axis]}",
+                enable_sum_factorization=enable_sum_factorization,
+            )
+            for rst_axis in range(in_group.dim)
+        ])
+
+        per_group_gradient.append(
+            actx.einsum(
+                "xrej,rej->xej",
+                ijm_i,
+                reference_derivatives,
+                arg_names=("inv_jac_mat", "ref_derivatives"),
+            )
+        )
+
+    return obj_array.new_1d([
+        DOFArray(
+            actx, data=tuple([pgg_i[xyz_axis] for pgg_i in per_group_gradient])
+        )
+        for xyz_axis in range(discr.ambient_dim)
+    ])
 
 
 def _strong_scalar_div(
-            dcoll: DiscretizationCollection,
-            dd: DOFDesc,
-            vecs: obj_array.ObjectArray1D[DOFArray]) -> DOFArray:
-    from arraycontext import get_container_context_recursively
-
-    from grudge.geometry import inverse_surface_metric_derivative_mat
-
+    dcoll: DiscretizationCollection,
+    dd: DOFDesc,
+    vecs: obj_array.ObjectArray1D[DOFArray],
+    *,
+    enable_sum_factorization: bool = True,
+) -> DOFArray:
     assert isinstance(vecs, np.ndarray)
     assert vecs.shape == (dcoll.ambient_dim,)
 
-    discr = dcoll.discr_from_dd(dd)
-
-    actx = get_container_context_recursively(vecs)
-    vec = actx.np.stack(list(vecs))
-
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
-            _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
-
-    return _divergence_kernel(actx, discr, discr,
-            _reference_derivative_matrices, inverse_jac_mat, vec,
-            metric_in_matvec=False)
+    return sum(
+        local_d_dx(
+            dcoll,
+            xyz_axis,
+            dd,
+            vecs[xyz_axis],
+            enable_sum_factorization=enable_sum_factorization,
+        )
+        for xyz_axis in range(dcoll.ambient_dim)  # pyright: ignore[reportArgumentType,reportCallIssue]
+    )  # pyright: ignore[reportCallIssue]
 
 
 @overload
 def local_grad(
         dcoll: DiscretizationCollection, vec: ArrayOrContainer, /, *,
         nested: bool = False,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
@@ -453,13 +468,15 @@ def local_grad(
 def local_grad(
         dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer, /, *,
         nested: bool = False,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 def local_grad(
         dcoll: DiscretizationCollection,
         *args: Any,
-        nested: bool = False) -> ArrayOrContainer:
+        nested: bool = False,
+        enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the element-local gradient of a function :math:`f` represented
     by *vec*:
 
@@ -476,6 +493,8 @@ def local_grad(
         Defaults to the base volume discretization if not provided.
     :arg nested: return nested object arrays instead of a single multidimensional
         array if *vec* is non-scalar.
+    :arg enable_sum_factorization: use tensor-product factors where supported.
+        If *False*, construct and apply full dense reference matrices instead.
     :returns: an object array (possibly nested) of
         :class:`~meshmode.dof_array.DOFArray`\ s or
         :class:`~arraycontext.ArrayContainer` of object arrays.
@@ -490,7 +509,8 @@ def local_grad(
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        partial(_strong_scalar_grad, dcoll, dd_in),
+        partial(_strong_scalar_grad, dcoll, dd_in,
+                enable_sum_factorization=enable_sum_factorization),
         (), (dcoll.ambient_dim,),
         vec, scalar_cls=DOFArray, return_nested=nested,)
 
@@ -498,20 +518,25 @@ def local_grad(
 @overload
 def local_d_dx(
         dcoll: DiscretizationCollection, xyz_axis: int,
-        vec: ArrayOrContainer, /,
+        vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def local_d_dx(
         dcoll: DiscretizationCollection, xyz_axis: int,
-        dd: DOFDesc, vec: ArrayOrContainer, /,
+        dd: DOFDesc, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 def local_d_dx(
-        dcoll: DiscretizationCollection, xyz_axis: int,
-        *args: Any) -> ArrayOrContainer:
+    dcoll: DiscretizationCollection,
+    xyz_axis: int,
+    *args: Any,
+    enable_sum_factorization: bool = True,
+) -> ArrayOrContainer:
     r"""Return the element-local derivative along axis *xyz_axis* of a
     function :math:`f` represented by *vec*:
 
@@ -531,43 +556,92 @@ def local_d_dx(
         :class:`~arraycontext.ArrayContainer` of them.
     """
     if len(args) == 1:
-        vec, = args
+        (vec,) = args
         dd = DD_VOLUME_ALL
     elif len(args) == 2:
         dd, vec = args
     else:
-        raise TypeError(f"invalid number of arguments to 'local_d_dx': {len(args)}")
+        raise TypeError(
+            f"invalid number of arguments to 'local_d_dx': {len(args)}"
+        )
 
     if not isinstance(vec, DOFArray):
-        return map_array_container(partial(local_d_dx, dcoll, xyz_axis, dd), vec)
+        return map_array_container(
+            partial(
+                local_d_dx,
+                dcoll,
+                xyz_axis,
+                dd,
+                enable_sum_factorization=enable_sum_factorization,
+            ),
+            vec,
+        )
 
     discr = dcoll.discr_from_dd(dd)
     actx = vec.array_context
     assert actx is not None
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
-    inverse_jac_mat = inverse_surface_metric_derivative_mat(actx, dcoll, dd=dd,
-        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    return _single_axis_derivative_kernel(
-        actx, discr, discr,
-        _reference_derivative_matrices, inverse_jac_mat, xyz_axis, vec,
-        metric_in_matvec=False)
+    inverse_jac_mat = inverse_surface_metric_derivative_mat(
+        actx,
+        dcoll,
+        dd=dd,
+        _use_geoderiv_connection=actx.supports_nonscalar_broadcasting,
+    )
 
+    per_group_derivative = []
+    for in_group, out_group, vec_i, ijm_i in zip(
+        discr.groups, discr.groups, vec, inverse_jac_mat, strict=True
+    ):
+        operators = make_strong_differentiation_operator(
+            actx,
+            in_group,
+            out_group,
+            enable_sum_factorization=enable_sum_factorization,
+        )
+        ref_axes = "rst"
+
+        reference_derivatives = actx.np.stack([
+            _apply_operator_to_group(
+                actx,
+                in_group,
+                out_group,
+                operators[rst_axis],
+                vec_i,
+                operator_name=f"strong_ref_deriv_{ref_axes[rst_axis]}",
+                enable_sum_factorization=enable_sum_factorization,
+            )
+            for rst_axis in range(in_group.dim)
+        ])
+
+        per_group_derivative.append(
+            actx.einsum(
+                "rej,rej->ej",
+                ijm_i[xyz_axis],
+                reference_derivatives,
+                arg_names=("inv_jac_t", "vec"),
+            )
+        )
+
+    return DOFArray(actx, data=tuple(per_group_derivative))
 
 @overload
 def local_div(
-        dcoll: DiscretizationCollection, vecs: ArrayOrContainer, /,
+        dcoll: DiscretizationCollection, vecs: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def local_div(
-        dcoll: DiscretizationCollection, dd: DOFDesc, vecs: ArrayOrContainer, /,
+        dcoll: DiscretizationCollection, dd: DOFDesc, vecs: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def local_div(dcoll: DiscretizationCollection, *args: Any,
+              enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the element-local divergence of the vector function
     :math:`\mathbf{f}` represented by *vecs*:
 
@@ -597,7 +671,8 @@ def local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        lambda vec: _strong_scalar_div(dcoll, dd, vec),
+        lambda vec: _strong_scalar_div(dcoll, dd, vec,
+            enable_sum_factorization=enable_sum_factorization),
         (dcoll.ambient_dim,), (),
         vecs, scalar_cls=DOFArray)
 
@@ -664,7 +739,8 @@ def _reference_stiffness_transpose_matrices(
 
 
 def _weak_scalar_grad(
-        dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer
+        dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer,
+        *, enable_sum_factorization: bool = True,
     ) -> obj_array.ObjectArray1D[ArrayOrContainer]:
     assert isinstance(vec, DOFArray)
 
@@ -689,7 +765,8 @@ def _weak_scalar_grad(
 def _weak_scalar_div(
             dcoll: DiscretizationCollection,
             dd_in: DOFDesc,
-            vecs: obj_array.ObjectArray1D[DOFArray]) -> DOFArray:
+            vecs: obj_array.ObjectArray1D[DOFArray],
+            *, enable_sum_factorization: bool = True) -> DOFArray:
     from arraycontext import get_container_context_recursively
 
     from grudge.geometry import inverse_surface_metric_derivative_mat
@@ -716,6 +793,7 @@ def _weak_scalar_div(
 def weak_local_grad(
         dcoll: DiscretizationCollection, vec: ArrayOrContainer, /, *,
         nested: bool = False,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
@@ -723,12 +801,14 @@ def weak_local_grad(
 def weak_local_grad(
         dcoll: DiscretizationCollection, dd_in: DOFDesc, vec: ArrayOrContainer, /, *,
         nested: bool = False,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 def weak_local_grad(
         dcoll: DiscretizationCollection,
-        *args: Any, nested: bool = False) -> ArrayOrContainer:
+        *args: Any, nested: bool = False,
+        enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the element-local weak gradient of the volume function
     represented by *vec*.
 
@@ -760,7 +840,8 @@ def weak_local_grad(
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        partial(_weak_scalar_grad, dcoll, dd_in),
+        partial(_weak_scalar_grad, dcoll, dd_in,
+                enable_sum_factorization=enable_sum_factorization),
         (), (dcoll.ambient_dim,),
         vecs, scalar_cls=DOFArray, return_nested=nested)
 
@@ -768,18 +849,21 @@ def weak_local_grad(
 @overload
 def weak_local_d_dx(
         dcoll: DiscretizationCollection,
-        xyz_axis: int, vec: ArrayOrContainer, /,
+        xyz_axis: int, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def weak_local_d_dx(
         dcoll: DiscretizationCollection,
-        dd_in: DOFDesc, xyz_axis: int, vec: ArrayOrContainer, /,
+        dd_in: DOFDesc, xyz_axis: int, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def weak_local_d_dx(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def weak_local_d_dx(dcoll: DiscretizationCollection, *args: Any,
+                    enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the element-local weak derivative along axis *xyz_axis* of the
     volume function represented by *vec*.
 
@@ -819,7 +903,8 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrConta
 
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(weak_local_d_dx, dcoll, dd_in, xyz_axis),
+            partial(weak_local_d_dx, dcoll, dd_in, xyz_axis,
+                    enable_sum_factorization=enable_sum_factorization),
             vec
         )
 
@@ -844,18 +929,21 @@ def weak_local_d_dx(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrConta
 @overload
 def weak_local_div(
         dcoll: DiscretizationCollection,
-        vecs: ArrayOrContainer, /,
+        vecs: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def weak_local_div(
         dcoll: DiscretizationCollection,
-        dd: DOFDesc, vecs: ArrayOrContainer, /,
+        dd: DOFDesc, vecs: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def weak_local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def weak_local_div(dcoll: DiscretizationCollection, *args: Any,
+                   enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the element-local weak divergence of the vector volume function
     represented by *vecs*.
 
@@ -894,7 +982,8 @@ def weak_local_div(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContai
 
     from grudge.tools import rec_map_subarrays
     return rec_map_subarrays(
-        lambda vec: _weak_scalar_div(dcoll, dd_in, vec),
+        lambda vec: _weak_scalar_div(dcoll, dd_in, vec,
+            enable_sum_factorization=enable_sum_factorization),
         (dcoll.ambient_dim,), (),
         vecs, scalar_cls=DOFArray)
 
@@ -960,7 +1049,8 @@ def _apply_mass_operator(
             dcoll: DiscretizationCollection,
             dd_out: ToDOFDescConvertible,
             dd_in: ToDOFDescConvertible,
-            vec: ArrayContainerT
+            vec: ArrayContainerT,
+            *, enable_sum_factorization: bool = True,
         ) -> ArrayContainerT:
     if is_scalar_like(vec):
         raise TypeError(f"scalars not allowed: {vec}")
@@ -968,7 +1058,8 @@ def _apply_mass_operator(
     if not isinstance(vec, DOFArray):
         result = map_array_container(
             cast("Callable[[ArrayOrContainerOrScalar], ArrayContainer]",
-                 partial(_apply_mass_operator, dcoll, dd_out, dd_in)), vec
+                 partial(_apply_mass_operator, dcoll, dd_out, dd_in,
+                         enable_sum_factorization=enable_sum_factorization)), vec
         )
         assert is_array_container(result)
         return cast("ArrayContainerT", result)
@@ -994,9 +1085,11 @@ def _apply_mass_operator(
                 actx,
                 in_grp,
                 out_grp,
-                make_mass_operator(actx, in_grp, out_grp),
+                make_mass_operator(actx, in_grp, out_grp,
+                    enable_sum_factorization=enable_sum_factorization),
                 ae_i * vec_i,
                 "mass_op",
+                enable_sum_factorization=enable_sum_factorization,
             )
             for in_grp, out_grp, vec_i, ae_i in zip(
                 in_discr.groups,
@@ -1012,18 +1105,21 @@ def _apply_mass_operator(
 @overload
 def mass(
         dcoll: DiscretizationCollection,
-    vec: ArrayOrContainer, /,
+    vec: ArrayOrContainer, /, *,
+    enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def mass(
         dcoll: DiscretizationCollection,
-        dd_in: DOFDesc, vec: ArrayOrContainer, /,
+        dd_in: DOFDesc, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def mass(dcoll: DiscretizationCollection, *args: Any,
+         enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an :class:`~arraycontext.ArrayContainer`,
@@ -1041,6 +1137,8 @@ def mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
 
     where :math:`\phi_i` are local polynomial basis functions on :math:`E`.
 
+    :arg enable_sum_factorization: use tensor-product factors where supported.
+        If *False*, construct and apply full dense reference matrices instead.
     :arg dd_in: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base volume discretization if not provided.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
@@ -1059,7 +1157,8 @@ def mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
 
     dd_out = dd_in.with_discr_tag(DISCR_TAG_BASE)
 
-    return _apply_mass_operator(dcoll, dd_out, dd_in, vec)
+    return _apply_mass_operator(dcoll, dd_out, dd_in, vec,
+            enable_sum_factorization=enable_sum_factorization)
 
 # }}}
 
@@ -1106,11 +1205,13 @@ def _apply_inverse_mass_operator(
             dcoll: DiscretizationCollection,
             dd_out: ToDOFDescConvertible,
             dd_in: ToDOFDescConvertible,
-            vec: ArrayContainer) -> ArrayContainer:
+            vec: ArrayContainer,
+            *, enable_sum_factorization: bool = True) -> ArrayContainer:
     if not isinstance(vec, DOFArray):
         return map_array_container(
             cast("Callable[[ArrayOrContainerOrScalar], ArrayContainer]",
-                 partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in)), vec
+                 partial(_apply_inverse_mass_operator, dcoll, dd_out, dd_in,
+                         enable_sum_factorization=enable_sum_factorization)), vec
         )
 
     from grudge.geometry import area_element
@@ -1138,9 +1239,11 @@ def _apply_inverse_mass_operator(
             actx,
             grp,
             grp,
-            make_inverse_mass_operator(actx, grp),
+            make_inverse_mass_operator(actx, grp,
+                enable_sum_factorization=enable_sum_factorization),
             vec_i,
             "inv_mass_op",
+            enable_sum_factorization=enable_sum_factorization,
         )
         * jac_inv
         for grp, jac_inv, vec_i in zip(
@@ -1154,18 +1257,21 @@ def _apply_inverse_mass_operator(
 @overload
 def inverse_mass(
         dcoll: DiscretizationCollection,
-    vec: ArrayOrContainer, /,
+    vec: ArrayOrContainer, /, *,
+    enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def inverse_mass(
         dcoll: DiscretizationCollection,
-        dd: DOFDesc, vec: ArrayOrContainer, /,
+        dd: DOFDesc, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def inverse_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def inverse_mass(dcoll: DiscretizationCollection, *args: Any,
+                 enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the action of the DG mass matrix inverse on a vector
     (or vectors) of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*.
     In the case of *vec* being an :class:`~arraycontext.ArrayContainer`,
@@ -1197,6 +1303,8 @@ def inverse_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContaine
 
     May be called with ``(vec)`` or ``(dd, vec)``.
 
+    :arg enable_sum_factorization: use tensor-product factors where supported.
+        If *False*, construct and apply full dense reference matrices instead.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer` of them.
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
@@ -1212,7 +1320,8 @@ def inverse_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContaine
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_inverse_mass_operator(dcoll, dd, dd, vec)
+    return _apply_inverse_mass_operator(dcoll, dd, dd, vec,
+            enable_sum_factorization=enable_sum_factorization)
 
 # }}}
 
@@ -1323,10 +1432,12 @@ def reference_face_mass_matrix(
 def _apply_face_mass_operator(
             dcoll: DiscretizationCollection,
             dd_in: DOFDesc,
-            vec: ArrayOrContainer) -> ArrayOrContainer:
+            vec: ArrayOrContainer,
+            *, enable_sum_factorization: bool = True) -> ArrayOrContainer:
     if not isinstance(vec, DOFArray):
         return map_array_container(
-            partial(_apply_face_mass_operator, dcoll, dd_in), vec
+            partial(_apply_face_mass_operator, dcoll, dd_in,
+                    enable_sum_factorization=enable_sum_factorization), vec
         )
 
     from grudge.geometry import area_element
@@ -1381,18 +1492,21 @@ def _apply_face_mass_operator(
 @overload
 def face_mass(
         dcoll: DiscretizationCollection,
-        vec: ArrayOrContainer, /,
+        vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
 @overload
 def face_mass(
         dcoll: DiscretizationCollection,
-        dd: DOFDesc, vec: ArrayOrContainer, /,
+        dd: DOFDesc, vec: ArrayOrContainer, /, *,
+        enable_sum_factorization: bool = True,
 ) -> ArrayOrContainer: ...
 
 
-def face_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
+def face_mass(dcoll: DiscretizationCollection, *args: Any,
+              enable_sum_factorization: bool = True) -> ArrayOrContainer:
     r"""Return the action of the DG face mass matrix on a vector (or vectors)
     of :class:`~meshmode.dof_array.DOFArray`\ s, *vec*. In the case of
     *vec* being an arbitrary :class:`~arraycontext.ArrayContainer`,
@@ -1435,7 +1549,8 @@ def face_mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
     else:
         raise TypeError("invalid number of arguments")
 
-    return _apply_face_mass_operator(dcoll, dd_in, vec)
+    return _apply_face_mass_operator(dcoll, dd_in, vec,
+            enable_sum_factorization=enable_sum_factorization)
 
 # }}}
 
