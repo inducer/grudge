@@ -26,6 +26,8 @@ Mass, inverse mass, and face mass operators
 
 from __future__ import annotations
 
+from meshmode.discretization.poly_element import TensorProductElementGroupBase
+
 
 __copyright__ = """
 Copyright (C) 2021 Andreas Kloeckner
@@ -170,6 +172,85 @@ __all__ = (
     "weak_local_div",
     "weak_local_grad",
     )
+
+
+# {{{ general operator application routines
+
+
+def _apply_operator_to_group(
+    actx: ArrayContext,
+    in_group: ElementGroupBase,
+    out_group: ElementGroupBase,
+    operator: Array | tuple[Array, ...],
+    vec: Array,
+    operator_name: str,
+) -> Array:
+
+    if isinstance(in_group, TensorProductElementGroupBase) and isinstance(
+        out_group, TensorProductElementGroupBase
+    ):
+        if not isinstance(operator, tuple):
+            raise TypeError(
+                "tensor-product application requires a tuple of factors"
+            )
+
+        if len(operator) != in_group.dim:
+            raise ValueError("expected one factor per reference direction")
+
+        from string import ascii_lowercase
+
+        from modepy.tools import (
+            reshape_array_for_tensor_product_space,
+            unreshape_array_for_tensor_product_space,
+        )
+
+        from grudge.transform.metadata import (
+            OutputIsTensorProductDOFArrayOrdered,
+        )
+
+        vec_tp: Array = reshape_array_for_tensor_product_space(
+            in_group.space,
+            vec,  # pyright: ignore[reportArgumentType]
+        )
+
+        ndim = len(vec_tp.shape)
+        indices = ascii_lowercase[:ndim]
+        output_index = ascii_lowercase[ndim]
+        for reference_axis, factor in enumerate(operator):
+            # skip element axis
+            axis = reference_axis + 1
+
+            reduction_index = indices[axis]
+            output_indices = indices[:axis] + output_index + indices[axis + 1 :]
+
+            vec_tp = actx.einsum(
+                f"{output_index}{reduction_index},{indices}->{output_indices}",
+                factor,
+                vec_tp,
+                arg_names=(operator_name, "vec_tp"),
+                tagged=(OutputIsTensorProductDOFArrayOrdered(),),
+            )
+
+        return unreshape_array_for_tensor_product_space(out_group.space, vec_tp)  # pyright: ignore[reportArgumentType]
+
+    else:
+        if isinstance(operator, tuple):
+            if len(operator) != 1:
+                raise ValueError(
+                    "only a single dense operator can be supplied."
+                )
+            operator = operator[0]
+
+        return actx.einsum(
+            "ij,ej->ei",
+            operator,
+            vec,
+            arg_names=(operator_name, "vec"),
+            tagged=(FirstAxisIsElementsTag(),),
+        )
+
+
+# }}}
 
 
 # {{{ common derivative "kernels"
@@ -826,6 +907,15 @@ def reference_mass_matrix(
         actx: ArrayContext,
         out_element_group: ElementGroupBase,
         in_element_group: ElementGroupBase) -> Array:
+    from warnings import warn
+
+    warn(
+        "'reference_mass_matrix' is deprecated and will become unavailable in 2027. "
+        "Use grudge.bilinear_forms.make_mass_operator instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if not isinstance(out_element_group, InterpolatoryElementGroupBase):
         raise TypeError(
             f"'out_element_group' must be interpolatory: {type(out_element_group)}")
@@ -841,7 +931,7 @@ def reference_mass_matrix(
         actx, reference_mass_matrix,
         memoize_key)
     def get_ref_mass_mat(out_grp: InterpolatoryElementGroupBase,
-                         in_grp: NodalElementGroupBase):
+                         in_grp: NodalElementGroupBase) -> Array:
         if out_grp == in_grp:
             return actx.freeze(
                 actx.from_numpy(
@@ -895,24 +985,27 @@ def _apply_mass_operator(
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
     assert isinstance(area_elements, DOFArray)
 
+    from grudge.bilinear_forms import make_mass_operator
+
     return type(vec)(
         actx,
         data=tuple(
-            actx.einsum("ij,ej,ej->ei",
-                reference_mass_matrix(
-                    actx,
-                    out_element_group=out_grp,
-                    in_element_group=in_grp
-                    ),
-                ae_i,
-                vec_i,
-                arg_names=("mass_mat", "jac", "vec"),
-                tagged=(FirstAxisIsElementsTag(),))
-
-            for in_grp, out_grp, ae_i, vec_i in zip(
-                    in_discr.groups, out_discr.groups, area_elements, vec,
-                    strict=True)
-        )
+            _apply_operator_to_group(
+                actx,
+                in_grp,
+                out_grp,
+                make_mass_operator(actx, in_grp, out_grp),
+                ae_i * vec_i,
+                "mass_op",
+            )
+            for in_grp, out_grp, vec_i, ae_i in zip(
+                in_discr.groups,
+                out_discr.groups,
+                vec,
+                area_elements,
+                strict=True,
+            )
+        ),
     )
 
 
@@ -976,6 +1069,16 @@ def mass(dcoll: DiscretizationCollection, *args: Any) -> ArrayOrContainer:
 def reference_inverse_mass_matrix(
         actx: ArrayContext, element_group: ElementGroupBase
     ) -> Array:
+    from warnings import warn
+
+    warn(
+        "'reference_inverse_mass_matrix' is deprecated and will become "
+        "unavailable in 2027. Use grudge.bilinear_forms.make_inverse_mass_operator "
+        "instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if not isinstance(element_group, InterpolatoryElementGroupBase):
         raise TypeError(f"'element_group' must be interpolatory: {type(element_group)}")
 
@@ -1025,16 +1128,25 @@ def _apply_inverse_mass_operator(
     discr = dcoll.discr_from_dd(dd_in)
     inv_area_elements = 1./area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
+
+    from grudge.bilinear_forms import make_inverse_mass_operator
+
     group_data = [
-            # Based on https://arxiv.org/pdf/1608.03836.pdf
-            # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
-            actx.einsum("ei,ij,ej->ei",
-                        jac_inv,
-                        reference_inverse_mass_matrix(actx, element_group=grp),
-                        vec_i,
-                        tagged=(FirstAxisIsElementsTag(),))
-            for grp, jac_inv, vec_i in zip(
-                discr.groups, inv_area_elements, vec, strict=True)]
+        # Based on https://arxiv.org/pdf/1608.03836.pdf
+        # true_Minv ~ ref_Minv * ref_M * (1/jac_det) * ref_Minv
+        _apply_operator_to_group(
+            actx,
+            grp,
+            grp,
+            make_inverse_mass_operator(actx, grp),
+            vec_i,
+            "inv_mass_op",
+        )
+        * jac_inv
+        for grp, jac_inv, vec_i in zip(
+            discr.groups, inv_area_elements, vec, strict=True
+        )
+    ]
 
     return DOFArray(actx, data=tuple(group_data))
 

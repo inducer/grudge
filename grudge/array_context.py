@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from grudge.transform.metadata import OutputIsTensorProductDOFArrayOrdered
+
 
 __copyright__ = "Copyright (C) 2020 Andreas Kloeckner"
 
@@ -101,6 +103,7 @@ if TYPE_CHECKING:
     import pyopencl
     import pyopencl.array as cl_array
     from arraycontext.container import ArrayContainer
+    from loopy import TranslationUnit
     from pytools.tag import Tag
 
 
@@ -121,6 +124,31 @@ class PyOpenCLArrayContext(_PyOpenCLArrayContextBase):
 
         super().__init__(queue, allocator,
                          wait_event_queue_length, force_device_scalars)
+
+    @override
+    def transform_loopy_program(
+        self, t_unit: TranslationUnit
+    ) -> TranslationUnit:
+        knl = t_unit.default_entrypoint
+
+        if knl.tags_of_type(OutputIsTensorProductDOFArrayOrdered):
+            new_args = []
+            for arg in knl.args:
+                if arg.is_output:
+                    arg = arg.copy(
+                        dim_tags=(
+                            f"N{len(arg.shape) - 1},"
+                            + ",".join(
+                                f"N{i}" for i in range(len(arg.shape) - 1)
+                            )
+                        )
+                    )
+                new_args.append(arg)
+
+            knl = knl.copy(args=new_args)
+            t_unit = t_unit.with_kernel(knl)
+
+        return super().transform_loopy_program(t_unit)
 
 # }}}
 
