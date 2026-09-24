@@ -76,8 +76,6 @@ from meshmode.discretization import (
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
-    DiscretizationElementAxisTag,
-    DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
 from meshmode.discretization.poly_element import TensorProductElementGroupBase
@@ -88,7 +86,8 @@ from grudge.bilinear_forms import (
     make_mass_operator,
     make_inverse_mass_operator,
     make_strong_differentiation_operator,
-    make_stiffness_t_operator
+    make_stiffness_t_operator,
+    make_face_mass_operator,
 )
 from grudge.dof_desc import (
     DD_VOLUME_ALL,
@@ -192,6 +191,7 @@ def _apply_operator_to_group(
     operator_name: str,
     *,
     enable_sum_factorization: bool = True,
+    face_index: int | None = None,
 ) -> Array:
 
     if (enable_sum_factorization
@@ -202,7 +202,7 @@ def _apply_operator_to_group(
                 "tensor-product application requires a tuple of factors"
             )
 
-        if len(operator) != in_group.dim:
+        if len(operator) != out_group.dim:
             raise ValueError("expected one factor per reference direction")
 
         from string import ascii_lowercase
@@ -220,6 +220,27 @@ def _apply_operator_to_group(
             in_group.space,
             vec,  # pyright: ignore[reportArgumentType]
         )
+
+        if in_group.dim != out_group.dim:
+            if face_index is None or in_group.dim + 1 != out_group.dim:
+                raise ValueError("face application requires a face index")
+            face = mp.faces_for_shape(out_group.shape)[face_index]
+            mapped = face.map_to_volume(
+                np.column_stack((np.zeros(in_group.dim), np.eye(in_group.dim)))
+            )
+            directions = mapped[:, 1:] - mapped[:, :1]
+            volume_axes = [int(axis) for axis in
+                           np.argmax(np.abs(directions), axis=0)]
+            # Put tangential axes in volume order and insert the normal singleton.
+            permutation = (0, *(1 + volume_axes.index(axis)
+                               for axis in range(out_group.dim)
+                               if axis in volume_axes))
+            vec_tp = vec_tp.transpose(permutation).reshape(
+                (out_group.nelements,
+                 *(in_group.order + 1 if axis in volume_axes else 1
+                   for axis in range(out_group.dim))),
+                order="F",
+            )
 
         ndim = len(vec_tp.shape)
         indices = ascii_lowercase[:ndim]
@@ -1244,16 +1265,25 @@ def reference_face_mass_matrix(
             face_element_group: ElementGroupBase,
             vol_element_group: ElementGroupBase,
             dtype: np.dtype[Any]) -> Array:
+    from warnings import warn
+
+    warn(
+        "'reference_face_mass_matrix' is deprecated and will become unavailable "
+        "in 2027. Use grudge.bilinear_forms.make_face_mass_operator instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if not isinstance(vol_element_group, InterpolatoryElementGroupBase):
         raise TypeError(
             f"'vol_element_group' must be interpolatory: {type(vol_element_group)}")
 
     def memoize_key(face_grp: ElementGroupBase,
                     vol_grp: InterpolatoryElementGroupBase) -> Hashable:
-        return face_grp.discretization_key(), vol_grp.discretization_key()
+        return face_grp.discretization_key(), vol_grp.discretization_key(), dtype
 
     @keyed_memoize_in(
-        actx, reference_mass_matrix,
+        actx, reference_face_mass_matrix,
         memoize_key)
     def get_ref_face_mass_mat(
                 face_grp: ElementGroupBase,
@@ -1353,6 +1383,7 @@ def _apply_face_mass_operator(
 
     from grudge.geometry import area_element
 
+    dd_in = as_dofdesc(dd_in)
     assert isinstance(dd_in.domain_tag, BoundaryDomainTag)
 
     dd_out = DOFDesc(
@@ -1369,35 +1400,36 @@ def _apply_face_mass_operator(
     surf_area_elements = area_element(actx, dcoll, dd=dd_in,
             _use_geoderiv_connection=actx.supports_nonscalar_broadcasting)
 
-    return DOFArray(
-        actx,
-        data=tuple(
-            actx.einsum("ifj,fej,fej->ei",
-                        reference_face_mass_matrix(
-                            actx,
-                            face_element_group=cast(
-                                    "InterpolatoryElementGroupBase", afgrp),
-                            vol_element_group=cast(
-                                    "InterpolatoryElementGroupBase", vgrp),
-                            dtype=dtype),
-                        actx.tag_axis(1, DiscretizationElementAxisTag(),
-                            surf_ae_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                cast("int", surf_ae_i.shape[-1]))),
-                        actx.tag_axis(0, DiscretizationFaceAxisTag(),
-                            vec_i.reshape(
-                                vgrp.mesh_el_group.nfaces,
-                                vgrp.nelements,
-                                afgrp.nunit_dofs)),
-                        arg_names=("ref_face_mass_mat", "jac_surf", "vec"),
-                        tagged=(FirstAxisIsElementsTag(),))
+    group_data = []
+    for vol_group, face_group, vec_i, surf_ae_i in zip(
+            volm_discr.groups, face_discr.groups, vec, surf_area_elements,
+            strict=True):
+        nfaces = vol_group.mesh_el_group.nfaces
+        if face_group.nelements != nfaces * vol_group.nelements:
+            raise ValueError("face mass requires data on all element faces")
+        operators = make_face_mass_operator(
+            actx, face_group, vol_group, dtype,
+            enable_sum_factorization=enable_sum_factorization,
+        )
+        weighted_faces = (surf_ae_i * vec_i).reshape(
+            (nfaces, vol_group.nelements, face_group.nunit_dofs)
+        )
+        factorized = isinstance(operators, tuple)
+        group_data.append(sum(
+            _apply_operator_to_group(
+                actx,
+                face_group,
+                vol_group,
+                operators[iface] if factorized else operators[:, iface, :],
+                weighted_faces[iface],
+                "face_mass_op",
+                enable_sum_factorization=factorized,
+                face_index=iface,
+            )
+            for iface in range(nfaces)
+        ))
 
-            for vgrp, afgrp, vec_i, surf_ae_i in zip(volm_discr.groups,
-                                                     face_discr.groups,
-                                                     vec,
-                                                     surf_area_elements,
-                                                     strict=True)))
+    return DOFArray(actx, data=tuple(group_data))
 
 
 @overload
@@ -1446,6 +1478,8 @@ def face_mass(dcoll: DiscretizationCollection, *args: Any,
 
     :arg dd: a :class:`~grudge.dof_desc.DOFDesc`, or a value convertible to one.
         Defaults to the base ``"all_faces"`` discretization if not provided.
+    :arg enable_sum_factorization: use tensor-product face factors where
+        supported. If *False*, construct and apply dense reference matrices.
     :arg vec: a :class:`~meshmode.dof_array.DOFArray` or an
         :class:`~arraycontext.ArrayContainer` of them.
     :returns: a :class:`~meshmode.dof_array.DOFArray` or an
