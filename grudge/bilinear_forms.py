@@ -17,7 +17,7 @@ from pytools import keyed_memoize_on_first_arg
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Hashable, Mapping, Sequence
 
     from arraycontext import Array, ArrayContext
     from modepy.typing import ArrayF
@@ -56,11 +56,14 @@ def _as_cached_operator(
 
     return actx.freeze(matrix_actx)
 
+# {{{ mass / inverse mass
 
 def _make_dense_mass_operator(
     actx: ArrayContext,
     in_element_group: NodalElementGroupBase,
     out_element_group: InterpolatoryElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
 ) -> ArrayF:
 
     in_nodes = in_element_group.unit_nodes
@@ -100,6 +103,8 @@ def _make_tensor_product_mass_operator(
     actx: ArrayContext,
     in_element_group: TensorProductElementGroupBase,
     out_element_group: TensorProductElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
 ) -> tuple[ArrayF, ...]:
 
     in_nodes = in_element_group.unit_nodes_1d
@@ -141,16 +146,26 @@ def _make_tensor_product_mass_operator(
     return (matrix,) * out_element_group.dim
 
 
-@keyed_memoize_on_first_arg(
-    lambda in_element_group, out_element_group: (
+def _operator_discretization_key(
+    in_element_group: ElementGroupBase,
+    out_element_group: ElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
+) -> Hashable:
+    return (
         in_element_group.discretization_key(),
         out_element_group.discretization_key(),
+        enable_sum_factorization,
     )
-)
+
+
+@keyed_memoize_on_first_arg(_operator_discretization_key)
 def make_mass_operator(
     actx: ArrayContext,
     in_element_group: ElementGroupBase,
     out_element_group: ElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
 ) -> Array | tuple[Array, ...]:
 
     if not isinstance(in_element_group, NodalElementGroupBase):
@@ -162,9 +177,9 @@ def make_mass_operator(
             f"'out_element_group' must be interpolatory: {type(out_element_group)}"
         )
 
-    if isinstance(
-        in_element_group, TensorProductElementGroupBase
-    ) and isinstance(out_element_group, TensorProductElementGroupBase):
+    if (enable_sum_factorization
+            and isinstance(in_element_group, TensorProductElementGroupBase)
+            and isinstance(out_element_group, TensorProductElementGroupBase)):
         matrices = _make_tensor_product_mass_operator(
             actx, in_element_group, out_element_group
         )
@@ -188,12 +203,20 @@ def make_mass_operator(
     return _as_cached_operator(actx, matrix, array_tags, axis_tags)
 
 
-@keyed_memoize_on_first_arg(
-    lambda element_group: element_group.discretization_key()
-)
+def _inverse_mass_discretization_key(
+    element_group: ElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
+) -> Hashable:
+    return element_group.discretization_key(), enable_sum_factorization
+
+
+@keyed_memoize_on_first_arg(_inverse_mass_discretization_key)
 def make_inverse_mass_operator(
     actx: ArrayContext,
     element_group: ElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
 ) -> Array | tuple[Array, ...]:
 
     if not isinstance(element_group, InterpolatoryElementGroupBase):
@@ -203,7 +226,8 @@ def make_inverse_mass_operator(
 
     import numpy.linalg as la
 
-    if isinstance(element_group, TensorProductElementGroupBase):
+    if (enable_sum_factorization
+            and isinstance(element_group, TensorProductElementGroupBase)):
         matrices = _make_tensor_product_mass_operator(
             actx, element_group, element_group
         )
@@ -223,3 +247,81 @@ def make_inverse_mass_operator(
     axis_tags = {0: (DiscretizationDOFAxisTag(),)}
 
     return _as_cached_operator(actx, la.inv(matrix), array_tags, axis_tags)
+
+# }}}
+
+# {{{ strong differentiation operators
+
+
+@keyed_memoize_on_first_arg(_operator_discretization_key)
+def make_strong_differentiation_operator(
+    actx: ArrayContext,
+    in_element_group: ElementGroupBase,
+    out_element_group: ElementGroupBase,
+    *,
+    enable_sum_factorization: bool = True,
+) -> tuple[Array | tuple[Array | None, ...], ...]:
+
+    if not isinstance(in_element_group, InterpolatoryElementGroupBase):
+        raise TypeError(
+            f"'in_element_group' must be interpolatory: {type(out_element_group)}"
+        )
+    if not isinstance(out_element_group, NodalElementGroupBase):
+        raise TypeError(
+            f"'out_element_group' must be nodal: {type(in_element_group)}"
+        )
+
+    if (enable_sum_factorization
+            and isinstance(in_element_group, TensorProductElementGroupBase)
+            and isinstance(out_element_group, TensorProductElementGroupBase)):
+        if in_element_group != out_element_group:
+            raise NotImplementedError(
+                "sum factorized strong differentiation between different "
+                "element groups is not yet supported"
+            )
+
+        # WARNING: as of 9/23/2026 meshmode only constructs isotropic tensor product
+        # elements. if this is ever expanded, then we will need to generate a
+        # sequence of operators for each coordinate direction
+        basis = in_element_group.basis_obj()
+        assert isinstance(basis, mp.TensorProductBasis)
+
+        basis = basis.bases[0]
+
+        array_tags = ()
+        axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+
+        D = mp.diff_matrices(
+            basis,
+            out_element_group.unit_nodes_1d,
+            from_nodes=in_element_group.unit_nodes_1d,
+        )[0]
+
+        matrix: Array = _as_cached_operator(actx, D, array_tags, axis_tags)
+
+        # None => identity matrix. Skip rather than construct + apply identity
+        return tuple(
+            tuple(matrix if axis == derivative_axis else None
+                  for axis in range(in_element_group.dim))
+            for derivative_axis in range(in_element_group.dim)
+        )
+
+    else:
+        array_tags = ()
+        axis_tags = {0: (DiscretizationDOFAxisTag(),)}
+
+        matrices = mp.diff_matrices(
+            in_element_group.basis_obj(),
+            out_element_group.unit_nodes,
+            from_nodes=in_element_group.unit_nodes,
+        )
+
+        return tuple(
+            _as_cached_operator(actx, matrix, array_tags, axis_tags)
+            for matrix in matrices
+        )
+
+# }}}
+
+# {{{ weak differentiation operators
+# }}}
