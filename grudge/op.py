@@ -77,6 +77,7 @@ from meshmode.discretization.poly_element import TensorProductElementGroupBase
 from meshmode.dof_array import DOFArray
 from meshmode.transform_metadata import (
     DiscretizationDOFAxisTag,
+    DiscretizationElementAxisTag,
     DiscretizationFaceAxisTag,
     FirstAxisIsElementsTag,
 )
@@ -214,12 +215,10 @@ def _apply_operator_to_group(
             OutputIsTensorProductDOFArrayOrdered,
         )
 
-        vec_tp = vec
-        if len(vec.shape) == 2:
-            vec_tp = reshape_array_for_tensor_product_space(
-                in_group.space,
-                vec,  # pyright: ignore[reportArgumentType]
-            )
+        vec_tp = reshape_array_for_tensor_product_space(
+            in_group.space,
+            vec,  # pyright: ignore[reportArgumentType]
+        )
 
         ndim = len(vec_tp.shape)
         indices = ascii_lowercase[:ndim]
@@ -1440,9 +1439,21 @@ def _apply_face_mass_operator(
         face_results = []
         for iface, operator in enumerate(operators):
             face_vec = weighted_faces[iface]
-            factorized = isinstance(operator, tuple)
-            if factorized:
-                from modepy.tools import reshape_array_for_tensor_product_space
+
+            # NOTE: this is considerably more ugly than other operators because
+            # we have to determine which face the operator should be applied
+            # to. in the dense case, we can apply the operator directly since
+            # the face-to-volume information is already baked into the operators
+            if isinstance(operator, tuple):
+                from modepy.tools import (
+                    reshape_array_for_tensor_product_space,
+                    unreshape_array_for_tensor_product_space,
+                )
+
+                from grudge.transform.metadata import (
+                    OutputIsTensorProductDOFArrayOrdered,
+                    TensorProductDOFAxisTag,
+                )
 
                 face = mp.faces_for_shape(vol_group.shape)[iface]
                 mapped = face.map_to_volume(
@@ -1452,32 +1463,83 @@ def _apply_face_mass_operator(
                     ))
                 )
                 directions = mapped[:, 1:] - mapped[:, :1]
-                volume_axes = np.argmax(np.abs(directions), axis=0)
-                # Reversals are in the factors; align tangential axes here.
-                permutation = (
-                    0,
-                    *(1 + int(axis) for axis in np.argsort(volume_axes)),
+                volume_axes = tuple(
+                    int(axis) for axis in np.argmax(np.abs(directions), axis=0)
+                )
+                normal_axis = next(
+                    axis
+                    for axis in range(vol_group.dim)
+                    if axis not in volume_axes
+                )
+                volume_indices = "ijk"[: vol_group.dim]
+                face_indices = "e" + "".join(
+                    volume_indices[axis] for axis in volume_axes
                 )
                 face_vec = reshape_array_for_tensor_product_space(
                     face_group.space,
                     face_vec,  # pyright: ignore[reportArgumentType]
-                ).transpose(permutation).reshape(
-                    (vol_group.nelements,
-                     *(cast("int", factor.shape[1]) for factor in operator)),
-                    order="F",
                 )
+                face_axis_tags = {
+                    0: DiscretizationElementAxisTag(),
+                    **{
+                        local_axis + 1: TensorProductDOFAxisTag(
+                            axis=volume_axis
+                        )
+                        for local_axis, volume_axis in enumerate(volume_axes)
+                    },
+                }
+                face_vec = tag_axes(actx, face_axis_tags, face_vec)
 
-            face_results.append(
-                _apply_operator_to_group(
-                    actx,
-                    face_group,
-                    vol_group,
-                    operator,
+                # Contract in face-local order. Reversals are already in the
+                # factors; index labels record the corresponding volume axes.
+                for volume_axis in volume_axes:
+                    index = volume_indices[volume_axis]
+                    face_vec = actx.einsum(
+                        f"{index}q,{face_indices.replace(index, 'q')}->{face_indices}",
+                        operator[volume_axis],
+                        face_vec,
+                        arg_names=("face_mass_op", "face_vec"),
+                        tagged=(OutputIsTensorProductDOFArrayOrdered(),),
+                    )
+                    face_vec = tag_axes(actx, face_axis_tags, face_vec)
+
+                # Introduce the normal axis and order all output axes at once.
+                volume_vec = actx.einsum(
+                    f"{volume_indices[normal_axis]},{face_indices}->e{volume_indices}",
+                    operator[normal_axis],
                     face_vec,
-                    "face_mass_op",
-                    enable_sum_factorization=factorized,
+                    arg_names=("face_endpoint", "face_vec"),
+                    tagged=(OutputIsTensorProductDOFArrayOrdered(),),
                 )
-            )
+                volume_vec = tag_axes(
+                    actx,
+                    {
+                        0: DiscretizationElementAxisTag(),
+                        **{
+                            axis + 1: TensorProductDOFAxisTag(axis=axis)
+                            for axis in range(vol_group.dim)
+                        },
+                    },
+                    volume_vec,
+                )
+                face_results.append(
+                    unreshape_array_for_tensor_product_space(
+                        vol_group.space,
+                        volume_vec,  # pyright: ignore[reportArgumentType]
+                    )
+                )
+            else:
+                face_results.append(
+                    _apply_operator_to_group(
+                        actx,
+                        face_group,
+                        vol_group,
+                        operator,
+                        face_vec,
+                        "face_mass_op",
+                        enable_sum_factorization=False,
+                    )
+                )
         group_data.append(sum(face_results))
 
     return DOFArray(actx, data=tuple(group_data))
