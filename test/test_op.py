@@ -536,7 +536,7 @@ def test_face_mass_factor_reuse(
             for axis, factor in enumerate(factors):
                 tangential_axes = np.flatnonzero(directions[axis])
                 if not len(tangential_axes):
-                    assert factor.shape == (vol_group.order+1, 1)
+                    assert factor.shape == (vol_group.order+1,)
                     assert factor is not mass[0]
                 elif matching and directions[axis, tangential_axes[0]] == 1:
                     assert factor is mass[0]

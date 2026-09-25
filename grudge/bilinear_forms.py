@@ -465,30 +465,7 @@ def _make_tensor_product_face_mass_operator(
         assert isinstance(mass, tuple)
         tangential[1] = mass[0]
 
-    boundary = {}
-    for sign in (-1, 1):
-        if sign not in tangential:
-            matrix = mp.nodal_quadrature_bilinear_form_matrix(
-                quadrature=quadrature,
-                test_functions=test_basis.functions,
-                trial_functions=trial_basis.functions,
-                nodal_interp_functions_test=test_basis.functions,
-                nodal_interp_functions_trial=trial_basis.functions,
-                input_nodes=in_element_group.unit_nodes_1d,
-                output_nodes=out_element_group.unit_nodes_1d,
-                test_function_node_map=lambda nodes, sign=sign: sign * nodes,
-            )
-            tangential[sign] = _tag_and_freeze_operator(
-                actx, np.ascontiguousarray(matrix), array_tags, axis_tags
-            )
-        matrix = mp.resampling_matrix(
-            test_basis.functions, np.array([[float(sign)]]),
-            out_element_group.unit_nodes_1d,
-        ).T
-        boundary[sign] = _tag_and_freeze_operator(
-            actx, np.ascontiguousarray(matrix), array_tags, axis_tags
-        )
-
+    boundary: dict[int, Array] = {}
     operators = []
     for face in mp.faces_for_shape(out_element_group.shape):
         mapped = face.map_to_volume(np.column_stack((
@@ -500,9 +477,34 @@ def _make_tensor_product_face_mass_operator(
         for axis in range(out_element_group.dim):
             face_axes = np.flatnonzero(directions[axis])
             if len(face_axes) == 0:
-                factors.append(boundary[int(origin[axis])])
+                sign = int(origin[axis])
+                if sign not in boundary:
+                    vector = mp.resampling_matrix(
+                        test_basis.functions, np.array([[float(sign)]]),
+                        out_element_group.unit_nodes_1d,
+                    )[0]
+                    boundary[sign] = _tag_and_freeze_operator(
+                        actx, np.ascontiguousarray(vector), array_tags,
+                        {0: axis_tags[0]},
+                    )
+                factors.append(boundary[sign])
             else:
-                factors.append(tangential[int(directions[axis, face_axes[0]])])
+                sign = int(directions[axis, face_axes[0]])
+                if sign not in tangential:
+                    matrix = mp.nodal_quadrature_bilinear_form_matrix(
+                        quadrature=quadrature,
+                        test_functions=test_basis.functions,
+                        trial_functions=trial_basis.functions,
+                        nodal_interp_functions_test=test_basis.functions,
+                        nodal_interp_functions_trial=trial_basis.functions,
+                        input_nodes=in_element_group.unit_nodes_1d,
+                        output_nodes=out_element_group.unit_nodes_1d,
+                        test_function_node_map=lambda nodes, sign=sign: sign * nodes,
+                    )
+                    tangential[sign] = _tag_and_freeze_operator(
+                        actx, np.ascontiguousarray(matrix), array_tags, axis_tags
+                    )
+                factors.append(tangential[sign])
         operators.append(tuple(factors))
     return tuple(operators)
 
@@ -546,13 +548,14 @@ def make_face_mass_operator(
         entry is either a dense matrix of shape ``(volume_dofs, face_dofs)``
         or a tuple of factors in volume-axis order. Tangential factors have
         shape ``(volume_dofs_1d, face_dofs_1d)``; the normal factor has shape
-        ``(volume_dofs_1d, 1)`` and contains endpoint basis values.
+        ``(volume_dofs_1d,)`` and contains endpoint basis values.
 
-    Tangential reversals are included in the factors. The caller must align
-    face-local tensor axes with volume axes and insert a singleton normal
-    axis before factorized application. Factors with the same orientation
-    and role are shared across isotropic axes and faces. For matching 1D nodes
-    and order, unreversed tangential factors reuse the cached volume mass
+    Tangential reversals are included in the factors. The caller applies the
+    tangential matrices to the exposed face tensor, then takes an outer product
+    with the normal vector. The einsum output indices place these axes in volume
+    order; no singleton normal axis is needed in the input. Factors with the same
+    orientation and role are shared across isotropic axes and faces. For matching
+    1D nodes and order, unreversed tangential factors reuse the cached volume mass
     factor from :func:`make_mass_operator`. Reversed or nonmatching-grid
     tangential factors are constructed separately.
 
