@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -51,6 +52,12 @@ from grudge.dof_desc import (
     as_dofdesc,
 )
 from grudge.trace_pair import bv_trace_pair
+
+
+if TYPE_CHECKING:
+    from meshmode.dof_array import DOFArray
+
+    from grudge.discretization import DiscretizationCollection
 
 
 logger = logging.getLogger(__name__)
@@ -236,12 +243,12 @@ def test_gradient(
     ])
 def test_divergence(
             actx_factory: ArrayContextFactory,
-            form,
-            dim,
-            order,
-            vectorize,
-            nested,
-            visualize=False):
+            form: str,
+            dim: int,
+            order: int,
+            vectorize: bool,
+            nested: bool,
+            visualize: bool = False) -> None:
     actx = actx_factory()
 
     from pytools.convergence import EOCRecorder
@@ -254,14 +261,20 @@ def test_divergence(
 
         dcoll = make_discretization_collection(actx, mesh, order=order)
 
-        def f(x, dcoll=dcoll):
+        def f(
+                x: obj_array.ObjectArray1D[DOFArray],
+                dcoll: DiscretizationCollection = dcoll,
+        ) -> obj_array.ObjectArray1D[DOFArray]:
             result = obj_array.new_1d([dcoll.zeros(actx) + (i+1) for i in range(dim)])
             for i in range(dim-1):
                 result = result * actx.np.sin(np.pi*x[i])
 
             return result * actx.np.cos(np.pi/2*x[dim-1])
 
-        def div_f(x, dcoll=dcoll):
+        def div_f(
+                x: obj_array.ObjectArray1D[DOFArray],
+                dcoll: DiscretizationCollection = dcoll,
+        ) -> DOFArray:
             result = dcoll.zeros(actx)
             for i in range(dim-1):
                 deriv = dcoll.zeros(actx) + (i+1)
@@ -347,6 +360,196 @@ def test_divergence(
                 or eoc_rec.max_error() < 1e-11)
 
 # }}}
+
+
+@pytest.mark.parametrize("operator_name", [
+    "local_d_dx", "weak_local_d_dx", "face_mass",
+])
+def test_operator_rejects_scalar_leaves(
+        actx_factory: ArrayContextFactory, operator_name: str) -> None:
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,), b=(1,), nelements_per_axis=(1,))
+    dcoll = make_discretization_collection(actx, mesh, order=2)
+    operator = getattr(op, operator_name)
+    args = () if operator_name == "face_mass" else (0,)
+
+    for scalar in (1, 1.0, 1j, np.float64(1)):
+        for value in (scalar, obj_array.new_1d([
+                obj_array.new_1d([scalar])])):
+            with pytest.raises(TypeError, match="scalars not allowed"):
+                operator(dcoll, *args, value)
+
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("tensor_product", [False, True])
+@pytest.mark.parametrize("first_enabled", [False, True])
+def test_sum_factorization_escape_hatch(
+        actx_factory: ArrayContextFactory, dim, tensor_product, first_enabled):
+    from meshmode.mesh import SimplexElementGroup, TensorProductElementGroup
+
+    from grudge.bilinear_forms import (
+        make_inverse_mass_operator,
+        make_mass_operator,
+        make_strong_differentiation_operator,
+    )
+    from grudge.dof_desc import DD_VOLUME_ALL
+
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,)*dim, b=(1,)*dim, nelements_per_axis=(2,)*dim,
+        group_cls=(TensorProductElementGroup if tensor_product
+                   else SimplexElementGroup))
+    dcoll = make_discretization_collection(
+        actx, mesh, order=3,
+        discr_tag_to_group_factory={DISCR_TAG_QUAD: QuadratureGroupFactory(5)})
+    discr = dcoll.discr_from_dd(DD_VOLUME_ALL)
+    x = actx.thaw(discr.nodes())
+    u = 1 + sum((axis+1)*x[axis]**2 for axis in range(dim))
+
+    # Exercise both cache insertion orders within the same array context.
+    for enabled in (first_enabled, not first_enabled):
+        for group in discr.groups:
+            mass = make_mass_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            inverse = make_inverse_mass_operator(
+                actx, group, enable_sum_factorization=enabled)
+            derivatives = make_strong_differentiation_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            assert isinstance(mass, tuple) == (tensor_product and enabled)
+            assert isinstance(inverse, tuple) == (tensor_product and enabled)
+            assert len(derivatives) == dim
+            assert all(isinstance(d, tuple) == (tensor_product and enabled)
+                       for d in derivatives)
+            if isinstance(mass, tuple):
+                assert len(mass) == dim
+                assert all(factor is mass[0] for factor in mass)
+            else:
+                assert mass.shape == (group.nunit_dofs, group.nunit_dofs)
+            assert mass is make_mass_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            assert inverse is make_inverse_mass_operator(
+                actx, group, enable_sum_factorization=enabled)
+            assert derivatives is make_strong_differentiation_operator(
+                actx, group, group, enable_sum_factorization=enabled)
+            if enabled:
+                assert mass is make_mass_operator(actx, group, group)
+
+    def check_close(actual, expected):
+        assert actx.to_numpy(op.norm(dcoll, actual - expected, np.inf)) < 1e-11
+
+    # Containers must propagate the flag to every component.
+    fields = obj_array.new_1d([u, 2*u])
+    results = {}
+    for enabled in (first_enabled, not first_enabled):
+        mass = op.mass(dcoll, fields, enable_sum_factorization=enabled)
+        inverse = op.inverse_mass(dcoll, mass, enable_sum_factorization=enabled)
+        grad = op.local_grad(
+            dcoll, DD_VOLUME_ALL, u, enable_sum_factorization=enabled)
+        nested = op.local_grad(
+            dcoll, fields, nested=True, enable_sum_factorization=enabled)
+        for component in range(2):
+            check_close(inverse[component], fields[component])
+            for axis in range(dim):
+                check_close(nested[component][axis], (component+1)*grad[axis])
+        for axis in range(dim):
+            check_close(grad[axis], 2*(axis+1)*x[axis])
+        results[enabled] = mass
+    for component in range(2):
+        check_close(results[False][component], results[True][component])
+
+    # Rectangular quadrature-to-base operators also support the dense fallback.
+    dd_quad = DD_VOLUME_ALL.with_discr_tag(DISCR_TAG_QUAD)
+    u_quad = op.project(dcoll, DD_VOLUME_ALL, dd_quad, u)
+    check_close(
+        op.mass(dcoll, dd_quad, u_quad, enable_sum_factorization=False),
+        op.mass(dcoll, dd_quad, u_quad, enable_sum_factorization=True))
+
+    if tensor_product:
+        quad_discr = dcoll.discr_from_dd(dd_quad)
+        for group, quad_group in zip(discr.groups, quad_discr.groups, strict=True):
+            # Dense construction bypasses the unfinished non-matching TP path.
+            derivatives = make_strong_differentiation_operator(
+                actx, group, quad_group, enable_sum_factorization=False)
+            assert all(d.shape == (quad_group.nunit_dofs, group.nunit_dofs)
+                       for d in derivatives)
+            with pytest.raises(NotImplementedError, match="between different"):
+                make_strong_differentiation_operator(
+                    actx, group, quad_group, enable_sum_factorization=True)
+
+
+@pytest.mark.parametrize("dim", [2, 3])
+@pytest.mark.parametrize("face_first", [False, True])
+@pytest.mark.parametrize("nodes", ["lobatto", "gauss"])
+@pytest.mark.parametrize("quadrature_order", [1, 3, 5])
+def test_face_mass_factor_reuse(
+        actx_factory: ArrayContextFactory, dim: int, face_first: bool,
+        nodes: str, quadrature_order: int) -> None:
+    import modepy as mp
+    from meshmode.discretization.poly_element import InterpolatoryQuadratureGroupFactory
+    from meshmode.dof_array import DOFArray
+    from meshmode.mesh import TensorProductElementGroup
+
+    from grudge.bilinear_forms import (
+        make_face_mass_operator,
+        make_mass_operator,
+        make_stiffness_t_operator,
+    )
+    from grudge.dof_desc import DD_VOLUME_ALL
+
+    actx = actx_factory()
+    mesh = mgen.generate_regular_rect_mesh(
+        a=(-1,)*dim, b=(1,)*dim, nelements_per_axis=(2,)*dim,
+        group_cls=TensorProductElementGroup)
+    base_factory = (InterpolatoryEdgeClusteredGroupFactory(3) if nodes == "lobatto"
+                    else InterpolatoryQuadratureGroupFactory(3))
+    dcoll = make_discretization_collection(actx, mesh,
+        discr_tag_to_group_factory={
+            DISCR_TAG_BASE: base_factory,
+            DISCR_TAG_QUAD: QuadratureGroupFactory(quadrature_order),
+        })
+    vol_group, = dcoll.discr_from_dd(DD_VOLUME_ALL).groups
+    rng = np.random.default_rng(31)
+
+    for discr_tag in (DISCR_TAG_BASE, DISCR_TAG_QUAD):
+        dd = DD_VOLUME_ALL.trace(FACE_RESTR_ALL).with_discr_tag(discr_tag)
+        face_group, = dcoll.discr_from_dd(dd).groups
+        if not face_first:
+            make_mass_operator(actx, vol_group, vol_group)
+        faces = make_face_mass_operator(actx, face_group, vol_group)
+        mass = make_mass_operator(actx, vol_group, vol_group)
+        stiffness = make_stiffness_t_operator(actx, vol_group, vol_group)
+        assert isinstance(mass, tuple)
+        assert isinstance(stiffness, tuple)
+        assert stiffness[0][1] is mass[0]
+        assert faces is make_face_mass_operator(actx, face_group, vol_group)
+
+        matching = (face_group.order == vol_group.order
+                    and np.array_equal(face_group.unit_nodes_1d,
+                                       vol_group.unit_nodes_1d))
+        for face, factors in zip(mp.faces_for_shape(vol_group.shape), faces,
+                                 strict=True):
+            assert isinstance(factors, tuple)
+            mapped = face.map_to_volume(np.column_stack((
+                np.zeros(dim-1), np.eye(dim-1))))
+            directions = mapped[:, 1:] - mapped[:, :1]
+            for axis, factor in enumerate(factors):
+                tangential_axes = np.flatnonzero(directions[axis])
+                if not len(tangential_axes):
+                    assert factor.shape == (vol_group.order+1,)
+                    assert factor is not mass[0]
+                elif matching and directions[axis, tangential_axes[0]] == 1:
+                    assert factor is mass[0]
+                else:
+                    assert factor is not mass[0]
+
+        values = rng.standard_normal((face_group.nelements, face_group.nunit_dofs))
+        values = values + 1j*rng.standard_normal(values.shape)
+        vec = DOFArray(actx, (actx.from_numpy(values),))
+        dense = op.face_mass(dcoll, dd, vec, enable_sum_factorization=False)
+        factorized = op.face_mass(dcoll, dd, vec)
+        np.testing.assert_allclose(actx.to_numpy(factorized[0]),
+                                   actx.to_numpy(dense[0]), rtol=1e-11, atol=1e-12)
 
 
 # You can test individual routines by typing
