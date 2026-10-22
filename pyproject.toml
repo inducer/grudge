@@ -32,7 +32,7 @@ dependencies = [
     "constantdict",
     "loopy>=2024.1",
     "meshmode>=2021.2",
-    "modepy>=2021.1",
+    "modepy>=2026.1",
     "pymbolic>=2022.2",
     "pyopencl>=2022.1",
     "pytools>=2024.1.18",
