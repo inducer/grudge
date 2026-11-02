@@ -900,6 +900,382 @@ def test_convergence_advec(
     else:
         assert eoc_rec.order_estimate() > order
 
+
+@pytest.mark.parametrize("order", [4])
+@pytest.mark.parametrize("order_sbp", [6])
+@pytest.mark.parametrize("spacing_factor", [2])
+@pytest.mark.parametrize("c", [np.array([0.27, 0.31]), np.array([-0.27, 0.31])])
+def test_convergence_sbp_advec(actx_factory, order, order_sbp, spacing_factor, c,
+                               visualize=False):
+
+    actx = actx_factory()
+
+    # Domain: x = [-1,1], y = [-1,1]
+    # SBP Subdomain: x = [-1,0], y = [0,1] (structured mesh)
+    # DG Subdomain: x = [0,1], y = [0,1] (unstructured mesh)
+
+    # DG Half.
+    dim = 2
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+    from sbp_operators import (sbp21, sbp42, sbp63)
+    from projection import sbp_dg_projection
+
+    nelems = [20, 40, 60]
+    for nelem in nelems:
+
+        mesh = mgen.generate_regular_rect_mesh(a=(0, -1), b=(1, 1),
+                                               n=(nelem, nelem), order=order,
+                                               boundary_tag_to_face={
+                                                  "btag_sbp": ["-x"],
+                                                  "btag_std": ["+y", "+x",
+                                                          "-y"]})
+
+        # Check to make sure this actually worked.
+        from meshmode.mesh import is_boundary_tag_empty
+        assert not is_boundary_tag_empty(mesh, "btag_sbp")
+        assert not is_boundary_tag_empty(mesh, "btag_std")
+
+        # Check this new isolating discretization, as well as the inverse.
+        dcoll = DiscretizationCollection(actx, mesh, order=order)
+        sbp_bdry_discr = dcoll.discr_from_dd(dof_desc.DTAG_BOUNDARY("btag_sbp"))
+        sbp_bdry_discr.cl_context = actx
+
+        dt_factor = 4
+        h = 1/nelem
+
+        norm_c = la.norm(c)
+
+        flux_type = "upwind"
+
+        def f(x):
+            return actx.np.sin(10*x)
+
+        def u_analytic(x, t=0):
+            return f(-c.dot(x)/norm_c+t*norm_c)
+
+        from grudge.models.advection import WeakAdvectionSBPOperator
+
+        std_tag = dof_desc.DTAG_BOUNDARY("btag_std")
+        adv_operator = WeakAdvectionSBPOperator(dcoll, c,
+                                                inflow_u=lambda t: u_analytic(
+                                                    thaw(dcoll.nodes(dd=std_tag),
+                                                        actx),
+                                                    t=t
+                                                    ),
+                                                flux_type=flux_type)
+
+        nodes = thaw(dcoll.nodes(), actx)
+        u = u_analytic(nodes, t=0)
+
+        # Count the number of DG nodes - will need this later
+        ngroups = len(mesh.groups)
+        nnodes_grp = np.ones(ngroups)
+        for i in range(0, dim):
+            for j in range(0, ngroups):
+                nnodes_grp[j] = nnodes_grp[j] * \
+                        mesh.groups[j].nodes.shape[i*-1 - 1]
+
+        nnodes = int(sum(nnodes_grp))
+
+        final_time = 0.2
+
+        dt = dt_factor * h/order**2
+        nsteps = (final_time // dt) + 1
+        dt = final_time/nsteps + 1e-15
+
+        # SBP Half.
+
+        # First, need to set up the structured mesh.
+        n_sbp_x = nelem
+        n_sbp_y = nelem*spacing_factor
+        x_sbp = np.linspace(-1, 0, n_sbp_x, endpoint=True)
+        y_sbp = np.linspace(-1, 1, n_sbp_y, endpoint=True)
+        dx = x_sbp[1] - x_sbp[0]
+        dy = y_sbp[1] - y_sbp[0]
+
+        # Set up solution vector:
+        # For now, timestep is the same as DG.
+        u_sbp = np.zeros(int(n_sbp_x*n_sbp_y))
+
+        # Initial condition
+        for j in range(0, n_sbp_y):
+            for i in range(0, n_sbp_x):
+                u_sbp[i + j*(n_sbp_x)] = np.sin(10*(-c.dot(
+                                                    [x_sbp[i],
+                                                     y_sbp[j]])/norm_c))
+
+        # obtain P and Q
+        if order_sbp == 2:
+            [p_x, q_x] = sbp21(n_sbp_x)
+            [p_y, q_y] = sbp21(n_sbp_y)
+        elif order_sbp == 4:
+            [p_x, q_x] = sbp42(n_sbp_x)
+            [p_y, q_y] = sbp42(n_sbp_y)
+        elif order_sbp == 6:
+            [p_x, q_x] = sbp63(n_sbp_x)
+            [p_y, q_y] = sbp63(n_sbp_y)
+
+        tau_l = 1
+        tau_r = 1
+
+        # for the boundaries
+        el_x = np.zeros(n_sbp_x)
+        er_x = np.zeros(n_sbp_x)
+        el_x[0] = 1
+        er_x[n_sbp_x-1] = 1
+        e_l_matx = np.zeros((n_sbp_x, n_sbp_x,))
+        e_r_matx = np.zeros((n_sbp_x, n_sbp_x,))
+
+        for i in range(0, n_sbp_x):
+            for j in range(0, n_sbp_x):
+                e_l_matx[i, j] = el_x[i]*el_x[j]
+                e_r_matx[i, j] = er_x[i]*er_x[j]
+
+        el_y = np.zeros(n_sbp_y)
+        er_y = np.zeros(n_sbp_y)
+        el_y[0] = 1
+        er_y[n_sbp_y-1] = 1
+        e_l_maty = np.zeros((n_sbp_y, n_sbp_y,))
+        e_r_maty = np.zeros((n_sbp_y, n_sbp_y,))
+
+        for i in range(0, n_sbp_y):
+            for j in range(0, n_sbp_y):
+                e_l_maty[i, j] = el_y[i]*el_y[j]
+                e_r_maty[i, j] = er_y[i]*er_y[j]
+
+        # construct the spatial operators
+        d_x = np.linalg.inv(dx*p_x).dot(q_x - 0.5*e_l_matx + 0.5*e_r_matx)
+        d_y = np.linalg.inv(dy*p_y).dot(q_y - 0.5*e_l_maty + 0.5*e_r_maty)
+
+        # for the boundaries
+        c_l_x = np.kron(tau_l, (np.linalg.inv(dx*p_x).dot(el_x)))
+        c_r_x = np.kron(tau_r, (np.linalg.inv(dx*p_x).dot(er_x)))
+        c_l_y = np.kron(tau_l, (np.linalg.inv(dy*p_y).dot(el_y)))
+        c_r_y = np.kron(tau_r, (np.linalg.inv(dy*p_y).dot(er_y)))
+
+        # For speed...
+        dudx_mat = -np.kron(np.eye(n_sbp_y), d_x)
+        dudy_mat = -np.kron(d_y, np.eye(n_sbp_x))
+
+        # Number of nodes in our SBP-DG boundary discretization
+        from meshmode.dof_array import flatten, unflatten
+        sbp_nodes_y = flatten(thaw(sbp_bdry_discr.nodes(), actx)[1])
+        # When projecting, we use nodes sorted in y, but we will have to unsort
+        # afterwards to make sure projected solution is injected into DG BC
+        # in the correct way.
+        nodesort = np.argsort(sbp_nodes_y)
+        nodesortlist = nodesort.tolist()
+        rangex = np.array(range(sbp_nodes_y.shape[0]))
+        unsort_args = [nodesortlist.index(x) for x in rangex]
+
+        west_nodes = np.sort(np.array(sbp_nodes_y))
+
+        # Make element-aligned glue grid.
+        dg_side_gg = np.zeros(int(west_nodes.shape[0]/(order+1))+1)
+        counter = 0
+        for i in range(0, west_nodes.shape[0]):
+            west_nodes[i] = west_nodes[i].get()
+            if i % (order+1) == 0:
+                dg_side_gg[counter] = west_nodes[i]
+                counter += 1
+
+        dg_side_gg[-1] = west_nodes[-1]
+        n_west_elements = int(west_nodes.shape[0] / (order + 1))
+        sbp2dg, dg2sbp = sbp_dg_projection(n_sbp_y-1, n_west_elements,
+                                           order_sbp, order, dg_side_gg,
+                                           west_nodes)
+
+        # Get mapping for western face
+        base_nodes = flatten(thaw(dcoll._volume_discr.nodes(), actx)[0])
+        nsbp_nodes = sbp_bdry_discr.ndofs
+        nodes_per_element = mesh.groups[0].nodes.shape[2]
+        west_indices = np.zeros(nsbp_nodes)
+        count = 0
+        # Sweep through first block of indices in the box.
+        for i in range(0, (nelem-1)*2*nodes_per_element):
+            if base_nodes[i] < 1e-10:
+                # Make sure we're actually at the edge faces.
+                if i % (2*nodes_per_element) < nodes_per_element:
+                    west_indices[count] = i
+                    count += 1
+
+        def rhs(t, u):
+            # Initialize the entire RHS to 0.
+            rhs_out = np.zeros(int(n_sbp_x*n_sbp_y) + int(nnodes))
+
+            # Fill the first part with the SBP half of the domain.
+
+            # Pull the SBP vector out of device array for now.
+            u_sbp_ts = u[0:int(n_sbp_x*n_sbp_y)]
+
+            dudx = np.zeros((n_sbp_x*n_sbp_y))
+            dudy = np.zeros((n_sbp_x*n_sbp_y))
+
+            dudx = dudx_mat.dot(u_sbp_ts)
+            dudy = dudy_mat.dot(u_sbp_ts)
+
+            # Boundary condition
+            dl_x = np.zeros(n_sbp_x*n_sbp_y)
+            dr_x = np.zeros(n_sbp_x*n_sbp_y)
+            dl_y = np.zeros(n_sbp_x*n_sbp_y)
+            dr_y = np.zeros(n_sbp_x*n_sbp_y)
+
+            # Pull DG solution at western face to project.
+            u_dg_ts = u[int(n_sbp_x*n_sbp_y):]
+
+            dg_west = np.zeros(nsbp_nodes)
+            for i in range(0, nsbp_nodes):
+                dg_west[i] = u_dg_ts[int(west_indices[i])]
+
+            # Project DG to SBP:
+            dg_proj = dg2sbp.dot(dg_west)
+
+            # Need to fill this by looping through each segment.
+            # X-boundary conditions:
+            for j in range(0, n_sbp_y):
+                u_bcx = u_sbp_ts[j*n_sbp_x:((j+1)*n_sbp_x)]
+                v_l_x = np.transpose(el_x).dot(u_bcx)
+                v_r_x = np.transpose(er_x).dot(u_bcx)
+                left_bcx = np.sin(10*(-c.dot(
+                                      [x_sbp[0], y_sbp[j]])/norm_c
+                                      + norm_c*t))
+                # Incorporate DG here.
+                right_bcx = dg_proj[j]
+                dl_xbc = c_l_x*(v_l_x - left_bcx)
+                dr_xbc = c_r_x*(v_r_x - right_bcx)
+                dl_x[j*n_sbp_x:((j+1)*n_sbp_x)] = dl_xbc
+                dr_x[j*n_sbp_x:((j+1)*n_sbp_x)] = dr_xbc
+            # Y-boundary conditions:
+            for i in range(0, n_sbp_x):
+                u_bcy = u_sbp_ts[i::n_sbp_x]
+                v_l_y = np.transpose(el_y).dot(u_bcy)
+                v_r_y = np.transpose(er_y).dot(u_bcy)
+                left_bcy = np.sin(10*(-c.dot(
+                                      [x_sbp[i], y_sbp[0]])/norm_c + norm_c*t))
+                right_bcy = np.sin(10*(-c.dot(
+                                       [x_sbp[i],
+                                        y_sbp[n_sbp_y-1]])/norm_c + norm_c*t))
+                dl_ybc = c_l_y*(v_l_y - left_bcy)
+                dr_ybc = c_r_y*(v_r_y - right_bcy)
+                dl_y[i::n_sbp_x] = dl_ybc
+                dr_y[i::n_sbp_x] = dr_ybc
+
+            # Add these at each point on the SBP half to get the SBP RHS.
+            rhs_sbp = c[0]*dudx + c[1]*dudy - dl_x - dr_x - dl_y - dr_y
+
+            rhs_out[0:int(n_sbp_x*n_sbp_y)] = rhs_sbp
+
+            sbp_east = np.zeros(n_sbp_y)
+            # Pull SBP domain values off of east face.
+            counter = 0
+            for i in range(0, n_sbp_x*n_sbp_y):
+                if i == n_sbp_x - 1:
+                    sbp_east[counter] = u_sbp_ts[i]
+                    counter += 1
+                elif i % n_sbp_x == n_sbp_x - 1:
+                    sbp_east[counter] = u_sbp_ts[i]
+                    counter += 1
+
+            # Projection from SBP to DG is now a two-step process.
+            # First: SBP-to-DG.
+            sbp_proj = sbp2dg.dot(sbp_east)
+            # Second: Fix the ordering.
+            sbp_proj = sbp_proj[unsort_args]
+            sbp_tag = dof_desc.DTAG_BOUNDARY("btag_sbp")
+
+            u_dg_in = unflatten(actx, dcoll.discr_from_dd("vol"),
+                                actx.from_numpy(u[int(n_sbp_x*n_sbp_y):]))
+            u_sbp_in = unflatten(actx, dcoll.discr_from_dd(sbp_tag),
+                                actx.from_numpy(sbp_proj))
+
+            # Grudge DG RHS.
+            # Critical step - now need to apply projected SBP state to the
+            # proper nodal locations in u_dg.
+            dg_rhs = adv_operator.operator(
+                    t=t,
+                    u=u_dg_in,
+                    state_from_sbp=u_sbp_in,
+                    sbp_tag=sbp_tag, std_tag=std_tag)
+            dg_rhs = flatten(dg_rhs)
+            rhs_out[int(n_sbp_x*n_sbp_y):] = dg_rhs.get()
+
+            return rhs_out
+
+        # Timestepper.
+        from grudge.shortcuts import set_up_rk4
+
+        # Make a combined u with the SBP and the DG parts.
+        u_comb = np.zeros(int(n_sbp_x*n_sbp_y) + nnodes)
+        u_comb[0:int(n_sbp_x*n_sbp_y)] = u_sbp
+        u_flat = flatten(u)
+        for i in range(int(n_sbp_x*n_sbp_y), int(n_sbp_x*n_sbp_y) + nnodes):
+            u_comb[i] = u_flat[i - int(n_sbp_x*n_sbp_y)].get()
+        dt_stepper = set_up_rk4("u", dt, u_comb, rhs)
+
+        from grudge.shortcuts import make_visualizer
+        vis = make_visualizer(dcoll, vis_order=order)
+
+        step = 0
+
+        # Create mesh for structured grid output
+        sbp_mesh = np.zeros((2, n_sbp_y, n_sbp_x,))
+        for j in range(0, n_sbp_y):
+            sbp_mesh[0, j, :] = x_sbp
+        for i in range(0, n_sbp_x):
+            sbp_mesh[1, :, i] = y_sbp
+
+        for event in dt_stepper.run(t_end=final_time):
+            if isinstance(event, dt_stepper.StateComputed):
+
+                step += 1
+
+                last_t = event.t
+                u_sbp = event.state_component[0:int(n_sbp_x*n_sbp_y)]
+                u_dg = unflatten(actx, dcoll.discr_from_dd("vol"),
+                        actx.from_numpy(
+                            event.state_component[int(n_sbp_x*n_sbp_y):]))
+
+                error_l2_dg = op.norm(
+                    dcoll,
+                    u_dg - u_analytic(nodes, t=last_t),
+                    2
+                )
+
+                sbp_error = np.zeros((n_sbp_x*n_sbp_y))
+                error_l2_sbp = 0
+                for j in range(0, n_sbp_y):
+                    for i in range(0, n_sbp_x):
+                        sbp_error[i + j*n_sbp_x] = \
+                                u_sbp[i + j*n_sbp_x] - \
+                                np.sin(10*(-c.dot([x_sbp[i], y_sbp[j]])
+                                       / norm_c + last_t*norm_c))
+                        error_l2_sbp = error_l2_sbp + \
+                            dx*dy*(sbp_error[i + j*n_sbp_x]) ** 2
+
+                error_l2_sbp = np.sqrt(error_l2_sbp)
+
+                # Write out the DG data
+                if visualize:
+                    vis.write_vtk_file("eoc_dg-%s-%04d.vtu" %
+                                       (nelem, step),
+                                       [("u", u_dg)], overwrite=True)
+
+                # Write out the SBP data.
+                from pyvisfile.vtk import write_structured_grid
+                if visualize:
+                    filename = "eoc_sbp_%s-%04d.vts" % (nelem, step)
+                    write_structured_grid(filename, sbp_mesh,
+                                          point_data=[("u", u_sbp)])
+
+        if c[0] > 0:
+            eoc_rec.add_data_point(h, error_l2_dg.get())
+        else:
+            eoc_rec.add_data_point(h, error_l2_sbp)
+
+    assert eoc_rec.order_estimate() > (order_sbp/2 + 1) * 0.95
+
 # }}}
 
 
