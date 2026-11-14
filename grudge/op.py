@@ -1182,20 +1182,25 @@ def reference_face_mass_matrix(
                         f"exact for degree {n+m}."
                     )
 
-                matrix[:, iface, :] = mp.nodal_mass_matrix_for_face(
-                    face, face_quadrature,
-                    face_basis.functions, vol_basis.functions,
-                    vol_grp.unit_nodes,
-                    face_grp.unit_nodes,
+                matrix[:, iface, :] = mp.nodal_quadrature_bilinear_form_matrix(
+                    face_quadrature,
+                    test_functions=vol_basis.functions,
+                    trial_functions=face_basis.functions,
+                    nodal_interp_functions_test=vol_basis.functions,
+                    nodal_interp_functions_trial=face_basis.functions,
+                    input_nodes=face_grp.unit_nodes,
+                    output_nodes=vol_grp.unit_nodes,
+                    test_function_node_map=face.map_to_volume,
                 )
             else:
                 # Otherwise, we use a routine that is purely quadrature-based
                 # (no need for explicit face basis functions)
-                matrix[:, iface, :] = mp.nodal_quad_mass_matrix_for_face(
-                    face,
+                matrix[:, iface, :] = mp.nodal_quadrature_test_matrix(
                     face_quadrature,
-                    vol_basis.functions,
-                    vol_grp.unit_nodes,
+                    test_functions=vol_basis.functions,
+                    nodal_interp_functions=vol_basis.functions,
+                    nodes=vol_grp.unit_nodes,
+                    test_function_node_map=face.map_to_volume,
                 )
 
         return actx.freeze(
